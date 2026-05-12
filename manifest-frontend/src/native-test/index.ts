@@ -1,7 +1,8 @@
 export { assert } from './assert.js';
 export { expect, verifyNoPendingExpectations } from './expect.js';
-export { discoverNativeTestFile } from './discover.js';
+export { discoverNativeTestFile, discoverNativeTestFiles } from './discover.js';
 export { runSuite } from './runner.js';
+export { runNativeTestFiles } from './file-runner.js';
 export type { TestResult, DiscoveryResult, Diagnostic } from './types.js';
 
 type NodeShape = {

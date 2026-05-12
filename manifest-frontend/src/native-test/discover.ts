@@ -1,12 +1,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
-import type { Diagnostic, DiscoveryResult, Literal } from './types.js';
+import type { Diagnostic, DiscoverFilesResult, DiscoverOptions, DiscoveredFile, DiscoveryResult, Literal } from './types.js';
 
 const allowed = new Set(['Suite', 'Fact', 'Theory', 'Case']);
 
 export function discoverNativeTestFile(filePath: string): DiscoveryResult {
   const abs = path.resolve(filePath);
+  if (!abs.endsWith('.xtest.tsx')) {
+    return {
+      tests: [],
+      facts: [],
+      theories: [],
+      diagnostics: [{ code: 'TSPACK_TEST_NON_NATIVE_FILE', message: 'native test files must end with .xtest.tsx', file: abs }],
+    };
+  }
   const text = fs.readFileSync(abs, 'utf8');
   const sf = ts.createSourceFile(abs, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const diagnostics: Diagnostic[] = [];
@@ -79,6 +87,59 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
   }
 
   return { suiteName, tests, facts, theories, diagnostics };
+}
+
+const defaultIgnore = new Set(['node_modules', '.git', 'dist']);
+
+export function discoverNativeTestFiles(options: DiscoverOptions): DiscoverFilesResult {
+  const rootDir = path.resolve(options.rootDir);
+  const filePaths = collectNativeFiles(rootDir, options.ignore ?? []);
+  const files: DiscoveredFile[] = [];
+  const diagnostics: Diagnostic[] = [];
+
+  for (const filePath of filePaths) {
+    try {
+      const discovered = discoverNativeTestFile(filePath);
+      const relativeFilePath = path.relative(rootDir, filePath).split(path.sep).join('/');
+      const tests = [
+        ...discovered.facts.map((fact) => ({ id: `${relativeFilePath}::${fact.id}`, name: fact.name, kind: 'fact' as const, filePath })),
+        ...discovered.theories.flatMap((theory) => theory.cases.map((c) => ({ id: `${relativeFilePath}::${c.id}`, name: theory.name, kind: 'theory' as const, filePath }))),
+      ];
+      files.push({ filePath, suiteName: discovered.suiteName ?? '', tests, diagnostics: discovered.diagnostics });
+      diagnostics.push(...discovered.diagnostics);
+    } catch (error) {
+      diagnostics.push({
+        code: 'TSPACK_TEST_DISCOVERY_FAILED',
+        message: `failed to discover native test file: ${(error as Error).message}`,
+        file: filePath,
+      });
+    }
+  }
+
+  files.sort((a, b) => a.filePath.localeCompare(b.filePath));
+  diagnostics.sort((a, b) => `${a.file}:${a.line ?? 0}:${a.column ?? 0}:${a.code}:${a.message}`.localeCompare(`${b.file}:${b.line ?? 0}:${b.column ?? 0}:${b.code}:${b.message}`));
+  return { files, diagnostics };
+}
+
+function collectNativeFiles(rootDir: string, ignore: string[]): string[] {
+  const entries = fs.readdirSync(rootDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+  const filePaths: string[] = [];
+  const ignoreSet = new Set(ignore);
+
+  for (const entry of entries) {
+    const fullPath = path.join(rootDir, entry.name);
+    if (entry.isDirectory()) {
+      if (defaultIgnore.has(entry.name) || ignoreSet.has(entry.name)) {
+        continue;
+      }
+      filePaths.push(...collectNativeFiles(fullPath, ignore));
+      continue;
+    }
+    if (entry.isFile() && entry.name.endsWith('.xtest.tsx')) {
+      filePaths.push(fullPath);
+    }
+  }
+  return filePaths;
 }
 
 function unwrap(expr: ts.Expression): ts.Expression {

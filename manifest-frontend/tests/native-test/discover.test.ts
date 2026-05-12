@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { discoverNativeTestFile } from '../../src/native-test/discover';
 
 function withFile(source: string): string {
-  const file = path.join(os.tmpdir(), `native-${Math.random().toString(16).slice(2)}.tspack.test.tsx`);
+  const file = path.join(os.tmpdir(), `native-${Math.random().toString(16).slice(2)}.xtest.tsx`);
   fs.writeFileSync(file, source);
   return file;
 }
