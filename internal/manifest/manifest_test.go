@@ -11,6 +11,7 @@ func TestLoadValidFixtures(t *testing.T) {
 		"../../fixtures/valid/minimal-library/manifest.ir.golden.json",
 		"../../fixtures/valid/machinalayout-like/manifest.ir.golden.json",
 		"../../fixtures/valid/git-dep/manifest.ir.golden.json",
+		"../../fixtures/valid/m6b-workspace-split/manifest.ir.golden.json",
 	}
 	for _, c := range cases {
 		t.Run(filepath.Base(filepath.Dir(c)), func(t *testing.T) {
@@ -20,6 +21,33 @@ func TestLoadValidFixtures(t *testing.T) {
 			if len(diags) > 0 { t.Fatalf("unexpected diagnostics: %#v", diags) }
 			if ir == nil || ir.Workspace.Name == "" || len(ir.Packages) == 0 { t.Fatalf("bad ir") }
 		})
+	}
+}
+
+func TestLoadM6BSplitWorkspaceRoots(t *testing.T) {
+	b, err := os.ReadFile("../../fixtures/valid/m6b-workspace-split/manifest.ir.golden.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ir, diags := LoadBytes("m6b", b)
+	if len(diags) > 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diags)
+	}
+	if ir.Workspace.Name != "m6b-workspace" {
+		t.Fatalf("workspace=%q", ir.Workspace.Name)
+	}
+	if len(ir.Packages) != 2 {
+		t.Fatalf("packages=%d", len(ir.Packages))
+	}
+	roots := map[string]string{}
+	for _, p := range ir.Packages {
+		roots[p.Name] = p.Root
+	}
+	if roots["@m6b/core"] != "packages/core" {
+		t.Fatalf("core root=%q", roots["@m6b/core"])
+	}
+	if roots["@m6b/react"] != "packages/react" {
+		t.Fatalf("react root=%q", roots["@m6b/react"])
 	}
 }
 

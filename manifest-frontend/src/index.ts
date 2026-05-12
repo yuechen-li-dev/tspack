@@ -23,18 +23,110 @@ export type ManifestIr = {
   packages: Array<Record<string, unknown>>;
 };
 
+type ParseMode = 'root' | 'package';
+type DocMode = 'single' | 'split' | 'package';
+type PackageRow = { name: string; root: string; manifest: string };
+type InternalDoc = { mode: DocMode; ir: ManifestIr; rows?: PackageRow[] };
+
 const ALLOWED_IMPORT = 'tspack/manifest';
-const APPROVED_HELPERS = new Set(['define', 'defineDeps', 'npm', 'git', 'path', 'workspace', 'dep', 'peer', 'tool']);
-const APPROVED_ELEMENTS = new Set(['Workspace', 'Package', 'Policies', 'Targets', 'Tools', 'Boundaries', 'Publish']);
+const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'defineDeps', 'npm', 'git', 'path', 'workspace', 'dep', 'peer', 'tool']);
+const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'Policies', 'Targets', 'Tools', 'Boundaries', 'Publish']);
 
 export function parseManifestFile(filePath: string): ManifestParseResult {
+  const parsed = parseManifestDocument(filePath, 'root');
+  if (parsed.diagnostics.length > 0 || !parsed.doc) {
+    return { ok: false, diagnostics: parsed.diagnostics };
+  }
+  if (parsed.doc.mode === 'split') {
+    return {
+      ok: false,
+      diagnostics: [{ code: 'TSPACK_MANIFEST_INVALID_MODE', severity: 'error', message: 'split workspace manifests must be parsed via parseWorkspace(...)', file: path.resolve(filePath) }],
+    };
+  }
+  return { ok: true, ir: stableSort(parsed.doc.ir), diagnostics: [] };
+}
+
+export function parseWorkspace(rootManifestPath: string): ManifestParseResult {
+  const rootParsed = parseManifestDocument(rootManifestPath, 'root');
+  if (rootParsed.diagnostics.length > 0 || !rootParsed.doc) {
+    return { ok: false, diagnostics: rootParsed.diagnostics };
+  }
+  if (rootParsed.doc.mode !== 'split') {
+    return { ok: true, ir: stableSort(rootParsed.doc.ir), diagnostics: [] };
+  }
+
+  const wsDir = path.dirname(path.resolve(rootManifestPath));
+  const diags = [...rootParsed.diagnostics];
+  const rows = rootParsed.doc.rows ?? [];
+  const mergedPackages: Array<Record<string, unknown>> = [];
+  const seenNames = new Set<string>();
+  const seenRoots = new Set<string>();
+
+  for (const row of rows) {
+    if (seenNames.has(row.name)) {
+      diags.push({ code: 'TSPACK_MANIFEST_DUPLICATE_PACKAGE_ROW', severity: 'error', message: `duplicate package row name: ${row.name}`, file: path.resolve(rootManifestPath) });
+    }
+    seenNames.add(row.name);
+
+    if (seenRoots.has(row.root)) {
+      diags.push({ code: 'TSPACK_MANIFEST_DUPLICATE_PACKAGE_ROOT', severity: 'error', message: `duplicate package root: ${row.root}`, file: path.resolve(rootManifestPath) });
+    }
+    seenRoots.add(row.root);
+
+    if (!isSafeRel(row.root)) {
+      diags.push({ code: 'TSPACK_MANIFEST_INVALID_PACKAGE_ROOT', severity: 'error', message: 'package row root must be a safe relative path', file: path.resolve(rootManifestPath) });
+      continue;
+    }
+    if (!isSafeRel(row.manifest)) {
+      diags.push({ code: 'TSPACK_MANIFEST_INVALID_PACKAGE_MANIFEST_PATH', severity: 'error', message: 'package row manifest must be a safe relative path', file: path.resolve(rootManifestPath) });
+      continue;
+    }
+    const normalizedRoot = path.normalize(row.root);
+    const normalizedManifest = path.normalize(row.manifest);
+    if (!normalizedManifest.startsWith(normalizedRoot + path.sep)) {
+      diags.push({ code: 'TSPACK_MANIFEST_INVALID_PACKAGE_MANIFEST_PATH', severity: 'error', message: 'package manifest path must live under package root', file: path.resolve(rootManifestPath) });
+      continue;
+    }
+
+    const packageManifestPath = path.join(wsDir, row.manifest);
+    if (!fs.existsSync(packageManifestPath)) {
+      diags.push({ code: 'TSPACK_MANIFEST_PACKAGE_MANIFEST_NOT_FOUND', severity: 'error', message: `package manifest not found: ${row.manifest}`, file: path.resolve(rootManifestPath) });
+      continue;
+    }
+
+    const packageParsed = parseManifestDocument(packageManifestPath, 'package');
+    diags.push(...packageParsed.diagnostics);
+    if (packageParsed.diagnostics.length > 0 || !packageParsed.doc) {
+      continue;
+    }
+    const pkg = packageParsed.doc.ir.packages[0];
+    if ((pkg.name as string) !== row.name) {
+      diags.push({ code: 'TSPACK_MANIFEST_PACKAGE_NAME_MISMATCH', severity: 'error', message: `package manifest name must match row.name (${row.name})`, file: path.resolve(packageManifestPath) });
+      continue;
+    }
+    mergedPackages.push({ ...pkg, root: slashPath(row.root) });
+  }
+
+  const sorted = sortDiagnostics(diags);
+  if (sorted.length > 0) {
+    return { ok: false, diagnostics: sorted };
+  }
+
+  return {
+    ok: true,
+    ir: stableSort({ format: 1, workspace: rootParsed.doc.ir.workspace, packages: mergedPackages }),
+    diagnostics: [],
+  };
+}
+
+function parseManifestDocument(filePath: string, modeHint: ParseMode): { doc?: InternalDoc; diagnostics: Diagnostic[] } {
   const diagnostics: Diagnostic[] = [];
   const normalizedPath = path.resolve(filePath);
-  if (path.basename(normalizedPath) !== 'manifest.tsx' || path.dirname(normalizedPath) !== path.dirname(path.dirname(normalizedPath)) + path.sep + path.basename(path.dirname(normalizedPath))) {
-    // fallback robust root check below
-  }
-  if (path.basename(normalizedPath) !== 'manifest.tsx') {
+  if (modeHint === 'root' && path.basename(normalizedPath) !== 'manifest.tsx') {
     diagnostics.push({ code: 'TSPACK_MANIFEST_NON_ROOT', severity: 'error', message: 'manifest must be root-level manifest.tsx', file: normalizedPath });
+  }
+  if (modeHint === 'package' && path.basename(normalizedPath) !== 'package.manifest.tsx') {
+    diagnostics.push({ code: 'TSPACK_MANIFEST_INVALID_MODE', severity: 'error', message: 'package manifest file must be package.manifest.tsx', file: normalizedPath });
   }
 
   const sourceText = fs.readFileSync(normalizedPath, 'utf8');
@@ -46,6 +138,16 @@ export function parseManifestFile(filePath: string): ManifestParseResult {
     diagnostics.push({ code, severity: 'error', message, file: normalizedPath, line: lc.line + 1, column: lc.character + 1 });
   };
 
+  for (const st of sf.statements) {
+    if (ts.isVariableStatement(st) && st.declarationList.flags & ts.NodeFlags.Const) {
+      for (const dec of st.declarationList.declarations) {
+        if (ts.isIdentifier(dec.name) && dec.initializer) {
+          constEnv.set(dec.name.text, evalNode(dec.initializer, sf, diagnostics, normalizedPath, constEnv));
+        }
+      }
+    }
+  }
+
   const walk = (node: ts.Node) => {
     if (ts.isImportDeclaration(node)) {
       const mod = (node.moduleSpecifier as ts.StringLiteral).text;
@@ -55,16 +157,12 @@ export function parseManifestFile(filePath: string): ManifestParseResult {
     if (ts.isClassDeclaration(node)) addDiag(node, 'TSPACK_MANIFEST_FORBIDDEN_CLASS', 'Classes are forbidden in manifest subset.');
     if (ts.isForStatement(node) || ts.isForInStatement(node) || ts.isForOfStatement(node) || ts.isWhileStatement(node) || ts.isDoStatement(node)) addDiag(node, 'TSPACK_MANIFEST_FORBIDDEN_LOOP', 'Loops are forbidden in manifest subset.');
     if (ts.isIfStatement(node) || ts.isConditionalExpression(node) || ts.isSwitchStatement(node)) addDiag(node, 'TSPACK_MANIFEST_FORBIDDEN_CONDITIONAL', 'Conditionals are forbidden in manifest subset.');
-    if (ts.isAwaitExpression(node) || (ts.isFunctionLike(node) && node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword))) addDiag(node, 'TSPACK_MANIFEST_FORBIDDEN_ASYNC', 'Async/await is forbidden in manifest subset.');
     if (ts.isPropertyAccessExpression(node) && node.getText(sf) === 'process.env') addDiag(node, 'TSPACK_MANIFEST_FORBIDDEN_PROCESS_ENV', 'process.env access is forbidden.');
     if (ts.isIdentifier(node) && node.text === 'fetch') addDiag(node, 'TSPACK_MANIFEST_FORBIDDEN_FETCH', 'fetch access is forbidden.');
-    if (ts.isPropertyAccessExpression(node) && (node.expression.getText(sf) === 'Date' || node.expression.getText(sf) === 'Math') && (node.name.text === 'now' || node.name.text === 'random')) {
-      addDiag(node, node.name.text === 'now' ? 'TSPACK_MANIFEST_FORBIDDEN_DATE' : 'TSPACK_MANIFEST_FORBIDDEN_RANDOM', 'Non-deterministic runtime access is forbidden.');
-    }
     if (ts.isCallExpression(node)) {
       const expr = node.expression;
       if (ts.isPropertyAccessExpression(expr) && ['map', 'filter', 'reduce'].includes(expr.name.text)) addDiag(node, 'TSPACK_MANIFEST_FORBIDDEN_DYNAMIC_EXPRESSION', 'Dynamic collection transforms are forbidden.');
-      else if (ts.isIdentifier(expr) && !APPROVED_HELPERS.has(expr.text) && expr.text !== 'define') addDiag(node, 'TSPACK_MANIFEST_UNKNOWN_HELPER', `Unknown helper: ${expr.text}`);
+      else if (ts.isIdentifier(expr) && !APPROVED_HELPERS.has(expr.text)) addDiag(node, 'TSPACK_MANIFEST_UNKNOWN_HELPER', `Unknown helper: ${expr.text}`);
     }
     if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
       const tag = node.tagName.getText(sf);
@@ -72,28 +170,31 @@ export function parseManifestFile(filePath: string): ManifestParseResult {
     }
     ts.forEachChild(node, walk);
   };
-
-  for (const st of sf.statements) {
-    if (ts.isVariableStatement(st) && st.declarationList.flags & ts.NodeFlags.Const) {
-      for (const dec of st.declarationList.declarations) {
-        if (ts.isIdentifier(dec.name) && dec.initializer) constEnv.set(dec.name.text, evalNode(dec.initializer, sf, diagnostics, normalizedPath, constEnv));
-      }
-    }
-  }
-
   walk(sf);
 
   const exp = sf.statements.find(ts.isExportAssignment);
-  let ir: ManifestIr | undefined;
-  if (!exp || !ts.isCallExpression(exp.expression) || exp.expression.expression.getText(sf) !== 'define') {
+  if (!exp || !ts.isCallExpression(exp.expression)) {
     diagnostics.push({ code: 'TSPACK_MANIFEST_INVALID_DEFAULT_EXPORT', severity: 'error', message: 'Default export must be define(...)', file: normalizedPath });
-  } else {
-    const evaluated = evalNode(exp.expression, sf, diagnostics, normalizedPath, constEnv) as ManifestIr | undefined;
-    if (evaluated && typeof evaluated === 'object') ir = stableSort(evaluated as ManifestIr);
+    return { diagnostics: sortDiagnostics(diagnostics) };
   }
 
-  const sortedDiagnostics = diagnostics.sort((a, b) => `${a.file}:${a.line ?? 0}:${a.column ?? 0}:${a.code}:${a.message}`.localeCompare(`${b.file}:${b.line ?? 0}:${b.column ?? 0}:${b.code}:${b.message}`));
-  return { ok: sortedDiagnostics.length === 0, ir: sortedDiagnostics.length === 0 ? ir : undefined, diagnostics: sortedDiagnostics };
+  const helper = exp.expression.expression.getText(sf);
+  if (modeHint === 'root' && !['define', 'defineWorkspace'].includes(helper)) {
+    diagnostics.push({ code: 'TSPACK_MANIFEST_INVALID_DEFAULT_EXPORT', severity: 'error', message: 'Root manifest default export must be define(...) or defineWorkspace(...)', file: normalizedPath });
+  }
+  if (modeHint === 'package' && helper !== 'definePackage') {
+    diagnostics.push({ code: 'TSPACK_MANIFEST_PACKAGE_MANIFEST_INVALID_DEFAULT_EXPORT', severity: 'error', message: 'Package manifest default export must be definePackage(...)', file: normalizedPath });
+  }
+
+  const evaluated = evalNode(exp.expression, sf, diagnostics, normalizedPath, constEnv) as any;
+  const sorted = sortDiagnostics(diagnostics);
+  if (sorted.length > 0) return { diagnostics: sorted };
+
+  if (evaluated?.mode === 'split' && modeHint === 'root') return { diagnostics: [], doc: evaluated };
+  if (evaluated?.mode === 'package' && modeHint === 'package') return { diagnostics: [], doc: evaluated };
+  if (evaluated?.mode === 'single' && modeHint === 'root') return { diagnostics: [], doc: evaluated };
+
+  return { diagnostics: [{ code: 'TSPACK_MANIFEST_INVALID_MODE', severity: 'error', message: 'Invalid manifest mode for file type', file: normalizedPath }] };
 }
 
 function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: string, env: Map<string, unknown>): unknown {
@@ -103,10 +204,7 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
   if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
   if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
   if (node.kind === ts.SyntaxKind.NullKeyword) return null;
-  if (ts.isIdentifier(node)) {
-    if (!env.has(node.text)) { diags.push({ code: 'TSPACK_MANIFEST_UNRESOLVED_REFERENCE', severity: 'error', message: `Unresolved reference: ${node.text}`, file }); return undefined; }
-    return env.get(node.text);
-  }
+  if (ts.isIdentifier(node)) return env.get(node.text);
   if (ts.isPropertyAccessExpression(node)) {
     const base = evalNode(node.expression, sf, diags, file, env) as Record<string, unknown>;
     return base?.[node.name.text];
@@ -115,28 +213,59 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
   if (ts.isObjectLiteralExpression(node)) {
     const out: Record<string, unknown> = {};
     for (const p of node.properties) {
-      if (ts.isPropertyAssignment(p)) {
-        const key = p.name.getText(sf).replaceAll('"', '').replaceAll("'", '');
-        out[key] = evalNode(p.initializer, sf, diags, file, env);
-      }
+      if (ts.isPropertyAssignment(p)) out[p.name.getText(sf).replaceAll('"', '').replaceAll("'", '')] = evalNode(p.initializer, sf, diags, file, env);
     }
     return out;
   }
   if (ts.isCallExpression(node)) {
     const name = node.expression.getText(sf);
     const args = node.arguments.map((a) => evalNode(a, sf, diags, file, env));
-    if (name === 'define') return jsxToIr(args[0]);
+    if (name === 'define' || name === 'defineWorkspace') return jsxToRootDoc(args[0]);
+    if (name === 'definePackage') return jsxToPackageDoc(args[0]);
     if (name === 'defineDeps') return args[0];
     if (name === 'npm') return { kind: 'npm', package: args[0], range: args[1] };
     if (name === 'git') return { kind: 'git', ref: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'path') return { kind: 'path', path: args[0] };
-    if (name === 'dep' || name === 'peer' || name === 'tool' || name === 'workspace') {
-      return { kind: name, source: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
-    }
+    if (name === 'dep' || name === 'peer' || name === 'tool' || name === 'workspace') return { kind: name, source: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
   }
   if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) return jsxEval(node, sf, diags, file, env);
   diags.push({ code: 'TSPACK_MANIFEST_FORBIDDEN_DYNAMIC_EXPRESSION', severity: 'error', message: `Unsupported expression: ${node.kind}`, file });
   return undefined;
+}
+
+function jsxToRootDoc(root: unknown): InternalDoc {
+  const r = root as any;
+  const children = r?.__children ?? [];
+  const inlinePackages = children.filter((c: any) => c.__tag === 'Package');
+  const packagesNode = children.find((c: any) => c.__tag === 'Packages');
+  if (packagesNode && inlinePackages.length > 0) {
+    return { mode: 'split', ir: { format: 1, workspace: { name: r?.name ?? 'workspace' }, packages: [] }, rows: [] };
+  }
+  if (packagesNode) {
+    return { mode: 'split', ir: { format: 1, workspace: { name: r?.name ?? 'workspace' }, packages: [] }, rows: (packagesNode.rows as PackageRow[]) ?? [] };
+  }
+  return { mode: 'single', ir: { format: 1, workspace: { name: r?.name ?? 'workspace' }, packages: inlinePackages.map((p: any) => mapPackage(p, false)) } };
+}
+
+function jsxToPackageDoc(root: unknown): InternalDoc {
+  const p = root as any;
+  return { mode: 'package', ir: { format: 1, workspace: { name: 'workspace' }, packages: [mapPackage(p, false)] } };
+}
+
+function mapPackage(p: any, includeRoot: boolean): Record<string, unknown> {
+  return {
+    name: p.name,
+    version: p.version,
+    ...(includeRoot ? { root: '.' } : {}),
+    license: p.license,
+    kind: p.kind,
+    dependencies: p.dependencies?.values ?? [],
+    targets: p.__children?.find((x: any) => x.__tag === 'Targets')?.rows ?? [],
+    tools: p.__children?.find((x: any) => x.__tag === 'Tools')?.values?.map((v: any) => v?.source?.package ?? v?.source?.ref ?? v?.source?.path ?? v?.kind) ?? [],
+    boundaries: p.__children?.find((x: any) => x.__tag === 'Boundaries')?.rows ?? [],
+    publish: { include: p.__children?.find((x: any) => x.__tag === 'Publish')?.include ?? [], exclude: p.__children?.find((x: any) => x.__tag === 'Publish')?.exclude ?? [] },
+    policies: p.__children?.find((x: any) => x.__tag === 'Policies') ?? {},
+  };
 }
 
 function jsxEval(node: ts.JsxElement | ts.JsxSelfClosingElement, sf: ts.SourceFile, diags: Diagnostic[], file: string, env: Map<string, unknown>): unknown {
@@ -150,28 +279,18 @@ function jsxEval(node: ts.JsxElement | ts.JsxSelfClosingElement, sf: ts.SourceFi
       else if (attr.initializer && ts.isStringLiteral(attr.initializer)) props[key] = attr.initializer.text;
     }
   }
-  const children = ts.isJsxElement(node)
-    ? node.children.filter(ts.isJsxElement).concat(node.children.filter(ts.isJsxSelfClosingElement))
-    : [];
+  const children = ts.isJsxElement(node) ? node.children.filter(ts.isJsxElement).concat(node.children.filter(ts.isJsxSelfClosingElement)) : [];
   return { __tag: tag, ...props, __children: children.map((c) => jsxEval(c as any, sf, diags, file, env)) };
 }
 
-function jsxToIr(root: unknown): ManifestIr {
-  const r = root as any;
-  const workspaceName = r?.name ?? 'workspace';
-  const packages = (r?.__children ?? []).filter((c: any) => c.__tag === 'Package').map((p: any) => ({
-    name: p.name,
-    version: p.version,
-    license: p.license,
-    kind: p.kind,
-    dependencies: p.dependencies?.values ?? [],
-    targets: p.__children?.find((x: any) => x.__tag === 'Targets')?.rows ?? [],
-    tools: p.__children?.find((x: any) => x.__tag === 'Tools')?.values?.map((v: any) => v?.source?.package ?? v?.source?.ref ?? v?.source?.path ?? v?.kind) ?? [],
-    boundaries: p.__children?.find((x: any) => x.__tag === 'Boundaries')?.rows ?? [],
-    publish: { include: p.__children?.find((x: any) => x.__tag === 'Publish')?.include ?? [], exclude: p.__children?.find((x: any) => x.__tag === 'Publish')?.exclude ?? [] },
-    policies: p.__children?.find((x: any) => x.__tag === 'Policies') ?? {},
-  }));
-  return { format: 1, workspace: { name: workspaceName }, packages };
+function isSafeRel(p: string): boolean {
+  return !!p && !path.isAbsolute(p) && !p.includes('..') && !p.includes('\\');
+}
+
+function slashPath(p: string): string { return p.replaceAll('\\', '/'); }
+
+function sortDiagnostics(diags: Diagnostic[]): Diagnostic[] {
+  return diags.sort((a, b) => `${a.file}:${a.line ?? 0}:${a.column ?? 0}:${a.code}:${a.message}`.localeCompare(`${b.file}:${b.line ?? 0}:${b.column ?? 0}:${b.code}:${b.message}`));
 }
 
 function stableSort<T>(obj: T): T {

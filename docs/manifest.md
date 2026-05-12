@@ -38,3 +38,16 @@ export default define(
   </Workspace>,
 );
 ```
+
+
+## M6b workspace split mode
+
+TSPack now supports split workspaces:
+- Root `manifest.tsx` defines workspace topology via `<Packages rows={...} />`.
+- Each package contract lives in `package.manifest.tsx`.
+- Use `defineWorkspace(...)` for root split workspaces and `definePackage(...)` for package manifests.
+
+Path rules:
+- `row.root` and `row.manifest` must be safe relative paths.
+- `row.manifest` must be located under `row.root`.
+- Paths inside `package.manifest.tsx` (for example target `entry` and `types`) are relative to the package root.
