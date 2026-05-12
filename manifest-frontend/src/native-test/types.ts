@@ -34,6 +34,43 @@ export type DiscoveryResult = {
   diagnostics: Diagnostic[];
 };
 
+export type DiscoveredTest = {
+  id: string;
+  name: string;
+  kind: 'fact' | 'theory';
+  filePath: string;
+};
+
+export type DiscoveredFile = {
+  filePath: string;
+  suiteName: string;
+  tests: DiscoveredTest[];
+  diagnostics: Diagnostic[];
+};
+
+export type DiscoverOptions = {
+  rootDir: string;
+  patterns?: string[];
+  ignore?: string[];
+};
+
+export type DiscoverFilesResult = {
+  files: DiscoveredFile[];
+  diagnostics: Diagnostic[];
+};
+
+export type RunFilesOptions = {
+  rootDir: string;
+  files?: string[];
+  filter?: string;
+  listOnly?: boolean;
+};
+
+export type RunFilesResult = {
+  results: TestResult[];
+  diagnostics: Diagnostic[];
+};
+
 export type AssertionFailure = Error & {
   code: string;
   assertion: string;
