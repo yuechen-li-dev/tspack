@@ -22,7 +22,7 @@ describe('native test discovery', () => {
     const file = withFile(`export default (<Suite name="s"><Artifact name="x" path="x.txt"/><Fact name="f"><Artifact name="dup" path="one.txt"/><Artifact name="dup" path="two.txt"/><Artifact name="x" path="../bad"/>{() => {}}</Fact></Suite>);`);
     const result = discoverNativeTestFile(file);
     const codes = result.diagnostics.map((d) => d.code);
-    expect(codes).toContain('TSPACK_ARTIFACT_INVALID_DECLARATION');
+    expect(codes).toContain('TSPACK_ARTIFACT_MISSING_BODY');
     expect(codes).toContain('TSPACK_ARTIFACT_INVALID_PATH');
     expect(codes).toContain('TSPACK_ARTIFACT_DUPLICATE_NAME');
   });

@@ -32,3 +32,12 @@ cd manifest-frontend && npm test
 ```
 
 See `docs/release-checklist.md` for release smoke commands and audit checklist.
+
+
+## Standalone artifacts
+
+- `tspack artifact` runs standalone native xTest `<Artifact>` units declared directly under `<Suite>`.
+- `tspack pack` creates package `.tgz` archives; it is unrelated to native test artifacts.
+
+
+See also `docs/artifacts.md` for standalone artifact mode details.

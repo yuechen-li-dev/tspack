@@ -175,3 +175,60 @@ func TestCLITestNoBackendsAndVitestUnavailable(t *testing.T) {
 		t.Fatalf("missing vitest unavailable diagnostic: %s", string(b))
 	}
 }
+
+func TestCLIArtifactCommand(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	_ = os.MkdirAll(frontend, 0o755)
+	bridge := filepath.Join(frontend, "native-test-cli.js")
+	stub := `#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+const args=process.argv.slice(2);
+const mode=args[0];
+const root=args[args.indexOf('--root')+1];
+const outIdx=args.indexOf('--out');
+const out=outIdx>=0?args[outIdx+1]:path.join(root,'.tspack','artifacts');
+const filterIdx=args.indexOf('--filter');
+const filter=filterIdx>=0?args[filterIdx+1]:'';
+if(mode!=='artifact'){process.exit(2)}
+if(args.includes('--list')){console.log('TSPack artifacts\n\nPASS '+root+'/a.xtest.tsx::suite/artifact/demo\n');process.exit(0)}
+if(filter==='no-match'){console.error('TSPACK_ARTIFACT_FILTER_NO_MATCH: none');process.exit(1)}
+if(args.includes('--json')){console.log(JSON.stringify({summary:{total:1,passed:1,failed:0,skipped:0,diagnostics:0},artifacts:[{id:'a',name:'demo',status:'passed'}]},null,2));process.exit(0)}
+fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'artifact.txt'),'ok');console.log('PASS wrote');`
+	_ = os.WriteFile(bridge, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(bridge) })
+
+	root := t.TempDir()
+	cmd := exec.Command("go", "run", "./cmd/tspack", "artifact", "--root", root, "--list")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "TSPack artifacts") {
+		t.Fatalf("artifact list failed: %v\n%s", err, string(b))
+	}
+
+	out := filepath.Join(root, "out")
+	cmd = exec.Command("go", "run", "./cmd/tspack", "artifact", "--root", root, "--out", out)
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("artifact run failed: %v\n%s", err, string(b))
+	}
+	if _, err = os.Stat(filepath.Join(out, "artifact.txt")); err != nil {
+		t.Fatalf("expected written artifact: %v", err)
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "artifact", "--root", root, "--filter", "no-match")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_ARTIFACT_FILTER_NO_MATCH") {
+		t.Fatalf("expected no-match failure: %v\n%s", err, string(b))
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "artifact", "--root", root, "--json")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "\"summary\"") {
+		t.Fatalf("expected json output: %v\n%s", err, string(b))
+	}
+}
