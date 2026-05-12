@@ -86,7 +86,7 @@ func ResolveNPM(ctx context.Context, opts ResolverOptions, req ResolveRequest) R
 			result.Lock.Targets = append(result.Lock.Targets, lockfile.Target{Package: p.Name, Name: t.Name, Export: t.Export, Entry: t.Entry, Runtime: t.Runtime, Types: t.Types})
 		}
 	}
-	state := &resolverState{opts: opts, result: &result, seenPkg: map[string]bool{}}
+	state := &resolverState{opts: opts, result: &result, seenPkg: map[string]bool{}, graph: req.Graph}
 	for _, p := range req.Graph.AllPackages() {
 		for _, t := range p.AllTargets() {
 			from := fmt.Sprintf("%s:target:%s", p.Name, t.Name)
@@ -110,6 +110,7 @@ type resolverState struct {
 	opts    ResolverOptions
 	result  *ResolveResult
 	seenPkg map[string]bool
+	graph   *graph.WorkspaceGraph
 }
 
 func (r *resolverState) resolveDirect(ctx context.Context, dep *graph.DependencyNode, from string) {
@@ -122,7 +123,7 @@ func (r *resolverState) resolveDirect(ctx context.Context, dep *graph.Dependency
 
 func (r *resolverState) resolveDirectAsKind(ctx context.Context, dep *graph.DependencyNode, from, kind string) {
 	if dep.Source.Kind != "npm" {
-		r.result.Diagnostics = append(r.result.Diagnostics, dWarn("TSPACK_RESOLVE_NON_NPM_SKIPPED", "non-npm dependency source skipped", dep.Source.Kind, dep.Key))
+		r.resolveNonNPMDependency(ctx, dep, from, kind)
 		return
 	}
 	id, optional, ok := r.resolvePackage(ctx, dep.Source.Package, dep.Source.Range, dep.Optional, "")
