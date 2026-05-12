@@ -92,3 +92,17 @@ func TestConsistency(t *testing.T) {
 		t.Fatal("expected stale missing")
 	}
 }
+
+func TestLockfileTargetPathsRejectBareDot(t *testing.T) {
+	lf := []byte("[lock]\nformat = 1\n\n[[target]]\npackage = 'p'\nname = 'core'\nexport = '.'\nentry = '.'\nruntime = 'dist/index.js'\ntypes = 'dist/index.d.ts'\n")
+	_, diags := Parse("x.ts-lock.toml", lf)
+	found := false
+	for _, d := range diags {
+		if d.Code == "TSPACK_LOCK_INVALID_PATH" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected TSPACK_LOCK_INVALID_PATH, got %#v", diags)
+	}
+}

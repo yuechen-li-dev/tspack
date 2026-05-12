@@ -2,7 +2,6 @@ package lockfile
 
 import (
 	"os"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -10,6 +9,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"github.com/tspack/tspack/internal/diag"
 	"github.com/tspack/tspack/internal/graph"
+	"github.com/tspack/tspack/internal/pathutil"
 )
 
 const (
@@ -214,7 +214,7 @@ func validate(file string, lf *Lockfile) []diag.Diagnostic {
 				out = append(out, errD("TSPACK_LOCK_INVALID_PACKAGE", "git package requires repo/rev/tree_hash/hash", p.ID))
 			}
 		case "path":
-			if !isSafeRelativePath(p.Path) {
+			if !pathutil.IsSafePackageFilePath(p.Path) {
 				out = append(out, errD("TSPACK_LOCK_INVALID_PATH", "path package path must be safe relative", p.ID))
 			}
 		case "workspace":
@@ -252,7 +252,7 @@ func validate(file string, lf *Lockfile) []diag.Diagnostic {
 		if t.Export != "." && !strings.HasPrefix(t.Export, "./") {
 			out = append(out, errD("TSPACK_LOCK_INVALID_TARGET", "target export must be . or ./ prefixed", t.Package, t.Name))
 		}
-		if !isSafeRelativePath(t.Entry) || !isSafeRelativePath(t.Runtime) || !isSafeRelativePath(t.Types) {
+		if !pathutil.IsSafePackageFilePath(t.Entry) || !pathutil.IsSafePackageFilePath(t.Runtime) || !pathutil.IsSafePackageFilePath(t.Types) {
 			out = append(out, errD("TSPACK_LOCK_INVALID_PATH", "target paths must be safe relative", t.Package, t.Name))
 		}
 		k := t.Package + "::" + t.Name
@@ -313,13 +313,6 @@ func normalize(lf *Lockfile) *Lockfile {
 }
 func errD(c, m string, details ...string) diag.Diagnostic {
 	return diag.Diagnostic{Code: c, Severity: diag.SeverityError, Message: m, Details: details}
-}
-func isSafeRelativePath(p string) bool {
-	if p == "" || filepath.IsAbs(p) {
-		return false
-	}
-	c := filepath.Clean(p)
-	return c != "." && !strings.HasPrefix(c, "..") && !strings.Contains(c, "../")
 }
 func validEdgeKind(k string) bool {
 	switch k {

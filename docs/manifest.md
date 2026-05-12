@@ -19,6 +19,7 @@ TSPack parses/analyzes AST and never executes user manifest code.
 - Functions, classes, async/await.
 - Loops or conditionals.
 - Dynamic generation (`map`/`filter`/`reduce`, unknown helper calls, arbitrary calls).
+- Spread syntax is forbidden (`...` in object literals, arrays/call arguments, and JSX props) to keep manifests fully inspectable and non-opaque.
 
 ## Example
 

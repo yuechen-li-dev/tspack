@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/tspack/tspack/internal/diag"
+	"github.com/tspack/tspack/internal/pathutil"
 )
 
 type ManifestIR struct {
@@ -144,7 +145,7 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 		if p.Kind != "library" && p.Kind != "app" && p.Kind != "tool" {
 			add("TSPACK_IR_INVALID_PACKAGE_KIND", pp+".kind is invalid")
 		}
-		if p.Root != "" && p.Root != "." && !isValidRelPath(p.Root) {
+		if p.Root != "" && !pathutil.IsSafePackageRoot(p.Root) {
 			add("TSPACK_IR_INVALID_PACKAGE_ROOT", pp+".root must be a safe relative path")
 		}
 		if _, ok := seenPkg[p.Name]; ok {
@@ -183,7 +184,7 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 			}
 			seenExport[t.Export] = struct{}{}
 			for _, f := range []struct{ name, v string }{{"entry", t.Entry}, {"runtime", t.Runtime}, {"types", t.Types}} {
-				if !isValidRelPath(f.v) {
+				if !pathutil.IsSafePackageFilePath(f.v) {
 					add("TSPACK_IR_INVALID_RELATIVE_PATH", tp+"."+f.name+" must be a safe relative path")
 				}
 			}
@@ -218,7 +219,7 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 		}
 		for bi, b := range p.Boundaries {
 			bp := fmt.Sprintf("%s.boundaries[%d]", pp, bi)
-			if !isValidRelPath(b.From) {
+			if !pathutil.IsSafePackageFilePath(b.From) {
 				add("TSPACK_IR_INVALID_BOUNDARY", bp+".from is invalid")
 			}
 		}
@@ -226,7 +227,7 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 			add("TSPACK_IR_INVALID_PUBLISH_POLICY", pp+".publish.include required for library")
 		}
 		for _, it := range append(append([]string{}, p.Publish.Include...), p.Publish.Exclude...) {
-			if !isValidRelPath(it) && !isGlobLike(it) {
+			if !pathutil.IsSafePackageFilePath(it) && !pathutil.IsSafeRelativeGlob(it) {
 				add("TSPACK_IR_INVALID_PUBLISH_POLICY", "publish path is invalid: "+it)
 			}
 		}
@@ -260,15 +261,6 @@ func DependencyIdentity(d DependencyIntent) string {
 }
 
 func depIdentity(d DependencyIntent) string { return DependencyIdentity(d) }
-func isValidRelPath(p string) bool {
-	if strings.TrimSpace(p) == "" || strings.HasPrefix(p, "/") || strings.Contains(p, `\\`) || strings.Contains(p, "..") {
-		return false
-	}
-	return true
-}
-func isGlobLike(p string) bool {
-	return strings.ContainsAny(p, "*?[]") && isValidRelPath(strings.ReplaceAll(strings.ReplaceAll(p, "*", "x"), "?", "x"))
-}
 func validateDep(add func(string, string, ...string), pp string, i int, d DependencyIntent) {
 	allowed := map[string]bool{"runtime": true, "dep": true, "peer": true, "tool": true, "type": true, "test": true, "workspace": true}
 	if !allowed[d.Kind] {
@@ -292,7 +284,7 @@ func validateDep(add func(string, string, ...string), pp string, i int, d Depend
 			add("TSPACK_IR_INVALID_SOURCE", fmt.Sprintf("%s.dependencies[%d].source git requires tag/rev/branch", pp, i))
 		}
 	case "path":
-		if !isValidRelPath(d.Source.Path) {
+		if !pathutil.IsSafePackageFilePath(d.Source.Path) {
 			add("TSPACK_IR_INVALID_SOURCE", fmt.Sprintf("%s.dependencies[%d].source path must be safe relative", pp, i))
 		}
 	case "workspace":
