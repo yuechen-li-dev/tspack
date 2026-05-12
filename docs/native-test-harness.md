@@ -4,7 +4,7 @@ M16 introduces an opt-in, TSPack-native unit test substrate.
 
 ## Scope
 
-- Native test file naming: `*.xtest.tsx`
+- Native test file naming: `*.xtest.tsx`, `*.valid.tsx`, `*.invalid.tsx`
 - TSX tags are used for static discovery and metadata
 - Test callback bodies are ordinary TypeScript code
 - Assertions require explicit human-readable reasons
@@ -146,3 +146,14 @@ M17d non-goals remain unchanged: no fixture runner, no command helpers, no files
 
 
 See also `docs/artifacts.md` for standalone artifact mode details.
+
+
+## Valid/Invalid fixture invariants
+
+- `*.valid.tsx` files allow only `<Valid>` children under `<Suite>`.
+- `*.invalid.tsx` files allow only `<Invalid>` children under `<Suite>`.
+- `<Valid>` and `<Invalid>` execute like facts with sync/async support and `skip(reason)`.
+- Invalid invariants pass when expected diagnostics are observed (for example with `expect.error(...)`).
+- Use `expect.error(subject, code).because(reason)` to assert an error code exists.
+- Use `expect.noErrors(subject).because(reason)` to assert no error diagnostics exist.
+- These fixture invariants run via the native xTest backend (`tspack test -xtest`) and are not included in `tspack artifact`.

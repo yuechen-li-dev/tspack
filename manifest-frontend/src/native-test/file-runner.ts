@@ -13,7 +13,7 @@ import { runSuite } from './runner.js';
 import type { ArtifactRunResult, Diagnostic, DiscoveredFile, RunArtifactsOptions, RunFilesOptions, RunFilesResult, StandaloneArtifactResult, TestArtifact, TestResult } from './types.js';
 
 type RuntimeNode = {
-  __tag: 'Suite' | 'Fact' | 'Theory' | 'Case' | 'Artifact';
+  __tag: 'Suite' | 'Fact' | 'Theory' | 'Case' | 'Artifact' | 'Valid' | 'Invalid';
   props: Record<string, unknown>;
   children: unknown[];
 };
@@ -196,7 +196,7 @@ async function loadRuntimeSuite(filePath: string): Promise<RuntimeNode> {
   const compiled = ts.transpileModule(source, { fileName: filePath, compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.React, jsxFactory: '__tspackJsx' } });
   const prelude = `const __tspackJsx = (type, props, ...children) => { if (typeof type === 'function') return type(props ?? {}, ...children); return { __tag: String(type), props: props ?? {}, children }; };
 const makeTag = (tag) => (props, ...children) => ({ __tag: tag, props: props ?? {}, children });
-const Suite = makeTag('Suite'); const Fact = makeTag('Fact'); const Theory = makeTag('Theory'); const Case = makeTag('Case'); const Artifact = makeTag('Artifact');
+const Suite = makeTag('Suite'); const Fact = makeTag('Fact'); const Theory = makeTag('Theory'); const Case = makeTag('Case'); const Artifact = makeTag('Artifact'); const Valid = makeTag('Valid'); const Invalid = makeTag('Invalid');
 const assert = globalThis.__tspackAssert; const expect = globalThis.__tspackExpect; const skip = globalThis.__tspackSkip;`;
   const tempFile = path.join(path.dirname(filePath), `${path.basename(filePath)}.tspack-temp.mjs`);
   (globalThis as Record<string, unknown>).__tspackAssert = assert;
