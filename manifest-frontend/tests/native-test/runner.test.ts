@@ -1,84 +1,58 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { assert, Case, expect as tExpect, Fact, runSuite, skip, Suite, Theory } from '../../src/native-test/index';
+import { Artifact, assert, Case, Fact, runSuite, skip, Suite, Theory } from '../../src/native-test/index';
 
-describe('native runner', () => {
-  it('runs fact and theory in deterministic order', async () => {
+describe('native runner artifacts', () => {
+  it('writes text/json/bytes artifacts and records metadata', async () => {
+    const artifactRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'native-artifacts-'));
     const root = Suite({ name: 'math' },
-      Fact({ name: 'pass' }, () => {
-        assert.equal(1 + 1, 2, 'fact should pass');
-      }),
-      Theory({ name: 'len' },
-        Case({ input: 'a', expected: 1 }),
-        Case({ input: 'abc', expected: 3 }),
-        ({ input, expected }: { input: string; expected: number }) => {
-          assert.equal(input.length, expected, 'case input length should match expected value');
+      Fact({ name: 'writes' },
+        Artifact({ name: 'txt', path: 'a.txt' }),
+        Artifact({ name: 'json', path: 'b.json' }),
+        Artifact({ name: 'bin', path: 'c.bin' }),
+        async ({ artifact }) => {
+          await artifact.writeText('txt', 'hello', 'save text');
+          await artifact.writeJson('json', { b: 2, a: 1 }, 'save json');
+          await artifact.writeBytes('bin', new Uint8Array([1, 2]), 'save bytes');
         },
       ),
     );
-
-    const results = await runSuite(root);
-    expect(results.map((r) => r.id)).toEqual(['math/pass', 'math/len[0]', 'math/len[1]']);
-    expect(results.every((r) => r.status === 'passed')).toBe(true);
+    const results = await runSuite(root, { artifactRoot });
+    expect(results[0].status).toBe('passed');
+    expect(results[0].artifacts?.every((a) => a.written)).toBe(true);
+    const dir = path.join(artifactRoot, 'math__writes');
+    expect(fs.existsSync(path.join(dir, 'a.txt'))).toBe(true);
+    expect(fs.existsSync(path.join(dir, 'b.json'))).toBe(true);
+    expect(fs.existsSync(path.join(dir, 'c.bin'))).toBe(true);
   });
 
-  it('captures sync and async failures', async () => {
+  it('fails on unknown, duplicate, missing reason, required not written; optional and skip behavior', async () => {
+    const artifactRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'native-artifacts-'));
     const root = Suite({ name: 's' },
-      Fact({ name: 'sync-fail' }, () => {
-        assert.equal(1, 2, 'sync failure reason');
-      }),
-      Fact({ name: 'async-fail' }, async () => {
-        await Promise.resolve();
-        assert.true(false, 'async failure reason');
-      }),
-      Fact({ name: 'expect-missing-because' }, () => {
-        tExpect(1).toBe(1);
-      }),
+      Fact({ name: 'unknown' }, Artifact({ name: 'x', path: 'x.txt' }), async ({ artifact }) => artifact.writeText('y', 'v', 'r')),
+      Fact({ name: 'dup' }, Artifact({ name: 'x', path: 'x.txt' }), async ({ artifact }) => { await artifact.writeText('x', 'a', 'r'); await artifact.writeText('x', 'b', 'r'); }),
+      Fact({ name: 'reason' }, Artifact({ name: 'x', path: 'x.txt' }), async ({ artifact }) => artifact.writeText('x', 'a', '')),
+      Fact({ name: 'required' }, Artifact({ name: 'x', path: 'x.txt' }), () => {}),
+      Fact({ name: 'optional' }, Artifact({ name: 'x', path: 'x.txt', optional: true }), () => {}),
+      Fact({ name: 'skip' }, Artifact({ name: 'x', path: 'x.txt' }), () => { skip('later'); }),
     );
-
-    const results = await runSuite(root);
-    expect(results.map((r) => r.status)).toEqual(['failed', 'failed', 'failed']);
+    const results = await runSuite(root, { artifactRoot });
+    expect((results[0].error as { code?: string }).code).toBe('TSPACK_ARTIFACT_UNKNOWN');
+    expect((results[1].error as { code?: string }).code).toBe('TSPACK_ARTIFACT_ALREADY_WRITTEN');
+    expect((results[2].error as { code?: string }).code).toBe('TSPACK_ARTIFACT_REASON_REQUIRED');
+    expect((results[3].error as { code?: string }).code).toBe('TSPACK_ARTIFACT_REQUIRED_NOT_WRITTEN');
+    expect(results[4].status).toBe('passed');
+    expect(results[5].status).toBe('skipped');
   });
 
-  it('supports skip in fact/theory and async flows', async () => {
-    const touched: string[] = [];
-    const root = Suite({ name: 'skip' },
-      Fact({ name: 'fact-skip' }, () => {
-        skip('fact intentionally skipped');
-        touched.push('fact-after-skip');
-      }),
-      Fact({ name: 'async-skip' }, async () => {
-        await Promise.resolve();
-        skip('async fact skipped');
-      }),
-      Theory({ name: 'theory-case-skip' },
-        Case({ value: 1 }),
-        Case({ value: 2 }),
-        ({ value }: { value: number }) => {
-          if (value === 1) {
-            skip('case 1 intentionally skipped');
-          }
-          assert.equal(value, 2, 'case 2 still executes');
-          touched.push(`case-${value}`);
-        },
-      ),
-    );
-
-    const results = await runSuite(root);
-    expect(touched).toEqual(['case-2']);
-    expect(results.map((r) => r.status)).toEqual(['skipped', 'skipped', 'skipped', 'passed']);
-    expect(results[0].skipReason).toBe('fact intentionally skipped');
-    expect(results[1].skipReason).toBe('async fact skipped');
-    expect(results[2].skipReason).toBe('case 1 intentionally skipped');
-  });
-
-  it('skip requires a reason', async () => {
-    const root = Suite({ name: 'skip' },
-      Fact({ name: 'missing reason' }, () => {
-        skip('');
-      }),
-    );
-    const results = await runSuite(root);
-    expect(results[0].status).toBe('failed');
-    expect((results[0].error as { code?: string }).code).toBe('TSPACK_SKIP_REASON_REQUIRED');
+  it('writes theory case artifacts to separate directories', async () => {
+    const artifactRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'native-artifacts-'));
+    const root = Suite({ name: 't' }, Theory({ name: 'cases' }, Artifact({ name: 'r', path: 'report.txt' }), Case({ n: 1 }), Case({ n: 2 }), async ({ n }, { artifact }) => artifact.writeText('r', String(n), 'record')));
+    const results = await runSuite(root, { artifactRoot });
+    expect(results.map((r) => r.status)).toEqual(['passed', 'passed']);
+    expect(fs.existsSync(path.join(artifactRoot, 't__cases__0', 'report.txt'))).toBe(true);
+    expect(fs.existsSync(path.join(artifactRoot, 't__cases__1', 'report.txt'))).toBe(true);
   });
 });

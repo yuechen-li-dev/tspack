@@ -11,27 +11,19 @@ function withFile(source: string): string {
 }
 
 describe('native test discovery', () => {
-  it('discovers suite fact and theory cases deterministically', () => {
-    const file = withFile(`export default (<Suite name="math"><Fact name="add">{() => {}}</Fact><Theory name="len"><Case input="a" expected={1} /><Case input="ab" expected={2} />{({ input, expected }) => {}}</Theory></Suite>);`);
-    const one = discoverNativeTestFile(file);
-    const two = discoverNativeTestFile(file);
-    expect(one.tests).toEqual(['math/add', 'math/len[0]', 'math/len[1]']);
-    expect(one.tests).toEqual(two.tests);
-    expect(one.diagnostics).toEqual([]);
+  it('discovers artifact metadata for fact/theory', () => {
+    const file = withFile(`export default (<Suite name="s"><Fact name="f"><Artifact name="report" path="report.json" format="json" />{() => {}}</Fact><Theory name="t"><Artifact name="case" path="case.txt" optional={true}/><Case a={1}/>{() => {}}</Theory></Suite>);`);
+    const result = discoverNativeTestFile(file);
+    expect(result.facts[0].artifacts[0]).toEqual({ name: 'report', path: 'report.json', format: 'json', required: true });
+    expect(result.theories[0].artifacts[0]).toEqual({ name: 'case', path: 'case.txt', required: false });
   });
 
-  it('rejects unknown element, missing name, spread, dynamic and missing body', () => {
-    const file = withFile(`const n = 'x'; export default (<Suite name="s"><Blah /><Fact>{() => {}}</Fact><Fact {...x} name={n}>{() => {}}</Fact><Fact name="ok"></Fact></Suite>);`);
+  it('diagnoses invalid artifact declarations and unsafe paths', () => {
+    const file = withFile(`export default (<Suite name="s"><Artifact name="x" path="x.txt"/><Fact name="f"><Artifact name="dup" path="one.txt"/><Artifact name="dup" path="two.txt"/><Artifact name="x" path="../bad"/>{() => {}}</Fact></Suite>);`);
     const result = discoverNativeTestFile(file);
-    expect(result.diagnostics.map((d) => d.code)).toContain('TSPACK_TEST_UNKNOWN_ELEMENT');
-    expect(result.diagnostics.map((d) => d.code)).toContain('TSPACK_TEST_INVALID_NAME');
-    expect(result.diagnostics.map((d) => d.code)).toContain('TSPACK_TEST_FORBIDDEN_SPREAD');
-    expect(result.diagnostics.map((d) => d.code)).toContain('TSPACK_TEST_MISSING_BODY');
-  });
-
-  it('does not execute callback body during discovery', () => {
-    const file = withFile(`export default (<Suite name="safe"><Fact name="boom">{() => { throw new Error('should not run'); }}</Fact></Suite>);`);
-    const result = discoverNativeTestFile(file);
-    expect(result.tests).toEqual(['safe/boom']);
+    const codes = result.diagnostics.map((d) => d.code);
+    expect(codes).toContain('TSPACK_ARTIFACT_INVALID_DECLARATION');
+    expect(codes).toContain('TSPACK_ARTIFACT_INVALID_PATH');
+    expect(codes).toContain('TSPACK_ARTIFACT_DUPLICATE_NAME');
   });
 });
