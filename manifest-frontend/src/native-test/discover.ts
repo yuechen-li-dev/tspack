@@ -13,9 +13,9 @@ import type {
 
 type NativeFileKind = 'xtest' | 'valid' | 'invalid';
 
-type AllowedElement = 'Fact' | 'Theory' | 'Artifact' | 'Valid' | 'Invalid';
+type AllowedElement = 'Fact' | 'Theory' | 'Artifact' | 'Valid' | 'Invalid' | 'Project';
 
-const allAllowed = new Set<AllowedElement | 'Suite' | 'Case'>(['Suite', 'Fact', 'Theory', 'Case', 'Artifact', 'Valid', 'Invalid']);
+const allAllowed = new Set<AllowedElement | 'Suite' | 'Case'>(['Suite', 'Fact', 'Theory', 'Case', 'Artifact', 'Valid', 'Invalid', 'Project']);
 
 function classifyNativeFile(filePath: string): NativeFileKind | undefined {
   if (filePath.endsWith('.xtest.tsx')) return 'xtest';
@@ -94,8 +94,13 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
       continue;
     }
 
+    if (tag === 'Project') {
+      addDiag(child, 'TSPACK_PROJECT_FIXTURE_INVALID_DECLARATION', '<Project> must be declared inside an executable unit');
+      continue;
+    }
+
     if (tag === 'Artifact') {
-      const suiteArtifact = parseSuiteArtifact(child, suiteName, abs, addDiag);
+      const suiteArtifact = parseSuiteArtifact(child, suiteName, abs, path.dirname(abs), addDiag);
       if (suiteArtifact) {
         if (standaloneNames.has(suiteArtifact.name)) {
           addDiag(child, 'TSPACK_ARTIFACT_DUPLICATE_NAME', `duplicate Artifact name: ${suiteArtifact.name}`);
@@ -114,7 +119,7 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
         continue;
       }
       const id = `${suiteName}/${factName}`;
-      facts.push({ kind: 'fact', name: factName, id, artifacts: collectArtifacts(child, addDiag) });
+      facts.push({ kind: 'fact', name: factName, id, artifacts: collectArtifacts(child, addDiag), project: collectProject(child, path.dirname(abs), addDiag) });
       tests.push(id);
       continue;
     }
@@ -126,7 +131,7 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
         continue;
       }
       const cases = collectCases(child, suiteName, theoryName, addDiag);
-      theories.push({ kind: 'theory', name: theoryName, cases, artifacts: collectArtifacts(child, addDiag) });
+      theories.push({ kind: 'theory', name: theoryName, cases, artifacts: collectArtifacts(child, addDiag), project: collectProject(child, path.dirname(abs), addDiag) });
       for (const entry of cases) tests.push(entry.id);
       continue;
     }
@@ -139,7 +144,7 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
       }
       const kind = tag === 'Valid' ? 'valid' : 'invalid';
       const id = `${suiteName}/${kind}/${invariantName}`;
-      invariants.push({ kind, name: invariantName, id });
+      invariants.push({ kind, name: invariantName, id, project: collectProject(child, path.dirname(abs), addDiag) });
       tests.push(id);
     }
   }
@@ -267,7 +272,7 @@ function parseArtifact(node: ts.JsxElement | ts.JsxSelfClosingElement, addDiag: 
   return { name, path: declaredPath, format, required: !optional };
 }
 
-function parseSuiteArtifact(node: ts.JsxElement | ts.JsxSelfClosingElement, suiteName: string, filePath: string, addDiag: (node: ts.Node, code: string, message: string) => void): DiscoveredStandaloneArtifact | undefined {
+function parseSuiteArtifact(node: ts.JsxElement | ts.JsxSelfClosingElement, suiteName: string, filePath: string, fileDir: string, addDiag: (node: ts.Node, code: string, message: string) => void): DiscoveredStandaloneArtifact | undefined {
   const parsed = parseArtifact(node, addDiag);
   if (!parsed) return undefined;
   if (!parsed.required) {
@@ -279,5 +284,38 @@ function parseSuiteArtifact(node: ts.JsxElement | ts.JsxSelfClosingElement, suit
     return undefined;
   }
   const id = `${filePath.split(path.sep).join('/')}::${suiteName}/artifact/${parsed.name}`;
-  return { id, filePath, suiteName, name: parsed.name, path: parsed.path, format: parsed.format };
+  return { id, filePath, suiteName, name: parsed.name, path: parsed.path, format: parsed.format, project: collectProject(node, fileDir, addDiag) };
+}
+
+
+function collectProject(node: ts.JsxElement | ts.JsxSelfClosingElement, fileDir: string, addDiag: (node: ts.Node, code: string, message: string) => void) {
+  const projects = getChildren(node).filter((child) => (ts.isJsxElement(child) || ts.isJsxSelfClosingElement(child)) && getTagName(child) === 'Project') as Array<ts.JsxElement | ts.JsxSelfClosingElement>;
+  if (projects.length === 0) return undefined;
+  if (projects.length > 1) { addDiag(projects[1], 'TSPACK_PROJECT_FIXTURE_DUPLICATE', 'only one Project is allowed per executable unit'); return undefined; }
+  const project = projects[0];
+  let from: string | undefined;
+  let name: string | undefined;
+  let keepOnFailure = false;
+  for (const attr of getAttributes(project)) {
+    if (ts.isJsxSpreadAttribute(attr)) { addDiag(attr, 'TSPACK_PROJECT_FIXTURE_INVALID_DECLARATION', 'Project does not allow spread attributes'); return undefined; }
+    if (!ts.isJsxAttribute(attr) || !attr.initializer) continue;
+    const n = attr.name.getText();
+    if (n === 'from' || n === 'name') {
+      if (!ts.isStringLiteral(attr.initializer)) { addDiag(attr, 'TSPACK_PROJECT_FIXTURE_INVALID_DECLARATION', `Project ${n} must be string literal`); return undefined; }
+      if (n === 'from') from = attr.initializer.text; else name = attr.initializer.text;
+      continue;
+    }
+    if (n === 'keepOnFailure') {
+      if (!ts.isJsxExpression(attr.initializer) || !attr.initializer.expression) { addDiag(attr, 'TSPACK_PROJECT_FIXTURE_INVALID_DECLARATION', 'Project keepOnFailure must be boolean literal'); return undefined; }
+      if (attr.initializer.expression.kind === ts.SyntaxKind.TrueKeyword) keepOnFailure = true;
+      else if (attr.initializer.expression.kind === ts.SyntaxKind.FalseKeyword) keepOnFailure = false;
+      else { addDiag(attr, 'TSPACK_PROJECT_FIXTURE_INVALID_DECLARATION', 'Project keepOnFailure must be boolean literal'); return undefined; }
+    }
+  }
+  if (from) {
+    if (from.startsWith('/') || from.includes('..') || from.includes('\\')) { addDiag(project, 'TSPACK_PROJECT_FIXTURE_INVALID_PATH', `Project from path is unsafe: ${from}`); return undefined; }
+    const sourcePath = path.resolve(fileDir, from);
+    if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isDirectory()) { addDiag(project, 'TSPACK_PROJECT_FIXTURE_NOT_FOUND', `Project fixture not found: ${from}`); return undefined; }
+  }
+  return { from, name, keepOnFailure };
 }

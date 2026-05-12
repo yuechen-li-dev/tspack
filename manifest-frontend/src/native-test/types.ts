@@ -22,6 +22,12 @@ export type DiscoveredArtifact = {
   required: boolean;
 };
 
+export type DiscoveredProjectFixture = {
+  from?: string;
+  name?: string;
+  keepOnFailure: boolean;
+};
+
 export type DiscoveredStandaloneArtifact = {
   id: string;
   filePath: string;
@@ -29,6 +35,7 @@ export type DiscoveredStandaloneArtifact = {
   name: string;
   path: string;
   format?: string;
+  project?: DiscoveredProjectFixture;
 };
 
 export type DiscoveredFact = {
@@ -36,6 +43,7 @@ export type DiscoveredFact = {
   name: string;
   id: string;
   artifacts: DiscoveredArtifact[];
+  project?: DiscoveredProjectFixture;
 };
 
 export type DiscoveredTheory = {
@@ -43,12 +51,14 @@ export type DiscoveredTheory = {
   name: string;
   cases: DiscoveredCase[];
   artifacts: DiscoveredArtifact[];
+  project?: DiscoveredProjectFixture;
 };
 
 export type DiscoveredInvariant = {
   kind: 'valid' | 'invalid';
   name: string;
   id: string;
+  project?: DiscoveredProjectFixture;
 };
 
 export type DiscoveryResult = {
@@ -139,6 +149,13 @@ export type TestArtifact = {
   reason?: string;
 };
 
+export type ProjectResultInfo = {
+  sourcePath?: string;
+  name?: string;
+  kept: boolean;
+  rootPath?: string;
+};
+
 export type TestResult = {
   id: string;
   name: string;
@@ -147,6 +164,7 @@ export type TestResult = {
   skipReason?: string;
   error?: AssertionFailure | Error;
   artifacts?: TestArtifact[];
+  project?: ProjectResultInfo;
 };
 
 export type StandaloneArtifactResult = {
@@ -157,6 +175,7 @@ export type StandaloneArtifactResult = {
   failure?: FailureInfo;
   skipReason?: string;
   durationMs?: number;
+  project?: ProjectResultInfo;
 };
 
 export type RunFilesResult = {
@@ -176,6 +195,7 @@ export type NativeTestSummary = {
   skipped: number;
   diagnostics: number;
   durationMs?: number;
+  project?: ProjectResultInfo;
 };
 
 export type ReportedTest = {
@@ -187,6 +207,7 @@ export type ReportedTest = {
   failure?: FailureInfo;
   skipReason?: string;
   artifacts?: TestArtifact[];
+  project?: ProjectResultInfo;
 };
 
 export type NativeTestRunReport = {

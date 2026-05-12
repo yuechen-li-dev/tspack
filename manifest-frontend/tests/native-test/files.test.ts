@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createNativeTestReport, listNativeArtifacts, listNativeTests, runNativeTestFiles } from '../../src/native-test';
+import { createNativeTestReport, listNativeArtifacts, listNativeTests, runNativeArtifacts, runNativeTestFiles } from '../../src/native-test';
 
 function makeDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'tspack-native-files-'));
@@ -92,4 +92,45 @@ describe('native valid/invalid file execution', () => {
     const listedArtifacts = await listNativeArtifacts({ rootDir: root });
     expect(listedArtifacts.artifacts.every((entry) => !entry.id.includes('/valid/') && !entry.id.includes('/invalid/'))).toBe(true);
   });
+});
+
+it('loaded xtest/valid/invalid/artifact files can use Project context and filter avoids import side effects', async () => {
+  const root = makeDir();
+  const importPath = nativeImportPath();
+  const fixture = path.join(root, 'fixture');
+  const fixturePath = fixture.split(path.sep).join('/');
+  fs.mkdirSync(fixture);
+  fs.writeFileSync(path.join(fixture, 'manifest.json'), '{"code":"E_MATCH"}');
+
+  fs.writeFileSync(path.join(root, 'with-project.xtest.tsx'), `
+    import { Suite, Fact, Project, assert } from '${importPath}';
+    export default (<Suite name="x"><Fact name="f"><Project from="${fixturePath}" />{async ({ project }) => { await project.writeText('gen.txt', 'ok', 'write'); assert.equal(await project.readText('gen.txt'), 'ok', 'read'); }}</Fact></Suite>);
+  `);
+  fs.writeFileSync(path.join(root, 'with-project.valid.tsx'), `
+    import { Suite, Valid, Project, expect } from '${importPath}';
+    export default (<Suite name="v"><Valid name="ok"><Project from="${fixturePath}" />{async ({ project }) => { const x = await project.readJson('manifest.json'); expect.noErrors([]).because(String(x.code)); }}</Valid></Suite>);
+  `);
+  fs.writeFileSync(path.join(root, 'with-project.invalid.tsx'), `
+    import { Suite, Invalid, Project, expect } from '${importPath}';
+    export default (<Suite name="i"><Invalid name="bad"><Project from="${fixturePath}" />{async ({ project }) => { const x = await project.readJson('manifest.json'); expect.error([{ code: x.code }], 'E_MATCH').because('match'); }}</Invalid></Suite>);
+  `);
+  fs.writeFileSync(path.join(root, 'with-project-artifact.xtest.tsx'), `
+    import { Suite, Artifact, Project } from '${importPath}';
+    export default (<Suite name="a"><Artifact name="one" path="a.txt"><Project from="${fixturePath}" />{async ({ artifact, project }) => { await project.writeText('local.txt', 'x', 'write'); await artifact.writeText('one', 'ok', 'artifact'); }}</Artifact></Suite>);
+  `);
+
+  fs.writeFileSync(path.join(root, 'not-selected.xtest.tsx'), `
+    import fs from 'node:fs';
+    import path from 'node:path';
+    import { Suite, Fact } from '${importPath}';
+    fs.writeFileSync(path.join('${root.split(path.sep).join('/')}', 'imported.txt'), 'yes');
+    export default (<Suite name="n"><Fact name="f">{() => {}}</Fact></Suite>);
+  `);
+
+  const run = await runNativeTestFiles({ rootDir: root, filter: 'with-project' });
+  expect(run.results.every((r) => r.status === 'passed')).toBe(true);
+  expect(fs.existsSync(path.join(root, 'imported.txt'))).toBe(false);
+
+  const artifacts = await runNativeArtifacts({ rootDir: root, filter: 'one' });
+  expect(artifacts.artifacts[0].status).toBe('passed');
 });

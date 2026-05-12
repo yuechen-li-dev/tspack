@@ -157,3 +157,22 @@ See also `docs/artifacts.md` for standalone artifact mode details.
 - Use `expect.error(subject, code).because(reason)` to assert an error code exists.
 - Use `expect.noErrors(subject).because(reason)` to assert no error diagnostics exist.
 - These fixture invariants run via the native xTest backend (`tspack test -xtest`) and are not included in `tspack artifact`.
+
+## Project fixtures (`<Project />`)
+
+Executable native units (`Fact`, `Theory`, `Valid`, `Invalid`, and suite `Artifact`) can include one `<Project />` declaration.
+
+- `from?: string` fixture directory copied into per-execution sandbox.
+- `name?: string` label metadata.
+- `keepOnFailure?: boolean` preserves sandbox on failure.
+
+The callback context includes `project` with `path`, `readText`, `readJson`, `writeText`, `writeJson`, and `writeBytes`. Paths are sandboxed and unsafe paths are rejected. Project write helpers require a non-empty reason.
+
+Fixture copy skips `node_modules`, `.git`, `.tspack`, `tspack-artifacts`, and `dist-packages`. Symlinks are rejected (`TSPACK_PROJECT_SYMLINK_UNSUPPORTED`).
+
+### Non-goals
+
+- No command execution helpers.
+- No filesystem assertion helpers.
+- No snapshot/golden tooling.
+- No automatic valid/invalid parser runners.

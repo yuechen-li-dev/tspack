@@ -67,3 +67,58 @@ describe('native test discovery', () => {
     expect(fs.existsSync(marker)).toBe(false);
   });
 });
+
+it('discovers Project metadata across executable units and validates declarations', () => {
+  const root = makeDir();
+  const fixture = path.join(root, 'fixture');
+  fs.mkdirSync(fixture);
+  const file = write(root, 'm.xtest.tsx', `
+    export default (
+      <Suite name="s">
+        <Fact name="f"><Project from="fixture" name="pf" keepOnFailure={true} />{() => {}}</Fact>
+        <Theory name="t"><Project from="fixture" keepOnFailure={false} /><Case n={1} />{() => {}}</Theory>
+        <Artifact name="a" path="a.txt"><Project from="fixture" />{() => {}}</Artifact>
+      </Suite>
+    );
+  `);
+  const validFile = write(root, 'm.valid.tsx', 'export default (<Suite name="s"><Valid name="v"><Project from="fixture" />{() => {}}</Valid></Suite>);');
+  const invalidFile = write(root, 'm.invalid.tsx', 'export default (<Suite name="s"><Invalid name="i"><Project from="fixture" />{() => {}}</Invalid></Suite>);');
+
+  const xt = discoverNativeTestFile(file);
+  expect(xt.facts[0].project).toEqual({ from: 'fixture', name: 'pf', keepOnFailure: true });
+  expect(xt.theories[0].project).toEqual({ from: 'fixture', keepOnFailure: false, name: undefined });
+  expect(xt.standaloneArtifacts[0].project).toEqual({ from: 'fixture', keepOnFailure: false, name: undefined });
+  expect(discoverNativeTestFile(validFile).invariants[0].project?.from).toBe('fixture');
+  expect(discoverNativeTestFile(invalidFile).invariants[0].project?.from).toBe('fixture');
+
+  const bad = write(root, 'bad.xtest.tsx', `
+    const dyn = 'fixture'; const dynName = 'n'; const keep = true;
+    export default (<Suite name="s">
+      <Project from="fixture" />
+      <Fact name="f"><Project from={dyn} name={dynName} keepOnFailure={keep} /><Project from="fixture" />{() => {}}</Fact>
+    </Suite>);
+  `);
+  const badDiags = discoverNativeTestFile(bad).diagnostics.map((d) => d.code);
+  expect(badDiags).toContain('TSPACK_PROJECT_FIXTURE_DUPLICATE');
+});
+
+it('discovery does not copy fixture directory or create sandbox temp paths', () => {
+  const root = makeDir();
+  const fixture = path.join(root, 'fixture');
+  const nested = path.join(fixture, 'nested');
+  fs.mkdirSync(nested, { recursive: true });
+  fs.writeFileSync(path.join(nested, 'in.txt'), 'x');
+  write(root, 'no-run.xtest.tsx', 'export default (<Suite name="s"><Fact name="f"><Project from="fixture" />{() => {}}</Fact></Suite>);');
+  const before = new Set(fs.readdirSync(os.tmpdir()));
+  discoverNativeTestFiles({ rootDir: root });
+  const after = new Set(fs.readdirSync(os.tmpdir()));
+  expect(fs.existsSync(path.join(root, 'generated.txt'))).toBe(false);
+  expect([...after].filter((n) => !before.has(n) && n.includes('tspack-project-')).length).toBe(0);
+});
+
+it('reports invalid Project from path', () => {
+  const root = makeDir();
+  write(root, 'bad-path.xtest.tsx', 'export default (<Suite name="s"><Fact name="f"><Project from="../escape" />{() => {}}</Fact></Suite>);');
+  const codes = discoverNativeTestFiles({ rootDir: root }).diagnostics.map((d) => d.code);
+  expect(codes).toContain('TSPACK_PROJECT_FIXTURE_INVALID_PATH');
+});

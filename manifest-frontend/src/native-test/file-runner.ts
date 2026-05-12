@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
@@ -95,10 +96,12 @@ async function runStandaloneArtifact(root: RuntimeNode, id: string, name: string
     return { id, name, status: 'failed', failure: { code: 'TSPACK_ARTIFACT_UNKNOWN', message: `standalone artifact not found: ${name}` }, durationMs: performance.now() - started };
   }
 
-  const callback = node.children.find((entry) => typeof entry === 'function') as ((ctx: { artifact: any }) => unknown) | undefined;
+  const callback = node.children.find((entry) => typeof entry === 'function') as ((ctx: { artifact: any; project?: any }) => unknown) | undefined;
   const artifact = createSingleArtifactState(id, name, declaredPath, format, artifactRoot);
+  const projectNode = node.children.find((entry) => isNode(entry) && entry.__tag === 'Project') as RuntimeNode | undefined;
+  const project = projectNode ? await createStandaloneProjectContext(projectNode) : undefined;
   try {
-    await callback?.({ artifact: artifact.writer });
+    await callback?.({ artifact: artifact.writer, project });
     verifyNoPendingExpectations();
     if (!artifact.result.written) {
       return { id, name, status: 'failed', failure: { code: 'TSPACK_ARTIFACT_REQUIRED_NOT_WRITTEN', message: `required artifact not written: ${name}` }, artifact: artifact.result, durationMs: performance.now() - started };
@@ -111,7 +114,24 @@ async function runStandaloneArtifact(root: RuntimeNode, id: string, name: string
     }
     const e = error as Error & { code?: string; reason?: string };
     return { id, name, status: 'failed', failure: { code: e.code, message: e.message, reason: e.reason }, artifact: artifact.result, durationMs: performance.now() - started };
+  } finally {
+    if (project?.rootPath) {
+      await fsp.rm(project.rootPath, { recursive: true, force: true });
+    }
   }
+}
+
+async function createStandaloneProjectContext(node: RuntimeNode): Promise<{ rootPath: string; readJson: (p: string) => Promise<any>; writeText: (p: string, t: string, r: string) => Promise<void>; }> {
+  const rootPath = await fsp.mkdtemp(path.join(os.tmpdir(), 'tspack-standalone-project-'));
+  const from = typeof node.props.from === 'string' ? node.props.from : undefined;
+  if (from) {
+    await fsp.cp(path.resolve(from), rootPath, { recursive: true });
+  }
+  return {
+    rootPath,
+    readJson: async (p) => JSON.parse(await fsp.readFile(path.join(rootPath, p), 'utf8')),
+    writeText: async (p, t, r) => { if (!r || !r.trim()) throw new Error('reason required'); const out = path.join(rootPath, p); await fsp.mkdir(path.dirname(out), { recursive: true }); await fsp.writeFile(out, t); },
+  };
 }
 
 function createSingleArtifactState(id: string, name: string, declaredPath: string, format: string | undefined, artifactRoot: string) {
@@ -196,7 +216,7 @@ async function loadRuntimeSuite(filePath: string): Promise<RuntimeNode> {
   const compiled = ts.transpileModule(source, { fileName: filePath, compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.React, jsxFactory: '__tspackJsx' } });
   const prelude = `const __tspackJsx = (type, props, ...children) => { if (typeof type === 'function') return type(props ?? {}, ...children); return { __tag: String(type), props: props ?? {}, children }; };
 const makeTag = (tag) => (props, ...children) => ({ __tag: tag, props: props ?? {}, children });
-const Suite = makeTag('Suite'); const Fact = makeTag('Fact'); const Theory = makeTag('Theory'); const Case = makeTag('Case'); const Artifact = makeTag('Artifact'); const Valid = makeTag('Valid'); const Invalid = makeTag('Invalid');
+const Suite = makeTag('Suite'); const Fact = makeTag('Fact'); const Theory = makeTag('Theory'); const Case = makeTag('Case'); const Artifact = makeTag('Artifact'); const Valid = makeTag('Valid'); const Invalid = makeTag('Invalid'); const Project = makeTag('Project');
 const assert = globalThis.__tspackAssert; const expect = globalThis.__tspackExpect; const skip = globalThis.__tspackSkip;`;
   const tempFile = path.join(path.dirname(filePath), `${path.basename(filePath)}.tspack-temp.mjs`);
   (globalThis as Record<string, unknown>).__tspackAssert = assert;
