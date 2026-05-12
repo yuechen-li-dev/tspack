@@ -18,6 +18,7 @@ import (
 	"github.com/tspack/tspack/internal/pack"
 	"github.com/tspack/tspack/internal/resolver"
 	"github.com/tspack/tspack/internal/store"
+	"github.com/tspack/tspack/internal/why"
 )
 
 type Options struct {
@@ -30,6 +31,12 @@ type Result struct {
 	Diagnostics []diag.Diagnostic
 	LockDiff    *lockfile.Diff
 	PackResult  *PackResult
+	WhyResult   *why.Result
+}
+
+type WhyOptions struct {
+	Query       string
+	PackageName string
 }
 
 type PackOptions struct {
@@ -164,6 +171,29 @@ func Pack(opts Options, packOpts PackOptions) Result {
 	return Result{Diagnostics: out, PackResult: pr}
 }
 
+func Why(opts Options, whyOpts WhyOptions) Result {
+	_, g, out := loadManifestAndGraph(opts)
+	if hasErrors(out) {
+		return Result{Diagnostics: out}
+	}
+	var lf *lockfile.Lockfile
+	if _, err := os.Stat(opts.LockfilePath); err == nil {
+		parsed, d, e := lockfile.LoadFile(opts.LockfilePath)
+		if e != nil {
+			out = append(out, errDiag("TSPACK_WHY_LOCKFILE_INVALID", "failed to read lockfile", e.Error()))
+		} else {
+			lf = parsed
+			out = append(out, d...)
+			out = append(out, lockfile.CheckGraphConsistency(g, lf).Diagnostics...)
+		}
+	} else if os.IsNotExist(err) {
+		out = append(out, diag.Diagnostic{Code: "TSPACK_WHY_LOCKFILE_MISSING", Severity: diag.SeverityWarning, Message: "lockfile is missing"})
+	}
+	wr := why.Analyze(g, lf, why.Options{Query: whyOpts.Query, PackageName: whyOpts.PackageName})
+	out = append(out, wr.Diagnostics...)
+	diag.SortDiagnostics(out)
+	return Result{Diagnostics: out, WhyResult: &wr}
+}
 func Sync(opts Options, clean bool) Result {
 	_, g, out := loadManifestAndGraph(opts)
 	_ = g

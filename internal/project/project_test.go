@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/tspack/tspack/internal/diag"
@@ -450,5 +451,61 @@ func TestPackFailsWhenCheckFailsAndWritesNoArtifact(t *testing.T) {
 	}
 	if _, err := os.Stat(outDir); !os.IsNotExist(err) {
 		t.Fatalf("unexpected output dir created")
+	}
+}
+
+func TestWhyDoesNotMutateLockfile(t *testing.T) {
+	dir := t.TempDir()
+	irPath := writeIR(t, dir, simpleIR())
+	lockPath := filepath.Join(dir, "ts-lock.toml")
+	_ = os.WriteFile(lockPath, []byte("[lock]\nformat=1\ntool=\"tspack\"\n"), 0o644)
+	before, _ := os.ReadFile(lockPath)
+	r := Why(DefaultOptionsWithIR(dir, irPath), WhyOptions{Query: "core"})
+	if r.WhyResult == nil {
+		t.Fatalf("missing why result")
+	}
+	after, _ := os.ReadFile(lockPath)
+	if !bytes.Equal(before, after) {
+		t.Fatalf("lockfile mutated")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "node_modules")); !os.IsNotExist(err) {
+		t.Fatalf("node_modules should not exist")
+	}
+}
+
+func TestWhyMissingAndInvalidLockfileAndDeterminism(t *testing.T) {
+	dir := t.TempDir()
+	irPath := writeIR(t, dir, simpleIR())
+	opts := DefaultOptionsWithIR(dir, irPath)
+
+	missing := Why(opts, WhyOptions{Query: "core"})
+	if missing.WhyResult == nil {
+		t.Fatalf("missing why result")
+	}
+	if !hasErrCode(missing.Diagnostics, "TSPACK_WHY_LOCKFILE_MISSING") {
+		t.Fatalf("expected missing lock warning")
+	}
+	if hasErrors(missing.Diagnostics) {
+		t.Fatalf("missing lock should not fail: %#v", missing.Diagnostics)
+	}
+
+	_ = os.WriteFile(opts.LockfilePath, []byte("bad"), 0o644)
+	invalid := Why(opts, WhyOptions{Query: "core"})
+	if invalid.WhyResult == nil {
+		t.Fatalf("invalid lock should still provide why result")
+	}
+	if !hasErrCode(invalid.Diagnostics, "TSPACK_LOCK_INVALID_TOML") {
+		t.Fatalf("expected invalid lock diagnostics")
+	}
+
+	validLock := []byte("[lock]\nformat=1\ntool=\"tspack\"\n")
+	_ = os.WriteFile(opts.LockfilePath, validLock, 0o644)
+	r1 := Why(opts, WhyOptions{Query: "core"})
+	r2 := Why(opts, WhyOptions{Query: "core"})
+	if !reflect.DeepEqual(r1.WhyResult, r2.WhyResult) {
+		t.Fatalf("non-deterministic why result")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".tspack", "store")); !os.IsNotExist(err) {
+		t.Fatalf("store should not be created")
 	}
 }
