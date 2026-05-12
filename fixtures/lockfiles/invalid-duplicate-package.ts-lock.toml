@@ -1,0 +1,16 @@
+[lock]
+format = 1
+
+[[package]]
+id = "npm:a@1"
+name = "a"
+version = "1"
+source = "npm"
+integrity = "x"
+
+[[package]]
+id = "npm:a@1"
+name = "a"
+version = "1"
+source = "npm"
+integrity = "x"

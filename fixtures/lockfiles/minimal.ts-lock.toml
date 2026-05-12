@@ -1,0 +1,23 @@
+[lock]
+format = 1
+tool = "tspack"
+
+[[package]]
+id = "npm:react@19.1.0"
+name = "react"
+version = "19.1.0"
+source = "npm"
+integrity = "sha512-x"
+
+[[edge]]
+from = "machinalayout:target:react"
+to = "npm:react@19.1.0"
+kind = "peer"
+
+[[target]]
+package = "machinalayout"
+name = "react"
+export = "./react"
+entry = "src/react/index.ts"
+runtime = "dist/react/index.js"
+types = "dist/react/index.d.ts"

@@ -1,0 +1,7 @@
+[lock]
+format = 1
+
+[[edge]]
+from = "p:t"
+to = "npm:none@1"
+kind = "dep"
