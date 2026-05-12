@@ -1,0 +1,10 @@
+[lock]
+format = 1
+
+[[target]]
+package = "p"
+name = "t"
+export = "./t"
+entry = "../bad.ts"
+runtime = "dist/t.js"
+types = "dist/t.d.ts"

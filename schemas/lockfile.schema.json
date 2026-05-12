@@ -1,14 +1,51 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tspack.dev/schemas/lockfile.schema.json",
-  "title": "TSPack Lockfile (M0 placeholder)",
+  "title": "TSPack Lockfile",
   "type": "object",
-  "required": ["lock", "packages", "edges", "targets"],
+  "required": ["lock"],
   "properties": {
-    "lock": { "type": "string" },
-    "packages": { "type": "array", "items": { "type": "object" } },
-    "edges": { "type": "array", "items": { "type": "object" } },
-    "targets": { "type": "array", "items": { "type": "object" } }
+    "lock": {
+      "type": "object",
+      "required": ["format"],
+      "properties": {
+        "format": { "const": 1 },
+        "tool": { "type": "string" },
+        "generated_by": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "package": { "type": "array", "items": { "$ref": "#/$defs/package" } },
+    "edge": { "type": "array", "items": { "$ref": "#/$defs/edge" } },
+    "target": { "type": "array", "items": { "$ref": "#/$defs/target" } }
   },
-  "additionalProperties": true
+  "$defs": {
+    "package": {
+      "type": "object",
+      "required": ["id", "name", "source"],
+      "properties": {
+        "id": { "type": "string" }, "name": { "type": "string" }, "version": { "type": "string" },
+        "source": { "enum": ["npm", "git", "path", "workspace"] },
+        "integrity": { "type": "string" }, "repo": { "type": "string" }, "rev": { "type": "string" },
+        "tree_hash": { "type": "string" }, "path": { "type": "string" }, "workspace": { "type": "string" }, "hash": { "type": "string" }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": ["from", "to", "kind"],
+      "properties": {
+        "from": { "type": "string" }, "to": { "type": "string" },
+        "kind": { "enum": ["runtime", "dep", "peer", "optionalPeer", "tool", "type", "test", "workspace"] },
+        "optional": { "type": "boolean" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "required": ["package", "name", "export", "entry", "runtime", "types"],
+      "properties": {
+        "package": { "type": "string" }, "name": { "type": "string" }, "export": { "type": "string" },
+        "entry": { "type": "string" }, "runtime": { "type": "string" }, "types": { "type": "string" }
+      }
+    }
+  }
 }

@@ -1,0 +1,11 @@
+[lock]
+format = 1
+tool = "tspack"
+
+[[package]]
+id = "git:https://github.com/acme/helper.git#8f3a91c"
+name = "@acme/helper"
+source = "git"
+repo = "https://github.com/acme/helper.git"
+rev = "8f3a91c"
+tree_hash = "sha256-x"
