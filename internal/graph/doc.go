@@ -1,3 +1,4 @@
 package graph
 
-// TODO(M0): Placeholder package for future milestone implementations.
+// Package graph builds the internal package/target/dependency graph from
+// validated manifest IR and provides deterministic query APIs.

@@ -117,38 +117,115 @@ var (
 
 func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 	var out []diag.Diagnostic
-	add := func(code, msg string, details ...string) { out = append(out, diag.Diagnostic{Code: code, Severity: diag.SeverityError, Message: msg, File: file, Details: details}) }
-	if ir.Format != 1 { add("TSPACK_IR_UNSUPPORTED_FORMAT", "format must be 1") }
-	if strings.TrimSpace(ir.Workspace.Name) == "" { add("TSPACK_IR_MISSING_WORKSPACE", "workspace.name is required") } else if !workspaceNameRe.MatchString(ir.Workspace.Name) || strings.Contains(ir.Workspace.Name, "/") || strings.Contains(ir.Workspace.Name, `\\`) { add("TSPACK_IR_INVALID_WORKSPACE_NAME", "invalid workspace.name") }
-	if len(ir.Packages)==0 { add("TSPACK_IR_NO_PACKAGES", "at least one package is required") }
-	seenPkg:=map[string]struct{}{}
-	for pi,p:= range ir.Packages {
+	add := func(code, msg string, details ...string) {
+		out = append(out, diag.Diagnostic{Code: code, Severity: diag.SeverityError, Message: msg, File: file, Details: details})
+	}
+	if ir.Format != 1 {
+		add("TSPACK_IR_UNSUPPORTED_FORMAT", "format must be 1")
+	}
+	if strings.TrimSpace(ir.Workspace.Name) == "" {
+		add("TSPACK_IR_MISSING_WORKSPACE", "workspace.name is required")
+	} else if !workspaceNameRe.MatchString(ir.Workspace.Name) || strings.Contains(ir.Workspace.Name, "/") || strings.Contains(ir.Workspace.Name, `\\`) {
+		add("TSPACK_IR_INVALID_WORKSPACE_NAME", "invalid workspace.name")
+	}
+	if len(ir.Packages) == 0 {
+		add("TSPACK_IR_NO_PACKAGES", "at least one package is required")
+	}
+	seenPkg := map[string]struct{}{}
+	for pi, p := range ir.Packages {
 		pp := fmt.Sprintf("packages[%d]", pi)
-		if !pkgNameRe.MatchString(p.Name) { add("TSPACK_IR_INVALID_PACKAGE_NAME", pp+".name is invalid") }
-		if !versionRe.MatchString(p.Version) { add("TSPACK_IR_INVALID_PACKAGE_VERSION", pp+".version is invalid") }
-		if p.Kind!="library"&&p.Kind!="app"&&p.Kind!="tool" { add("TSPACK_IR_INVALID_PACKAGE_KIND", pp+".kind is invalid") }
-		if _,ok:=seenPkg[p.Name]; ok { add("TSPACK_IR_DUPLICATE_PACKAGE", "duplicate package name: "+p.Name) }; seenPkg[p.Name]=struct{}{}
-		depKinds:=map[string]string{}
-		for i,d:= range p.Dependencies { k:=depIdentity(d); if k=="" { add("TSPACK_IR_DUPLICATE_DEPENDENCY", fmt.Sprintf("%s.dependencies[%d] missing key",pp,i)); continue }
-			if _,ok:=depKinds[k]; ok { add("TSPACK_IR_DUPLICATE_DEPENDENCY", "duplicate dependency key: "+k) }
-			depKinds[k]=d.Kind
+		if !pkgNameRe.MatchString(p.Name) {
+			add("TSPACK_IR_INVALID_PACKAGE_NAME", pp+".name is invalid")
+		}
+		if !versionRe.MatchString(p.Version) {
+			add("TSPACK_IR_INVALID_PACKAGE_VERSION", pp+".version is invalid")
+		}
+		if p.Kind != "library" && p.Kind != "app" && p.Kind != "tool" {
+			add("TSPACK_IR_INVALID_PACKAGE_KIND", pp+".kind is invalid")
+		}
+		if _, ok := seenPkg[p.Name]; ok {
+			add("TSPACK_IR_DUPLICATE_PACKAGE", "duplicate package name: "+p.Name)
+		}
+		seenPkg[p.Name] = struct{}{}
+		depKinds := map[string]string{}
+		for i, d := range p.Dependencies {
+			k := depIdentity(d)
+			if k == "" {
+				add("TSPACK_IR_DUPLICATE_DEPENDENCY", fmt.Sprintf("%s.dependencies[%d] missing key", pp, i))
+				continue
+			}
+			if _, ok := depKinds[k]; ok {
+				add("TSPACK_IR_DUPLICATE_DEPENDENCY", "duplicate dependency key: "+k)
+			}
+			depKinds[k] = d.Kind
 			validateDep(add, pp, i, d)
 		}
-		seenTarget:=map[string]struct{}{}; seenExport:=map[string]struct{}{}
-		for ti,t:= range p.Targets { tp:=fmt.Sprintf("%s.targets[%d]",pp,ti); if t.Name==""||!targetNameRe.MatchString(t.Name)||strings.HasPrefix(t.Name,"/")||strings.HasSuffix(t.Name,"/")||strings.Contains(t.Name,"..") { add("TSPACK_IR_INVALID_TARGET_NAME", tp+".name is invalid") }
-			if _,ok:=seenTarget[t.Name]; ok { add("TSPACK_IR_DUPLICATE_TARGET","duplicate target name: "+t.Name)}; seenTarget[t.Name]=struct{}{}
-			if t.Export!="." && (!strings.HasPrefix(t.Export,"./") || strings.Contains(t.Export,"..")) { add("TSPACK_IR_INVALID_EXPORT_PATH", tp+".export is invalid") }
-			if _,ok:=seenExport[t.Export]; ok { add("TSPACK_IR_DUPLICATE_EXPORT", "duplicate export path: "+t.Export)}; seenExport[t.Export]=struct{}{}
-			for _,f:= range []struct{name,v string}{{"entry",t.Entry},{"runtime",t.Runtime},{"types",t.Types}} { if !isValidRelPath(f.v){ add("TSPACK_IR_INVALID_RELATIVE_PATH", tp+"."+f.name+" must be a safe relative path") } }
-			for _,ref := range t.Peers { if _,ok:=depKinds[ref]; !ok { add("TSPACK_IR_UNKNOWN_DEPENDENCY_REF", tp+".peers has unknown dependency: "+ref) } }
-			for _,ref := range t.Deps { if _,ok:=depKinds[ref]; !ok { add("TSPACK_IR_UNKNOWN_DEPENDENCY_REF", tp+".deps has unknown dependency: "+ref) } }
+		seenTarget := map[string]struct{}{}
+		seenExport := map[string]struct{}{}
+		for ti, t := range p.Targets {
+			tp := fmt.Sprintf("%s.targets[%d]", pp, ti)
+			if t.Name == "" || !targetNameRe.MatchString(t.Name) || strings.HasPrefix(t.Name, "/") || strings.HasSuffix(t.Name, "/") || strings.Contains(t.Name, "..") {
+				add("TSPACK_IR_INVALID_TARGET_NAME", tp+".name is invalid")
+			}
+			if _, ok := seenTarget[t.Name]; ok {
+				add("TSPACK_IR_DUPLICATE_TARGET", "duplicate target name: "+t.Name)
+			}
+			seenTarget[t.Name] = struct{}{}
+			if t.Export != "." && (!strings.HasPrefix(t.Export, "./") || strings.Contains(t.Export, "..")) {
+				add("TSPACK_IR_INVALID_EXPORT_PATH", tp+".export is invalid")
+			}
+			if _, ok := seenExport[t.Export]; ok {
+				add("TSPACK_IR_DUPLICATE_EXPORT", "duplicate export path: "+t.Export)
+			}
+			seenExport[t.Export] = struct{}{}
+			for _, f := range []struct{ name, v string }{{"entry", t.Entry}, {"runtime", t.Runtime}, {"types", t.Types}} {
+				if !isValidRelPath(f.v) {
+					add("TSPACK_IR_INVALID_RELATIVE_PATH", tp+"."+f.name+" must be a safe relative path")
+				}
+			}
+			for _, ref := range t.Peers {
+				if _, ok := depKinds[ref]; !ok {
+					add("TSPACK_IR_UNKNOWN_DEPENDENCY_REF", tp+".peers has unknown dependency: "+ref)
+				}
+			}
+			for _, ref := range t.Deps {
+				if _, ok := depKinds[ref]; !ok {
+					add("TSPACK_IR_UNKNOWN_DEPENDENCY_REF", tp+".deps has unknown dependency: "+ref)
+				}
+			}
 		}
-		for _,tool:= range p.Tools { kind,ok:=depKinds[tool]; if !ok { add("TSPACK_IR_UNKNOWN_DEPENDENCY_REF", pp+".tools has unknown dependency: "+tool) } else if kind!="tool" { add("TSPACK_IR_INVALID_DEPENDENCY_KIND", pp+".tools must reference tool dependencies") } }
-		for k,v := range p.Policies.Types { if !isValidTypePolicy(k,v) { add("TSPACK_IR_INVALID_POLICY", "invalid types policy: "+k) } }
-		for k,v := range p.Policies.Boundaries { if !isValidBoundaryPolicy(k,v) { add("TSPACK_IR_INVALID_POLICY", "invalid boundaries policy: "+k) } }
-		for bi,b := range p.Boundaries { bp := fmt.Sprintf("%s.boundaries[%d]",pp,bi); if !isValidRelPath(b.From) { add("TSPACK_IR_INVALID_BOUNDARY", bp+".from is invalid") } }
-		if p.Kind=="library" && len(p.Publish.Include)==0 { add("TSPACK_IR_INVALID_PUBLISH_POLICY", pp+".publish.include required for library") }
-		for _,it:= range append(append([]string{}, p.Publish.Include...), p.Publish.Exclude...) { if !isValidRelPath(it) && !isGlobLike(it) { add("TSPACK_IR_INVALID_PUBLISH_POLICY", "publish path is invalid: "+it) } }
+		for _, tool := range p.Tools {
+			kind, ok := depKinds[tool]
+			if !ok {
+				add("TSPACK_IR_UNKNOWN_DEPENDENCY_REF", pp+".tools has unknown dependency: "+tool)
+			} else if kind != "tool" {
+				add("TSPACK_IR_INVALID_DEPENDENCY_KIND", pp+".tools must reference tool dependencies")
+			}
+		}
+		for k, v := range p.Policies.Types {
+			if !isValidTypePolicy(k, v) {
+				add("TSPACK_IR_INVALID_POLICY", "invalid types policy: "+k)
+			}
+		}
+		for k, v := range p.Policies.Boundaries {
+			if !isValidBoundaryPolicy(k, v) {
+				add("TSPACK_IR_INVALID_POLICY", "invalid boundaries policy: "+k)
+			}
+		}
+		for bi, b := range p.Boundaries {
+			bp := fmt.Sprintf("%s.boundaries[%d]", pp, bi)
+			if !isValidRelPath(b.From) {
+				add("TSPACK_IR_INVALID_BOUNDARY", bp+".from is invalid")
+			}
+		}
+		if p.Kind == "library" && len(p.Publish.Include) == 0 {
+			add("TSPACK_IR_INVALID_PUBLISH_POLICY", pp+".publish.include required for library")
+		}
+		for _, it := range append(append([]string{}, p.Publish.Include...), p.Publish.Exclude...) {
+			if !isValidRelPath(it) && !isGlobLike(it) {
+				add("TSPACK_IR_INVALID_PUBLISH_POLICY", "publish path is invalid: "+it)
+			}
+		}
 	}
 	diag.SortDiagnostics(out)
 	return out
@@ -162,11 +239,94 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 //  2. dependency.source.package
 //  3. dependency.source.name
 //  4. path.Base(dependency.source.ref)
-func depIdentity(d DependencyIntent) string { if d.Key!=""{return d.Key}; if d.Source.Package!="" {return d.Source.Package}; if d.Source.Name!=""{return d.Source.Name}; if d.Source.Ref!=""{return path.Base(d.Source.Ref)}; return "" }
-func isValidRelPath(p string) bool { if strings.TrimSpace(p)==""||strings.HasPrefix(p,"/")||strings.Contains(p,`\\`)||strings.Contains(p,"..") { return false }; return true }
-func isGlobLike(p string) bool { return strings.ContainsAny(p, "*?[]") && isValidRelPath(strings.ReplaceAll(strings.ReplaceAll(p,"*","x"),"?","x")) }
-func validateDep(add func(string,string,...string), pp string, i int, d DependencyIntent){allowed:=map[string]bool{"runtime":true,"dep":true,"peer":true,"tool":true,"type":true,"test":true,"workspace":true}; if !allowed[d.Kind]{add("TSPACK_IR_INVALID_DEPENDENCY_KIND", fmt.Sprintf("%s.dependencies[%d].kind is invalid",pp,i))}; sk:=d.Source.Kind; if sk!="npm"&&sk!="git"&&sk!="path"&&sk!="workspace"{add("TSPACK_IR_INVALID_SOURCE_KIND", fmt.Sprintf("%s.dependencies[%d].source.kind is invalid",pp,i)); return}; switch sk {case "npm": if d.Source.Package==""||d.Source.Range==""{add("TSPACK_IR_INVALID_SOURCE", fmt.Sprintf("%s.dependencies[%d].source npm requires package and range",pp,i))}; case "git": if d.Source.Repo==""&&d.Source.Ref==""{add("TSPACK_IR_INVALID_SOURCE", fmt.Sprintf("%s.dependencies[%d].source git requires repo/ref",pp,i))}; if d.Source.Tag==""&&d.Source.Rev==""&&d.Source.Branch==""{add("TSPACK_IR_INVALID_SOURCE", fmt.Sprintf("%s.dependencies[%d].source git requires tag/rev/branch",pp,i))}; case "path": if !isValidRelPath(d.Source.Path){add("TSPACK_IR_INVALID_SOURCE", fmt.Sprintf("%s.dependencies[%d].source path must be safe relative",pp,i))}; case "workspace": if d.Source.Name==""&&d.Source.Package==""{add("TSPACK_IR_INVALID_SOURCE", fmt.Sprintf("%s.dependencies[%d].source workspace requires name/package",pp,i))}} }
-func isValidTypePolicy(k,v string) bool { allowed:=map[string][]string{"declarations":{"required","optional","none"},"missingTypes":{"error","warn","ignore"},"publicTypeLeakage":{"error","warn","ignore"},"typeOnlyRuntimeLeakage":{"error","warn","ignore"}}; vals,ok:=allowed[k]; if !ok{return false}; for _,x:= range vals {if v==x{return true}}; return false }
-func isValidBoundaryPolicy(k,v string) bool { allowed:=map[string][]string{"undeclaredImports":{"error","warn","ignore"},"phantomDependencies":{"error","warn","ignore"},"crossTargetImports":{"error","warn","ignore"},"strict":{"error","warn","ignore"}}; vals,ok:=allowed[k]; if !ok{return false}; for _,x:= range vals{if v==x{return true}}; return false }
+func DependencyIdentity(d DependencyIntent) string {
+	if d.Key != "" {
+		return d.Key
+	}
+	if d.Source.Package != "" {
+		return d.Source.Package
+	}
+	if d.Source.Name != "" {
+		return d.Source.Name
+	}
+	if d.Source.Ref != "" {
+		return path.Base(d.Source.Ref)
+	}
+	return ""
+}
 
-func StableDiagnosticsJSON(diags []diag.Diagnostic) []byte { cp:=append([]diag.Diagnostic(nil), diags...); diag.SortDiagnostics(cp); b,_:=json.Marshal(cp); return b }
+func depIdentity(d DependencyIntent) string { return DependencyIdentity(d) }
+func isValidRelPath(p string) bool {
+	if strings.TrimSpace(p) == "" || strings.HasPrefix(p, "/") || strings.Contains(p, `\\`) || strings.Contains(p, "..") {
+		return false
+	}
+	return true
+}
+func isGlobLike(p string) bool {
+	return strings.ContainsAny(p, "*?[]") && isValidRelPath(strings.ReplaceAll(strings.ReplaceAll(p, "*", "x"), "?", "x"))
+}
+func validateDep(add func(string, string, ...string), pp string, i int, d DependencyIntent) {
+	allowed := map[string]bool{"runtime": true, "dep": true, "peer": true, "tool": true, "type": true, "test": true, "workspace": true}
+	if !allowed[d.Kind] {
+		add("TSPACK_IR_INVALID_DEPENDENCY_KIND", fmt.Sprintf("%s.dependencies[%d].kind is invalid", pp, i))
+	}
+	sk := d.Source.Kind
+	if sk != "npm" && sk != "git" && sk != "path" && sk != "workspace" {
+		add("TSPACK_IR_INVALID_SOURCE_KIND", fmt.Sprintf("%s.dependencies[%d].source.kind is invalid", pp, i))
+		return
+	}
+	switch sk {
+	case "npm":
+		if d.Source.Package == "" || d.Source.Range == "" {
+			add("TSPACK_IR_INVALID_SOURCE", fmt.Sprintf("%s.dependencies[%d].source npm requires package and range", pp, i))
+		}
+	case "git":
+		if d.Source.Repo == "" && d.Source.Ref == "" {
+			add("TSPACK_IR_INVALID_SOURCE", fmt.Sprintf("%s.dependencies[%d].source git requires repo/ref", pp, i))
+		}
+		if d.Source.Tag == "" && d.Source.Rev == "" && d.Source.Branch == "" {
+			add("TSPACK_IR_INVALID_SOURCE", fmt.Sprintf("%s.dependencies[%d].source git requires tag/rev/branch", pp, i))
+		}
+	case "path":
+		if !isValidRelPath(d.Source.Path) {
+			add("TSPACK_IR_INVALID_SOURCE", fmt.Sprintf("%s.dependencies[%d].source path must be safe relative", pp, i))
+		}
+	case "workspace":
+		if d.Source.Name == "" && d.Source.Package == "" {
+			add("TSPACK_IR_INVALID_SOURCE", fmt.Sprintf("%s.dependencies[%d].source workspace requires name/package", pp, i))
+		}
+	}
+}
+func isValidTypePolicy(k, v string) bool {
+	allowed := map[string][]string{"declarations": {"required", "optional", "none"}, "missingTypes": {"error", "warn", "ignore"}, "publicTypeLeakage": {"error", "warn", "ignore"}, "typeOnlyRuntimeLeakage": {"error", "warn", "ignore"}}
+	vals, ok := allowed[k]
+	if !ok {
+		return false
+	}
+	for _, x := range vals {
+		if v == x {
+			return true
+		}
+	}
+	return false
+}
+func isValidBoundaryPolicy(k, v string) bool {
+	allowed := map[string][]string{"undeclaredImports": {"error", "warn", "ignore"}, "phantomDependencies": {"error", "warn", "ignore"}, "crossTargetImports": {"error", "warn", "ignore"}, "strict": {"error", "warn", "ignore"}}
+	vals, ok := allowed[k]
+	if !ok {
+		return false
+	}
+	for _, x := range vals {
+		if v == x {
+			return true
+		}
+	}
+	return false
+}
+
+func StableDiagnosticsJSON(diags []diag.Diagnostic) []byte {
+	cp := append([]diag.Diagnostic(nil), diags...)
+	diag.SortDiagnostics(cp)
+	b, _ := json.Marshal(cp)
+	return b
+}
