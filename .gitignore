@@ -35,3 +35,7 @@ go.work.sum
 node_modules/
 manifest-frontend/node_modules/
 manifest-frontend/package-lock.json
+
+.tspack/store/
+tspack-artifacts/
+dist-packages/

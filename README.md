@@ -1,41 +1,31 @@
 # TSPack
 
-TSPack is a TypeScript-first package manager focused on deterministic dependency intent (`manifest.tsx`) and resolved truth (`ts-lock.toml`).
+TSPack is a TypeScript-first package manager prototype centered on deterministic intent (`manifest.tsx`) and deterministic resolved truth (`ts-lock.toml`).
 
-## Current milestone
+## v1 command loop (M15b release-gate)
 
-- **M14**: security/capability policy hardening (fetch-not-execute, lifecycle capability visibility).
+- `tspack check`
+- `tspack update`
+- `tspack sync`
+- `tspack why <query>`
+- `tspack pack`
 
-## What works now
+## Core contracts
 
-- Minimal Go CLI entry point with `tspack --version` and `tspack help`.
-- Go diagnostics model scaffold and deterministic sorting tests.
-- TypeScript manifest frontend parses restricted `manifest.tsx` AST into deterministic JSON IR.
-- Stable frontend diagnostics for forbidden imports/dynamic constructs/etc.
-- Valid/invalid fixture coverage with golden IR snapshots.
+- `manifest.tsx` and `package.manifest.tsx` are parsed as restricted documents; they are **not executed**.
+- `ts-lock.toml` is resolved truth.
+- `node_modules` is a generated compatibility artifact, not source of truth.
+- Fetch is not execute: dependency lifecycle scripts are not run.
 
-## What intentionally does not work yet
+## v1 non-goals
 
-- Git/path/workspace source resolution.
-- Lockfile TOML semantics/read/write.
-- `node_modules` materialization.
-- package script execution.
-- `build/test/dev/publish` package-manager commands.
+TSPack v1 does **not** implement package-manager commands for `build`, `test`, `dev`, `publish`, `add`, or `remove`, and does not run package scripts.
 
 ## Testing
 
 ```bash
 go test ./...
-cd manifest-frontend
-npm install
-npm test
+cd manifest-frontend && npm test
 ```
 
-
-## M11 commands
-
-- `tspack check`
-- `tspack update`
-- `tspack sync`
-
-Out of scope in v1: build/test/dev/publish/pack/why/add/remove.
+See `docs/release-checklist.md` for release smoke commands and audit checklist.

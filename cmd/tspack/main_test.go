@@ -120,3 +120,33 @@ process.stdout.write(JSON.stringify(out));`
 		t.Fatalf("missing query diagnostic not surfaced: %s", string(b))
 	}
 }
+
+func TestCLIHelpAndUnsupportedCommands(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	help := exec.Command("go", "run", "./cmd/tspack", "help")
+	help.Dir = repo
+	b, err := help.CombinedOutput()
+	if err != nil {
+		t.Fatalf("help failed: %v\n%s", err, string(b))
+	}
+	text := string(b)
+	for _, cmd := range []string{"check", "update", "sync", "pack", "why", "--version", "help"} {
+		if !strings.Contains(text, cmd) {
+			t.Fatalf("help missing %s: %s", cmd, text)
+		}
+	}
+	for _, unsupported := range []string{"build", "test", "dev", "publish", "add", "remove"} {
+		if strings.Contains(text, "tspack "+unsupported) {
+			t.Fatalf("help unexpectedly advertises unsupported command %s", unsupported)
+		}
+	}
+
+	for _, c := range []string{"build", "test", "publish"} {
+		cmd := exec.Command("go", "run", "./cmd/tspack", c)
+		cmd.Dir = repo
+		ob, e := cmd.CombinedOutput()
+		if e == nil || !strings.Contains(string(ob), "unknown command") {
+			t.Fatalf("expected deterministic unknown command for %s: %v\n%s", c, e, string(ob))
+		}
+	}
+}
