@@ -54,3 +54,8 @@ Tar extraction rejects absolute paths, `..` traversal segments, and destination 
 - no sync/update CLI behavior
 - no package fetching
 - no GC implementation
+
+
+## Materialization integration (M10)
+
+The store is the artifact source for `internal/materialize` node_modules generation. The materializer verifies store artifacts before writing compatibility output.
