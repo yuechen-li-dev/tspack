@@ -1,5 +1,13 @@
 # AGENTS.md
 
+## Code readability rule
+
+Do not write minified or overly compact code.
+
+All TypeScript and Go should be formatted as ordinary readable source: multi-line functions, clear variable names, explicit branches where helpful, and small helpers for repeated logic. Avoid clever one-liners, nested ternaries, and dense chained expressions.
+
+The preferred style is boring, explicit, and easy to review.
+
 ## Convergence rule
 
 Every substantial task must end in exactly one of three states:
