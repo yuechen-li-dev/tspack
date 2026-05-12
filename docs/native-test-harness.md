@@ -97,3 +97,43 @@ Test callbacks receive `ctx.artifact` writer:
 Artifact reasons are mandatory. Required artifacts must be written unless the test is skipped.
 
 Non-goals in M17c remain unchanged: no fixtures, no snapshots/golden assertions, no command helpers, and no filesystem assertion API beyond artifact writing.
+
+## M17d list/filter/report
+
+### Listing APIs
+
+- `listDiscoveredTests(discovery)` expands static discovery into deterministic `ListedTest[]` entries.
+- `listNativeTests(options)` performs file discovery and returns `{ tests, diagnostics }`.
+- Listing is static-only and does not import test modules or execute callbacks.
+- Listed IDs keep the `file.xtest.tsx::suite/test` prefix shape.
+- Listed metadata includes Fact and Theory cases plus declared artifacts.
+
+### Filter semantics
+
+- `runNativeTestFiles({ filter })` uses plain substring matching against full test IDs.
+- Theory-name matches include all theory cases because case IDs include the theory name.
+- Case suffix filtering (for example `[1]`) works because suffix appears in final IDs.
+- Filtering is applied before module import; files with no matching discovered IDs are not imported.
+- No-match filter emits `TSPACK_TEST_FILTER_NO_MATCH` and returns no test results.
+
+### Report model
+
+- `createNativeTestReport(result)` returns `{ summary, tests, diagnostics }`.
+- Summary includes total/passed/failed/skipped/diagnostic counts.
+- Test entries include status, optional skip reason, failure normalization, and artifacts.
+- Failure normalization surfaces code/message/reason/assertion/actual/expected plus near details when present.
+
+### Text and JSON reports
+
+- `formatNativeTestTextReport(report)` emits deterministic PASS/FAIL/SKIP lines, failure details, artifact lines, diagnostics, and summary counts.
+- `formatNativeTestJsonReport(report)` emits two-space indented JSON with trailing newline.
+
+### Exit code semantics
+
+- `nativeTestExitCode(report)` returns `1` when:
+  - any test failed, or
+  - any diagnostic is severity `error` (default severity if missing).
+- Returns `0` when all tests pass/skip and diagnostics are non-error.
+- `TSPACK_TEST_FILTER_NO_MATCH` is treated as error and therefore exits `1`.
+
+M17d non-goals remain unchanged: no fixture runner, no command helpers, no filesystem assertion suite, no Vitest orchestration, and no package-manager `tspack test` CLI.
