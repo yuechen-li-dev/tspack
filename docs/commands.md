@@ -15,3 +15,8 @@ If that built CLI is missing, commands fail with `TSPACK_PROJECT_MANIFEST_FRONTE
 The bridge never executes `manifest.tsx` directly.
 
 `node_modules` remains a generated compatibility artifact, not source-of-truth.
+
+
+## pack
+
+`tspack pack [--root .] [--out <dir>] [--package <name>] [--dry-run]` creates deterministic local package archives.
