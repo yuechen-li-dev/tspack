@@ -74,3 +74,6 @@ Unsupported modes return diagnostics.
 - no script execution
 - no pack/why commands
 - no build/test/dev/publish commands
+
+
+M11: `tspack sync` invokes the materializer. `node_modules` remains a compatibility output, not source-of-truth.

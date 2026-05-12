@@ -30,3 +30,12 @@ cd manifest-frontend
 npm install
 npm test
 ```
+
+
+## M11 commands
+
+- `tspack check`
+- `tspack update`
+- `tspack sync`
+
+Out of scope in v1: build/test/dev/publish/pack/why/add/remove.
