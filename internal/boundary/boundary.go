@@ -30,7 +30,11 @@ func Check(opts Options) []diag.Diagnostic {
 }
 
 func checkTarget(root string, p *graph.PackageNode, t *graph.TargetNode) []diag.Diagnostic {
-	entry := filepath.Clean(filepath.Join(root, t.Entry))
+	pkgRoot := p.Root
+	if pkgRoot == "" {
+		pkgRoot = "."
+	}
+	entry := filepath.Clean(filepath.Join(root, pkgRoot, t.Entry))
 	q := []string{entry}
 	parents := map[string]string{}
 	seen := map[string]bool{}

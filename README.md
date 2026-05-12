@@ -4,7 +4,7 @@ TSPack is a TypeScript-first package manager focused on deterministic dependency
 
 ## Current milestone
 
-- **M1**: manifest frontend parser/validator/normalizer for restricted `manifest.tsx`.
+- **M6b**: workspace/package manifest split support plus package-root-aware checking.
 
 ## What works now
 

@@ -24,6 +24,7 @@ type Workspace struct {
 type Package struct {
 	Name         string             `json:"name"`
 	Version      string             `json:"version"`
+	Root         string             `json:"root,omitempty"`
 	License      string             `json:"license,omitempty"`
 	Kind         string             `json:"kind"`
 	Policies     Policies           `json:"policies"`
@@ -142,6 +143,9 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 		}
 		if p.Kind != "library" && p.Kind != "app" && p.Kind != "tool" {
 			add("TSPACK_IR_INVALID_PACKAGE_KIND", pp+".kind is invalid")
+		}
+		if p.Root != "" && p.Root != "." && !isValidRelPath(p.Root) {
+			add("TSPACK_IR_INVALID_PACKAGE_ROOT", pp+".root must be a safe relative path")
 		}
 		if _, ok := seenPkg[p.Name]; ok {
 			add("TSPACK_IR_DUPLICATE_PACKAGE", "duplicate package name: "+p.Name)

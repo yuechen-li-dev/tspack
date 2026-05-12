@@ -31,7 +31,8 @@ func checkTarget(root string, p *graph.PackageNode, t *graph.TargetNode, pol pol
 	if types=="" && pol.decl=="required" && pol.missing!="ignore" { return []diag.Diagnostic{mk("TSPACK_TYPE_MISSING_OUTPUT",pol.missing,"target missing declarations output",t.Entry,t,"")} }
 	if types=="" { return nil }
 	if filepath.IsAbs(types) || strings.Contains(types,"..") { if pol.missing!="ignore" { out=append(out,mk("TSPACK_TYPE_INVALID_OUTPUT_PATH",pol.missing,"invalid type output path",types,t,"")) }; return out }
-	entry:=filepath.Clean(filepath.Join(root,types)); if _,err:=os.Stat(entry); err!=nil { if os.IsNotExist(err) { if pol.missing!="ignore" { out=append(out,mk("TSPACK_TYPE_MISSING_OUTPUT",pol.missing,"declared type output missing",entry,t,"")) } } else if pol.missing!="ignore" { out=append(out,mk("TSPACK_TYPE_UNREADABLE_OUTPUT",pol.missing,"declared type output unreadable",entry,t,err.Error())) }; return out }
+	pkgRoot:=p.Root; if pkgRoot=="" { pkgRoot="." }
+	entry:=filepath.Clean(filepath.Join(root,pkgRoot,types)); if _,err:=os.Stat(entry); err!=nil { if os.IsNotExist(err) { if pol.missing!="ignore" { out=append(out,mk("TSPACK_TYPE_MISSING_OUTPUT",pol.missing,"declared type output missing",entry,t,"")) } } else if pol.missing!="ignore" { out=append(out,mk("TSPACK_TYPE_UNREADABLE_OUTPUT",pol.missing,"declared type output unreadable",entry,t,err.Error())) }; return out }
 	if pol.leak=="ignore" { return out }
 	return append(out, walkTypes(p,t,entry,pol.leak)...)
 }

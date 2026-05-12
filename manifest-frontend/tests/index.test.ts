@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseManifestFile } from '../src/index';
+import { parseManifestFile, parseWorkspace } from '../src/index';
 
 const root = path.resolve(process.cwd(), '..');
 
@@ -36,6 +36,13 @@ describe('manifest frontend parser', () => {
     const a = JSON.stringify(parseManifestFile(fixture('valid', 'minimal-library')).ir);
     const b = JSON.stringify(parseManifestFile(fixture('valid', 'minimal-library')).ir);
     expect(a).toBe(b);
+  });
+  it('parseWorkspace parses split workspace deterministically', () => {
+    const manifestPath = fixture('valid', 'm6b-workspace-split');
+    const a = JSON.stringify(parseWorkspace(manifestPath).ir);
+    const b = JSON.stringify(parseWorkspace(manifestPath).ir);
+    expect(a).toBe(b);
+    expect(parseWorkspace(manifestPath).ok).toBe(true);
   });
 
   it.each([

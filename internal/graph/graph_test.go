@@ -188,3 +188,31 @@ func TestFixturePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestBuildM6BSplitWorkspace(t *testing.T) {
+	ir := loadIR(t, "../../fixtures/valid/m6b-workspace-split/manifest.ir.golden.json")
+	g, diags := Build(ir)
+	if len(diags) > 0 {
+		t.Fatalf("diags: %#v", diags)
+	}
+	core, ok := g.Package("@m6b/core")
+	if !ok {
+		t.Fatal("missing @m6b/core")
+	}
+	react, ok := g.Package("@m6b/react")
+	if !ok {
+		t.Fatal("missing @m6b/react")
+	}
+	if core.Root != "packages/core" {
+		t.Fatalf("core root=%q", core.Root)
+	}
+	if react.Root != "packages/react" {
+		t.Fatalf("react root=%q", react.Root)
+	}
+	if _, ok := core.Target("core"); !ok {
+		t.Fatal("missing core target")
+	}
+	if _, ok := react.Target("react"); !ok {
+		t.Fatal("missing react target")
+	}
+}

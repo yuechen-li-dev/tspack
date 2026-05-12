@@ -29,6 +29,7 @@ type WorkspaceGraph struct {
 type PackageNode struct {
 	Name              string
 	Version           string
+	Root              string
 	Kind              string
 	Dependencies      []*DependencyNode
 	DependenciesByKey map[string]*DependencyNode
@@ -88,7 +89,7 @@ func Build(ir *manifest.ManifestIR) (*WorkspaceGraph, []diag.Diagnostic) {
 			add("TSPACK_GRAPH_DUPLICATE_PACKAGE", "duplicate package", p.Name)
 			continue
 		}
-		pn := &PackageNode{Name: p.Name, Version: p.Version, Kind: p.Kind, DependenciesByKey: map[string]*DependencyNode{}, TargetsByName: map[string]*TargetNode{}, TargetsByExport: map[string]*TargetNode{}, Boundaries: append([]manifest.BoundaryRule(nil), p.Boundaries...), Publish: p.Publish, Policies: p.Policies}
+		pn := &PackageNode{Name: p.Name, Version: p.Version, Root: p.Root, Kind: p.Kind, DependenciesByKey: map[string]*DependencyNode{}, TargetsByName: map[string]*TargetNode{}, TargetsByExport: map[string]*TargetNode{}, Boundaries: append([]manifest.BoundaryRule(nil), p.Boundaries...), Publish: p.Publish, Policies: p.Policies}
 		g.PackagesByName[p.Name] = pn
 		g.Packages = append(g.Packages, pn)
 

@@ -69,3 +69,26 @@ func TestCheckPackageIntegrationAndTypeOnlyRuntime(t *testing.T) {
 	for _, d := range res.Diagnostics { codes[d.Code] = true }
 	if !codes["TSPACK_BOUNDARY_TYPE_ONLY_RUNTIME_IMPORT"] { t.Fatalf("missing type-only runtime diag: %#v", res.Diagnostics) }
 }
+
+func TestM6BSplitWorkspaceRuntimeAndTypesPass(t *testing.T) {
+	graph := loadGraph(t, "../../fixtures/valid/m6b-workspace-split/manifest.ir.golden.json")
+	rootDir := "../../fixtures/valid/m6b-workspace-split"
+
+	runtimeRes := CheckRuntimeBoundaries(CheckOptions{RootDir: rootDir, Graph: graph})
+	if len(runtimeRes.Diagnostics) != 0 {
+		t.Fatalf("runtime diags=%#v", runtimeRes.Diagnostics)
+	}
+
+	typeRes := CheckTypeSurfaces(CheckOptions{RootDir: rootDir, Graph: graph})
+	if len(typeRes.Diagnostics) != 0 {
+		t.Fatalf("type diags=%#v", typeRes.Diagnostics)
+	}
+}
+
+func TestSinglePackageFixtureStillPasses(t *testing.T) {
+	g := loadGraph(t, "../../fixtures/valid/m5-types-basic/manifest.ir.golden.json")
+	res := CheckPackage(CheckOptions{RootDir: "../..", Graph: g})
+	if len(res.Diagnostics) != 0 {
+		t.Fatalf("single-package fixture produced diagnostics: %#v", res.Diagnostics)
+	}
+}
