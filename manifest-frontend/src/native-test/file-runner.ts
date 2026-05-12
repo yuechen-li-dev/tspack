@@ -10,7 +10,7 @@ import { runSuite } from './runner.js';
 import type { Diagnostic, RunFilesOptions, RunFilesResult, TestResult } from './types.js';
 
 type RuntimeNode = {
-  __tag: 'Suite' | 'Fact' | 'Theory' | 'Case';
+  __tag: 'Suite' | 'Fact' | 'Theory' | 'Case' | 'Artifact';
   props: Record<string, unknown>;
   children: unknown[];
 };
@@ -41,7 +41,8 @@ export async function runNativeTestFiles(options: RunFilesOptions): Promise<RunF
   for (const file of selected) {
     try {
       const root = await loadRuntimeSuite(file.filePath);
-      const runResults = await runSuite(root);
+      const artifactRoot = options.artifactRoot ?? path.join(options.rootDir, '.tspack', 'test-artifacts');
+      const runResults = await runSuite(root, { artifactRoot });
       for (const result of runResults) {
         const fullId = `${path.relative(options.rootDir, file.filePath).split(path.sep).join('/')}::${result.id}`;
         if (options.filter && !fullId.includes(options.filter) && !result.name.includes(options.filter)) {
@@ -73,7 +74,8 @@ async function loadRuntimeSuite(filePath: string): Promise<RuntimeNode> {
     },
   });
 
-const prelude = `const __tspackJsx = (type, props, ...children) => {\n  if (typeof type === 'function') return type(props ?? {}, ...children);\n  return { __tag: String(type), props: props ?? {}, children };\n};\nconst makeTag = (tag) => (props, ...children) => ({ __tag: tag, props: props ?? {}, children });\nconst Suite = makeTag('Suite');\nconst Fact = makeTag('Fact');\nconst Theory = makeTag('Theory');\nconst Case = makeTag('Case');\nconst assert = globalThis.__tspackAssert;\nconst expect = globalThis.__tspackExpect;\nconst skip = globalThis.__tspackSkip;\n`;
+const prelude = `const __tspackJsx = (type, props, ...children) => {\n  if (typeof type === 'function') return type(props ?? {}, ...children);\n  return { __tag: String(type), props: props ?? {}, children };\n};\nconst makeTag = (tag) => (props, ...children) => ({ __tag: tag, props: props ?? {}, children });\nconst Suite = makeTag('Suite');\nconst Fact = makeTag('Fact');\nconst Theory = makeTag('Theory');\nconst Case = makeTag('Case');
+const Artifact = makeTag('Artifact');\nconst assert = globalThis.__tspackAssert;\nconst expect = globalThis.__tspackExpect;\nconst skip = globalThis.__tspackSkip;\n`;
   const tempFile = path.join(path.dirname(filePath), `${path.basename(filePath)}.tspack-temp.mjs`);
   (globalThis as Record<string, unknown>).__tspackAssert = assert;
   (globalThis as Record<string, unknown>).__tspackExpect = expect;

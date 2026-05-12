@@ -3,7 +3,7 @@ import path from 'node:path';
 import ts from 'typescript';
 import type { Diagnostic, DiscoverFilesResult, DiscoverOptions, DiscoveredFile, DiscoveryResult, Literal } from './types.js';
 
-const allowed = new Set(['Suite', 'Fact', 'Theory', 'Case']);
+const allowed = new Set(['Suite', 'Fact', 'Theory', 'Case', 'Artifact']);
 
 export function discoverNativeTestFile(filePath: string): DiscoveryResult {
   const abs = path.resolve(filePath);
@@ -60,6 +60,10 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
       addDiag(child, 'TSPACK_TEST_UNKNOWN_ELEMENT', `unknown element: ${tag}`);
       continue;
     }
+    if (tag === 'Artifact') {
+      addDiag(child, 'TSPACK_ARTIFACT_INVALID_DECLARATION', 'Artifact must be nested under Fact or Theory');
+      continue;
+    }
     if (tag === 'Fact') {
       const factName = parseName(tag, getAttributes(child), child, addDiag);
       const body = getJsxBodyFunction(child);
@@ -68,8 +72,10 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
         continue;
       }
       const id = `${suiteName}/${factName}`;
-      facts.push({ kind: 'fact', name: factName, id });
+      const artifacts = collectArtifacts(child, addDiag);
+      facts.push({ kind: 'fact', name: factName, id, artifacts });
       tests.push(id);
+      continue;
     }
     if (tag === 'Theory') {
       const theoryName = parseName(tag, getAttributes(child), child, addDiag);
@@ -79,7 +85,8 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
         continue;
       }
       const cases = collectCases(child, suiteName, theoryName, addDiag);
-      theories.push({ kind: 'theory', name: theoryName, cases });
+      const artifacts = collectArtifacts(child, addDiag);
+      theories.push({ kind: 'theory', name: theoryName, cases, artifacts });
       for (const entry of cases) {
         tests.push(entry.id);
       }
@@ -90,13 +97,11 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
 }
 
 const defaultIgnore = new Set(['node_modules', '.git', 'dist']);
-
-export function discoverNativeTestFiles(options: DiscoverOptions): DiscoverFilesResult {
+export function discoverNativeTestFiles(options: DiscoverOptions): DiscoverFilesResult { /* unchanged */
   const rootDir = path.resolve(options.rootDir);
   const filePaths = collectNativeFiles(rootDir, options.ignore ?? []);
   const files: DiscoveredFile[] = [];
   const diagnostics: Diagnostic[] = [];
-
   for (const filePath of filePaths) {
     try {
       const discovered = discoverNativeTestFile(filePath);
@@ -108,128 +113,81 @@ export function discoverNativeTestFiles(options: DiscoverOptions): DiscoverFiles
       files.push({ filePath, suiteName: discovered.suiteName ?? '', tests, diagnostics: discovered.diagnostics });
       diagnostics.push(...discovered.diagnostics);
     } catch (error) {
-      diagnostics.push({
-        code: 'TSPACK_TEST_DISCOVERY_FAILED',
-        message: `failed to discover native test file: ${(error as Error).message}`,
-        file: filePath,
-      });
+      diagnostics.push({ code: 'TSPACK_TEST_DISCOVERY_FAILED', message: `failed to discover native test file: ${(error as Error).message}`, file: filePath });
     }
   }
-
   files.sort((a, b) => a.filePath.localeCompare(b.filePath));
   diagnostics.sort((a, b) => `${a.file}:${a.line ?? 0}:${a.column ?? 0}:${a.code}:${a.message}`.localeCompare(`${b.file}:${b.line ?? 0}:${b.column ?? 0}:${b.code}:${b.message}`));
   return { files, diagnostics };
 }
+function collectNativeFiles(rootDir: string, ignore: string[]): string[] { const entries = fs.readdirSync(rootDir, { withFileTypes: true }).sort((a,b)=>a.name.localeCompare(b.name)); const filePaths: string[]=[]; const ignoreSet=new Set(ignore); for (const entry of entries){ const fullPath=path.join(rootDir,entry.name); if(entry.isDirectory()){ if(defaultIgnore.has(entry.name)||ignoreSet.has(entry.name)){continue;} filePaths.push(...collectNativeFiles(fullPath,ignore)); continue;} if(entry.isFile()&&entry.name.endsWith('.xtest.tsx')) filePaths.push(fullPath);} return filePaths; }
+function unwrap(expr: ts.Expression): ts.Expression { return ts.isParenthesizedExpression(expr) ? unwrap(expr.expression) : expr; }
+function getTagName(node: ts.JsxElement | ts.JsxSelfClosingElement): string { return ts.isJsxElement(node) ? node.openingElement.tagName.getText() : node.tagName.getText(); }
+function getAttributes(node: ts.JsxElement | ts.JsxSelfClosingElement): readonly ts.JsxAttributeLike[] { return ts.isJsxElement(node) ? node.openingElement.attributes.properties : node.attributes.properties; }
+function getChildren(node: ts.JsxElement | ts.JsxSelfClosingElement): ts.Node[] { return ts.isJsxElement(node) ? [...node.children] : []; }
+function parseName(tag: string, attrs: readonly ts.JsxAttributeLike[], node: ts.Node, addDiag: (node: ts.Node, code: string, message: string) => void): string { for (const attr of attrs){ if(ts.isJsxSpreadAttribute(attr)){ addDiag(attr,'TSPACK_TEST_FORBIDDEN_SPREAD','spread attributes are forbidden'); continue;} if(!ts.isJsxAttribute(attr)||attr.name.getText()!=='name'){ continue;} const init=attr.initializer; if(!init||!ts.isStringLiteral(init)){ addDiag(attr,'TSPACK_TEST_INVALID_NAME',`${tag} name must be string literal`); return '';} return init.text;} addDiag(node,'TSPACK_TEST_INVALID_NAME',`${tag} name is required`); return ''; }
+function literalFrom(expr: ts.Expression): Literal | undefined { if (ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr)) return expr.text; if (ts.isNumericLiteral(expr)) return Number(expr.text); if (expr.kind===ts.SyntaxKind.TrueKeyword) return true; if(expr.kind===ts.SyntaxKind.FalseKeyword) return false; if(expr.kind===ts.SyntaxKind.NullKeyword) return null; return undefined; }
+function collectCases(node: ts.JsxElement | ts.JsxSelfClosingElement, suite: string, theory: string, addDiag: (node: ts.Node, code: string, message: string) => void) { const out: Array<{ index: number; data: Record<string, Literal>; id: string }> = []; for (const child of getChildren(node)){ if(!ts.isJsxElement(child)&&!ts.isJsxSelfClosingElement(child)) continue; if(getTagName(child)!=='Case') continue; const data: Record<string, Literal>={}; let valid=true; for(const attr of getAttributes(child)){ if(ts.isJsxSpreadAttribute(attr)){ addDiag(attr,'TSPACK_TEST_FORBIDDEN_SPREAD','spread attributes are forbidden'); valid=false; continue;} if(!ts.isJsxAttribute(attr)||!attr.initializer){ addDiag(child,'TSPACK_TEST_INVALID_CASE','invalid case attribute'); valid=false; continue;} if(ts.isStringLiteral(attr.initializer)){ data[attr.name.getText()]=attr.initializer.text; continue;} if(ts.isJsxExpression(attr.initializer)&&attr.initializer.expression){ const value=literalFrom(attr.initializer.expression); if(value===undefined){ addDiag(attr,'TSPACK_TEST_INVALID_CASE','case props must be literal values'); valid=false;} else { data[attr.name.getText()]=value;} continue;} addDiag(attr,'TSPACK_TEST_INVALID_CASE','case props must be literals'); valid=false;} if(valid){ const index=out.length; out.push({index,data,id:`${suite}/${theory}[${index}]`}); }} return out; }
+function getJsxBodyFunction(node: ts.JsxElement | ts.JsxSelfClosingElement): boolean { return getChildren(node).some((child) => ts.isJsxExpression(child) && !!child.expression && ts.isArrowFunction(child.expression)); }
 
-function collectNativeFiles(rootDir: string, ignore: string[]): string[] {
-  const entries = fs.readdirSync(rootDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
-  const filePaths: string[] = [];
-  const ignoreSet = new Set(ignore);
-
-  for (const entry of entries) {
-    const fullPath = path.join(rootDir, entry.name);
-    if (entry.isDirectory()) {
-      if (defaultIgnore.has(entry.name) || ignoreSet.has(entry.name)) {
-        continue;
-      }
-      filePaths.push(...collectNativeFiles(fullPath, ignore));
-      continue;
-    }
-    if (entry.isFile() && entry.name.endsWith('.xtest.tsx')) {
-      filePaths.push(fullPath);
-    }
-  }
-  return filePaths;
-}
-
-function unwrap(expr: ts.Expression): ts.Expression {
-  if (ts.isParenthesizedExpression(expr)) {
-    return unwrap(expr.expression);
-  }
-  return expr;
-}
-function getTagName(node: ts.JsxElement | ts.JsxSelfClosingElement): string {
-  return ts.isJsxElement(node) ? node.openingElement.tagName.getText() : node.tagName.getText();
-}
-function getAttributes(node: ts.JsxElement | ts.JsxSelfClosingElement): readonly ts.JsxAttributeLike[] {
-  return ts.isJsxElement(node) ? node.openingElement.attributes.properties : node.attributes.properties;
-}
-function getChildren(node: ts.JsxElement | ts.JsxSelfClosingElement): ts.Node[] {
-  return ts.isJsxElement(node) ? [...node.children] : [];
-}
-function parseName(tag: string, attrs: readonly ts.JsxAttributeLike[], node: ts.Node, addDiag: (node: ts.Node, code: string, message: string) => void): string {
-  for (const attr of attrs) {
-    if (ts.isJsxSpreadAttribute(attr)) {
-      addDiag(attr, 'TSPACK_TEST_FORBIDDEN_SPREAD', 'spread attributes are forbidden');
-      continue;
-    }
-    if (!ts.isJsxAttribute(attr) || attr.name.getText() !== 'name') {
-      continue;
-    }
-    const init = attr.initializer;
-    if (!init || !ts.isStringLiteral(init)) {
-      addDiag(attr, 'TSPACK_TEST_INVALID_NAME', `${tag} name must be string literal`);
-      return '';
-    }
-    return init.text;
-  }
-  addDiag(node, 'TSPACK_TEST_INVALID_NAME', `${tag} name is required`);
-  return '';
-}
-function literalFrom(expr: ts.Expression): Literal | undefined {
-  if (ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr)) return expr.text;
-  if (ts.isNumericLiteral(expr)) return Number(expr.text);
-  if (expr.kind === ts.SyntaxKind.TrueKeyword) return true;
-  if (expr.kind === ts.SyntaxKind.FalseKeyword) return false;
-  if (expr.kind === ts.SyntaxKind.NullKeyword) return null;
-  return undefined;
-}
-function collectCases(node: ts.JsxElement | ts.JsxSelfClosingElement, suite: string, theory: string, addDiag: (node: ts.Node, code: string, message: string) => void) {
-  const out: Array<{ index: number; data: Record<string, Literal>; id: string }> = [];
+function collectArtifacts(node: ts.JsxElement | ts.JsxSelfClosingElement, addDiag: (node: ts.Node, code: string, message: string) => void) {
+  const artifacts: Array<{ name: string; path: string; format?: string; required: boolean }> = [];
+  const seen = new Set<string>();
   for (const child of getChildren(node)) {
-    if (!ts.isJsxElement(child) && !ts.isJsxSelfClosingElement(child)) {
+    if (!ts.isJsxElement(child) && !ts.isJsxSelfClosingElement(child)) continue;
+    if (getTagName(child) !== 'Artifact') continue;
+    const parsed = parseArtifact(child, addDiag);
+    if (!parsed) continue;
+    if (seen.has(parsed.name)) {
+      addDiag(child, 'TSPACK_ARTIFACT_DUPLICATE_NAME', `duplicate Artifact name: ${parsed.name}`);
       continue;
     }
-    if (getTagName(child) !== 'Case') {
+    seen.add(parsed.name);
+    artifacts.push(parsed);
+  }
+  return artifacts;
+}
+function parseArtifact(node: ts.JsxElement | ts.JsxSelfClosingElement, addDiag: (node: ts.Node, code: string, message: string) => void) {
+  let name: string | undefined;
+  let declaredPath: string | undefined;
+  let format: string | undefined;
+  let optional = false;
+  for (const attr of getAttributes(node)) {
+    if (ts.isJsxSpreadAttribute(attr)) {
+      addDiag(attr, 'TSPACK_ARTIFACT_INVALID_DECLARATION', 'Artifact does not allow spread attributes');
+      return undefined;
+    }
+    if (!ts.isJsxAttribute(attr) || !attr.initializer) continue;
+    const attrName = attr.name.getText();
+    if (attrName === 'name' || attrName === 'path' || attrName === 'format') {
+      if (!ts.isStringLiteral(attr.initializer)) {
+        addDiag(attr, 'TSPACK_ARTIFACT_INVALID_DECLARATION', `Artifact ${attrName} must be string literal`);
+        return undefined;
+      }
+      if (attrName === 'name') name = attr.initializer.text;
+      if (attrName === 'path') declaredPath = attr.initializer.text;
+      if (attrName === 'format') format = attr.initializer.text;
       continue;
     }
-    const data: Record<string, Literal> = {};
-    let valid = true;
-    for (const attr of getAttributes(child)) {
-      if (ts.isJsxSpreadAttribute(attr)) {
-        addDiag(attr, 'TSPACK_TEST_FORBIDDEN_SPREAD', 'spread attributes are forbidden');
-        valid = false;
-        continue;
+    if (attrName === 'optional') {
+      if (!ts.isJsxExpression(attr.initializer) || !attr.initializer.expression) {
+        addDiag(attr, 'TSPACK_ARTIFACT_INVALID_DECLARATION', 'Artifact optional must be boolean literal');
+        return undefined;
       }
-      if (!ts.isJsxAttribute(attr) || !attr.initializer) {
-        addDiag(child, 'TSPACK_TEST_INVALID_CASE', 'invalid case attribute');
-        valid = false;
-        continue;
+      if (attr.initializer.expression.kind === ts.SyntaxKind.TrueKeyword) optional = true;
+      else if (attr.initializer.expression.kind === ts.SyntaxKind.FalseKeyword) optional = false;
+      else {
+        addDiag(attr, 'TSPACK_ARTIFACT_INVALID_DECLARATION', 'Artifact optional must be boolean literal');
+        return undefined;
       }
-      if (ts.isStringLiteral(attr.initializer)) {
-        data[attr.name.getText()] = attr.initializer.text;
-        continue;
-      }
-      if (ts.isJsxExpression(attr.initializer) && attr.initializer.expression) {
-        const value = literalFrom(attr.initializer.expression);
-        if (value === undefined) {
-          addDiag(attr, 'TSPACK_TEST_INVALID_CASE', 'case props must be literal values');
-          valid = false;
-        } else {
-          data[attr.name.getText()] = value;
-        }
-        continue;
-      }
-      addDiag(attr, 'TSPACK_TEST_INVALID_CASE', 'case props must be literals');
-      valid = false;
-    }
-    if (valid) {
-      const index = out.length;
-      out.push({ index, data, id: `${suite}/${theory}[${index}]` });
     }
   }
-  return out;
+  if (!name) { addDiag(node, 'TSPACK_ARTIFACT_INVALID_DECLARATION', 'Artifact name is required'); return undefined; }
+  if (!declaredPath) { addDiag(node, 'TSPACK_ARTIFACT_INVALID_DECLARATION', 'Artifact path is required'); return undefined; }
+  if (!isSafeArtifactPath(declaredPath)) { addDiag(node, 'TSPACK_ARTIFACT_INVALID_PATH', `Artifact path is unsafe: ${declaredPath}`); return undefined; }
+  return { name, path: declaredPath, format, required: !optional };
 }
-function getJsxBodyFunction(node: ts.JsxElement | ts.JsxSelfClosingElement): boolean {
-  return getChildren(node).some((child) => ts.isJsxExpression(child) && !!child.expression && ts.isArrowFunction(child.expression));
+function isSafeArtifactPath(value: string): boolean {
+  if (value.startsWith('/') || value.includes('..') || value.includes('\\')) return false;
+  return true;
 }

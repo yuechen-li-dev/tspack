@@ -44,6 +44,26 @@ describe('native file discovery and execution', () => {
     expect(result.results[1].skipReason).toBe('case 1 intentionally skipped');
   });
 
+
+  it('loads .xtest.tsx and writes artifacts under artifactRoot', async () => {
+    const root = makeDir();
+    const artifactRoot = makeDir();
+    fs.writeFileSync(path.join(root, 'artifact.xtest.tsx'), `
+      import { Suite, Fact, Artifact } from '${path.resolve(process.cwd(), 'src/native-test/index.ts').replace(/\\/g, '/')}';
+      export default (
+        <Suite name="a">
+          <Fact name="f">
+            <Artifact name="report" path="report.json" format="json" />
+            {async ({ artifact }) => { await artifact.writeJson('report', { ok: true }, 'persist report'); }}
+          </Fact>
+        </Suite>
+      );
+    `);
+    const result = await runNativeTestFiles({ rootDir: root, artifactRoot });
+    expect(result.results[0].status).toBe('passed');
+    expect(fs.existsSync(path.join(artifactRoot, 'a__f', 'report.json'))).toBe(true);
+  });
+
   it('runs loaded fact and theory tests, including async and failures', async () => {
     const root = makeDir();
     fs.writeFileSync(path.join(root, 'run.xtest.tsx'), `

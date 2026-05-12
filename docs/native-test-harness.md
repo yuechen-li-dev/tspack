@@ -69,3 +69,31 @@ Non-goals remain unchanged for M17: no fixture runner, no command helpers, no fi
   - In `Fact`, that Fact result is `skipped`.
   - In `Theory`, only the current Case execution is `skipped`; other cases still run.
 - Skips are not failures and are reported with `status: "skipped"` and a recorded skip reason.
+
+## M17c native artifacts
+
+`<Artifact />` is supported under `<Fact>` and `<Theory>` declarations.
+
+```tsx
+<Artifact name="report" path="report.json" format="json" />
+```
+
+Rules:
+- `name` and `path` are required string literals.
+- `format` is optional string literal.
+- `optional={true}` marks non-required artifacts (default is required).
+- Artifact paths must be relative and safe (no absolute paths, `..`, or backslashes).
+
+Runner options now include `artifactRoot`:
+- `runSuite(..., { artifactRoot })`
+- `runNativeTestFiles(..., { artifactRoot })`
+- Per-test output directory is `artifactRoot/<sanitized-test-id>/...`.
+
+Test callbacks receive `ctx.artifact` writer:
+- `writeText(name, text, reason)`
+- `writeJson(name, value, reason)`
+- `writeBytes(name, bytes, reason)`
+
+Artifact reasons are mandatory. Required artifacts must be written unless the test is skipped.
+
+Non-goals in M17c remain unchanged: no fixtures, no snapshots/golden assertions, no command helpers, and no filesystem assertion API beyond artifact writing.

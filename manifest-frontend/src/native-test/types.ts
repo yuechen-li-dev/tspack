@@ -18,12 +18,21 @@ export type DiscoveredFact = {
   kind: 'fact';
   name: string;
   id: string;
+  artifacts: DiscoveredArtifact[];
 };
 
 export type DiscoveredTheory = {
   kind: 'theory';
   name: string;
   cases: DiscoveredCase[];
+  artifacts: DiscoveredArtifact[];
+};
+
+export type DiscoveredArtifact = {
+  name: string;
+  path: string;
+  format?: string;
+  required: boolean;
 };
 
 export type DiscoveryResult = {
@@ -64,6 +73,7 @@ export type RunFilesOptions = {
   files?: string[];
   filter?: string;
   listOnly?: boolean;
+  artifactRoot?: string;
 };
 
 export type RunFilesResult = {
@@ -86,4 +96,17 @@ export type TestResult = {
   durationMs?: number;
   skipReason?: string;
   error?: AssertionFailure | Error;
+  artifacts?: TestArtifact[];
+};
+
+export type TestArtifact = {
+  name: string;
+  declaredPath: string;
+  outputPath: string;
+  format?: string;
+  required: boolean;
+  written: boolean;
+  size?: number;
+  hash?: string;
+  reason?: string;
 };

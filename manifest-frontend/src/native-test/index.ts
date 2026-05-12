@@ -7,7 +7,7 @@ export { runNativeTestFiles } from './file-runner.js';
 export type { TestResult, DiscoveryResult, Diagnostic } from './types.js';
 
 type NodeShape = {
-  __tag: 'Suite' | 'Fact' | 'Theory' | 'Case';
+  __tag: 'Suite' | 'Fact' | 'Theory' | 'Case' | 'Artifact';
   props: Record<string, unknown>;
   children: unknown[];
 };
@@ -26,3 +26,5 @@ export const Suite = makeTag('Suite');
 export const Fact = makeTag('Fact');
 export const Theory = makeTag('Theory');
 export const Case = makeTag('Case');
+
+export const Artifact = makeTag('Artifact');
