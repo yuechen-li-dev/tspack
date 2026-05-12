@@ -79,7 +79,6 @@ func TestCheckMissingLockfileWarning(t *testing.T) {
 func TestUpdateDeterministicAndNoNodeModules(t *testing.T) {
 	dir := t.TempDir()
 	ir := simpleIR()
-	ir["packages"].([]map[string]any)[0]["dependencies"] = []map[string]any{{"key": "dep-a", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "dep-a", "range": "1.0.0"}}}
 	opts := DefaultOptions(dir)
 	opts.ManifestIRPath = writeIR(t, dir, ir)
 	opts.ResolverClient = buildRegistry()
@@ -557,5 +556,67 @@ func TestWhyMissingAndInvalidLockfileAndDeterminism(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".tspack", "store")); !os.IsNotExist(err) {
 		t.Fatalf("store should not be created")
+	}
+}
+
+func TestV1GoldenPathCommandLoop(t *testing.T) {
+	dir := t.TempDir()
+	ir := simpleIR()
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = writeIR(t, dir, ir)
+	opts.ResolverClient = buildRegistry()
+
+	check1 := Check(opts)
+	if hasErrors(check1.Diagnostics) && !hasErrCode(check1.Diagnostics, "TSPACK_CHECK_LOCKFILE_MISSING") {
+		t.Fatalf("initial check unexpected errors: %#v", check1.Diagnostics)
+	}
+	if _, err := os.Stat(opts.LockfilePath); !os.IsNotExist(err) {
+		t.Fatalf("check should not create lockfile")
+	}
+
+	up := Update(opts)
+	if hasErrors(up.Diagnostics) {
+		t.Fatalf("update failed: %#v", up.Diagnostics)
+	}
+	lockAfterUpdate, _ := os.ReadFile(opts.LockfilePath)
+
+	syncRes := Sync(opts, false)
+	if hasErrors(syncRes.Diagnostics) {
+		t.Fatalf("sync failed: %#v", syncRes.Diagnostics)
+	}
+	lockAfterSync, _ := os.ReadFile(opts.LockfilePath)
+	if !bytes.Equal(lockAfterUpdate, lockAfterSync) {
+		t.Fatalf("sync mutated lockfile")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "node_modules", ".tspack-materialized")); err != nil {
+		t.Fatalf("sync should materialize node_modules marker: %v", err)
+	}
+
+	whyRes := Why(opts, WhyOptions{Query: "core"})
+	if hasErrors(whyRes.Diagnostics) || whyRes.WhyResult == nil || len(whyRes.WhyResult.Explanations) == 0 {
+		t.Fatalf("why failed: %#v", whyRes.Diagnostics)
+	}
+	lockAfterWhy, _ := os.ReadFile(opts.LockfilePath)
+	if !bytes.Equal(lockAfterSync, lockAfterWhy) {
+		t.Fatalf("why mutated lockfile")
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "tspack-artifacts")); !os.IsNotExist(err) {
+		t.Fatalf("pack output dir should not pre-exist")
+	}
+	pack1 := Pack(opts, PackOptions{OutputDir: filepath.Join(dir, "out")})
+	if hasErrors(pack1.Diagnostics) || pack1.PackResult == nil || len(pack1.PackResult.Artifacts) != 1 {
+		t.Fatalf("pack1 failed: %#v", pack1.Diagnostics)
+	}
+	pack2 := Pack(opts, PackOptions{OutputDir: filepath.Join(dir, "out2")})
+	if hasErrors(pack2.Diagnostics) || pack2.PackResult == nil || len(pack2.PackResult.Artifacts) != 1 {
+		t.Fatalf("pack2 failed: %#v", pack2.Diagnostics)
+	}
+	if pack1.PackResult.Artifacts[0].Hash != pack2.PackResult.Artifacts[0].Hash {
+		t.Fatalf("pack hash not stable: %s vs %s", pack1.PackResult.Artifacts[0].Hash, pack2.PackResult.Artifacts[0].Hash)
+	}
+	lockAfterPack, _ := os.ReadFile(opts.LockfilePath)
+	if !bytes.Equal(lockAfterWhy, lockAfterPack) {
+		t.Fatalf("pack mutated lockfile")
 	}
 }

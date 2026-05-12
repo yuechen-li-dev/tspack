@@ -116,7 +116,7 @@ func Update(opts Options) Result {
 	if client == nil {
 		client = noopRegistryClient{}
 	}
-	res := resolver.ResolveNPM(context.Background(), resolver.ResolverOptions{Mode: resolver.ResolveModeUpdate, Client: client}, resolver.ResolveRequest{Graph: g, ExistingLock: old})
+	res := resolver.Resolve(context.Background(), resolver.ResolverOptions{Mode: resolver.ResolveModeUpdate, Client: client}, resolver.ResolveRequest{Graph: g, ExistingLock: old})
 	out = append(out, res.Diagnostics...)
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
