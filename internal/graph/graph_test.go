@@ -1,0 +1,190 @@
+package graph
+
+import (
+	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+
+	"github.com/tspack/tspack/internal/manifest"
+)
+
+func loadIR(t *testing.T, p string) *manifest.ManifestIR {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ir, diags := manifest.LoadBytes(p, b)
+	if len(diags) > 0 {
+		t.Fatalf("diags: %#v", diags)
+	}
+	return ir
+}
+
+func TestBuildMinimalLibrary(t *testing.T) {
+	ir := loadIR(t, "../../fixtures/valid/minimal-library/manifest.ir.golden.json")
+	g, diags := Build(ir)
+	if len(diags) > 0 {
+		t.Fatalf("diags: %#v", diags)
+	}
+	if g.WorkspaceName != "mono" {
+		t.Fatal(g.WorkspaceName)
+	}
+	p, ok := g.Package("minimal")
+	if !ok {
+		t.Fatal("missing package")
+	}
+	if _, ok := p.Target("core"); !ok {
+		t.Fatal("missing core")
+	}
+	if _, ok := p.Dependency("typescript"); !ok {
+		t.Fatal("missing ts dep")
+	}
+	core, _ := p.Target("core")
+	if core.AllowsDependencyKey("typescript") {
+		t.Fatal("tool leaked into runtime")
+	}
+	if len(p.Publish.Include) == 0 {
+		t.Fatal("publish not carried")
+	}
+}
+
+func TestBuildMachinalayout(t *testing.T) {
+	ir := loadIR(t, "../../fixtures/valid/machinalayout-like/manifest.ir.golden.json")
+	g, diags := Build(ir)
+	if len(diags) > 0 {
+		t.Fatalf("diags: %#v", diags)
+	}
+	p, ok := g.Package("machinalayout")
+	if !ok {
+		t.Fatal("missing")
+	}
+	if _, ok := p.Target("core"); !ok {
+		t.Fatal("core")
+	}
+	if _, ok := p.Target("react"); !ok {
+		t.Fatal("react")
+	}
+	if _, ok := p.Target("vue"); !ok {
+		t.Fatal("vue")
+	}
+	if x, _ := p.TargetByExport("."); x.Name != "core" {
+		t.Fatal("export .")
+	}
+	if x, _ := p.TargetByExport("./react"); x.Name != "react" {
+		t.Fatal("export react")
+	}
+	if x, _ := p.TargetByExport("./vue"); x.Name != "vue" {
+		t.Fatal("export vue")
+	}
+	r, _ := p.Target("react")
+	if !r.AllowsExternalPackageName("react") || !r.AllowsExternalPackageName("react-dom") {
+		t.Fatal("react target peers")
+	}
+	v, _ := p.Target("vue")
+	if !v.AllowsExternalPackageName("vue") {
+		t.Fatal("vue target peer")
+	}
+	c, _ := p.Target("core")
+	if c.AllowsExternalPackageName("react") || c.AllowsExternalPackageName("vue") {
+		t.Fatal("core leak")
+	}
+	tools := []string{}
+	for _, d := range p.ToolDependencies() {
+		tools = append(tools, d.Key)
+	}
+	if !reflect.DeepEqual(tools, []string{"typescript", "vitest"}) {
+		t.Fatalf("tools=%v", tools)
+	}
+	vueR := p.DependencyReachability("vue")
+	if !vueR.OptionalOnly || len(vueR.PeerTargets) != 1 || vueR.PeerTargets[0].Name != "vue" {
+		t.Fatalf("bad vue reachability: %#v", vueR)
+	}
+	reactR := p.DependencyReachability("react")
+	if len(reactR.PeerTargets) != 1 || reactR.PeerTargets[0].Name != "react" {
+		t.Fatalf("bad react reachability: %#v", reactR)
+	}
+	tsR := p.DependencyReachability("typescript")
+	if !tsR.ToolOnly {
+		t.Fatalf("ts should be tool only: %#v", tsR)
+	}
+}
+
+func TestBuildGitDepAndIdentity(t *testing.T) {
+	pth := "../../fixtures/valid/git-dep/manifest.ir.golden.json"
+	ir := loadIR(t, pth)
+	g, diags := Build(ir)
+	if len(diags) > 0 {
+		t.Fatalf("diags: %#v", diags)
+	}
+	p, _ := g.Package("gitpkg")
+	d, ok := p.Dependency("helper")
+	if !ok {
+		t.Fatal("missing helper key")
+	}
+	if d.Source.Kind != "git" || d.Source.Tag != "v1.2.0" || d.Source.Ref != "github:acme/helper" {
+		t.Fatalf("bad source %#v", d.Source)
+	}
+}
+
+func TestDeterministicOrder(t *testing.T) {
+	ir := loadIR(t, "../../fixtures/valid/machinalayout-like/manifest.ir.golden.json")
+	g1, _ := Build(ir)
+	g2, _ := Build(ir)
+	p1, _ := g1.Package("machinalayout")
+	p2, _ := g2.Package("machinalayout")
+	deps1, deps2 := []string{}, []string{}
+	for _, d := range p1.AllDependencies() {
+		deps1 = append(deps1, d.Key)
+	}
+	for _, d := range p2.AllDependencies() {
+		deps2 = append(deps2, d.Key)
+	}
+	if !reflect.DeepEqual(deps1, deps2) {
+		t.Fatal("deps nondeterministic")
+	}
+	t1, t2 := []string{}, []string{}
+	for _, x := range p1.AllTargets() {
+		t1 = append(t1, x.Name)
+	}
+	for _, x := range p2.AllTargets() {
+		t2 = append(t2, x.Name)
+	}
+	if !reflect.DeepEqual(t1, t2) {
+		t.Fatal("targets nondeterministic")
+	}
+	a1, a2 := []string{}, []string{}
+	for _, x := range p1.TargetsAllowingDependencyKey("react") {
+		a1 = append(a1, x.Name)
+	}
+	for _, x := range p2.TargetsAllowingDependencyKey("react") {
+		a2 = append(a2, x.Name)
+	}
+	if !reflect.DeepEqual(a1, a2) {
+		t.Fatal("allow nondeterministic")
+	}
+}
+
+func TestDefensiveMalformedIR(t *testing.T) {
+	ir := &manifest.ManifestIR{Format: 1, Workspace: manifest.Workspace{Name: "w"}, Packages: []manifest.Package{
+		{Name: "p", Version: "1.0.0", Kind: "library", Dependencies: []manifest.DependencyIntent{{Key: "dup", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "a"}}, {Key: "dup", Kind: "peer", Source: manifest.Source{Kind: "npm", Package: "b"}}, {Key: "bad", Kind: "wat", Source: manifest.Source{Kind: "npm", Package: "c"}}, {Key: "toolx", Kind: "tool", Source: manifest.Source{Kind: "npm", Package: "t"}}}, Tools: []string{"toolx"}, Targets: []manifest.Target{{Name: "core", Export: ".", Deps: []string{"toolx", "missing"}, Peers: []string{"missingpeer"}}, {Name: "core", Export: "./core2"}}},
+		{Name: "p2", Version: "1.0.0", Kind: "library", Targets: []manifest.Target{{Name: "a", Export: "./x"}, {Name: "b", Export: "./x"}}},
+	}}
+	_, diags := Build(ir)
+	codes := map[string]bool{}
+	for _, d := range diags {
+		codes[d.Code] = true
+	}
+	for _, c := range []string{"TSPACK_GRAPH_DUPLICATE_TARGET", "TSPACK_GRAPH_DUPLICATE_EXPORT", "TSPACK_GRAPH_DUPLICATE_DEPENDENCY", "TSPACK_GRAPH_UNKNOWN_DEPENDENCY_REF", "TSPACK_GRAPH_INVALID_DEPENDENCY_KIND", "TSPACK_GRAPH_INVALID_TARGET_REF"} {
+		if !codes[c] {
+			t.Fatalf("missing %s in %#v", c, diags)
+		}
+	}
+}
+
+func TestFixturePaths(t *testing.T) {
+	if _, err := os.Stat(filepath.Clean("../../fixtures/valid/minimal-library/manifest.ir.golden.json")); err != nil {
+		t.Fatal(err)
+	}
+}
