@@ -22,7 +22,7 @@ func main() {
 		fmt.Println(version)
 		return
 	}
-	if args[0] == "check" || args[0] == "update" || args[0] == "sync" || args[0] == "pack" {
+	if args[0] == "check" || args[0] == "update" || args[0] == "sync" || args[0] == "pack" || args[0] == "why" {
 		runCommand(args)
 		return
 	}
@@ -42,6 +42,7 @@ func printHelp() {
 	fmt.Println("  tspack update [--root .]")
 	fmt.Println("  tspack sync [--root .] [--clean]")
 	fmt.Println("  tspack pack [--root .] [--out dir] [--package name] [--dry-run]")
+	fmt.Println("  tspack why <query> [--root .] [--package name]")
 }
 
 func runCommand(args []string) {
@@ -49,6 +50,7 @@ func runCommand(args []string) {
 	opts := project.DefaultOptions(".")
 	clean := false
 	packOpts := project.PackOptions{}
+	whyOpts := project.WhyOptions{}
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
 		case "--root":
@@ -73,14 +75,18 @@ func runCommand(args []string) {
 		case "--out":
 			i++
 			packOpts.OutputDir = args[i]
+		case "--dry-run":
+			packOpts.DryRun = true
 		case "--package":
 			i++
 			packOpts.PackageName = args[i]
-		case "--dry-run":
-			packOpts.DryRun = true
+			whyOpts.PackageName = args[i]
 		}
 	}
 	var result project.Result
+	if cmd == "why" && len(args) > 1 {
+		whyOpts.Query = args[1]
+	}
 	switch cmd {
 	case "check":
 		result = project.Check(opts)
@@ -90,12 +96,48 @@ func runCommand(args []string) {
 		result = project.Sync(opts, clean)
 	case "pack":
 		result = project.Pack(opts, packOpts)
+	case "why":
+		result = project.Why(opts, whyOpts)
 	}
 	for _, d := range result.Diagnostics {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", d.Code, d.Message)
 	}
 	if result.LockDiff != nil {
 		fmt.Printf("lockfile diff: +%d -%d\n", len(result.LockDiff.PackagesAdded), len(result.LockDiff.PackagesRemoved))
+	}
+	if result.WhyResult != nil {
+		for _, e := range result.WhyResult.Explanations {
+			if e.MatchType == "dependency" {
+				fmt.Printf("%s declared in package %q as %s\n", e.DependencyKey, e.PackageName, e.Kind)
+			}
+			if e.MatchType == "lock-package" {
+				for _, lp := range e.LockPackages {
+					fmt.Printf("lock package %s\n", lp.ID)
+				}
+			}
+			if e.TargetName != "" {
+				fmt.Printf("target %s in package %s\n", e.TargetName, e.PackageName)
+			}
+			if len(e.ReachableFrom) > 0 {
+				fmt.Println("reachable from:")
+				for _, r := range e.ReachableFrom {
+					fmt.Printf("  %s:target:%s\n", r.PackageName, r.TargetName)
+				}
+			}
+			if len(e.NotReachableFrom) > 0 {
+				fmt.Println("not reachable from:")
+				for _, r := range e.NotReachableFrom {
+					fmt.Printf("  %s:target:%s\n", r.PackageName, r.TargetName)
+				}
+			}
+
+			if len(e.LockEdges) > 0 {
+				fmt.Println("lock edges:")
+				for _, edge := range e.LockEdges {
+					fmt.Printf("  %s -> %s %s\n", edge.From, edge.To, edge.Kind)
+				}
+			}
+		}
 	}
 	if result.PackResult != nil {
 		for _, a := range result.PackResult.Artifacts {
