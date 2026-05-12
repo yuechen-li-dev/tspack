@@ -16,10 +16,16 @@ func TestLoadValidFixtures(t *testing.T) {
 	for _, c := range cases {
 		t.Run(filepath.Base(filepath.Dir(c)), func(t *testing.T) {
 			b, err := os.ReadFile(c)
-			if err != nil { t.Fatal(err) }
+			if err != nil {
+				t.Fatal(err)
+			}
 			ir, diags := LoadBytes(c, b)
-			if len(diags) > 0 { t.Fatalf("unexpected diagnostics: %#v", diags) }
-			if ir == nil || ir.Workspace.Name == "" || len(ir.Packages) == 0 { t.Fatalf("bad ir") }
+			if len(diags) > 0 {
+				t.Fatalf("unexpected diagnostics: %#v", diags)
+			}
+			if ir == nil || ir.Workspace.Name == "" || len(ir.Packages) == 0 {
+				t.Fatalf("bad ir")
+			}
 		})
 	}
 }
@@ -52,22 +58,38 @@ func TestLoadM6BSplitWorkspaceRoots(t *testing.T) {
 }
 
 func TestInvalidCases(t *testing.T) {
-	cases := []struct{ name,json,code string }{
-		{"invalid json",`{`,"TSPACK_IR_INVALID_JSON"},
-		{"format",`{"format":2,"workspace":{"name":"mono"},"packages":[]}`,"TSPACK_IR_UNSUPPORTED_FORMAT"},
-		{"missing workspace",`{"format":1,"workspace":{"name":""},"packages":[{"name":"p","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`,"TSPACK_IR_MISSING_WORKSPACE"},
-		{"no packages",`{"format":1,"workspace":{"name":"mono"},"packages":[]}`,"TSPACK_IR_NO_PACKAGES"},
-		{"bad package name",`{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"bad name","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`,"TSPACK_IR_INVALID_PACKAGE_NAME"},
-		{"bad version",`{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"banana","kind":"library","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`,"TSPACK_IR_INVALID_PACKAGE_VERSION"},
+	cases := []struct{ name, json, code string }{
+		{"invalid json", `{`, "TSPACK_IR_INVALID_JSON"},
+		{"format", `{"format":2,"workspace":{"name":"mono"},"packages":[]}`, "TSPACK_IR_UNSUPPORTED_FORMAT"},
+		{"missing workspace", `{"format":1,"workspace":{"name":""},"packages":[{"name":"p","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`, "TSPACK_IR_MISSING_WORKSPACE"},
+		{"no packages", `{"format":1,"workspace":{"name":"mono"},"packages":[]}`, "TSPACK_IR_NO_PACKAGES"},
+		{"bad package name", `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"bad name","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`, "TSPACK_IR_INVALID_PACKAGE_NAME"},
+		{"bad version", `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"banana","kind":"library","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`, "TSPACK_IR_INVALID_PACKAGE_VERSION"},
 	}
-	for _,tc := range cases { t.Run(tc.name, func(t *testing.T){ _,diags:=LoadBytes("x.json",[]byte(tc.json)); found:=false; for _,d:= range diags { if d.Code==tc.code {found=true; break} }; if !found { t.Fatalf("expected code %s got %#v", tc.code, diags)}})}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, diags := LoadBytes("x.json", []byte(tc.json))
+			found := false
+			for _, d := range diags {
+				if d.Code == tc.code {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("expected code %s got %#v", tc.code, diags)
+			}
+		})
+	}
 }
 
 func TestDeterministicDiagnostics(t *testing.T) {
 	j := `{"format":2,"workspace":{"name":""},"packages":[]}`
-	_,d1 := LoadBytes("x.json", []byte(j))
-	_,d2 := LoadBytes("x.json", []byte(j))
-	if string(StableDiagnosticsJSON(d1)) != string(StableDiagnosticsJSON(d2)) { t.Fatalf("nondeterministic diagnostics") }
+	_, d1 := LoadBytes("x.json", []byte(j))
+	_, d2 := LoadBytes("x.json", []byte(j))
+	if string(StableDiagnosticsJSON(d1)) != string(StableDiagnosticsJSON(d2)) {
+		t.Fatalf("nondeterministic diagnostics")
+	}
 }
 
 func TestDependencyIdentityDerivationRule(t *testing.T) {
@@ -88,5 +110,27 @@ func TestDependencyIdentityDerivationRule(t *testing.T) {
 				t.Fatalf("depIdentity() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestTargetPathsRejectBareDot(t *testing.T) {
+	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[{"name":"core","export":".","entry":".","runtime":"dist/index.js","types":"dist/index.d.ts","peers":[],"deps":[]}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	_, diags := LoadBytes("x.json", []byte(j))
+	found := false
+	for _, d := range diags {
+		if d.Code == "TSPACK_IR_INVALID_RELATIVE_PATH" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected TSPACK_IR_INVALID_RELATIVE_PATH, got %#v", diags)
+	}
+}
+
+func TestPackageRootAllowsDot(t *testing.T) {
+	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","root":".","kind":"library","dependencies":[],"targets":[{"name":"core","export":".","entry":"src/index.ts","runtime":"dist/index.js","types":"dist/index.d.ts","peers":[],"deps":[]}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	_, diags := LoadBytes("x.json", []byte(j))
+	if len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diags)
 	}
 }

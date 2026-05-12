@@ -52,6 +52,9 @@ describe('manifest frontend parser', () => {
     ['forbidden-function', 'TSPACK_MANIFEST_FORBIDDEN_FUNCTION'],
     ['unknown-element', 'TSPACK_MANIFEST_UNKNOWN_ELEMENT'],
     ['unknown-helper', 'TSPACK_MANIFEST_UNKNOWN_HELPER'],
+    ['spread-object', 'TSPACK_MANIFEST_FORBIDDEN_SPREAD'],
+    ['spread-array', 'TSPACK_MANIFEST_FORBIDDEN_SPREAD'],
+    ['spread-jsx-props', 'TSPACK_MANIFEST_FORBIDDEN_SPREAD'],
   ])('fails %s with %s', (name, code) => {
     const result = parseManifestFile(fixture('invalid', name));
     expect(result.ok).toBe(false);

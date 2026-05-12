@@ -216,3 +216,26 @@ func TestBuildM6BSplitWorkspace(t *testing.T) {
 		t.Fatal("missing react target")
 	}
 }
+
+func TestDepKindAllowedAsRuntimeDependency(t *testing.T) {
+	ir := &manifest.ManifestIR{Format: 1, Workspace: manifest.Workspace{Name: "w"}, Packages: []manifest.Package{{
+		Name:    "p",
+		Version: "1.0.0",
+		Kind:    "library",
+		Dependencies: []manifest.DependencyIntent{{
+			Key:    "leftpad",
+			Kind:   "dep",
+			Source: manifest.Source{Kind: "npm", Package: "leftpad", Range: "^1.0.0"},
+		}},
+		Targets: []manifest.Target{{Name: "core", Export: ".", Entry: "src/index.ts", Runtime: "dist/index.js", Types: "dist/index.d.ts", Deps: []string{"leftpad"}}},
+	}}}
+	g, diags := Build(ir)
+	if len(diags) != 0 {
+		t.Fatalf("unexpected diags: %#v", diags)
+	}
+	p, _ := g.Package("p")
+	core, _ := p.Target("core")
+	if !core.AllowsDependencyKey("leftpad") {
+		t.Fatal("dep should be runtime-equivalent for target deps")
+	}
+}

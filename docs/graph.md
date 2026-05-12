@@ -21,3 +21,13 @@ M3 introduces a queryable internal graph built from validated Manifest IR.
 - No lockfile I/O.
 - No node_modules materialization.
 - No boundary enforcement yet.
+
+## Dependency kinds
+
+- `runtime`: must be available to runtime code for the target/package.
+- `dep`: authoring/general dependency intent; treated as runtime-equivalent at graph/resolver boundaries.
+- `peer`: consumer-provided runtime dependency, scoped per target.
+- `tool`: build/dev/tooling-only dependency; excluded from target runtime deps.
+- `type`: type-only dependency; may be referenced by target deps metadata but not runtime-visible.
+- `test`: reserved test-only metadata in v1; not runtime-visible.
+- `workspace`: dependency on another workspace package; runtime/type/tool visibility comes from where it is referenced.

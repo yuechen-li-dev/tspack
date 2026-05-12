@@ -11,12 +11,19 @@ import (
 type DependencyKind string
 
 const (
-	DependencyKindRuntime   DependencyKind = "runtime"
-	DependencyKindDep       DependencyKind = "dep"
-	DependencyKindPeer      DependencyKind = "peer"
-	DependencyKindTool      DependencyKind = "tool"
-	DependencyKindType      DependencyKind = "type"
-	DependencyKindTest      DependencyKind = "test"
+	// DependencyKindRuntime indicates a dependency that must be available to runtime code.
+	DependencyKindRuntime DependencyKind = "runtime"
+	// DependencyKindDep is general authoring intent and is treated as runtime-equivalent in graph usage.
+	DependencyKindDep DependencyKind = "dep"
+	// DependencyKindPeer indicates a consumer-provided runtime dependency scoped to target peers.
+	DependencyKindPeer DependencyKind = "peer"
+	// DependencyKindTool indicates build/dev tooling dependencies excluded from runtime target deps.
+	DependencyKindTool DependencyKind = "tool"
+	// DependencyKindType indicates type-only dependencies not runtime-visible.
+	DependencyKindType DependencyKind = "type"
+	// DependencyKindTest indicates test-only metadata, reserved in v1 and not runtime-visible.
+	DependencyKindTest DependencyKind = "test"
+	// DependencyKindWorkspace indicates an intra-workspace dependency reference.
 	DependencyKindWorkspace DependencyKind = "workspace"
 )
 
