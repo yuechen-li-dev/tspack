@@ -6,6 +6,7 @@ export type Diagnostic = {
   file: string;
   line?: number;
   column?: number;
+  severity?: 'error' | 'warning' | 'info';
 };
 
 export type DiscoveredCase = {
@@ -68,6 +69,18 @@ export type DiscoverFilesResult = {
   diagnostics: Diagnostic[];
 };
 
+export type ListedTest = {
+  id: string;
+  filePath: string;
+  suiteName: string;
+  name: string;
+  kind: 'fact' | 'theory-case';
+  theoryName?: string;
+  caseIndex?: number;
+  caseData?: Record<string, unknown>;
+  artifacts: DiscoveredArtifact[];
+};
+
 export type RunFilesOptions = {
   rootDir: string;
   files?: string[];
@@ -78,6 +91,42 @@ export type RunFilesOptions = {
 
 export type RunFilesResult = {
   results: TestResult[];
+  diagnostics: Diagnostic[];
+};
+
+export type FailureInfo = {
+  code?: string;
+  message: string;
+  reason?: string;
+  assertion?: string;
+  actual?: unknown;
+  expected?: unknown;
+  details?: Record<string, unknown>;
+};
+
+export type ReportedTest = {
+  id: string;
+  name: string;
+  filePath?: string;
+  status: 'passed' | 'failed' | 'skipped';
+  durationMs?: number;
+  failure?: FailureInfo;
+  skipReason?: string;
+  artifacts?: TestArtifact[];
+};
+
+export type NativeTestSummary = {
+  total: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+  diagnostics: number;
+  durationMs?: number;
+};
+
+export type NativeTestRunReport = {
+  summary: NativeTestSummary;
+  tests: ReportedTest[];
   diagnostics: Diagnostic[];
 };
 

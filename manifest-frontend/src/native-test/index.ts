@@ -4,6 +4,7 @@ export { skip } from './skip.js';
 export { discoverNativeTestFile, discoverNativeTestFiles } from './discover.js';
 export { runSuite } from './runner.js';
 export { runNativeTestFiles } from './file-runner.js';
+export { listDiscoveredTests, listNativeTests, createNativeTestReport, formatNativeTestTextReport, formatNativeTestJsonReport, nativeTestExitCode } from './list-report.js';
 export type { TestResult, DiscoveryResult, Diagnostic } from './types.js';
 
 type NodeShape = {
