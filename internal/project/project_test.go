@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -227,4 +228,227 @@ func putPkg(t *testing.T, st *store.Store, name, version string) string {
 		t.Fatalf("put artifact diags: %#v", diags)
 	}
 	return ref.Hash
+}
+
+func TestPackDryRunAndDeterministic(t *testing.T) {
+	dir := t.TempDir()
+	irPath := writeIR(t, dir, simpleIR())
+	_ = os.WriteFile(filepath.Join(dir, "src", "index.ts"), []byte("x"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "README.md"), []byte("readme"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "dist", "index.js"), []byte("export const x=1\n"), 0o644)
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = irPath
+	r := Pack(opts, PackOptions{DryRun: true})
+	if hasErrors(r.Diagnostics) {
+		t.Fatalf("dry run failed: %#v", r.Diagnostics)
+	}
+	if len(r.PackResult.Preview) == 0 {
+		t.Fatalf("expected preview")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "tspack-artifacts")); !os.IsNotExist(err) {
+		t.Fatalf("dry run wrote artifact")
+	}
+
+	r1 := Pack(opts, PackOptions{})
+	r2 := Pack(opts, PackOptions{})
+	if hasErrors(r1.Diagnostics) || hasErrors(r2.Diagnostics) {
+		t.Fatalf("pack failed")
+	}
+	b1, _ := os.ReadFile(r1.PackResult.Artifacts[0].Path)
+	b2, _ := os.ReadFile(r2.PackResult.Artifacts[0].Path)
+	if !bytes.Equal(b1, b2) {
+		t.Fatalf("nondeterministic")
+	}
+}
+
+func TestPackEdgeCasesAndIntegration(t *testing.T) {
+	t.Run("basic archive contents", func(t *testing.T) {
+		dir := t.TempDir()
+		ir := simpleIR()
+		pkg := ir["packages"].([]map[string]any)[0]
+		pkg["targets"] = []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "dist/index.js", "types": "dist/index.d.ts", "deps": []string{}, "peers": []string{}}}
+		pkg["publish"] = map[string]any{"include": []string{"dist/**", "README.md", "LICENSE"}, "exclude": []string{"src/**"}}
+		irPath := writeIR(t, dir, ir)
+		_ = os.WriteFile(filepath.Join(dir, "dist", "index.js"), []byte("export {}\n"), 0o644)
+		_ = os.WriteFile(filepath.Join(dir, "README.md"), []byte("r\n"), 0o644)
+		_ = os.WriteFile(filepath.Join(dir, "LICENSE"), []byte("l\n"), 0o644)
+		r := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{})
+		if hasErrors(r.Diagnostics) {
+			t.Fatalf("pack failed: %#v", r.Diagnostics)
+		}
+		entries := readEntries(t, r.PackResult.Artifacts[0].Path)
+		mustContain(t, entries, "package/package.json", "package/dist/index.js", "package/dist/index.d.ts", "package/README.md", "package/LICENSE")
+		mustNotContain(t, entries, "package/src/index.ts")
+	})
+
+	t.Run("missing runtime and missing types", func(t *testing.T) {
+		dir := t.TempDir()
+		ir := simpleIR()
+		ir["packages"].([]map[string]any)[0]["targets"] = []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "dist/missing.js", "types": "dist/missing.d.ts", "deps": []string{}, "peers": []string{}}}
+		irPath := writeIR(t, dir, ir)
+		r := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{})
+		if !hasErrCode(r.Diagnostics, "TSPACK_TYPE_MISSING_OUTPUT") {
+			t.Fatalf("missing diagnostics: %#v", r.Diagnostics)
+		}
+		if r.PackResult != nil && len(r.PackResult.Artifacts) > 0 {
+			t.Fatalf("unexpected artifact")
+		}
+	})
+
+	t.Run("workspace all and selector", func(t *testing.T) {
+		dir := t.TempDir()
+		ir := map[string]any{"format": 1, "workspace": map[string]any{"name": "ws"}, "packages": []map[string]any{
+			{"name": "pkg-a", "version": "1.0.0", "root": "packages/a", "kind": "library", "dependencies": []map[string]any{}, "targets": []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "dist/index.js", "types": "dist/index.d.ts", "deps": []string{}, "peers": []string{}}}, "tools": []string{}, "boundaries": []any{}, "publish": map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}}},
+			{"name": "pkg-b", "version": "2.0.0", "root": "packages/b", "kind": "library", "dependencies": []map[string]any{}, "targets": []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "dist/index.js", "types": "dist/index.d.ts", "deps": []string{}, "peers": []string{}}}, "tools": []string{}, "boundaries": []any{}, "publish": map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}}},
+		}}
+		for _, p := range []string{"packages/a/src", "packages/a/dist", "packages/b/src", "packages/b/dist"} {
+			_ = os.MkdirAll(filepath.Join(dir, p), 0o755)
+		}
+		_ = os.WriteFile(filepath.Join(dir, "packages/a/src/index.ts"), []byte("a"), 0o644)
+		_ = os.WriteFile(filepath.Join(dir, "packages/a/dist/index.js"), []byte("a"), 0o644)
+		_ = os.WriteFile(filepath.Join(dir, "packages/a/dist/index.d.ts"), []byte("a"), 0o644)
+		_ = os.WriteFile(filepath.Join(dir, "packages/b/src/index.ts"), []byte("b"), 0o644)
+		_ = os.WriteFile(filepath.Join(dir, "packages/b/dist/index.js"), []byte("b"), 0o644)
+		_ = os.WriteFile(filepath.Join(dir, "packages/b/dist/index.d.ts"), []byte("b"), 0o644)
+		irPath := writeIR(t, dir, ir)
+		r := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{})
+		if hasErrors(r.Diagnostics) || len(r.PackResult.Artifacts) != 2 {
+			t.Fatalf("expected two artifacts %#v %#v", r.Diagnostics, r.PackResult)
+		}
+		rs := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{PackageName: "pkg-a"})
+		if hasErrors(rs.Diagnostics) || len(rs.PackResult.Artifacts) != 1 {
+			t.Fatalf("selector failed")
+		}
+		rm := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{PackageName: "missing"})
+		if !hasErrCode(rm.Diagnostics, "TSPACK_PACK_PACKAGE_NOT_FOUND") {
+			t.Fatalf("expected not found")
+		}
+	})
+}
+
+func DefaultOptionsWithIR(dir, irPath string) Options {
+	o := DefaultOptions(dir)
+	o.ManifestIRPath = irPath
+	return o
+}
+func readEntries(t *testing.T, path string) []string {
+	t.Helper()
+	b, _ := os.ReadFile(path)
+	gr, _ := gzip.NewReader(bytes.NewReader(b))
+	tr := tar.NewReader(gr)
+	out := []string{}
+	for {
+		h, e := tr.Next()
+		if e != nil {
+			break
+		}
+		if !h.ModTime.Equal((h.ModTime).UTC()) {
+		}
+		out = append(out, h.Name)
+	}
+	_ = gr.Close()
+	return out
+}
+func mustContain(t *testing.T, entries []string, vals ...string) {
+	t.Helper()
+	m := map[string]bool{}
+	for _, e := range entries {
+		m[e] = true
+	}
+	for _, v := range vals {
+		if !m[v] {
+			t.Fatalf("missing %s in %v", v, entries)
+		}
+	}
+}
+func mustNotContain(t *testing.T, entries []string, val string) {
+	t.Helper()
+	for _, e := range entries {
+		if e == val {
+			t.Fatalf("unexpected %s", val)
+		}
+	}
+}
+
+func TestPackMutationGuaranteesAndGeneratedPackageJSON(t *testing.T) {
+	dir := t.TempDir()
+	ir := simpleIR()
+	pkg := ir["packages"].([]map[string]any)[0]
+	pkg["license"] = "MIT"
+	pkg["targets"] = []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "dist/index.js", "types": "dist/index.d.ts", "deps": []string{}, "peers": []string{}}}
+	pkg["publish"] = map[string]any{"include": []string{"dist/**", "README.md"}, "exclude": []string{}}
+	irPath := writeIR(t, dir, ir)
+	_ = os.WriteFile(filepath.Join(dir, "dist", "index.js"), []byte("export const x = 1\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "README.md"), []byte("readme\n"), 0o644)
+	lockPath := filepath.Join(dir, "ts-lock.toml")
+	lf := &lockfile.Lockfile{
+		Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"},
+		Targets: []lockfile.Target{{
+			Package: "app",
+			Name:    "core",
+			Export:  ".",
+			Entry:   "src/index.ts",
+			Runtime: "dist/index.js",
+			Types:   "dist/index.d.ts",
+		}},
+	}
+	before, _ := lockfile.Marshal(lf)
+	_ = os.WriteFile(lockPath, before, 0o644)
+
+	r := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{})
+	if hasErrors(r.Diagnostics) {
+		t.Fatalf("pack failed: %#v", r.Diagnostics)
+	}
+	after, _ := os.ReadFile(lockPath)
+	if !bytes.Equal(before, after) {
+		t.Fatalf("lockfile mutated")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "node_modules")); !os.IsNotExist(err) {
+		t.Fatalf("node_modules created")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".tspack", "store")); !os.IsNotExist(err) {
+		t.Fatalf("store created")
+	}
+
+	artifactBytes, _ := os.ReadFile(r.PackResult.Artifacts[0].Path)
+	gz, _ := gzip.NewReader(bytes.NewReader(artifactBytes))
+	tr := tar.NewReader(gz)
+	var packageJSON []byte
+	for {
+		h, e := tr.Next()
+		if e != nil {
+			break
+		}
+		if h.Name == "package/package.json" {
+			packageJSON, _ = io.ReadAll(tr)
+		}
+	}
+	_ = gz.Close()
+	if len(packageJSON) == 0 {
+		t.Fatalf("missing generated package.json")
+	}
+	var parsed map[string]any
+	_ = json.Unmarshal(packageJSON, &parsed)
+	if parsed["name"] != "app" || parsed["version"] != "1.0.0" {
+		t.Fatalf("missing name/version: %s", string(packageJSON))
+	}
+	exports, ok := parsed["exports"].(map[string]any)
+	if !ok || exports["."] == nil {
+		t.Fatalf("missing exports: %s", string(packageJSON))
+	}
+}
+
+func TestPackFailsWhenCheckFailsAndWritesNoArtifact(t *testing.T) {
+	dir := t.TempDir()
+	irPath := writeIR(t, dir, simpleIR())
+	_ = os.Remove(filepath.Join(dir, "src", "index.ts"))
+	_ = os.WriteFile(filepath.Join(dir, "dist", "index.js"), []byte("export const x = 1\n"), 0o644)
+	outDir := filepath.Join(dir, "out")
+	r := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{OutputDir: outDir})
+	if !hasErrCode(r.Diagnostics, "TSPACK_IMPORT_PARSE_ERROR") {
+		t.Fatalf("expected propagated check error: %#v", r.Diagnostics)
+	}
+	if _, err := os.Stat(outDir); !os.IsNotExist(err) {
+		t.Fatalf("unexpected output dir created")
+	}
 }

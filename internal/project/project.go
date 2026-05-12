@@ -15,6 +15,7 @@ import (
 	"github.com/tspack/tspack/internal/lockfile"
 	"github.com/tspack/tspack/internal/manifest"
 	"github.com/tspack/tspack/internal/materialize"
+	"github.com/tspack/tspack/internal/pack"
 	"github.com/tspack/tspack/internal/resolver"
 	"github.com/tspack/tspack/internal/store"
 )
@@ -28,6 +29,31 @@ type Options struct {
 type Result struct {
 	Diagnostics []diag.Diagnostic
 	LockDiff    *lockfile.Diff
+	PackResult  *PackResult
+}
+
+type PackOptions struct {
+	OutputDir   string
+	PackageName string
+	DryRun      bool
+}
+type PackResult struct {
+	Artifacts []PackArtifact
+	Preview   []PackFile
+}
+type PackArtifact struct {
+	PackageName string
+	Version     string
+	Path        string
+	Hash        string
+	Size        int64
+}
+type PackFile struct {
+	PackageName string
+	SourcePath  string
+	ArchivePath string
+	Size        int64
+	Reason      string
 }
 
 func DefaultOptions(root string) Options {
@@ -95,6 +121,47 @@ func Update(opts Options) Result {
 	}
 	d := lockfile.DiffLockfiles(old, res.Lock)
 	return Result{Diagnostics: out, LockDiff: &d}
+}
+
+func Pack(opts Options, packOpts PackOptions) Result {
+	_, g, out := loadManifestAndGraph(opts)
+	out = append(out, check.CheckPackage(check.CheckOptions{RootDir: opts.RootDir, Graph: g}).Diagnostics...)
+	if _, err := os.Stat(opts.LockfilePath); err == nil {
+		lf, d, e := lockfile.LoadFile(opts.LockfilePath)
+		if e != nil {
+			out = append(out, errDiag("TSPACK_PACK_LOCKFILE_STALE", "failed to read lockfile", e.Error()))
+		} else {
+			out = append(out, d...)
+			out = append(out, lockfile.CheckGraphConsistency(g, lf).Diagnostics...)
+		}
+	} else if os.IsNotExist(err) {
+		out = append(out, diag.Diagnostic{Code: "TSPACK_CHECK_LOCKFILE_MISSING", Severity: diag.SeverityWarning, Message: "lockfile is missing"})
+	}
+	if hasErrors(out) {
+		diag.SortDiagnostics(out)
+		return Result{Diagnostics: out}
+	}
+	pkgs := g.AllPackages()
+	if packOpts.PackageName != "" {
+		p, ok := g.Package(packOpts.PackageName)
+		if !ok {
+			return Result{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_PACK_PACKAGE_NOT_FOUND", "package not found", packOpts.PackageName)}}
+		}
+		pkgs = []*graph.PackageNode{p}
+	}
+	pr := &PackResult{}
+	for _, p := range pkgs {
+		r := pack.Pack(opts.RootDir, p, pack.Options{OutputDir: packOpts.OutputDir, DryRun: packOpts.DryRun})
+		out = append(out, r.Diagnostics...)
+		for _, a := range r.Artifacts {
+			pr.Artifacts = append(pr.Artifacts, PackArtifact(a))
+		}
+		for _, f := range r.Preview {
+			pr.Preview = append(pr.Preview, PackFile(f))
+		}
+	}
+	diag.SortDiagnostics(out)
+	return Result{Diagnostics: out, PackResult: pr}
 }
 
 func Sync(opts Options, clean bool) Result {

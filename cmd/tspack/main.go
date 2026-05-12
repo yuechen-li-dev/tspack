@@ -22,7 +22,7 @@ func main() {
 		fmt.Println(version)
 		return
 	}
-	if args[0] == "check" || args[0] == "update" || args[0] == "sync" {
+	if args[0] == "check" || args[0] == "update" || args[0] == "sync" || args[0] == "pack" {
 		runCommand(args)
 		return
 	}
@@ -41,12 +41,14 @@ func printHelp() {
 	fmt.Println("  tspack check [--root .]")
 	fmt.Println("  tspack update [--root .]")
 	fmt.Println("  tspack sync [--root .] [--clean]")
+	fmt.Println("  tspack pack [--root .] [--out dir] [--package name] [--dry-run]")
 }
 
 func runCommand(args []string) {
 	cmd := args[0]
 	opts := project.DefaultOptions(".")
 	clean := false
+	packOpts := project.PackOptions{}
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
 		case "--root":
@@ -68,6 +70,14 @@ func runCommand(args []string) {
 			opts.StoreRoot = args[i]
 		case "--clean":
 			clean = true
+		case "--out":
+			i++
+			packOpts.OutputDir = args[i]
+		case "--package":
+			i++
+			packOpts.PackageName = args[i]
+		case "--dry-run":
+			packOpts.DryRun = true
 		}
 	}
 	var result project.Result
@@ -78,12 +88,24 @@ func runCommand(args []string) {
 		result = project.Update(opts)
 	case "sync":
 		result = project.Sync(opts, clean)
+	case "pack":
+		result = project.Pack(opts, packOpts)
 	}
 	for _, d := range result.Diagnostics {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", d.Code, d.Message)
 	}
 	if result.LockDiff != nil {
 		fmt.Printf("lockfile diff: +%d -%d\n", len(result.LockDiff.PackagesAdded), len(result.LockDiff.PackagesRemoved))
+	}
+	if result.PackResult != nil {
+		for _, a := range result.PackResult.Artifacts {
+			fmt.Printf("packed %s@%s -> %s (%s)\n", a.PackageName, a.Version, a.Path, a.Hash)
+		}
+		if packOpts.DryRun {
+			for _, f := range result.PackResult.Preview {
+				fmt.Printf("%s %s <- %s\n", f.PackageName, f.ArchivePath, f.SourcePath)
+			}
+		}
 	}
 	if hasErrors(result.Diagnostics) {
 		os.Exit(1)
