@@ -4,38 +4,29 @@ TSPack is a TypeScript-first package manager focused on deterministic dependency
 
 ## Current milestone
 
-- **M0**: repository skeleton, contracts, fixture layout, and baseline test scaffolding.
+- **M1**: manifest frontend parser/validator/normalizer for restricted `manifest.tsx`.
 
 ## What works now
 
 - Minimal Go CLI entry point with `tspack --version` and `tspack help`.
 - Go diagnostics model scaffold and deterministic sorting tests.
-- Placeholder internal packages for future subsystem ownership.
-- TypeScript frontend scaffold with a placeholder exported function and test.
-- Initial schemas, docs, and fixture directory structure.
+- TypeScript manifest frontend parses restricted `manifest.tsx` AST into deterministic JSON IR.
+- Stable frontend diagnostics for forbidden imports/dynamic constructs/etc.
+- Valid/invalid fixture coverage with golden IR snapshots.
 
 ## What intentionally does not work yet
 
-- Manifest parsing/execution (`manifest.tsx`) is not implemented.
-- Resolution, fetching, lockfile semantics, store, and materialization are not implemented.
-- Commands like `sync`, `check`, `pack`, `why`, and build/test runner features are not implemented.
+- Package resolution/fetching.
+- Lockfile TOML semantics/read/write.
+- `node_modules` materialization.
+- Import graph scanning/type leakage analysis.
+- `build/test/dev/publish` package-manager commands.
 
 ## Testing
 
-Run Go tests from repository root:
-
 ```bash
 go test ./...
-```
-
-Run frontend tests:
-
-```bash
 cd manifest-frontend
 npm install
 npm test
 ```
-
-## Status
-
-TSPack is **not yet usable as a package manager**. This milestone is foundation-only.
