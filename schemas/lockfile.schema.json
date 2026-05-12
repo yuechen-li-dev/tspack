@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tspack.dev/schemas/lockfile.schema.json",
+  "title": "TSPack Lockfile (M0 placeholder)",
+  "type": "object",
+  "required": ["lock", "packages", "edges", "targets"],
+  "properties": {
+    "lock": { "type": "string" },
+    "packages": { "type": "array", "items": { "type": "object" } },
+    "edges": { "type": "array", "items": { "type": "object" } },
+    "targets": { "type": "array", "items": { "type": "object" } }
+  },
+  "additionalProperties": true
+}
