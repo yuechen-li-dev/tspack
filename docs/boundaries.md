@@ -23,3 +23,5 @@ M4 non-goals:
 - package fetching/resolution
 - lockfile/store/node_modules flows
 - build/test/dev/publish command implementation
+
+- `TSPACK_BOUNDARY_TYPE_ONLY_RUNTIME_IMPORT`: runtime import of a dependency declared with kind `type`.

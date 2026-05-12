@@ -62,3 +62,10 @@ func TestDeterministicDiagnostics(t *testing.T) {
 	b := CheckRuntimeBoundaries(CheckOptions{RootDir: "../..", Graph: g}).Diagnostics
 	if !reflect.DeepEqual(a, b) { t.Fatal("nondeterministic") }
 }
+
+func TestCheckPackageIntegrationAndTypeOnlyRuntime(t *testing.T) {
+	res := CheckPackage(CheckOptions{RootDir: "../..", Graph: loadGraph(t, "../../fixtures/invalid/m5-type-only-runtime-import/manifest.ir.golden.json")})
+	codes := map[string]bool{}
+	for _, d := range res.Diagnostics { codes[d.Code] = true }
+	if !codes["TSPACK_BOUNDARY_TYPE_ONLY_RUNTIME_IMPORT"] { t.Fatalf("missing type-only runtime diag: %#v", res.Diagnostics) }
+}

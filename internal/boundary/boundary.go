@@ -79,6 +79,12 @@ func validateExternal(t *graph.TargetNode, p *graph.PackageNode, file, pkg strin
 		out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_EXPLICIT_ALLOW_VIOLATION", Severity: diag.SeverityError, Message: "import not present in explicit allow list", File: file, Details: detail})
 	}
 	if t.AllowsExternalPackageName(pkg) {
+		for _, d := range t.RuntimeDeps {
+			if d.Source.Package == pkg && d.Kind == graph.DependencyKindType {
+				out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_TYPE_ONLY_RUNTIME_IMPORT", Severity: diag.SeverityError, Message: "type-only dependency imported at runtime", File: file, Details: detail})
+				return out
+			}
+		}
 		return out
 	}
 	others := p.TargetsAllowingExternalPackageName(pkg)
