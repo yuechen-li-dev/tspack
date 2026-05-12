@@ -74,3 +74,7 @@ export function verifyNoPendingExpectations(): void {
     throw error;
   }
 }
+
+export function clearPendingExpectations(): void {
+  pending.clear();
+}

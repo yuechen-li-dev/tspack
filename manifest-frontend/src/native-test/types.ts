@@ -82,7 +82,8 @@ export type AssertionFailure = Error & {
 export type TestResult = {
   id: string;
   name: string;
-  status: 'passed' | 'failed';
+  status: 'passed' | 'failed' | 'skipped';
   durationMs?: number;
+  skipReason?: string;
   error?: AssertionFailure | Error;
 };

@@ -46,3 +46,26 @@ Conventional `*.test.ts`, `*.test.tsx`, `*.spec.ts`, and `*.spec.tsx` are not cl
 Discovery/listing is static and does not execute callback bodies.
 
 Non-goals remain unchanged for M17: no fixture runner, no command helpers, no filesystem assertions, no Vitest orchestration, and no `tspack test` CLI command.
+
+## M17b assertion and control-flow additions
+
+### `assert.near(actual, expected, tolerance, reason)`
+
+- Explicit tolerance is required; there is no implicit default.
+- Reason is mandatory and must be non-empty.
+- Assertion passes when `Math.abs(actual - expected) <= tolerance`.
+- Assertion fails when:
+  - `actual`, `expected`, or `tolerance` is non-finite.
+  - `tolerance` is negative.
+  - absolute difference is greater than tolerance.
+- Failure uses assertion kind `near` and includes actual, expected, tolerance, absolute difference, and reason.
+
+### `skip(reason)`
+
+- `skip(reason)` is exported by the native test surface for runtime conditional skipping.
+- Reason is mandatory and must be non-empty.
+- Intended usage is guard-clause style near the top of a Fact or Theory case body.
+- Calling `skip(reason)` immediately exits the current test body:
+  - In `Fact`, that Fact result is `skipped`.
+  - In `Theory`, only the current Case execution is `skipped`; other cases still run.
+- Skips are not failures and are reported with `status: "skipped"` and a recorded skip reason.

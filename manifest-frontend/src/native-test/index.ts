@@ -1,5 +1,6 @@
 export { assert } from './assert.js';
 export { expect, verifyNoPendingExpectations } from './expect.js';
+export { skip } from './skip.js';
 export { discoverNativeTestFile, discoverNativeTestFiles } from './discover.js';
 export { runSuite } from './runner.js';
 export { runNativeTestFiles } from './file-runner.js';
