@@ -135,18 +135,43 @@ func TestCLIHelpAndUnsupportedCommands(t *testing.T) {
 			t.Fatalf("help missing %s: %s", cmd, text)
 		}
 	}
-	for _, unsupported := range []string{"build", "test", "dev", "publish", "add", "remove"} {
+	for _, unsupported := range []string{"build", "dev", "publish", "add", "remove"} {
 		if strings.Contains(text, "tspack "+unsupported) {
 			t.Fatalf("help unexpectedly advertises unsupported command %s", unsupported)
 		}
 	}
 
-	for _, c := range []string{"build", "test", "publish"} {
+	for _, c := range []string{"build", "publish"} {
 		cmd := exec.Command("go", "run", "./cmd/tspack", c)
 		cmd.Dir = repo
 		ob, e := cmd.CombinedOutput()
 		if e == nil || !strings.Contains(string(ob), "unknown command") {
 			t.Fatalf("expected deterministic unknown command for %s: %v\n%s", c, e, string(ob))
 		}
+	}
+}
+
+func TestCLITestNoBackendsAndVitestUnavailable(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "test", "--root", root)
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected non-zero when no backends are present")
+	}
+	if !strings.Contains(string(b), "TSPACK_TEST_NO_BACKENDS") {
+		t.Fatalf("missing no backends diagnostic: %s", string(b))
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "test", "-vitest", "--root", root)
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected non-zero when vitest unavailable")
+	}
+	if !strings.Contains(string(b), "TSPACK_TEST_VITEST_NOT_AVAILABLE") {
+		t.Fatalf("missing vitest unavailable diagnostic: %s", string(b))
 	}
 }

@@ -9,6 +9,7 @@ TSPack is a TypeScript-first package manager prototype centered on deterministic
 - `tspack sync`
 - `tspack why <query>`
 - `tspack pack`
+- `tspack test`
 
 ## Core contracts
 
@@ -19,7 +20,9 @@ TSPack is a TypeScript-first package manager prototype centered on deterministic
 
 ## v1 non-goals
 
-TSPack v1 does **not** implement package-manager commands for `build`, `test`, `dev`, `publish`, `add`, or `remove`, and does not run package scripts.
+TSPack v1 does **not** implement package-manager commands for `build`, `dev`, `publish`, `add`, or `remove`, and does not run package scripts.
+
+`tspack test` is an orchestrator for native xTest and Vitest backends. See `docs/test-command.md`.
 
 ## Testing
 
