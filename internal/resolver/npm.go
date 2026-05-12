@@ -1,0 +1,326 @@
+package resolver
+
+import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"crypto/sha512"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"sort"
+	"strings"
+
+	semver "github.com/Masterminds/semver/v3"
+	"github.com/tspack/tspack/internal/diag"
+	"github.com/tspack/tspack/internal/graph"
+	"github.com/tspack/tspack/internal/lockfile"
+)
+
+type ResolveMode string
+
+const (
+	ResolveModeUpdate ResolveMode = "update"
+	ResolveModeSync   ResolveMode = "sync"
+)
+
+type NPMRegistryClient interface {
+	PackageMetadata(ctx context.Context, name string) (*PackageMetadata, error)
+	Tarball(ctx context.Context, url string) ([]byte, error)
+}
+
+type ResolverOptions struct {
+	RegistryURL string
+	Client      NPMRegistryClient
+	Mode        ResolveMode
+}
+
+type ResolveRequest struct {
+	Graph        *graph.WorkspaceGraph
+	ExistingLock *lockfile.Lockfile
+}
+
+type ResolveResult struct {
+	Lock        *lockfile.Lockfile
+	Diagnostics []diag.Diagnostic
+}
+
+type PackageMetadata struct {
+	Name     string                    `json:"name"`
+	Versions map[string]PackageVersion `json:"versions"`
+	DistTags map[string]string         `json:"dist-tags"`
+}
+
+type PackageVersion struct {
+	Name                 string            `json:"name"`
+	Version              string            `json:"version"`
+	Dependencies         map[string]string `json:"dependencies"`
+	OptionalDependencies map[string]string `json:"optionalDependencies"`
+	PeerDependencies     map[string]string `json:"peerDependencies"`
+	Dist                 PackageDist       `json:"dist"`
+	Scripts              map[string]string `json:"scripts"`
+}
+
+type PackageDist struct {
+	Tarball   string `json:"tarball"`
+	Integrity string `json:"integrity"`
+}
+
+func ResolveNPM(ctx context.Context, opts ResolverOptions, req ResolveRequest) ResolveResult {
+	result := ResolveResult{Lock: &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: lockfile.FormatVersion, Tool: lockfile.ToolName}}}
+	if opts.Mode == ResolveModeSync {
+		result.Diagnostics = append(result.Diagnostics, dErr("TSPACK_RESOLVE_MODE_UNSUPPORTED", "sync mode not yet supported in M7"))
+		return result
+	}
+	if req.Graph == nil || opts.Client == nil {
+		result.Diagnostics = append(result.Diagnostics, dErr("TSPACK_RESOLVE_INTERNAL_ERROR", "resolver requires graph and client"))
+		return result
+	}
+	for _, p := range req.Graph.AllPackages() {
+		for _, t := range p.AllTargets() {
+			result.Lock.Targets = append(result.Lock.Targets, lockfile.Target{Package: p.Name, Name: t.Name, Export: t.Export, Entry: t.Entry, Runtime: t.Runtime, Types: t.Types})
+		}
+	}
+	state := &resolverState{opts: opts, result: &result, seenPkg: map[string]bool{}}
+	for _, p := range req.Graph.AllPackages() {
+		for _, t := range p.AllTargets() {
+			from := fmt.Sprintf("%s:target:%s", p.Name, t.Name)
+			for _, dep := range t.AllowedRuntimeDependencies() {
+				state.resolveDirect(ctx, dep, from)
+			}
+			for _, dep := range t.AllowedPeerDependencies() {
+				state.resolveDirectAsKind(ctx, dep, from, "peer")
+			}
+		}
+		for _, dep := range p.ToolDependencies() {
+			state.resolveDirectAsKind(ctx, dep, fmt.Sprintf("%s:tool", p.Name), "tool")
+		}
+	}
+	result.Lock = mustNormalizeLock(result.Lock)
+	diag.SortDiagnostics(result.Diagnostics)
+	return result
+}
+
+type resolverState struct {
+	opts    ResolverOptions
+	result  *ResolveResult
+	seenPkg map[string]bool
+}
+
+func (r *resolverState) resolveDirect(ctx context.Context, dep *graph.DependencyNode, from string) {
+	kind := "runtime"
+	if dep.Kind == graph.DependencyKindType {
+		kind = "type"
+	}
+	r.resolveDirectAsKind(ctx, dep, from, kind)
+}
+
+func (r *resolverState) resolveDirectAsKind(ctx context.Context, dep *graph.DependencyNode, from, kind string) {
+	if dep.Source.Kind != "npm" {
+		r.result.Diagnostics = append(r.result.Diagnostics, dWarn("TSPACK_RESOLVE_NON_NPM_SKIPPED", "non-npm dependency source skipped", dep.Source.Kind, dep.Key))
+		return
+	}
+	id, optional, ok := r.resolvePackage(ctx, dep.Source.Package, dep.Source.Range, dep.Optional, "")
+	if !ok {
+		return
+	}
+	r.result.Lock.Edges = append(r.result.Lock.Edges, lockfile.Edge{From: from, To: id, Kind: kind, Optional: optional})
+}
+
+func (r *resolverState) resolvePackage(ctx context.Context, name, rng string, optional bool, parentID string) (string, bool, bool) {
+	meta, err := r.opts.Client.PackageMetadata(ctx, name)
+	if err != nil {
+		code := "TSPACK_RESOLVE_NPM_METADATA_ERROR"
+		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+			code = "TSPACK_RESOLVE_NPM_PACKAGE_NOT_FOUND"
+		}
+		return "", optional, r.emitLookupError(optional, code, "failed to fetch npm metadata", name, err.Error())
+	}
+	pv, version, selCode, ok := selectVersion(meta, rng)
+	if !ok {
+		code := "TSPACK_RESOLVE_NPM_VERSION_NOT_FOUND"
+		if selCode != "" {
+			code = selCode
+		}
+		return "", optional, r.emitLookupError(optional, code, "failed to select npm version", name, rng)
+	}
+	id := fmt.Sprintf("npm:%s@%s", name, version)
+	if !r.seenPkg[id] {
+		if !r.addResolvedPackage(ctx, id, pv, optional) {
+			return "", optional, false
+		}
+		r.seenPkg[id] = true
+		r.resolveTransitive(ctx, id, pv)
+	}
+	if parentID != "" {
+		r.result.Lock.Edges = append(r.result.Lock.Edges, lockfile.Edge{From: parentID, To: id, Kind: "runtime", Optional: optional})
+	}
+	return id, optional, true
+}
+
+func (r *resolverState) emitLookupError(optional bool, code, msg string, details ...string) bool {
+	if optional {
+		r.result.Diagnostics = append(r.result.Diagnostics, dWarn(code, msg, details...))
+		return false
+	}
+	r.result.Diagnostics = append(r.result.Diagnostics, dErr(code, msg, details...))
+	return false
+}
+
+func selectVersion(meta *PackageMetadata, rng string) (PackageVersion, string, string, bool) {
+	c, err := semver.NewConstraint(rng)
+	if err != nil {
+		return PackageVersion{}, "", "TSPACK_RESOLVE_NPM_INVALID_RANGE", false
+	}
+	versions := make([]*semver.Version, 0, len(meta.Versions))
+	lookup := map[string]PackageVersion{}
+	for v, pv := range meta.Versions {
+		sv, err := semver.NewVersion(v)
+		if err != nil {
+			continue
+		}
+		versions = append(versions, sv)
+		lookup[sv.Original()] = pv
+	}
+	sort.SliceStable(versions, func(i, j int) bool { return versions[i].GreaterThan(versions[j]) })
+	for _, v := range versions {
+		if c.Check(v) {
+			return lookup[v.Original()], v.Original(), "", true
+		}
+	}
+	return PackageVersion{}, "", "", false
+}
+
+func (r *resolverState) addResolvedPackage(ctx context.Context, id string, pv PackageVersion, optional bool) bool {
+	body, err := r.opts.Client.Tarball(ctx, pv.Dist.Tarball)
+	if err != nil {
+		r.emitLookupError(optional, "TSPACK_RESOLVE_NPM_TARBALL_ERROR", "failed to fetch npm tarball", id, err.Error())
+		return false
+	}
+	if pv.Dist.Integrity != "" {
+		ok, code := verifyIntegrity(body, pv.Dist.Integrity)
+		if code != "" {
+			r.emitLookupError(optional, code, "unsupported npm integrity algorithm", id, pv.Dist.Integrity)
+			return false
+		}
+		if !ok {
+			r.emitLookupError(optional, "TSPACK_RESOLVE_NPM_INTEGRITY_MISMATCH", "tarball integrity mismatch", id)
+			return false
+		}
+	}
+	manifest, ok := parseTarballPackageJSON(body)
+	if !ok {
+		r.emitLookupError(optional, "TSPACK_RESOLVE_NPM_TARBALL_PACKAGE_JSON_MISSING", "tarball package.json missing", id)
+		return false
+	}
+	if manifest.Name != pv.Name || manifest.Version != pv.Version {
+		r.emitLookupError(optional, "TSPACK_RESOLVE_NPM_TARBALL_METADATA_MISMATCH", "tarball package metadata mismatch", id)
+		return false
+	}
+	h := sha256.Sum256(body)
+	pkg := lockfile.Package{ID: id, Name: pv.Name, Version: pv.Version, Source: "npm", Integrity: pv.Dist.Integrity, Hash: "sha256:" + hex.EncodeToString(h[:])}
+	for _, script := range []string{"install", "postinstall", "preinstall", "prepack", "postpack", "prepare", "prepublish"} {
+		if _, ok := manifest.Scripts[script]; ok {
+			pkg.Capabilities = append(pkg.Capabilities, lockfile.Capability{Kind: "lifecycle-script", Detail: script})
+		}
+	}
+	r.result.Lock.Packages = append(r.result.Lock.Packages, pkg)
+	return true
+}
+
+func (r *resolverState) resolveTransitive(ctx context.Context, parentID string, pv PackageVersion) {
+	for _, entry := range sortedDeps(pv.Dependencies) {
+		r.resolvePackage(ctx, entry.name, entry.rng, false, parentID)
+	}
+	for _, entry := range sortedDeps(pv.OptionalDependencies) {
+		r.resolvePackage(ctx, entry.name, entry.rng, true, parentID)
+	}
+}
+
+type depEntry struct{ name, rng string }
+
+func sortedDeps(m map[string]string) []depEntry {
+	out := make([]depEntry, 0, len(m))
+	for k, v := range m {
+		out = append(out, depEntry{name: k, rng: v})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].name < out[j].name })
+	return out
+}
+
+type packageJSON struct {
+	Name    string            `json:"name"`
+	Version string            `json:"version"`
+	Scripts map[string]string `json:"scripts"`
+}
+
+func parseTarballPackageJSON(body []byte) (packageJSON, bool) {
+	gz, err := gzip.NewReader(bytes.NewReader(body))
+	if err != nil {
+		return packageJSON{}, false
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return packageJSON{}, false
+		}
+		if hdr.Name == "package/package.json" {
+			b, err := io.ReadAll(tr)
+			if err != nil {
+				return packageJSON{}, false
+			}
+			var out packageJSON
+			if err := json.Unmarshal(b, &out); err != nil {
+				return packageJSON{}, false
+			}
+			return out, true
+		}
+	}
+	return packageJSON{}, false
+}
+
+func verifyIntegrity(body []byte, integrity string) (bool, string) {
+	parts := strings.SplitN(integrity, "-", 2)
+	if len(parts) != 2 {
+		return false, "TSPACK_RESOLVE_NPM_UNSUPPORTED_INTEGRITY"
+	}
+	want, err := base64.StdEncoding.DecodeString(parts[1])
+	if err != nil {
+		return false, "TSPACK_RESOLVE_NPM_UNSUPPORTED_INTEGRITY"
+	}
+	var got []byte
+	switch parts[0] {
+	case "sha512":
+		h := sha512.Sum512(body)
+		got = h[:]
+	case "sha256":
+		h := sha256.Sum256(body)
+		got = h[:]
+	default:
+		return false, "TSPACK_RESOLVE_NPM_UNSUPPORTED_INTEGRITY"
+	}
+	return subtle.ConstantTimeCompare(got, want) == 1, ""
+}
+
+func mustNormalizeLock(lf *lockfile.Lockfile) *lockfile.Lockfile {
+	b, _ := lockfile.Marshal(lf)
+	n, _ := lockfile.Parse("generated.ts-lock.toml", b)
+	return n
+}
+
+func dErr(code, msg string, details ...string) diag.Diagnostic {
+	return diag.Diagnostic{Code: code, Severity: diag.SeverityError, Message: msg, Details: details}
+}
+func dWarn(code, msg string, details ...string) diag.Diagnostic {
+	return diag.Diagnostic{Code: code, Severity: diag.SeverityWarning, Message: msg, Details: details}
+}

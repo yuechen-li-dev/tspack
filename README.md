@@ -4,7 +4,7 @@ TSPack is a TypeScript-first package manager focused on deterministic dependency
 
 ## Current milestone
 
-- **M6b**: workspace/package manifest split support plus package-root-aware checking.
+- **M7**: npm-compatible source resolution into lockfile package/edge/target data.
 
 ## What works now
 
@@ -16,10 +16,10 @@ TSPack is a TypeScript-first package manager focused on deterministic dependency
 
 ## What intentionally does not work yet
 
-- Package resolution/fetching.
+- Git/path/workspace source resolution.
 - Lockfile TOML semantics/read/write.
 - `node_modules` materialization.
-- Import graph scanning/type leakage analysis.
+- package script execution.
 - `build/test/dev/publish` package-manager commands.
 
 ## Testing

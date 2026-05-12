@@ -27,7 +27,19 @@
         "id": { "type": "string" }, "name": { "type": "string" }, "version": { "type": "string" },
         "source": { "enum": ["npm", "git", "path", "workspace"] },
         "integrity": { "type": "string" }, "repo": { "type": "string" }, "rev": { "type": "string" },
-        "tree_hash": { "type": "string" }, "path": { "type": "string" }, "workspace": { "type": "string" }, "hash": { "type": "string" }
+        "tree_hash": { "type": "string" }, "path": { "type": "string" }, "workspace": { "type": "string" }, "hash": { "type": "string" },
+        "capability": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind", "detail"],
+            "properties": {
+              "kind": { "type": "string" },
+              "detail": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
       }
     },
     "edge": {
