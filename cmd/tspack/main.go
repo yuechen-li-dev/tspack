@@ -7,6 +7,7 @@ import (
 
 	"github.com/tspack/tspack/internal/diag"
 	"github.com/tspack/tspack/internal/project"
+	"github.com/tspack/tspack/internal/testcmd"
 )
 
 const version = "tspack 0.0.0-dev"
@@ -26,6 +27,10 @@ func main() {
 		runCommand(args)
 		return
 	}
+	if args[0] == "test" {
+		runTestCommand(args)
+		return
+	}
 
 	fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", args[0])
 	printHelp()
@@ -43,6 +48,37 @@ func printHelp() {
 	fmt.Println("  tspack sync [--root .] [--clean]")
 	fmt.Println("  tspack pack [--root .] [--out dir] [--package name] [--dry-run]")
 	fmt.Println("  tspack why <query> [--root .] [--package name]")
+	fmt.Println("  tspack test [--root .] [-xtest] [-vitest] [--list] [--filter text]")
+}
+
+func runTestCommand(args []string) {
+	opts := testcmd.Options{RootDir: "."}
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--root":
+			i++
+			opts.RootDir = args[i]
+		case "-xtest", "--xtest":
+			opts.UseXTest = true
+		case "-vitest", "--vitest":
+			opts.UseVitest = true
+		case "--list":
+			opts.List = true
+		case "--filter":
+			i++
+			opts.Filter = args[i]
+		default:
+			fmt.Fprintf(os.Stderr, "unknown test flag: %s\n", args[i])
+			os.Exit(1)
+		}
+	}
+	result := testcmd.Run(opts)
+	for _, d := range result.Diagnostics {
+		fmt.Fprintf(os.Stderr, "%s: %s\n", d.Code, d.Message)
+	}
+	if result.ExitCode != 0 {
+		os.Exit(result.ExitCode)
+	}
 }
 
 func runCommand(args []string) {
