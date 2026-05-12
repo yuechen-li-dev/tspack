@@ -4,7 +4,7 @@ TSPack is a TypeScript-first package manager focused on deterministic dependency
 
 ## Current milestone
 
-- **M7**: npm-compatible source resolution into lockfile package/edge/target data.
+- **M14**: security/capability policy hardening (fetch-not-execute, lifecycle capability visibility).
 
 ## What works now
 

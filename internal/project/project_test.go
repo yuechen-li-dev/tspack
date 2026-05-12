@@ -134,6 +134,56 @@ func TestSyncMutationGuardAndMaterialization(t *testing.T) {
 	}
 }
 
+func TestCheckWarnsOnLifecycleCapability(t *testing.T) {
+	dir := t.TempDir()
+	irPath := writeIR(t, dir, simpleIR())
+	lf := &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"},
+		Packages: []lockfile.Package{{ID: "npm:dep-a@1.0.0", Name: "dep-a", Version: "1.0.0", Source: "npm", Integrity: "x", Capabilities: []lockfile.Capability{{Kind: "lifecycle-script", Detail: "postinstall"}}}},
+		Targets:  []lockfile.Target{{Package: "app", Name: "core", Export: ".", Entry: "src/index.ts", Runtime: "src/index.ts", Types: "dist/index.d.ts"}},
+	}
+	b, _ := lockfile.Marshal(lf)
+	_ = os.WriteFile(filepath.Join(dir, "ts-lock.toml"), b, 0o644)
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = irPath
+	res := Check(opts)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("check failed: %#v", res.Diagnostics)
+	}
+	if !hasErrCode(res.Diagnostics, "TSPACK_CAPABILITY_LIFECYCLE_SCRIPT_PRESENT") {
+		t.Fatalf("expected lifecycle capability warning")
+	}
+}
+
+func TestSyncDoesNotExecuteLifecycleScripts(t *testing.T) {
+	dir := t.TempDir()
+	irPath := writeIR(t, dir, simpleIR())
+	st, _ := store.Open(filepath.Join(dir, ".tspack", "store"))
+	marker := filepath.Join(dir, "marker.txt")
+	depRoot := t.TempDir()
+	packageJSON := "{\"name\":\"dep-a\",\"version\":\"1.0.0\",\"scripts\":{\"postinstall\":\"sh -c 'echo bad > " + filepath.ToSlash(marker) + "'\"}}"
+	_ = os.WriteFile(filepath.Join(depRoot, "package.json"), []byte(packageJSON), 0o644)
+	ref, diags := st.PutArtifact(store.Artifact{ID: "npm:dep-a@1.0.0", Name: "dep-a", Version: "1.0.0", Source: "npm", Kind: store.ArtifactPathTree, RootDir: depRoot})
+	if len(diags) > 0 {
+		t.Fatalf("unexpected put artifact diagnostics: %#v", diags)
+	}
+	lf := &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"},
+		Packages: []lockfile.Package{{ID: "npm:dep-a@1.0.0", Name: "dep-a", Version: "1.0.0", Source: "npm", Hash: ref.Hash, Capabilities: []lockfile.Capability{{Kind: "lifecycle-script", Detail: "postinstall"}}}},
+		Edges:    []lockfile.Edge{{From: "app:target:core", To: "npm:dep-a@1.0.0", Kind: "runtime"}},
+		Targets:  []lockfile.Target{{Package: "app", Name: "core", Export: ".", Entry: "src/index.ts", Runtime: "src/index.ts", Types: "dist/index.d.ts"}},
+	}
+	b, _ := lockfile.Marshal(lf)
+	_ = os.WriteFile(filepath.Join(dir, "ts-lock.toml"), b, 0o644)
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = irPath
+	res := Sync(opts, false)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("sync failed: %#v", res.Diagnostics)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("marker file exists; lifecycle script was executed")
+	}
+}
+
 func TestSyncMissingAndStaleLockfile(t *testing.T) {
 	dir := t.TempDir()
 	opts := DefaultOptions(dir)

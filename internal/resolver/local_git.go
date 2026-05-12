@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/tspack/tspack/internal/capability"
 	"github.com/tspack/tspack/internal/graph"
 	"github.com/tspack/tspack/internal/lockfile"
 )
@@ -61,7 +62,7 @@ func (r *resolverState) resolvePathDependency(dep *graph.DependencyNode, from, k
 	}
 	rel := filepath.ToSlash(resolved)
 	id := fmt.Sprintf("path:%s#%s", rel, hash)
-	r.addPackageAndEdge(lockfile.Package{ID: id, Name: pkg.Name, Version: pkg.Version, Source: "path", Path: rel, Hash: "sha256:" + hash, Capabilities: lifecycleCapabilities(pkg.Scripts)}, from, kind, dep.Optional)
+	r.addPackageAndEdge(lockfile.Package{ID: id, Name: pkg.Name, Version: pkg.Version, Source: "path", Path: rel, Hash: "sha256:" + hash, Capabilities: capability.FromPackageJSONScripts(pkg.Scripts)}, from, kind, dep.Optional)
 }
 
 func (r *resolverState) resolveWorkspaceDependency(dep *graph.DependencyNode, from, kind string) {
@@ -128,7 +129,7 @@ func (r *resolverState) resolveGitDependency(ctx context.Context, dep *graph.Dep
 		return
 	}
 	id := fmt.Sprintf("git:%s#%s", filepath.ToSlash(repo), strings.TrimSpace(commit))
-	r.addPackageAndEdge(lockfile.Package{ID: id, Name: pkg.Name, Version: pkg.Version, Source: "git", Repo: filepath.ToSlash(repo), Rev: strings.TrimSpace(commit), TreeHash: strings.TrimSpace(treeHash), Capabilities: lifecycleCapabilities(pkg.Scripts)}, from, kind, dep.Optional)
+	r.addPackageAndEdge(lockfile.Package{ID: id, Name: pkg.Name, Version: pkg.Version, Source: "git", Repo: filepath.ToSlash(repo), Rev: strings.TrimSpace(commit), TreeHash: strings.TrimSpace(treeHash), Capabilities: capability.FromPackageJSONScripts(pkg.Scripts)}, from, kind, dep.Optional)
 }
 
 type localPkgMeta struct {
@@ -151,16 +152,6 @@ func (r *resolverState) localPackageMetadata(root, fallbackName, invalidCode str
 		name = fallbackName
 	}
 	return localPkgMeta{Name: name, Version: pkg.Version, Scripts: pkg.Scripts}, true
-}
-
-func lifecycleCapabilities(scripts map[string]string) []lockfile.Capability {
-	caps := []lockfile.Capability{}
-	for _, script := range []string{"install", "postinstall", "preinstall", "prepack", "postpack", "prepare", "prepublish"} {
-		if _, ok := scripts[script]; ok {
-			caps = append(caps, lockfile.Capability{Kind: "lifecycle-script", Detail: script})
-		}
-	}
-	return caps
 }
 
 func hashDirectory(root string) (string, bool) {
