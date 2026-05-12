@@ -81,6 +81,13 @@ func Check(opts Options) Result {
 		} else {
 			out = append(out, d...)
 			out = append(out, lockfile.CheckGraphConsistency(g, lf).Diagnostics...)
+			for _, pkg := range lf.Packages {
+				for _, cap := range pkg.Capabilities {
+					if cap.Kind == "lifecycle-script" {
+						out = append(out, diag.Diagnostic{Code: "TSPACK_CAPABILITY_LIFECYCLE_SCRIPT_PRESENT", Severity: diag.SeverityWarning, Message: "lockfile package has lifecycle-script capability", Details: []string{pkg.ID, cap.Detail}})
+					}
+				}
+			}
 		}
 	} else if os.IsNotExist(err) {
 		out = append(out, diag.Diagnostic{Code: "TSPACK_CHECK_LOCKFILE_MISSING", Severity: diag.SeverityWarning, Message: "lockfile is missing"})

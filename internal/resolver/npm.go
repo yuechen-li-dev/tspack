@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	semver "github.com/Masterminds/semver/v3"
+	"github.com/tspack/tspack/internal/capability"
 	"github.com/tspack/tspack/internal/diag"
 	"github.com/tspack/tspack/internal/graph"
 	"github.com/tspack/tspack/internal/lockfile"
@@ -225,11 +226,7 @@ func (r *resolverState) addResolvedPackage(ctx context.Context, id string, pv Pa
 	}
 	h := sha256.Sum256(body)
 	pkg := lockfile.Package{ID: id, Name: pv.Name, Version: pv.Version, Source: "npm", Integrity: pv.Dist.Integrity, Hash: "sha256:" + hex.EncodeToString(h[:])}
-	for _, script := range []string{"install", "postinstall", "preinstall", "prepack", "postpack", "prepare", "prepublish"} {
-		if _, ok := manifest.Scripts[script]; ok {
-			pkg.Capabilities = append(pkg.Capabilities, lockfile.Capability{Kind: "lifecycle-script", Detail: script})
-		}
-	}
+	pkg.Capabilities = capability.FromPackageJSONScripts(manifest.Scripts)
 	r.result.Lock.Packages = append(r.result.Lock.Packages, pkg)
 	return true
 }
