@@ -137,3 +137,12 @@ Non-goals in M17c remain unchanged: no fixtures, no snapshots/golden assertions,
 - `TSPACK_TEST_FILTER_NO_MATCH` is treated as error and therefore exits `1`.
 
 M17d non-goals remain unchanged: no fixture runner, no command helpers, no filesystem assertion suite, no Vitest orchestration, and no package-manager `tspack test` CLI.
+
+
+## Standalone artifacts
+
+- `tspack artifact` runs standalone native xTest `<Artifact>` units declared directly under `<Suite>`.
+- `tspack pack` creates package `.tgz` archives; it is unrelated to native test artifacts.
+
+
+See also `docs/artifacts.md` for standalone artifact mode details.

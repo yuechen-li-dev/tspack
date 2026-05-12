@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
-import type { Diagnostic, DiscoverFilesResult, DiscoverOptions, DiscoveredFile, DiscoveryResult, Literal } from './types.js';
+import type { Diagnostic, DiscoverFilesResult, DiscoverOptions, DiscoveredFile, DiscoveryResult, Literal, DiscoveredStandaloneArtifact } from './types.js';
 
 const allowed = new Set(['Suite', 'Fact', 'Theory', 'Case', 'Artifact']);
 
@@ -12,6 +12,7 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
       tests: [],
       facts: [],
       theories: [],
+      standaloneArtifacts: [],
       diagnostics: [{ code: 'TSPACK_TEST_NON_NATIVE_FILE', message: 'native test files must end with .xtest.tsx', file: abs }],
     };
   }
@@ -33,24 +34,26 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
 
   if (!exportExpr) {
     diagnostics.push({ code: 'TSPACK_TEST_INVALID_DEFAULT_EXPORT', message: 'default export must be a Suite JSX tree', file: abs });
-    return { diagnostics, tests: [], facts: [], theories: [] };
+    return { diagnostics, tests: [], facts: [], theories: [], standaloneArtifacts: [] };
   }
 
   const root = unwrap(exportExpr);
   if (!ts.isJsxElement(root) && !ts.isJsxSelfClosingElement(root)) {
     diagnostics.push({ code: 'TSPACK_TEST_INVALID_DEFAULT_EXPORT', message: 'default export must be JSX', file: abs });
-    return { diagnostics, tests: [], facts: [], theories: [] };
+    return { diagnostics, tests: [], facts: [], theories: [], standaloneArtifacts: [] };
   }
 
   const tests: string[] = [];
   const facts: DiscoveryResult['facts'] = [];
   const theories: DiscoveryResult['theories'] = [];
+  const standaloneArtifacts: DiscoveredStandaloneArtifact[] = [];
 
   const suiteName = parseName(getTagName(root), getAttributes(root), root, addDiag);
   if (getTagName(root) !== 'Suite') {
     addDiag(root, 'TSPACK_TEST_INVALID_DEFAULT_EXPORT', 'root element must be <Suite>');
   }
 
+  const standaloneNames = new Set<string>();
   for (const child of getChildren(root)) {
     if (!ts.isJsxElement(child) && !ts.isJsxSelfClosingElement(child)) {
       continue;
@@ -61,7 +64,15 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
       continue;
     }
     if (tag === 'Artifact') {
-      addDiag(child, 'TSPACK_ARTIFACT_INVALID_DECLARATION', 'Artifact must be nested under Fact or Theory');
+      const suiteArtifact = parseSuiteArtifact(child, suiteName, abs, addDiag);
+      if (suiteArtifact) {
+        if (standaloneNames.has(suiteArtifact.name)) {
+          addDiag(child, 'TSPACK_ARTIFACT_DUPLICATE_NAME', `duplicate Artifact name: ${suiteArtifact.name}`);
+        } else {
+          standaloneNames.add(suiteArtifact.name);
+          standaloneArtifacts.push(suiteArtifact);
+        }
+      }
       continue;
     }
     if (tag === 'Fact') {
@@ -93,7 +104,7 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
     }
   }
 
-  return { suiteName, tests, facts, theories, diagnostics };
+  return { suiteName, tests, facts, theories, standaloneArtifacts, diagnostics };
 }
 
 const defaultIgnore = new Set(['node_modules', '.git', 'dist']);
@@ -110,7 +121,7 @@ export function discoverNativeTestFiles(options: DiscoverOptions): DiscoverFiles
         ...discovered.facts.map((fact) => ({ id: `${relativeFilePath}::${fact.id}`, name: fact.name, kind: 'fact' as const, filePath })),
         ...discovered.theories.flatMap((theory) => theory.cases.map((c) => ({ id: `${relativeFilePath}::${c.id}`, name: theory.name, kind: 'theory' as const, filePath }))),
       ];
-      files.push({ filePath, suiteName: discovered.suiteName ?? '', tests, diagnostics: discovered.diagnostics });
+      files.push({ filePath, suiteName: discovered.suiteName ?? '', tests, standaloneArtifacts: discovered.standaloneArtifacts, diagnostics: discovered.diagnostics });
       diagnostics.push(...discovered.diagnostics);
     } catch (error) {
       diagnostics.push({ code: 'TSPACK_TEST_DISCOVERY_FAILED', message: `failed to discover native test file: ${(error as Error).message}`, file: filePath });
@@ -190,4 +201,19 @@ function parseArtifact(node: ts.JsxElement | ts.JsxSelfClosingElement, addDiag: 
 function isSafeArtifactPath(value: string): boolean {
   if (value.startsWith('/') || value.includes('..') || value.includes('\\')) return false;
   return true;
+}
+
+function parseSuiteArtifact(node: ts.JsxElement | ts.JsxSelfClosingElement, suiteName: string, filePath: string, addDiag: (node: ts.Node, code: string, message: string) => void): DiscoveredStandaloneArtifact | undefined {
+  const parsed = parseArtifact(node, addDiag);
+  if (!parsed) return undefined;
+  if (!parsed.required) {
+    addDiag(node, 'TSPACK_ARTIFACT_OPTIONAL_NOT_ALLOWED', 'suite-level Artifact does not allow optional');
+    return undefined;
+  }
+  if (!getJsxBodyFunction(node)) {
+    addDiag(node, 'TSPACK_ARTIFACT_MISSING_BODY', 'suite-level Artifact requires callback body');
+    return undefined;
+  }
+  const id = `${filePath.split(path.sep).join('/')}::${suiteName}/artifact/${parsed.name}`;
+  return { id, filePath, suiteName, name: parsed.name, path: parsed.path, format: parsed.format };
 }

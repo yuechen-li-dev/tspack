@@ -6,3 +6,12 @@
 - `tspack pack [--root .] [--out <dir>] [--package <name>] [--dry-run]`: creates deterministic local package archives.
 - `tspack why <query> [--root .] [--manifest <path>] [--lockfile <path>] [--package <name>]`: explains why a dependency/target/lock package is present.
 - `tspack test [--root .] [-xtest|--xtest] [-vitest|--vitest] [--list] [--filter <text>]`: runs test backends (xTest and/or Vitest).
+
+
+## Standalone artifacts
+
+- `tspack artifact` runs standalone native xTest `<Artifact>` units declared directly under `<Suite>`.
+- `tspack pack` creates package `.tgz` archives; it is unrelated to native test artifacts.
+
+
+See also `docs/artifacts.md` for standalone artifact mode details.

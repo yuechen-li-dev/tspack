@@ -1,37 +1,18 @@
-import { createNativeTestReport, formatNativeTestJsonReport, formatNativeTestTextReport, listNativeTests, nativeTestExitCode, runNativeTestFiles } from './native-test/index.js';
+import { createNativeArtifactReport, createNativeTestReport, formatNativeArtifactJsonReport, formatNativeArtifactTextReport, formatNativeTestJsonReport, formatNativeTestTextReport, listNativeArtifacts, listNativeTests, nativeArtifactExitCode, nativeTestExitCode, runNativeArtifacts, runNativeTestFiles } from './native-test/index.js';
 
-type Options = {
-  rootDir: string;
-  list: boolean;
-  filter?: string;
-  json: boolean;
-};
+type Mode = 'test' | 'artifact';
+type Options = { mode: Mode; rootDir: string; list: boolean; filter?: string; json: boolean; out?: string };
 
 function parseArgs(argv: string[]): Options {
-  const options: Options = { rootDir: '.', list: false, json: false };
-  for (let index = 2; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (arg === 'test') {
-      continue;
-    }
-    if (arg === '--root') {
-      index += 1;
-      options.rootDir = argv[index] ?? '.';
-      continue;
-    }
-    if (arg === '--list') {
-      options.list = true;
-      continue;
-    }
-    if (arg === '--filter') {
-      index += 1;
-      options.filter = argv[index];
-      continue;
-    }
-    if (arg === '--json') {
-      options.json = true;
-      continue;
-    }
+  const mode = (argv[2] === 'artifact' ? 'artifact' : 'test') as Mode;
+  const options: Options = { mode, rootDir: '.', list: false, json: false };
+  for (let i = 3; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === '--root') { i += 1; options.rootDir = argv[i] ?? '.'; continue; }
+    if (arg === '--list') { options.list = true; continue; }
+    if (arg === '--filter') { i += 1; options.filter = argv[i]; continue; }
+    if (arg === '--json') { options.json = true; continue; }
+    if (arg === '--out') { i += 1; options.out = argv[i]; continue; }
     throw new Error(`unknown flag: ${arg}`);
   }
   return options;
@@ -39,25 +20,28 @@ function parseArgs(argv: string[]): Options {
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv);
-  if (options.list) {
-    const listed = await listNativeTests({ rootDir: options.rootDir, filter: options.filter });
-    const report = createNativeTestReport({
-      rootDir: listed.rootDir,
-      discovered: listed.discovered,
-      results: [],
-      diagnostics: listed.diagnostics,
-    });
-    process.stdout.write(`${formatNativeTestTextReport(report)}\n`);
-    process.exit(nativeTestExitCode(report));
+  if (options.mode === 'artifact') {
+    if (options.list) {
+      const listed = await listNativeArtifacts({ rootDir: options.rootDir });
+      const report = createNativeArtifactReport({ artifacts: listed.artifacts.map((a) => ({ id: a.id, name: a.name, status: 'passed' })), diagnostics: listed.diagnostics });
+      process.stdout.write(options.json ? formatNativeArtifactJsonReport(report) : formatNativeArtifactTextReport(report));
+      process.exit(nativeArtifactExitCode(report));
+    }
+    const result = await runNativeArtifacts({ rootDir: options.rootDir, filter: options.filter, artifactRoot: options.out });
+    const report = createNativeArtifactReport(result);
+    process.stdout.write(options.json ? formatNativeArtifactJsonReport(report) : formatNativeArtifactTextReport(report));
+    process.exit(nativeArtifactExitCode(report));
   }
 
+  if (options.list) {
+    const listed = await listNativeTests({ rootDir: options.rootDir });
+    const report = createNativeTestReport({ results: listed.tests.map((t) => ({ id: t.id, name: t.name, status: 'passed' })), diagnostics: listed.diagnostics });
+    process.stdout.write(options.json ? formatNativeTestJsonReport(report) : formatNativeTestTextReport(report));
+    process.exit(nativeTestExitCode(report));
+  }
   const runResult = await runNativeTestFiles({ rootDir: options.rootDir, filter: options.filter });
   const report = createNativeTestReport(runResult);
-  if (options.json) {
-    process.stdout.write(`${formatNativeTestJsonReport(report)}\n`);
-  } else {
-    process.stdout.write(`${formatNativeTestTextReport(report)}\n`);
-  }
+  process.stdout.write(options.json ? formatNativeTestJsonReport(report) : formatNativeTestTextReport(report));
   process.exit(nativeTestExitCode(report));
 }
 

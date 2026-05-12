@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/tspack/tspack/internal/diag"
@@ -31,6 +32,10 @@ func main() {
 		runTestCommand(args)
 		return
 	}
+	if args[0] == "artifact" {
+		runArtifactCommand(args)
+		return
+	}
 
 	fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", args[0])
 	printHelp()
@@ -49,6 +54,63 @@ func printHelp() {
 	fmt.Println("  tspack pack [--root .] [--out dir] [--package name] [--dry-run]")
 	fmt.Println("  tspack why <query> [--root .] [--package name]")
 	fmt.Println("  tspack test [--root .] [-xtest] [-vitest] [--list] [--filter text]")
+	fmt.Println("  tspack artifact [--root .] [--out path] [--list] [--filter text] [--json]")
+}
+
+func runArtifactCommand(args []string) {
+	root := "."
+	out := ""
+	list := false
+	filter := ""
+	jsonOut := false
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--root":
+			i++
+			root = args[i]
+		case "--out":
+			i++
+			out = args[i]
+		case "--list":
+			list = true
+		case "--filter":
+			i++
+			filter = args[i]
+		case "--json":
+			jsonOut = true
+		default:
+			fmt.Fprintf(os.Stderr, "unknown artifact flag: %s\n", args[i])
+			os.Exit(1)
+		}
+	}
+	bridge := filepath.Join("manifest-frontend", "dist", "src", "native-test-cli.js")
+	if _, err := os.Stat(bridge); err != nil {
+		fmt.Fprintln(os.Stderr, "TSPACK_ARTIFACT_BRIDGE_MISSING: native artifact bridge not found")
+		os.Exit(1)
+	}
+	nodeArgs := []string{bridge, "artifact", "--root", root}
+	if out != "" {
+		nodeArgs = append(nodeArgs, "--out", out)
+	}
+	if list {
+		nodeArgs = append(nodeArgs, "--list")
+	}
+	if filter != "" {
+		nodeArgs = append(nodeArgs, "--filter", filter)
+	}
+	if jsonOut {
+		nodeArgs = append(nodeArgs, "--json")
+	}
+	cmd := exec.Command("node", nodeArgs...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+		fmt.Fprintf(os.Stderr, "TSPACK_ARTIFACT_FAILED: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func runTestCommand(args []string) {
