@@ -45,11 +45,18 @@ export type DiscoveredTheory = {
   artifacts: DiscoveredArtifact[];
 };
 
+export type DiscoveredInvariant = {
+  kind: 'valid' | 'invalid';
+  name: string;
+  id: string;
+};
+
 export type DiscoveryResult = {
   suiteName?: string;
   tests: string[];
   facts: DiscoveredFact[];
   theories: DiscoveredTheory[];
+  invariants: DiscoveredInvariant[];
   standaloneArtifacts: DiscoveredStandaloneArtifact[];
   diagnostics: Diagnostic[];
 };
@@ -57,7 +64,7 @@ export type DiscoveryResult = {
 export type DiscoveredTest = {
   id: string;
   name: string;
-  kind: 'fact' | 'theory';
+  kind: 'fact' | 'theory' | 'valid' | 'invalid';
   filePath: string;
 };
 
@@ -85,7 +92,7 @@ export type ListedTest = {
   filePath: string;
   suiteName: string;
   name: string;
-  kind: 'fact' | 'theory-case';
+  kind: 'fact' | 'theory-case' | 'valid' | 'invalid';
   theoryName?: string;
   caseIndex?: number;
   caseData?: Record<string, unknown>;

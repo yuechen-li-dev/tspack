@@ -4,7 +4,7 @@
 
 ## Backends
 
-- xTest backend discovers `**/*.xtest.tsx` files.
+- xTest backend discovers `**/*.xtest.tsx`, `**/*.valid.tsx`, and `**/*.invalid.tsx` files.
 - Vitest backend runs local `node_modules/.bin/vitest`.
 
 ## Selection
@@ -35,3 +35,6 @@
 - `TSPACK_TEST_VITEST_FAILED_TO_START`
 - `TSPACK_TEST_BACKEND_LIST_UNSUPPORTED`
 - `TSPACK_TEST_BACKEND_FILTER_UNSUPPORTED`
+
+- `--list -xtest` includes Fact, Theory case, Valid, and Invalid entries.
+- `tspack artifact` continues to use standalone suite-level `<Artifact>` declarations and does not list/run Valid/Invalid entries.

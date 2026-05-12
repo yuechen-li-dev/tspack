@@ -8,7 +8,7 @@ import { isSkipSignal } from './skip.js';
 import type { DiscoveredArtifact, TestArtifact, TestResult } from './types.js';
 
 type RuntimeNode = {
-  __tag: 'Suite' | 'Fact' | 'Theory' | 'Case' | 'Artifact';
+  __tag: 'Suite' | 'Fact' | 'Theory' | 'Case' | 'Artifact' | 'Valid' | 'Invalid';
   props: Record<string, unknown>;
   children: unknown[];
 };
@@ -41,6 +41,16 @@ export async function runSuite(root: RuntimeNode, options: RunSuiteOptions = {})
       results.push(await runSingle(id, factName, declarations, artifactRoot, async (ctx) => callback?.(ctx)));
       continue;
     }
+
+    if (child.__tag === 'Valid' || child.__tag === 'Invalid') {
+      const invariantName = String(child.props.name ?? '');
+      const prefix = child.__tag === 'Valid' ? 'valid' : 'invalid';
+      const id = `${suiteName}/${prefix}/${invariantName}`;
+      const callback = child.children.find((entry) => typeof entry === 'function') as ((ctx?: TestContext) => unknown) | undefined;
+      results.push(await runSingle(id, invariantName, [], artifactRoot, async (ctx) => callback?.(ctx)));
+      continue;
+    }
+
     if (child.__tag === 'Theory') {
       const theoryName = String(child.props.name ?? '');
       const callback = child.children.find((entry) => typeof entry === 'function') as ((data: Record<string, unknown>, ctx?: TestContext) => unknown) | undefined;

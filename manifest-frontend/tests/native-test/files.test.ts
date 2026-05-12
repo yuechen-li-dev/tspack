@@ -2,89 +2,94 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { discoverNativeTestFile, discoverNativeTestFiles, runNativeTestFiles } from '../../src/native-test';
+import { createNativeTestReport, listNativeArtifacts, listNativeTests, runNativeTestFiles } from '../../src/native-test';
 
 function makeDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'tspack-native-files-'));
 }
 
-describe('native file discovery and execution', () => {
-  it('discovers only .xtest.tsx files in deterministic order', () => {
+function nativeImportPath(): string {
+  return path.resolve(process.cwd(), 'src/native-test/index.ts').split(path.sep).join('/');
+}
+
+describe('native valid/invalid file execution', () => {
+  it('runs valid/invalid pass/fail/async/skip and filter behavior', async () => {
     const root = makeDir();
-    fs.writeFileSync(path.join(root, 'b.xtest.tsx'), 'export default (<Suite name="s"><Fact name="b">{() => {}}</Fact></Suite>);');
-    fs.writeFileSync(path.join(root, 'a.xtest.tsx'), 'export default (<Suite name="s"><Fact name="a">{() => {}}</Fact></Suite>);');
-    fs.writeFileSync(path.join(root, 'ignored.test.tsx'), 'export default null;');
-    fs.writeFileSync(path.join(root, 'ignored.spec.tsx'), 'export default null;');
-    fs.writeFileSync(path.join(root, 'ignored.tsx'), 'export default null;');
+    const importPath = nativeImportPath();
 
-    const result = discoverNativeTestFiles({ rootDir: root });
-    expect(result.files.map((f) => path.basename(f.filePath))).toEqual(['a.xtest.tsx', 'b.xtest.tsx']);
-    expect(result.files.flatMap((f) => f.tests.map((t) => t.id))).toEqual(['a.xtest.tsx::s/a', 'b.xtest.tsx::s/b']);
-  });
+    fs.writeFileSync(path.join(root, 'fixtures.valid.tsx'), `
+      import { Suite, Valid, skip, assert, expect } from '${importPath}';
+      export default (
+        <Suite name="v">
+          <Valid name="pass">{() => { expect.noErrors([]).because('no errors'); }}</Valid>
+          <Valid name="assert fail">{() => { assert.equal(1, 2, 'should fail'); }}</Valid>
+          <Valid name="skip">{() => { skip('skip valid'); }}</Valid>
+          <Valid name="async">{async () => { await Promise.resolve(); assert.true(true, 'async valid'); }}</Valid>
+          <Valid name="pending because">{() => { expect(1).toBe(1); }}</Valid>
+        </Suite>
+      );
+    `);
 
-  it('returns non-native file diagnostic for explicit file discovery', () => {
-    const root = makeDir();
-    const file = path.join(root, 'not-native.tsx');
-    fs.writeFileSync(file, 'export default null;');
-    const result = discoverNativeTestFile(file);
-    expect(result.diagnostics.some((d) => d.code === 'TSPACK_TEST_NON_NATIVE_FILE')).toBe(true);
-  });
+    fs.writeFileSync(path.join(root, 'fixtures.invalid.tsx'), `
+      import { Suite, Invalid, skip, assert, expect } from '${importPath}';
+      export default (
+        <Suite name="i">
+          <Invalid name="error match">{() => { expect.error([{ code: 'E_MATCH' }], 'E_MATCH').because('must match'); }}</Invalid>
+          <Invalid name="error missing">{() => { expect.error([{ code: 'E_OTHER' }], 'E_EXPECTED').because('must fail'); }}</Invalid>
+          <Invalid name="noErrors fail">{() => { expect.noErrors([{ code: 'E', severity: 'error' }]).because('error should fail'); }}</Invalid>
+          <Invalid name="skip">{() => { skip('skip invalid'); }}</Invalid>
+          <Invalid name="async">{async () => { await Promise.resolve(); assert.true(true, 'async invalid'); }}</Invalid>
+          <Invalid name="pending because">{() => { expect(1).toBe(1); }}</Invalid>
+        </Suite>
+      );
+    `);
 
-  it('supports listOnly without executing callback bodies', async () => {
-    const root = path.resolve(process.cwd(), 'tests/native-test/fixtures');
-    const result = await runNativeTestFiles({ rootDir: root, listOnly: true });
-    expect(result.results.some((r) => r.id.includes('side-effect.xtest.tsx::side/body'))).toBe(true);
-  });
-
-  it('loads .xtest.tsx that imports skip and reports skipped statuses', async () => {
-    const root = path.resolve(process.cwd(), 'tests/native-test/fixtures');
-    const result = await runNativeTestFiles({ rootDir: root, files: ['skip.xtest.tsx'] });
-    expect(result.results.map((r) => r.status)).toEqual(['skipped', 'skipped', 'passed']);
-    expect(result.results[0].skipReason).toBe('demonstrates runtime conditional skip');
-    expect(result.results[1].skipReason).toBe('case 1 intentionally skipped');
-  });
-
-
-  it('loads .xtest.tsx and writes artifacts under artifactRoot', async () => {
-    const root = makeDir();
-    const artifactRoot = makeDir();
     fs.writeFileSync(path.join(root, 'artifact.xtest.tsx'), `
-      import { Suite, Fact, Artifact } from '${path.resolve(process.cwd(), 'src/native-test/index.ts').replace(/\\/g, '/')}';
-      export default (
-        <Suite name="a">
-          <Fact name="f">
-            <Artifact name="report" path="report.json" format="json" />
-            {async ({ artifact }) => { await artifact.writeJson('report', { ok: true }, 'persist report'); }}
-          </Fact>
-        </Suite>
-      );
+      import { Suite, Artifact } from '${importPath}';
+      export default (<Suite name="art"><Artifact name="standalone" path="a.txt">{async ({ artifact }) => { await artifact.writeText('standalone', 'ok', 'proof'); }}</Artifact></Suite>);
     `);
-    const result = await runNativeTestFiles({ rootDir: root, artifactRoot });
-    expect(result.results[0].status).toBe('passed');
-    expect(fs.existsSync(path.join(artifactRoot, 'a__f', 'report.json'))).toBe(true);
+
+    const run = await runNativeTestFiles({ rootDir: root });
+    const statusById = new Map(run.results.map((entry) => [entry.id, entry.status]));
+
+    expect(statusById.get('fixtures.valid.tsx::v/valid/pass')).toBe('passed');
+    expect(statusById.get('fixtures.valid.tsx::v/valid/assert fail')).toBe('failed');
+    expect(statusById.get('fixtures.valid.tsx::v/valid/skip')).toBe('skipped');
+    expect(statusById.get('fixtures.valid.tsx::v/valid/async')).toBe('passed');
+    expect(statusById.get('fixtures.valid.tsx::v/valid/pending because')).toBe('failed');
+
+    expect(statusById.get('fixtures.invalid.tsx::i/invalid/error match')).toBe('passed');
+    expect(statusById.get('fixtures.invalid.tsx::i/invalid/error missing')).toBe('failed');
+    expect(statusById.get('fixtures.invalid.tsx::i/invalid/noErrors fail')).toBe('failed');
+    expect(statusById.get('fixtures.invalid.tsx::i/invalid/skip')).toBe('skipped');
+    expect(statusById.get('fixtures.invalid.tsx::i/invalid/async')).toBe('passed');
+    expect(statusById.get('fixtures.invalid.tsx::i/invalid/pending because')).toBe('failed');
+
+    const filterValid = await runNativeTestFiles({ rootDir: root, filter: 'valid/pass' });
+    expect(filterValid.results.map((entry) => entry.id)).toEqual(['fixtures.valid.tsx::v/valid/pass']);
+
+    const filterInvalid = await runNativeTestFiles({ rootDir: root, filter: 'error match' });
+    expect(filterInvalid.results.map((entry) => entry.id)).toEqual(['fixtures.invalid.tsx::i/invalid/error match']);
+
+    const noMatch = await runNativeTestFiles({ rootDir: root, filter: 'not-there' });
+    const report = createNativeTestReport(noMatch);
+    expect(report.diagnostics.some((entry) => entry.code === 'TSPACK_TEST_FILTER_NO_MATCH')).toBe(true);
+
+    expect(run.results.some((entry) => entry.id.includes('/artifact/'))).toBe(false);
   });
 
-  it('runs loaded fact and theory tests, including async and failures', async () => {
+  it('list APIs include valid/invalid and artifact list excludes them', async () => {
     const root = makeDir();
-    fs.writeFileSync(path.join(root, 'run.xtest.tsx'), `
-      import { Suite, Fact, Theory, Case, assert, expect } from '${path.resolve(process.cwd(), 'src/native-test/index.ts').replace(/\\/g, '/')}';
-      export default (
-        <Suite name="exec">
-          <Fact name="async ok">{async () => { await Promise.resolve(); assert.true(true, 'async body should pass'); }}</Fact>
-          <Fact name="assert fail">{() => { assert.equal(1, 2, 'failing assertion reason'); }}</Fact>
-          <Fact name="missing because">{() => { expect(1).toBe(1); }}</Fact>
-          <Theory name="len"><Case input="x" expected={1} />{({ input, expected }) => { assert.equal(input.length, expected, 'theory works'); }}</Theory>
-        </Suite>
-      );
-    `);
+    const importPath = nativeImportPath();
+    fs.writeFileSync(path.join(root, 'v.valid.tsx'), `import { Suite, Valid } from '${importPath}'; export default (<Suite name="s"><Valid name="ok">{() => {}}</Valid></Suite>);`);
+    fs.writeFileSync(path.join(root, 'i.invalid.tsx'), `import { Suite, Invalid } from '${importPath}'; export default (<Suite name="s"><Invalid name="bad">{() => {}}</Invalid></Suite>);`);
+    fs.writeFileSync(path.join(root, 'x.xtest.tsx'), `import { Suite, Artifact } from '${importPath}'; export default (<Suite name="s"><Artifact name="a" path="a.txt">{() => {}}</Artifact></Suite>);`);
 
-    const result = await runNativeTestFiles({ rootDir: root });
-    expect(result.results.map((r) => r.id)).toEqual([
-      'run.xtest.tsx::exec/async ok',
-      'run.xtest.tsx::exec/assert fail',
-      'run.xtest.tsx::exec/missing because',
-      'run.xtest.tsx::exec/len[0]',
-    ]);
-    expect(result.results.map((r) => r.status)).toEqual(['passed', 'failed', 'failed', 'passed']);
+    const listedTests = await listNativeTests({ rootDir: root });
+    expect(listedTests.tests.some((entry) => entry.id.includes('v.valid.tsx::s/valid/ok'))).toBe(true);
+    expect(listedTests.tests.some((entry) => entry.id.includes('i.invalid.tsx::s/invalid/bad'))).toBe(true);
+
+    const listedArtifacts = await listNativeArtifacts({ rootDir: root });
+    expect(listedArtifacts.artifacts.every((entry) => !entry.id.includes('/valid/') && !entry.id.includes('/invalid/'))).toBe(true);
   });
 });

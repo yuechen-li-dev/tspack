@@ -14,6 +14,9 @@ export function listDiscoveredTests(discovery: DiscoverFilesResult): ListedTest[
         listed.push({ id: `${normalizePath(file.filePath)}::${entry.id}`, filePath: file.filePath, suiteName: details.suiteName ?? '', name: theory.name, kind: 'theory-case', theoryName: theory.name, caseIndex: entry.index, caseData: entry.data, artifacts: theory.artifacts });
       }
     }
+    for (const invariant of details.invariants) {
+      listed.push({ id: `${normalizePath(file.filePath)}::${invariant.id}`, filePath: file.filePath, suiteName: details.suiteName ?? '', name: invariant.name, kind: invariant.kind, artifacts: [] });
+    }
   }
   listed.sort((a, b) => a.id.localeCompare(b.id));
   return listed;
