@@ -1,5 +1,6 @@
 import { performance } from 'node:perf_hooks';
-import { verifyNoPendingExpectations } from './expect.js';
+import { clearPendingExpectations, verifyNoPendingExpectations } from './expect.js';
+import { isSkipSignal } from './skip.js';
 import type { TestResult } from './types.js';
 
 type RuntimeNode = {
@@ -48,6 +49,16 @@ async function runSingle(id: string, name: string, fn: () => unknown): Promise<T
     verifyNoPendingExpectations();
     return { id, name, status: 'passed', durationMs: performance.now() - started };
   } catch (error) {
+    if (isSkipSignal(error)) {
+      clearPendingExpectations();
+      return {
+        id,
+        name,
+        status: 'skipped',
+        durationMs: performance.now() - started,
+        skipReason: error.skipReason,
+      };
+    }
     return { id, name, status: 'failed', durationMs: performance.now() - started, error: error as Error };
   }
 }

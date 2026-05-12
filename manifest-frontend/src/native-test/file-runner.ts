@@ -5,6 +5,7 @@ import ts from 'typescript';
 import { discoverNativeTestFiles } from './discover.js';
 import { expect } from './expect.js';
 import { assert } from './assert.js';
+import { skip } from './skip.js';
 import { runSuite } from './runner.js';
 import type { Diagnostic, RunFilesOptions, RunFilesResult, TestResult } from './types.js';
 
@@ -72,10 +73,11 @@ async function loadRuntimeSuite(filePath: string): Promise<RuntimeNode> {
     },
   });
 
-  const prelude = `const __tspackJsx = (type, props, ...children) => {\n  if (typeof type === 'function') return type(props ?? {}, ...children);\n  return { __tag: String(type), props: props ?? {}, children };\n};\nconst makeTag = (tag) => (props, ...children) => ({ __tag: tag, props: props ?? {}, children });\nconst Suite = makeTag('Suite');\nconst Fact = makeTag('Fact');\nconst Theory = makeTag('Theory');\nconst Case = makeTag('Case');\nconst assert = globalThis.__tspackAssert;\nconst expect = globalThis.__tspackExpect;\n`;
+const prelude = `const __tspackJsx = (type, props, ...children) => {\n  if (typeof type === 'function') return type(props ?? {}, ...children);\n  return { __tag: String(type), props: props ?? {}, children };\n};\nconst makeTag = (tag) => (props, ...children) => ({ __tag: tag, props: props ?? {}, children });\nconst Suite = makeTag('Suite');\nconst Fact = makeTag('Fact');\nconst Theory = makeTag('Theory');\nconst Case = makeTag('Case');\nconst assert = globalThis.__tspackAssert;\nconst expect = globalThis.__tspackExpect;\nconst skip = globalThis.__tspackSkip;\n`;
   const tempFile = path.join(path.dirname(filePath), `${path.basename(filePath)}.tspack-temp.mjs`);
   (globalThis as Record<string, unknown>).__tspackAssert = assert;
   (globalThis as Record<string, unknown>).__tspackExpect = expect;
+  (globalThis as Record<string, unknown>).__tspackSkip = skip;
   fs.writeFileSync(tempFile, `${prelude}${compiled.outputText}`);
 
   try {

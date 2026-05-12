@@ -23,4 +23,26 @@ describe('assert api', () => {
       expect((error as { code: string }).code).toBe('TSPACK_ASSERT_REASON_REQUIRED');
     }
   });
+
+  it('near uses explicit tolerance with diagnostics', () => {
+    assert.near(10.5, 10, 0.5, 'passes exactly on tolerance boundary');
+    assert.near(10.4, 10, 0.5, 'passes within tolerance');
+
+    try {
+      assert.near(11, 10, 0.5, 'fails outside tolerance');
+    } catch (error) {
+      const failure = error as { code: string; reason: string; tolerance: number; difference: number };
+      expect(failure.code).toBe('TSPACK_ASSERT_NEAR_FAILED');
+      expect(failure.reason).toBe('fails outside tolerance');
+      expect(failure.tolerance).toBe(0.5);
+      expect(failure.difference).toBe(1);
+    }
+  });
+
+  it('near rejects invalid numbers and negative tolerance', () => {
+    expect(() => assert.near(1, 1, -1, 'negative tolerance is invalid')).toThrow();
+    expect(() => assert.near(Number.NaN, 1, 0.1, 'actual must be finite')).toThrow();
+    expect(() => assert.near(1, Number.POSITIVE_INFINITY, 0.1, 'expected must be finite')).toThrow();
+    expect(() => assert.near(1, 1, Number.NaN, 'tolerance must be finite')).toThrow();
+  });
 });

@@ -36,6 +36,14 @@ describe('native file discovery and execution', () => {
     expect(result.results.some((r) => r.id.includes('side-effect.xtest.tsx::side/body'))).toBe(true);
   });
 
+  it('loads .xtest.tsx that imports skip and reports skipped statuses', async () => {
+    const root = path.resolve(process.cwd(), 'tests/native-test/fixtures');
+    const result = await runNativeTestFiles({ rootDir: root, files: ['skip.xtest.tsx'] });
+    expect(result.results.map((r) => r.status)).toEqual(['skipped', 'skipped', 'passed']);
+    expect(result.results[0].skipReason).toBe('demonstrates runtime conditional skip');
+    expect(result.results[1].skipReason).toBe('case 1 intentionally skipped');
+  });
+
   it('runs loaded fact and theory tests, including async and failures', async () => {
     const root = makeDir();
     fs.writeFileSync(path.join(root, 'run.xtest.tsx'), `

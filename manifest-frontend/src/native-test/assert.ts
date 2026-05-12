@@ -62,4 +62,23 @@ export const assert = {
     validateReason(reason);
     throw createFailure('fail', reason);
   },
+  near(actual: number, expected: number, tolerance: number, reason: string): void {
+    validateReason(reason);
+    if (!Number.isFinite(actual) || !Number.isFinite(expected) || !Number.isFinite(tolerance) || tolerance < 0) {
+      const failure = createFailure('near', reason, expected, actual);
+      failure.code = 'TSPACK_ASSERT_NEAR_FAILED';
+      (failure as AssertionFailure & { tolerance: number; difference: number }).tolerance = tolerance;
+      (failure as AssertionFailure & { tolerance: number; difference: number }).difference = Number.NaN;
+      throw failure;
+    }
+
+    const difference = Math.abs(actual - expected);
+    if (difference > tolerance) {
+      const failure = createFailure('near', reason, expected, actual);
+      failure.code = 'TSPACK_ASSERT_NEAR_FAILED';
+      (failure as AssertionFailure & { tolerance: number; difference: number }).tolerance = tolerance;
+      (failure as AssertionFailure & { tolerance: number; difference: number }).difference = difference;
+      throw failure;
+    }
+  },
 };
