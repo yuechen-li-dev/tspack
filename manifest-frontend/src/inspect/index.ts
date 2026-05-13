@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import { formatInspectText, formatInspectJson } from './format.js';
-import { runInspect } from './browser.js';
-import type { InspectBrowserName } from './types.js';
+import { runInspect } from './backend.js';
+import type { InspectBackendName } from './backend.js';
 
 export type InspectOptions = {
   url?: string;
-  browser: InspectBrowserName;
+  browser: InspectBackendName;
+  browserPath?: string;
   viewport: { width: number; height: number };
   selector?: string;
   points: Array<{ x: number; y: number }>;

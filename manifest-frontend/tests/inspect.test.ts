@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatInspectJson, formatInspectText } from '../src/inspect/format.js';
 import { parsePoint, parseViewport } from '../src/inspect/index.js';
+import { findVSCodeExecutable, runInspect } from '../src/inspect/backend.js';
 
 describe('inspect parsing', () => {
   it('parses viewport', () => {
@@ -36,5 +37,30 @@ describe('inspect parsing', () => {
     const json = formatInspectJson(result);
     expect(() => JSON.parse(json)).not.toThrow();
     expect(json.endsWith('\n')).toBe(true);
+  });
+
+  it('supports discovery and browser selection errors', async () => {
+    expect(findVSCodeExecutable() === null || typeof findVSCodeExecutable() === 'string').toBe(true);
+
+    await expect(
+      runInspect({
+        url: 'http://127.0.0.1:9999',
+        browser: 'browser-path',
+        browserPath: '/definitely/missing/browser',
+        viewport: { width: 800, height: 600 },
+        points: [],
+        json: true
+      })
+    ).rejects.toThrow('TSPACK_INSPECT_BROWSER_PATH_NOT_FOUND');
+
+    await expect(
+      runInspect({
+        url: 'http://127.0.0.1:9999',
+        browser: 'vscode',
+        viewport: { width: 800, height: 600 },
+        points: [],
+        json: true
+      })
+    ).rejects.toThrow(/TSPACK_INSPECT_VSCODE_/);
   });
 });

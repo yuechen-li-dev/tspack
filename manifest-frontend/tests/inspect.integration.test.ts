@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { inspectAndWrite, parsePoint } from '../src/inspect/index.js';
-import { runInspect } from '../src/inspect/browser.js';
+import { runInspect } from '../src/inspect/backend.js';
 import { formatInspectJson, formatInspectText } from '../src/inspect/format.js';
 
 type TestServer = {
@@ -75,7 +75,7 @@ describeIntegration('inspect browser integration', () => {
   it('inspects basic local page', async () => {
     const result = await runInspect({
       url: `${server.baseUrl}/basic`,
-      browser: 'chromium',
+      browser: 'playwright-chromium',
       viewport: { width: 1440, height: 900 },
       points: [],
       json: true
@@ -105,7 +105,7 @@ describeIntegration('inspect browser integration', () => {
   it('supports selector roots and missing selector diagnostic', async () => {
     const result = await runInspect({
       url: `${server.baseUrl}/selector`,
-      browser: 'chromium',
+      browser: 'playwright-chromium',
       viewport: { width: 800, height: 600 },
       selector: '#root',
       points: [],
@@ -120,7 +120,7 @@ describeIntegration('inspect browser integration', () => {
     await expect(
       runInspect({
         url: `${server.baseUrl}/selector`,
-        browser: 'chromium',
+        browser: 'playwright-chromium',
         viewport: { width: 800, height: 600 },
         selector: '#missing',
         points: [],
@@ -132,7 +132,7 @@ describeIntegration('inspect browser integration', () => {
   it('supports hit testing', async () => {
     const result = await runInspect({
       url: `${server.baseUrl}/hit`,
-      browser: 'chromium',
+      browser: 'playwright-chromium',
       viewport: { width: 600, height: 400 },
       points: [parsePoint('130,100')],
       json: true
@@ -152,15 +152,15 @@ describeIntegration('inspect browser integration', () => {
 
   it('validates unsupported browser and invalid/unreachable target', async () => {
     await expect(
-      runInspect({ url: `${server.baseUrl}/basic`, browser: 'firefox', viewport: { width: 800, height: 600 }, points: [], json: true })
+      runInspect({ url: `${server.baseUrl}/basic`, browser: 'not-real' as never, viewport: { width: 800, height: 600 }, points: [], json: true })
     ).rejects.toThrow('TSPACK_INSPECT_BROWSER_UNSUPPORTED');
 
     await expect(
-      runInspect({ url: 'notaurl', browser: 'chromium', viewport: { width: 800, height: 600 }, points: [], json: true })
+      runInspect({ url: 'notaurl', browser: 'playwright-chromium', viewport: { width: 800, height: 600 }, points: [], json: true })
     ).rejects.toThrow('TSPACK_INSPECT_INVALID_TARGET');
 
     await expect(
-      runInspect({ url: 'http://127.0.0.1:1/unreachable', browser: 'chromium', viewport: { width: 800, height: 600 }, points: [], json: true })
+      runInspect({ url: 'http://127.0.0.1:1/unreachable', browser: 'playwright-chromium', viewport: { width: 800, height: 600 }, points: [], json: true })
     ).rejects.toThrow('TSPACK_INSPECT_PAGE_LOAD_FAILED');
   });
 
@@ -179,7 +179,7 @@ describeIntegration('inspect browser integration', () => {
     try {
       await inspectAndWrite({
         url: `${server.baseUrl}/basic`,
-        browser: 'chromium',
+        browser: 'playwright-chromium',
         viewport: { width: 1024, height: 768 },
         points: [],
         json: true,

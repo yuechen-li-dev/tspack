@@ -4,6 +4,16 @@
 
 It is **not** screenshot matching, visual diffing, machine vision, component rendering, or dev-server startup.
 
+## Backend model
+
+Inspect uses a backend abstraction and keeps one shared analyzer/formatter pipeline. Current backends:
+
+- `vscode` (probe-backed VS Code/Electron runtime path)
+- `playwright-chromium` (Playwright-managed Chromium)
+- `browser-path` (user-supplied Chromium/Electron executable)
+- `chromium` (alias for `playwright-chromium`)
+- `auto` (default: probe `vscode`, fallback to `playwright-chromium`)
+
 ## Command
 
 - `tspack inspect <url>`
@@ -11,7 +21,8 @@ It is **not** screenshot matching, visual diffing, machine vision, component ren
 
 ## Options
 
-- `--browser chromium` (MVP backend)
+- `--browser auto|vscode|playwright-chromium|chromium|browser-path`
+- `--browser-path <path>`
 - `--viewport WxH` (default `1440x900`)
 - `--selector <css>` (first match is used)
 - `--point x,y` (repeatable)
@@ -19,14 +30,16 @@ It is **not** screenshot matching, visual diffing, machine vision, component ren
 - `--out <file>` (JSON file)
 - `--text <file>` (text file)
 
-## Output
+## Diagnostics
 
-The inspect result includes DOM-derived structure, viewport-relative bounds (CSS px), visible text, role/name approximation, selected computed styles, hit-test stacks, and diagnostics.
+- `TSPACK_INSPECT_VSCODE_NOT_FOUND`
+- `TSPACK_INSPECT_VSCODE_ELECTRON_NOT_USABLE`
+- `TSPACK_INSPECT_BROWSER_PATH_NOT_FOUND`
+- existing inspect diagnostics remain unchanged (`...PAGE_LOAD_FAILED`, `...SELECTOR_NOT_FOUND`, etc).
 
 ## Notes
 
-- Requires the JS inspect bridge and Playwright Chromium runtime.
-- If browser binaries are missing, install them with `npx playwright install chromium`.
+- Browser truth is still required (no static layout approximation in M21b).
+- `auto` prefers VS Code/Electron when runnable, then falls back to Playwright Chromium.
 - Backend/API-only projects still require a browser-rendered URL.
 - Hit tests use `document.elementsFromPoint(x, y)` and report the top-to-bottom stack.
-- Future work may add `tspack run` target integration and non-Chromium backends.
