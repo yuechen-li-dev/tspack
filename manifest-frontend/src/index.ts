@@ -30,7 +30,7 @@ type InternalDoc = { mode: DocMode; ir: ManifestIr; rows?: PackageRow[] };
 
 const ALLOWED_IMPORT = 'tspack/manifest';
 const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'defineDeps', 'npm', 'git', 'path', 'workspace', 'dep', 'peer', 'tool']);
-const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'Policies', 'Targets', 'Tools', 'Boundaries', 'Publish']);
+const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'Policies', 'Targets', 'RunTargets', 'Tools', 'Boundaries', 'Publish']);
 
 export function parseManifestFile(filePath: string): ManifestParseResult {
   const parsed = parseManifestDocument(filePath, 'root');
@@ -262,6 +262,7 @@ function mapPackage(p: any, includeRoot: boolean): Record<string, unknown> {
     kind: p.kind,
     dependencies: p.dependencies?.values ?? [],
     targets: p.__children?.find((x: any) => x.__tag === 'Targets')?.rows ?? [],
+    ...(p.__children?.find((x: any) => x.__tag === 'RunTargets') ? { runTargets: p.__children?.find((x: any) => x.__tag === 'RunTargets')?.rows ?? [] } : {}),
     tools: p.__children?.find((x: any) => x.__tag === 'Tools')?.values?.map((v: any) => v?.source?.package ?? v?.source?.ref ?? v?.source?.path ?? v?.kind) ?? [],
     boundaries: p.__children?.find((x: any) => x.__tag === 'Boundaries')?.rows ?? [],
     publish: { include: p.__children?.find((x: any) => x.__tag === 'Publish')?.include ?? [], exclude: p.__children?.find((x: any) => x.__tag === 'Publish')?.exclude ?? [] },

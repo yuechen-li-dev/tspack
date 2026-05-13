@@ -134,3 +134,54 @@ func TestPackageRootAllowsDot(t *testing.T) {
 		t.Fatalf("unexpected diagnostics: %#v", diags)
 	}
 }
+
+func TestRunTargetValidation(t *testing.T) {
+	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"system","command":["node","server.js"],"url":"http://127.0.0.1:5173","ready":{"kind":"http","path":"/"}}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	_, diags := LoadBytes("x.json", []byte(j))
+	if len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diags)
+	}
+}
+
+func TestRunTargetInvalidRuntime(t *testing.T) {
+	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"bun","command":["node"],"url":"http://127.0.0.1:5173"}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	_, diags := LoadBytes("x.json", []byte(j))
+	found := false
+	for _, d := range diags {
+		if d.Code == "TSPACK_RUN_INVALID_RUNTIME" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected TSPACK_RUN_INVALID_RUNTIME, got %#v", diags)
+	}
+}
+
+func TestRunTargetValidationErrors(t *testing.T) {
+	cases := []struct {
+		name string
+		json string
+		code string
+	}{
+		{"duplicate", `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"system","command":["node"],"url":"http://127.0.0.1:1"},{"name":"dev","runtime":"system","command":["node"],"url":"http://127.0.0.1:2"}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`, "TSPACK_RUN_DUPLICATE_TARGET"},
+		{"empty command", `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"system","command":[],"url":"http://127.0.0.1:1"}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`, "TSPACK_RUN_INVALID_COMMAND"},
+		{"empty argv part", `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"system","command":["node",""],"url":"http://127.0.0.1:1"}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`, "TSPACK_RUN_INVALID_COMMAND"},
+		{"invalid url", `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"system","command":["node"],"url":"notaurl"}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`, "TSPACK_RUN_INVALID_URL"},
+		{"invalid ready kind", `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"system","command":["node"],"url":"http://127.0.0.1:1","ready":{"kind":"tcp","path":"/"}}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`, "TSPACK_RUN_INVALID_READY"},
+		{"invalid ready path", `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"system","command":["node"],"url":"http://127.0.0.1:1","ready":{"kind":"http","path":"x"}}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`, "TSPACK_RUN_INVALID_READY"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, diags := LoadBytes("x.json", []byte(tc.json))
+			found := false
+			for _, d := range diags {
+				if d.Code == tc.code {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("expected %s got %#v", tc.code, diags)
+			}
+		})
+	}
+}

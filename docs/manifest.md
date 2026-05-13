@@ -52,3 +52,12 @@ Path rules:
 - `row.root` and `row.manifest` must be safe relative paths.
 - `row.manifest` must be located under `row.root`.
 - Paths inside `package.manifest.tsx` (for example target `entry` and `types`) are relative to the package root.
+
+
+## RunTargets
+
+Use `<RunTargets rows={[{ name, runtime, command, url, ready }]} />` inside a `Package`.
+- `runtime`: `system` or `node` in M22.
+- `command`: argv array; no shell string execution.
+- `url`: required HTTP/HTTPS URL.
+- `ready`: optional `{ kind: "http", path: "/" }`.
