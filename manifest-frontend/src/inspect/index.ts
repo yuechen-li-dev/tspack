@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { formatInspectText, formatInspectJson } from './format.js';
 import { runInspect } from './backend.js';
 import type { InspectBackendName } from './backend.js';
+import { listCdpTargets, normalizeCdpEndpoint } from './cdp.js';
 
 export type InspectOptions = {
   url?: string;
@@ -13,6 +14,10 @@ export type InspectOptions = {
   json: boolean;
   out?: string;
   text?: string;
+  cdpEndpoint?: string;
+  listTargets?: boolean;
+  target?: string;
+  targetUrl?: string;
 };
 
 export function parseViewport(input: string): { width: number; height: number } {
@@ -38,7 +43,30 @@ export function parsePoint(input: string): { x: number; y: number } {
 }
 
 export async function inspectAndWrite(options: InspectOptions): Promise<void> {
-  if (!options.url) throw new Error('TSPACK_INSPECT_TARGET_REQUIRED');
+  if (options.cdpEndpoint) {
+    options.cdpEndpoint = normalizeCdpEndpoint(options.cdpEndpoint);
+  }
+
+  if (options.listTargets) {
+    if (!options.cdpEndpoint) {
+      throw new Error('TSPACK_INSPECT_CDP_ENDPOINT_REQUIRED');
+    }
+    const result = await listCdpTargets(options.cdpEndpoint);
+    const jsonOut = `${JSON.stringify(result, null, 2)}\n`;
+    const textLines: string[] = [`CDP targets: ${result.endpoint}`, ''];
+    for (const item of result.targets) {
+      textLines.push(`[${item.index}] ${item.type}`);
+      textLines.push(`    title: ${item.title}`);
+      textLines.push(`    url: ${item.url}`);
+      textLines.push(`    id: ${item.id}`);
+      textLines.push('');
+    }
+    const textOut = `${textLines.join('\n')}\n`;
+    process.stdout.write(options.json ? jsonOut : textOut);
+    return;
+  }
+
+  if (!options.url && !options.cdpEndpoint) throw new Error('TSPACK_INSPECT_TARGET_REQUIRED');
   const result = await runInspect(options);
   const jsonOut = formatInspectJson(result);
   const textOut = formatInspectText(result);

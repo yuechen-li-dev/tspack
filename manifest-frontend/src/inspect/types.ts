@@ -1,4 +1,4 @@
-export type InspectBrowserName = 'chromium' | 'firefox' | 'webkit';
+export type InspectBrowserName = 'chromium' | 'firefox' | 'webkit' | 'cdp' | 'vscode';
 
 export type Bounds = {
   x: number;
@@ -43,6 +43,7 @@ export type UIInspectResult = {
   };
   browser: {
     name: InspectBrowserName;
+    backend?: 'playwright' | 'cdp' | 'vscode' | 'browser-path';
   };
   viewport: {
     width: number;
@@ -55,4 +56,19 @@ export type UIInspectResult = {
     code: string;
     message: string;
   }[];
+};
+
+export type CDPTargetSummary = {
+  index: number;
+  id: string;
+  type: string;
+  title: string;
+  url: string;
+  webSocketDebuggerUrl?: string;
+};
+
+export type CDPTargetListResult = {
+  endpoint: string;
+  targets: CDPTargetSummary[];
+  diagnostics: Array<{ code: string; message: string }>;
 };
