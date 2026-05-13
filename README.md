@@ -50,3 +50,5 @@ See `docs/doom.md` for quarantine Doom/Prophecy execution details.
 
 
 - `tspack inspect <url>`: **experimental** structural UI inspection for rendered browser targets; backend support is still being refined.
+
+- `tspack run [target]`: launch declared runtime targets from manifest `RunTargets`; not an npm script launcher.

@@ -30,3 +30,8 @@ See also `docs/doom.md` for Prophecy/Doom behavior and limits.
 `tspack inspect <url>` performs structural UI inspection for rendered browser targets. It supports explicit installed host launch via `--host-path` (with `--browser-path` compatibility alias) and explicit CDP endpoint attach via `--cdp`.
 
 See `docs/inspect.md` for backend taxonomy, diagnostics, and current environment limitations.
+
+
+## run
+
+`tspack run [target]` starts a declared `<RunTargets />` runtime target, waits for HTTP readiness, then streams logs until interrupted. Use `--once` for smoke checks. It is **not** an npm script runner. See `docs/run.md`.

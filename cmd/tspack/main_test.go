@@ -1,12 +1,24 @@
 package main
 
 import (
+	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func reservePort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve port: %v", err)
+	}
+	defer ln.Close()
+	return ln.Addr().(*net.TCPAddr).Port
+}
 
 func TestCLIPackSmokeAndDryRun(t *testing.T) {
 	repo := filepath.Join("..", "..")
@@ -339,5 +351,178 @@ func TestHelpMarksInspectExperimental(t *testing.T) {
 	}
 	if !strings.Contains(string(b), "tspack inspect <url> [experimental]") {
 		t.Fatalf("inspect help not marked experimental:\n%s", string(b))
+	}
+}
+
+func writeRunFrontendStub(t *testing.T, irJSON string) {
+	t.Helper()
+	repo := filepath.Join("..", "..")
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	_ = os.MkdirAll(frontend, 0o755)
+	cliPath := filepath.Join(frontend, "cli.js")
+	stub := "#!/usr/bin/env node\nconst out={ok:true,ir:" + irJSON + ",diagnostics:[]};process.stdout.write(JSON.stringify(out));"
+	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(cliPath) })
+}
+
+func TestCLIRunOnceSelectionAndErrors(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	server := `const http=require('http'); const p=Number(process.env.PORT||process.argv[2]||5173); http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}).listen(p,'127.0.0.1'); setInterval(()=>{},1000);`
+	_ = os.WriteFile(filepath.Join(root, "server.js"), []byte(server), 0o644)
+
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js","5191"],url:"http://127.0.0.1:5191",ready:{kind:"http",path:"/"}},{name:"api",runtime:"system",command:["node","server.js","5192"],url:"http://127.0.0.1:5192"}]}]}`)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--once")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "Ready: http://127.0.0.1:5191") {
+		t.Fatalf("run dev failed: %v\n%s", err, string(b))
+	}
+	cmd = exec.Command("go", "run", "./cmd/tspack", "run", "api", "--root", root, "--once")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "Ready: http://127.0.0.1:5192") {
+		t.Fatalf("run api failed: %v\n%s", err, string(b))
+	}
+	cmd = exec.Command("go", "run", "./cmd/tspack", "run", "nope", "--root", root, "--once")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_RUN_TARGET_NOT_FOUND") {
+		t.Fatalf("expected target not found: %v\n%s", err, string(b))
+	}
+}
+
+func TestCLIRunTimeoutAndInvalidTimeout(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	server := `setInterval(()=>{},1000);`
+	_ = os.WriteFile(filepath.Join(root, "hang.js"), []byte(server), 0o644)
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","hang.js"],url:"http://127.0.0.1:5199",ready:{kind:"http",path:"/"}}]}]}`)
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--ready-timeout", "1", "--once")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_RUN_READY_TIMEOUT") {
+		t.Fatalf("expected timeout: %v\n%s", err, string(b))
+	}
+	cmd = exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--ready-timeout", "0", "--once")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_RUN_INVALID_TIMEOUT") {
+		t.Fatalf("expected invalid timeout: %v\n%s", err, string(b))
+	}
+}
+
+func TestCLIRunNoShellArgvSemantics(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	script := `const fs=require('fs'); const http=require('http'); const path=require('path');
+const out=path.join(process.cwd(),'args.txt'); fs.writeFileSync(out, JSON.stringify(process.argv.slice(2)));
+const p=Number(process.argv[2]||5201); http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}).listen(p,'127.0.0.1'); setInterval(()=>{},1000);`
+	_ = os.WriteFile(filepath.Join(root, "print-args.js"), []byte(script), 0o644)
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","print-args.js","5201","hello","&&","echo","BAD"],url:"http://127.0.0.1:5201",ready:{kind:"http",path:"/"}}]}]}`)
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--once")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run failed: %v\n%s", err, string(b))
+	}
+	argsBytes, err := os.ReadFile(filepath.Join(root, "args.txt"))
+	if err != nil {
+		t.Fatalf("missing args file: %v", err)
+	}
+	argsText := string(argsBytes)
+	if !strings.Contains(argsText, `"&&"`) || !strings.Contains(argsText, `"echo"`) || !strings.Contains(argsText, `"BAD"`) {
+		t.Fatalf("expected literal args, got %s", argsText)
+	}
+}
+
+func TestCLIRunNodeLocalBinPrecedence(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	pathBin := t.TempDir()
+	port := reservePort(t)
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	_ = os.MkdirAll(filepath.Join(root, "node_modules", ".bin"), 0o755)
+	markerPath := filepath.Join(root, "which-bin.txt")
+	localServer := fmt.Sprintf(`const fs=require('fs'); const http=require('http'); fs.writeFileSync(%q,'local-bin'); http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}).listen(%d,'127.0.0.1'); setInterval(()=>{},1000);`, markerPath, port)
+	_ = os.WriteFile(filepath.Join(root, "local-server.js"), []byte(localServer), 0o644)
+	local := fmt.Sprintf("#!/bin/sh\nexec node %q\n", filepath.Join(root, "local-server.js"))
+	pathScript := fmt.Sprintf("#!/bin/sh\necho path-bin > %q\nexit 1\n", markerPath)
+	_ = os.WriteFile(filepath.Join(root, "node_modules", ".bin", "fake-dev-server"), []byte(local), 0o755)
+	_ = os.WriteFile(filepath.Join(pathBin, "fake-dev-server"), []byte(pathScript), 0o755)
+	writeRunFrontendStub(t, fmt.Sprintf(`{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"node",command:["fake-dev-server"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}}]}]}`, port))
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--once")
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "PATH="+pathBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run failed: %v\n%s", err, string(b))
+	}
+	bm, err := os.ReadFile(markerPath)
+	if err != nil || strings.TrimSpace(string(bm)) != "local-bin" {
+		t.Fatalf("expected local-bin marker, err=%v value=%q\noutput=%s", err, string(bm), string(b))
+	}
+}
+
+func TestCLIRunSelectionAndMutationContract(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "manifest.tsx")
+	lockPath := filepath.Join(root, "ts-lock.toml")
+	_ = os.WriteFile(manifestPath, []byte("export default {}\n"), 0o644)
+	_ = os.WriteFile(lockPath, []byte("[lock]\nformat=1\n"), 0o644)
+	server := `const http=require('http'); const p=Number(process.argv[2]); http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}).listen(p,'127.0.0.1'); setInterval(()=>{},1000);`
+	_ = os.WriteFile(filepath.Join(root, "server.js"), []byte(server), 0o644)
+
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[]}]} `)
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--once")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_RUN_TARGET_MISSING") {
+		t.Fatalf("expected missing target: %v\n%s", err, string(b))
+	}
+
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"api",runtime:"system",command:["node","server.js","5203"],url:"http://127.0.0.1:5203",ready:{kind:"http",path:"/"}}]}]} `)
+	beforeManifest, _ := os.ReadFile(manifestPath)
+	beforeLock, _ := os.ReadFile(lockPath)
+	cmd = exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--once")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("single-target fallback failed: %v\n%s", err, string(b))
+	}
+	afterManifest, _ := os.ReadFile(manifestPath)
+	afterLock, _ := os.ReadFile(lockPath)
+	if string(beforeManifest) != string(afterManifest) || string(beforeLock) != string(afterLock) {
+		t.Fatalf("run mutated manifest or lock")
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "node_modules")); statErr == nil {
+		t.Fatalf("run unexpectedly created node_modules")
+	}
+
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"api",runtime:"system",command:["node","server.js","5204"],url:"http://127.0.0.1:5204"},{name:"docs",runtime:"system",command:["node","server.js","5205"],url:"http://127.0.0.1:5205"}]}]} `)
+	cmd = exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--once")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_RUN_TARGET_AMBIGUOUS") {
+		t.Fatalf("expected ambiguous target failure: %v\n%s", err, string(b))
+	}
+}
+
+func TestCLIRunProcessExitedEarly(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "exit.js"), []byte("process.exit(0);\n"), 0o644)
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","exit.js"],url:"http://127.0.0.1:5210",ready:{kind:"http",path:"/"}}]}]} `)
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--once", "--ready-timeout", "2")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_RUN_PROCESS_EXITED_EARLY") {
+		t.Fatalf("expected exited early: %v\n%s", err, string(b))
 	}
 }

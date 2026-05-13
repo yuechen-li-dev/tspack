@@ -3,6 +3,7 @@ package manifest
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path"
 	"regexp"
@@ -34,6 +35,20 @@ type Package struct {
 	Tools        []string           `json:"tools"`
 	Boundaries   []BoundaryRule     `json:"boundaries"`
 	Publish      PublishPolicy      `json:"publish"`
+	RunTargets   []RunTarget        `json:"runTargets,omitempty"`
+}
+
+type RunTarget struct {
+	Name    string         `json:"name"`
+	Runtime string         `json:"runtime"`
+	Command []string       `json:"command"`
+	URL     string         `json:"url"`
+	Ready   *RunReadyCheck `json:"ready,omitempty"`
+}
+
+type RunReadyCheck struct {
+	Kind string `json:"kind"`
+	Path string `json:"path"`
 }
 
 type Policies struct {
@@ -205,6 +220,37 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 				add("TSPACK_IR_UNKNOWN_DEPENDENCY_REF", pp+".tools has unknown dependency: "+tool)
 			} else if kind != "tool" {
 				add("TSPACK_IR_INVALID_DEPENDENCY_KIND", pp+".tools must reference tool dependencies")
+			}
+		}
+		seenRunTargets := map[string]struct{}{}
+		for ri, rt := range p.RunTargets {
+			rp := fmt.Sprintf("%s.runTargets[%d]", pp, ri)
+			if rt.Name == "" || !targetNameRe.MatchString(rt.Name) {
+				add("TSPACK_RUN_INVALID_TARGET", rp+".name is invalid")
+			}
+			if _, ok := seenRunTargets[rt.Name]; ok {
+				add("TSPACK_RUN_DUPLICATE_TARGET", "duplicate run target name: "+rt.Name)
+			}
+			seenRunTargets[rt.Name] = struct{}{}
+			if rt.Runtime != "system" && rt.Runtime != "node" {
+				add("TSPACK_RUN_INVALID_RUNTIME", rp+".runtime is invalid")
+			}
+			if len(rt.Command) == 0 {
+				add("TSPACK_RUN_INVALID_COMMAND", rp+".command must be non-empty")
+			}
+			for _, part := range rt.Command {
+				if strings.TrimSpace(part) == "" {
+					add("TSPACK_RUN_INVALID_COMMAND", rp+".command entries must be non-empty")
+				}
+			}
+			u, err := url.Parse(rt.URL)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				add("TSPACK_RUN_INVALID_URL", rp+".url must be valid http/https URL")
+			}
+			if rt.Ready != nil {
+				if rt.Ready.Kind != "http" || !strings.HasPrefix(rt.Ready.Path, "/") {
+					add("TSPACK_RUN_INVALID_READY", rp+".ready is invalid")
+				}
 			}
 		}
 		for k, v := range p.Policies.Types {

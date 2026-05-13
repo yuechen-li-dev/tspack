@@ -32,6 +32,18 @@ describe('manifest frontend parser', () => {
     expect(JSON.stringify(result.ir)).toBe(golden('valid', 'git-dep'));
   });
 
+  it('parses run targets', () => {
+    const result = parseManifestFile(fixture('valid', 'm22-run-target'));
+    expect(result.ok).toBe(true);
+    expect(JSON.stringify(result.ir)).toBe(golden('valid', 'm22-run-target'));
+  });
+
+  it('run targets parse deterministically', () => {
+    const a = JSON.stringify(parseManifestFile(fixture('valid', 'm22-run-target')).ir);
+    const b = JSON.stringify(parseManifestFile(fixture('valid', 'm22-run-target')).ir);
+    expect(a).toBe(b);
+  });
+
   it('is deterministic', () => {
     const a = JSON.stringify(parseManifestFile(fixture('valid', 'minimal-library')).ir);
     const b = JSON.stringify(parseManifestFile(fixture('valid', 'minimal-library')).ir);
