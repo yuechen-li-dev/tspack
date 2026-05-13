@@ -4,7 +4,9 @@ M16 introduces an opt-in, TSPack-native unit test substrate.
 
 ## Scope
 
-- Native test file naming: `*.xtest.tsx`, `*.valid.tsx`, `*.invalid.tsx`
+- Native test file naming
+- Native benchmark file naming: `*.benchmark.tsx`
+: `*.xtest.tsx`, `*.valid.tsx`, `*.invalid.tsx`
 - TSX tags are used for static discovery and metadata
 - Test callback bodies are ordinary TypeScript code
 - Assertions require explicit human-readable reasons

@@ -11,16 +11,17 @@ import type {
   Literal,
 } from './types.js';
 
-type NativeFileKind = 'xtest' | 'valid' | 'invalid';
+type NativeFileKind = 'xtest' | 'valid' | 'invalid' | 'benchmark';
 
-type AllowedElement = 'Fact' | 'Theory' | 'Artifact' | 'Valid' | 'Invalid' | 'Project' | 'CycleTime';
+type AllowedElement = 'Fact' | 'Theory' | 'Artifact' | 'Valid' | 'Invalid' | 'Project' | 'CycleTime' | 'Benchmark' | 'Iterations' | 'Warmup';
 
-const allAllowed = new Set<AllowedElement | 'Suite' | 'Case'>(['Suite', 'Fact', 'Theory', 'Case', 'Artifact', 'Valid', 'Invalid', 'Project', 'CycleTime']);
+const allAllowed = new Set<AllowedElement | 'Suite' | 'Case'>(['Suite', 'Fact', 'Theory', 'Case', 'Artifact', 'Valid', 'Invalid', 'Project', 'CycleTime', 'Benchmark', 'Iterations', 'Warmup']);
 
 function classifyNativeFile(filePath: string): NativeFileKind | undefined {
   if (filePath.endsWith('.xtest.tsx')) return 'xtest';
   if (filePath.endsWith('.valid.tsx')) return 'valid';
   if (filePath.endsWith('.invalid.tsx')) return 'invalid';
+  if (filePath.endsWith('.benchmark.tsx')) return 'benchmark';
   return undefined;
 }
 
@@ -31,6 +32,7 @@ function allowedChildrenFor(kind: NativeFileKind): Set<AllowedElement> {
   if (kind === 'valid') {
     return new Set(['Valid']);
   }
+  if (kind === 'benchmark') return new Set(['Benchmark']);
   return new Set(['Invalid']);
 }
 
@@ -40,7 +42,7 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
   if (!fileKind) {
     return {
       tests: [], facts: [], theories: [], invariants: [], standaloneArtifacts: [], diagnostics: [
-        { code: 'TSPACK_TEST_NON_NATIVE_FILE', message: 'native test files must end with .xtest.tsx, .valid.tsx, or .invalid.tsx', file: abs },
+        { code: 'TSPACK_TEST_NON_NATIVE_FILE', message: 'native test files must end with .xtest.tsx, .valid.tsx, .invalid.tsx, or .benchmark.tsx', file: abs },
       ],
     };
   }
@@ -59,13 +61,13 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
   }
   if (!exportExpr) {
     diagnostics.push({ code: 'TSPACK_TEST_INVALID_DEFAULT_EXPORT', message: 'default export must be a Suite JSX tree', file: abs });
-    return { diagnostics, tests: [], facts: [], theories: [], invariants: [], standaloneArtifacts: [] };
+    return { diagnostics, tests: [], facts: [], theories: [], invariants: [], standaloneArtifacts: [], benchmarks: [] };
   }
 
   const root = unwrap(exportExpr);
   if (!ts.isJsxElement(root) && !ts.isJsxSelfClosingElement(root)) {
     diagnostics.push({ code: 'TSPACK_TEST_INVALID_DEFAULT_EXPORT', message: 'default export must be JSX', file: abs });
-    return { diagnostics, tests: [], facts: [], theories: [], invariants: [], standaloneArtifacts: [] };
+    return { diagnostics, tests: [], facts: [], theories: [], invariants: [], standaloneArtifacts: [], benchmarks: [] };
   }
 
   const tests: string[] = [];
@@ -73,6 +75,7 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
   const theories: DiscoveryResult['theories'] = [];
   const invariants: DiscoveryResult['invariants'] = [];
   const standaloneArtifacts: DiscoveredStandaloneArtifact[] = [];
+  const benchmarks: DiscoveryResult['benchmarks'] = [];
 
   const suiteName = parseName(getTagName(root), getAttributes(root), root, addDiag);
   if (getTagName(root) !== 'Suite') {
@@ -140,6 +143,21 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
       for (const entry of cases) tests.push(entry.id);
       continue;
     }
+    if (tag === 'Benchmark') {
+      const benchmarkName = parseName(tag, getAttributes(child), child, addDiag);
+      if (!getJsxBodyFunction(child)) {
+        addDiag(child, 'TSPACK_TEST_MISSING_BODY', 'Benchmark requires callback body');
+        continue;
+      }
+      const id = `${suiteName}/benchmark/${benchmarkName}`;
+      const iterations = collectBenchmarkCount(child, 'Iterations', 1000, addDiag);
+      const warmup = collectBenchmarkCount(child, 'Warmup', 100, addDiag);
+      const cycleTimeSeconds = collectCycleTimeAllowed(child, addDiag) ?? 60;
+      const project = collectProject(child, path.dirname(abs), addDiag);
+      benchmarks.push({ id: `${path.basename(abs)}::${id}`, filePath: abs, suiteName, name: benchmarkName, iterations, warmup, cycleTimeSeconds, project });
+      tests.push(id);
+      continue;
+    }
 
     if (tag === 'Valid' || tag === 'Invalid') {
       const invariantName = parseName(tag, getAttributes(child), child, addDiag);
@@ -155,7 +173,7 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
     }
   }
 
-  return { suiteName, tests, facts, theories, invariants, standaloneArtifacts, diagnostics };
+  return { suiteName, tests, facts, theories, invariants, standaloneArtifacts, benchmarks, diagnostics };
 }
 
 const defaultIgnore = new Set(['node_modules', '.git', 'dist']);
@@ -173,8 +191,10 @@ export function discoverNativeTestFiles(options: DiscoverOptions): DiscoverFiles
         ...discovered.facts.map((fact) => ({ id: `${relativeFilePath}::${fact.id}`, name: fact.name, kind: 'fact' as const, filePath })),
         ...discovered.theories.flatMap((theory) => theory.cases.map((c) => ({ id: `${relativeFilePath}::${c.id}`, name: theory.name, kind: 'theory' as const, filePath }))),
         ...discovered.invariants.map((entry) => ({ id: `${relativeFilePath}::${entry.id}`, name: entry.name, kind: entry.kind, filePath })),
+        ...discovered.tests.filter((id) => id.includes('/benchmark/')).map((id) => ({ id: `${relativeFilePath}::${id}`, name: id.split('/').at(-1) ?? id, kind: 'fact' as const, filePath })),
       ];
-      files.push({ filePath, suiteName: discovered.suiteName ?? '', tests, standaloneArtifacts: discovered.standaloneArtifacts, diagnostics: discovered.diagnostics });
+      const benchmarks = discovered.benchmarks.map((entry) => ({ ...entry, id: `${relativeFilePath}::${entry.id.split('::').pop() ?? entry.id}`, filePath: relativeFilePath }));
+      files.push({ filePath, suiteName: discovered.suiteName ?? '', tests, standaloneArtifacts: discovered.standaloneArtifacts, benchmarks, diagnostics: discovered.diagnostics });
       diagnostics.push(...discovered.diagnostics);
     } catch (error) {
       diagnostics.push({ code: 'TSPACK_TEST_DISCOVERY_FAILED', message: `failed to discover native test file: ${(error as Error).message}`, file: filePath });
@@ -211,6 +231,7 @@ const getChildren = (node: ts.JsxElement | ts.JsxSelfClosingElement): ts.Node[] 
 function renderAllowedFileKind(tag: string): string {
   if (tag === 'Valid') return '*.valid.tsx';
   if (tag === 'Invalid') return '*.invalid.tsx';
+  if (tag === 'Benchmark') return '*.benchmark.tsx';
   return '*.xtest.tsx';
 }
 function parseName(tag: string, attrs: readonly ts.JsxAttributeLike[], node: ts.Node, addDiag: (node: ts.Node, code: string, message: string) => void): string { for (const attr of attrs){ if(ts.isJsxSpreadAttribute(attr)){ addDiag(attr,'TSPACK_TEST_FORBIDDEN_SPREAD','spread attributes are forbidden'); continue;} if(!ts.isJsxAttribute(attr)||attr.name.getText()!=='name'){ continue;} const init=attr.initializer; if(!init||!ts.isStringLiteral(init)){ addDiag(attr,'TSPACK_TEST_INVALID_NAME',`${tag} name must be string literal`); return '';} return init.text;} addDiag(node,'TSPACK_TEST_INVALID_NAME',`${tag} name is required`); return ''; }
@@ -357,4 +378,36 @@ function collectCycleTimeAllowed(node: ts.JsxElement | ts.JsxSelfClosingElement,
     return undefined;
   }
   return seconds;
+}
+
+function collectBenchmarkCount(node: ts.JsxElement | ts.JsxSelfClosingElement, tag: 'Iterations' | 'Warmup', fallback: number, addDiag: (node: ts.Node, code: string, message: string) => void): number {
+  const nodes = getChildren(node).filter((child) => (ts.isJsxElement(child) || ts.isJsxSelfClosingElement(child)) && getTagName(child) === tag) as Array<ts.JsxElement | ts.JsxSelfClosingElement>;
+  if (nodes.length === 0) {
+    return fallback;
+  }
+  if (nodes.length > 1) {
+    addDiag(nodes[1], tag === 'Iterations' ? 'TSPACK_BENCHMARK_DUPLICATE_ITERATIONS' : 'TSPACK_BENCHMARK_DUPLICATE_WARMUP', `only one ${tag} is allowed per Benchmark`);
+  }
+  const target = nodes[0];
+  for (const attr of getAttributes(target)) {
+    if (ts.isJsxSpreadAttribute(attr)) {
+      addDiag(attr, tag === 'Iterations' ? 'TSPACK_BENCHMARK_INVALID_ITERATIONS' : 'TSPACK_BENCHMARK_INVALID_WARMUP', `${tag} does not allow spread attributes`);
+      return fallback;
+    }
+    if (!ts.isJsxAttribute(attr) || attr.name.getText() !== 'count') {
+      continue;
+    }
+    if (!attr.initializer || !ts.isJsxExpression(attr.initializer) || !attr.initializer.expression || !ts.isNumericLiteral(attr.initializer.expression)) {
+      addDiag(attr, tag === 'Iterations' ? 'TSPACK_BENCHMARK_INVALID_ITERATIONS' : 'TSPACK_BENCHMARK_INVALID_WARMUP', `${tag} count must be a positive integer literal`);
+      return fallback;
+    }
+    const parsed = Number(attr.initializer.expression.text);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      addDiag(attr, tag === 'Iterations' ? 'TSPACK_BENCHMARK_INVALID_ITERATIONS' : 'TSPACK_BENCHMARK_INVALID_WARMUP', `${tag} count must be a positive integer literal`);
+      return fallback;
+    }
+    return parsed;
+  }
+  addDiag(target, tag === 'Iterations' ? 'TSPACK_BENCHMARK_INVALID_ITERATIONS' : 'TSPACK_BENCHMARK_INVALID_WARMUP', `${tag} count is required`);
+  return fallback;
 }

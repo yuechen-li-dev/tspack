@@ -4,11 +4,12 @@ export { skip } from './skip.js';
 export { discoverNativeTestFile, discoverNativeTestFiles } from './discover.js';
 export { runSuite } from './runner.js';
 export { runNativeTestFiles, runNativeArtifacts } from './file-runner.js';
-export { listDiscoveredTests, listStandaloneArtifacts, listNativeTests, listNativeArtifacts, createNativeTestReport, createNativeArtifactReport, formatNativeTestTextReport, formatNativeArtifactTextReport, formatNativeTestJsonReport, formatNativeArtifactJsonReport, nativeTestExitCode, nativeArtifactExitCode } from './list-report.js';
+export { listNativeBenchmarks, runNativeBenchmarks } from './benchmark.js';
+export { listDiscoveredTests, listStandaloneArtifacts, listNativeTests, listNativeArtifacts, createNativeTestReport, createNativeArtifactReport, createNativeBenchmarkReport, formatNativeTestTextReport, formatNativeArtifactTextReport, formatNativeBenchmarkTextReport, formatNativeTestJsonReport, formatNativeArtifactJsonReport, formatNativeBenchmarkJsonReport, nativeTestExitCode, nativeArtifactExitCode, nativeBenchmarkExitCode } from './list-report.js';
 export type { TestResult, DiscoveryResult, Diagnostic } from './types.js';
 
 type NodeShape = {
-  __tag: 'Suite' | 'Fact' | 'Theory' | 'Case' | 'Artifact' | 'Valid' | 'Invalid' | 'Project' | 'CycleTime';
+  __tag: 'Suite' | 'Fact' | 'Theory' | 'Case' | 'Artifact' | 'Valid' | 'Invalid' | 'Project' | 'CycleTime' | 'Benchmark' | 'Iterations' | 'Warmup';
   props: Record<string, unknown>;
   children: unknown[];
 };
@@ -29,3 +30,6 @@ export const Invalid = makeTag('Invalid');
 
 export const Project = makeTag('Project');
 export const CycleTime = makeTag('CycleTime');
+export const Benchmark = makeTag('Benchmark');
+export const Iterations = makeTag('Iterations');
+export const Warmup = makeTag('Warmup');

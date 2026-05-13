@@ -36,7 +36,9 @@ See `docs/release-checklist.md` for release smoke commands and audit checklist.
 
 ## Standalone artifacts
 
-- `tspack artifact` runs standalone native xTest `<Artifact>` units declared directly under `<Suite>`.
+- `tspack artifact
+- `tspack bench` runs native benchmark units (`*.benchmark.tsx`).
+` runs standalone native xTest `<Artifact>` units declared directly under `<Suite>`.
 - `tspack pack` creates package `.tgz` archives; it is unrelated to native test artifacts.
 
 

@@ -10,7 +10,9 @@
 
 ## Standalone artifacts
 
-- `tspack artifact` runs standalone native xTest `<Artifact>` units declared directly under `<Suite>`.
+- `tspack artifact
+- `tspack bench [--root .] [--list] [--filter <text>] [--json]`: runs native benchmark units from `*.benchmark.tsx`.
+` runs standalone native xTest `<Artifact>` units declared directly under `<Suite>`.
 - `tspack pack` creates package `.tgz` archives; it is unrelated to native test artifacts.
 
 
