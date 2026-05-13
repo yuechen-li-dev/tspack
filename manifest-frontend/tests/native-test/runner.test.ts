@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { Artifact, assert, Case, Fact, runSuite, skip, Suite, Theory } from '../../src/native-test/index';
+import { Artifact, assert, Case, Fact, Project, runSuite, skip, Suite, Theory } from '../../src/native-test/index';
 
 describe('native runner artifacts', () => {
   it('writes text/json/bytes artifacts and records metadata', async () => {
@@ -55,4 +55,85 @@ describe('native runner artifacts', () => {
     expect(fs.existsSync(path.join(artifactRoot, 't__cases__0', 'report.txt'))).toBe(true);
     expect(fs.existsSync(path.join(artifactRoot, 't__cases__1', 'report.txt'))).toBe(true);
   });
+});
+
+describe('native runner project fixtures', () => {
+  it('creates sandbox, supports reads and writes, and cleans up on pass', async () => {
+    const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'native-project-fixture-'));
+    fs.writeFileSync(path.join(fixtureRoot, 'manifest.json'), '{"x":1}\n');
+
+    const root = Suite({ name: 'p' },
+      Fact({ name: 'project' },
+        Project({ from: fixtureRoot },
+        ),
+        async ({ project }) => {
+          expect(project).toBeDefined();
+          const parsed = await project!.readJson<{ x: number }>('manifest.json');
+          assert.equal(parsed.x, 1, 'reads copied fixture json');
+          await project!.writeText('generated.txt', 'hello\n', 'write generated file');
+          const text = await project!.readText('generated.txt');
+          assert.equal(text, 'hello\n', 'reads generated file');
+        },
+      ),
+    );
+
+    const results = await runSuite(root, {});
+    expect(results[0].status).toBe('passed');
+    expect(results[0].project?.kept).toBe(false);
+    expect(fs.existsSync(path.join(fixtureRoot, 'generated.txt'))).toBe(false);
+  });
+});
+
+it('enforces project path/write/read safety and keepOnFailure semantics', async () => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'native-project-fixture-'));
+  fs.mkdirSync(path.join(fixtureRoot, 'node_modules'));
+  fs.mkdirSync(path.join(fixtureRoot, '.git'));
+  fs.writeFileSync(path.join(fixtureRoot, 'ok.json'), '{"b":2,"a":1}');
+
+  const root = Suite({ name: 'px' },
+    Fact({ name: 'empty' }, Project({}), async ({ project }) => { assert.true(!!project?.rootPath, 'has root'); }),
+    Fact({ name: 'path' }, Project({ from: fixtureRoot }), async ({ project }) => {
+      const invalid = ['', '   ', '/abs', '..', 'a/../b', 'a\\b'];
+      for (const item of invalid) {
+        await expect(project!.readText(item)).rejects.toThrow();
+      }
+    }),
+    Fact({ name: 'write reason' }, Project({ from: fixtureRoot }), async ({ project }) => { await project!.writeText('x.txt', 'x', ''); }),
+    Fact({ name: 'read missing' }, Project({ from: fixtureRoot }), async ({ project }) => { await project!.readText('missing.txt'); }),
+    Fact({ name: 'write/json/bytes/read' }, Project({ from: fixtureRoot }), async ({ project }) => {
+      await project!.writeText('sub/t.txt', 'hello', 'write text');
+      await project!.writeJson('sub/j.json', { z: 1, a: 2 }, 'write json');
+      await project!.writeBytes('sub/b.bin', new Uint8Array([1, 2, 3]), 'write bytes');
+      assert.equal(await project!.readText('sub/t.txt'), 'hello', 'read text');
+      const json = await project!.readJson<{ z: number; a: number }>('sub/j.json');
+      assert.equal(json.a, 2, 'read json');
+      assert.true(fs.existsSync(project!.path('sub/b.bin')), 'bytes exists');
+      assert.true(!fs.existsSync(path.join(project!.rootPath, 'node_modules')), 'skip node_modules copy');
+      assert.true(!fs.existsSync(path.join(project!.rootPath, '.git')), 'skip .git copy');
+    }),
+    Theory({ name: 'separate' }, Project({}), Case({ n: 1 }), Case({ n: 2 }), async ({ n }, { project }) => {
+      await project!.writeText(`case-${n}.txt`, String(n), 'case file');
+      assert.true(fs.existsSync(project!.path(`case-${n}.txt`)), 'file in case sandbox');
+    }),
+    Fact({ name: 'artifact and project' }, Project({}), Artifact({ name: 'a', path: 'a.txt' }), async ({ artifact, project }) => {
+      await project!.writeText('p.txt', 'p', 'project write');
+      await artifact.writeText('a', 'a', 'artifact write');
+    }),
+    Fact({ name: 'keep false fail' }, Project({ keepOnFailure: false }), async () => { assert.equal(1, 2, 'fail'); }),
+    Fact({ name: 'keep true fail' }, Project({ keepOnFailure: true }), async () => { assert.equal(1, 2, 'fail keep'); }),
+    Fact({ name: 'keep true pass' }, Project({ keepOnFailure: true }), async ({ project }) => { await project!.writeText('ok.txt', 'ok', 'pass'); }),
+    Fact({ name: 'skip cleanup' }, Project({}), async () => { skip('later'); }),
+  );
+
+  const results = await runSuite(root, {});
+  const byId = new Map(results.map((r) => [r.id, r]));
+  expect(byId.get('px/empty')?.status).toBe('passed');
+  expect((byId.get('px/write reason')?.error as { code?: string })?.code).toBe('TSPACK_PROJECT_WRITE_REASON_REQUIRED');
+  expect((byId.get('px/read missing')?.error as { code?: string })?.code).toBe('TSPACK_PROJECT_READ_FAILED');
+  expect(byId.get('px/write/json/bytes/read')?.status).toBe('passed');
+  expect(byId.get('px/artifact and project')?.status).toBe('passed');
+  expect(byId.get('px/skip cleanup')?.status).toBe('skipped');
+  expect(byId.get('px/keep false fail')?.project?.kept).toBe(false);
+  expect(byId.get('px/keep true fail')?.project?.kept).toBe(true);
+  expect(byId.get('px/keep true pass')?.project?.kept).toBe(false);
 });
