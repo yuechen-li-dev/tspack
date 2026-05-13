@@ -291,3 +291,36 @@ func TestCLIDoomBridgeMissing(t *testing.T) {
 		t.Fatalf("expected bridge missing diagnostic: %v\n%s", err, string(b))
 	}
 }
+
+func TestCLIInspectCommandRouting(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	_ = os.MkdirAll(frontend, 0o755)
+	bridge := filepath.Join(frontend, "inspect-cli.js")
+	stub := `#!/usr/bin/env node
+const args=process.argv.slice(2);
+if(!args.includes('http://example.test')){console.error('missing-url');process.exit(1)}
+if(args.includes('--json')){console.log('{"ok":true}');process.exit(0)}
+console.log(args.join(' '));`
+	_ = os.WriteFile(bridge, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(bridge) })
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "inspect", "http://example.test", "--json")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "{\"ok\":true}") {
+		t.Fatalf("inspect routing failed: %v\n%s", err, string(b))
+	}
+}
+
+func TestCLIInspectBridgeMissing(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	bridge := filepath.Join(repo, "manifest-frontend", "dist", "src", "inspect-cli.js")
+	_ = os.Remove(bridge)
+	cmd := exec.Command("go", "run", "./cmd/tspack", "inspect", "http://example.test")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_INSPECT_BRIDGE_MISSING") {
+		t.Fatalf("expected bridge missing: %v\n%s", err, string(b))
+	}
+}
