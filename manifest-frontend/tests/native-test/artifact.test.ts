@@ -85,4 +85,26 @@ describe('standalone artifact flow', () => {
     await runNativeTestFiles({ rootDir: root });
     expect(fs.existsSync(path.join(root, 'fact.txt'))).toBe(true);
   });
+
+  it('supports command context for standalone artifact project units', async () => {
+    const root = makeDir();
+    const out = makeDir();
+    const fixture = path.join(root, 'fixture');
+    fs.mkdirSync(path.join(fixture, 'sub'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'cmd.xtest.tsx'), `
+      import { Suite, Artifact, Project, assert } from '${path.resolve(process.cwd(), 'src/native-test/index.ts').replace(/\\/g, '/')}';
+      export default (<Suite name="cmd"><Artifact name="a" path="a.txt"><Project from="${fixture.replace(/\\/g, '/')}" />{async ({ artifact, project, command }) => {
+        const result = await command.run(['node', '-e', 'console.log(process.cwd())'], 'cwd');
+        assert.exitCode(result, 0, 'command exit');
+        assert.true(result.stdout.includes(project.rootPath), 'default cwd');
+        await artifact.writeText('a', 'ok', 'artifact');
+      }}</Artifact></Suite>);
+    `);
+    const run = await runNativeArtifacts({ rootDir: root, artifactRoot: out });
+    expect(run.artifacts[0].status).toBe('passed');
+    const commandDir = path.join(path.dirname(run.artifacts[0].artifact!.outputPath), 'commands');
+    expect(fs.existsSync(path.join(commandDir, '0.stdout.txt'))).toBe(true);
+    expect(fs.existsSync(path.join(commandDir, '0.stderr.txt'))).toBe(true);
+    expect(fs.existsSync(path.join(commandDir, '0.command.json'))).toBe(true);
+  });
 });

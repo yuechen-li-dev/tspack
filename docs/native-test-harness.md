@@ -189,9 +189,39 @@ The callback context includes `project` with `path`, `readText`, `readJson`, `wr
 
 Fixture copy skips `node_modules`, `.git`, `.tspack`, `tspack-artifacts`, and `dist-packages`. Symlinks are rejected (`TSPACK_PROJECT_SYMLINK_UNSUPPORTED`).
 
+### Command helpers (M20)
+
+When a unit declares `<Project />`, callback context also includes `command`:
+
+- `command.run(args, reason, options?)`
+- `command.tspack(args, reason, options?)`
+
+Rules:
+- `args` must be a non-empty string array (no shell strings).
+- `reason` is required (`TSPACK_COMMAND_REASON_REQUIRED`).
+- Default `cwd` is `project.rootPath`.
+- `options.cwd` must be relative/safe and remain inside project root (`TSPACK_COMMAND_INVALID_CWD`).
+- `options.timeoutSeconds` defaults to 30 seconds and must be positive finite.
+- Non-zero exits return `CommandResult` and do not throw.
+- Timeout returns `timedOut: true` with `TSPACK_COMMAND_TIMEOUT`.
+- Spawn failure returns `TSPACK_COMMAND_SPAWN_FAILED`.
+
+Each command writes durable evidence files under the unit artifact directory in `commands/`:
+- `<n>.stdout.txt`
+- `<n>.stderr.txt`
+- `<n>.command.json`
+
+`command.json` records args/cwd/exitCode/signal/timedOut/duration/reason/diagnostic codes and intentionally omits environment variables.
+
+`command` is only available for Project-backed `Fact`, `Theory`, `Valid`, `Invalid`, and standalone `Artifact` units. It is not available in `Benchmark` or `Prophecy`.
+
+`assert.exitCode(result, expected, reason)` asserts expected process exit status and fails with `TSPACK_ASSERT_EXIT_CODE_FAILED` on timeout or mismatch.
+
+Command execution itself does not satisfy meaningful-action enforcement; tests still need assertions/expectations/skips.
+
 ### Non-goals
 
-- No command execution helpers.
+- No shell-string command execution helper.
 - No filesystem assertion helpers.
 - No snapshot/golden tooling.
 - No automatic valid/invalid parser runners.
