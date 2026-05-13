@@ -44,6 +44,10 @@ func main() {
 		runDoomCommand(args)
 		return
 	}
+	if args[0] == "inspect" {
+		runInspectCommand(args)
+		return
+	}
 
 	fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", args[0])
 	printHelp()
@@ -65,7 +69,29 @@ func printHelp() {
 	fmt.Println("  tspack artifact [--root .] [--out path] [--list] [--filter text] [--json]")
 	fmt.Println("  tspack bench [--root .] [--list] [--filter text] [--json]")
 	fmt.Println("  tspack doom [--root .] [--list] [--filter text] [--json] [--out path]")
+	fmt.Println("  tspack inspect <url> [--url <url>] [--browser chromium] [--viewport WxH] [--selector css] [--point x,y] [--json] [--out file] [--text file]")
 }
+
+func runInspectCommand(args []string) {
+	bridge := filepath.Join("manifest-frontend", "dist", "src", "inspect-cli.js")
+	if _, err := os.Stat(bridge); err != nil {
+		fmt.Fprintln(os.Stderr, "TSPACK_INSPECT_BRIDGE_MISSING: inspect bridge not found")
+		os.Exit(1)
+	}
+	nodeArgs := []string{bridge, "inspect"}
+	nodeArgs = append(nodeArgs, args[1:]...)
+	cmd := exec.Command("node", nodeArgs...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+		fmt.Fprintf(os.Stderr, "TSPACK_INSPECT_FAILED: %v\n", err)
+		os.Exit(1)
+	}
+}
+
 func runDoomCommand(args []string) {
 	root := "."
 	out := ""
@@ -98,10 +124,18 @@ func runDoomCommand(args []string) {
 		os.Exit(1)
 	}
 	nodeArgs := []string{bridge, "doom", "--root", root}
-	if out != "" { nodeArgs = append(nodeArgs, "--out", out) }
-	if list { nodeArgs = append(nodeArgs, "--list") }
-	if filter != "" { nodeArgs = append(nodeArgs, "--filter", filter) }
-	if jsonOut { nodeArgs = append(nodeArgs, "--json") }
+	if out != "" {
+		nodeArgs = append(nodeArgs, "--out", out)
+	}
+	if list {
+		nodeArgs = append(nodeArgs, "--list")
+	}
+	if filter != "" {
+		nodeArgs = append(nodeArgs, "--filter", filter)
+	}
+	if jsonOut {
+		nodeArgs = append(nodeArgs, "--json")
+	}
 	cmd := exec.Command("node", nodeArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
