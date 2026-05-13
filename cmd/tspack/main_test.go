@@ -328,3 +328,16 @@ func TestCLIInspectBridgeMissing(t *testing.T) {
 		t.Fatalf("expected bridge missing: %v\n%s", err, string(b))
 	}
 }
+
+func TestHelpMarksInspectExperimental(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	cmd := exec.Command("go", "run", "./cmd/tspack", "help")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("help failed: %v\n%s", err, string(b))
+	}
+	if !strings.Contains(string(b), "tspack inspect <url> [experimental]") {
+		t.Fatalf("inspect help not marked experimental:\n%s", string(b))
+	}
+}

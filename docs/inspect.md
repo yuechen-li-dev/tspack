@@ -1,19 +1,89 @@
 # tspack inspect
 
-`tspack inspect <url>` performs structural UI inspection against an already running HTTP/HTTPS URL.
+> **Status: Experimental / unstable**
+>
+> `tspack inspect` is a structural UI inspection experiment. It is useful today, but it is not yet a stable public contract and CLI/API flags may still change as backend support is refined.
+
+`tspack inspect <url>` performs structural UI inspection for rendered browser targets.
 
 It is **not** screenshot matching, visual diffing, machine vision, component rendering, or dev-server startup.
 
-## Backend model
+## Current capability (experimental)
 
-Inspect uses a backend abstraction and keeps one shared analyzer/formatter pipeline. Current backends:
+- structural DOM/layout/style/text/role extraction
+- JSON and text output
+- selector filtering and hit-test support
+- Playwright-backed inspection path
+- explicit CDP endpoint inspection path
+- explicit installed-host launch path
+- Playwright Core provider probing/resolution, including VS Code-family bundled `playwright-core` candidates
 
-- `vscode` (probe-backed VS Code/Electron runtime path)
-- `playwright-chromium` (Playwright-managed Chromium)
-- `host-path` (user-supplied Chromium/Electron-compatible executable; preferred)
-- `browser-path` (compatibility alias for `host-path`)
-- `chromium` (alias for `playwright-chromium`)
-- `auto` (default: probe `vscode`, fallback to `playwright-chromium`)
+## Backend taxonomy
+
+The analyzer core is shared across backends. Backends are responsible for obtaining a browser-like execution context.
+
+1. **Playwright backend**
+   - Uses Playwright automation.
+   - May require Playwright browser binaries.
+   - Useful for controlled browser inspection and CI when browsers are installed.
+
+2. **CDP backend**
+   - Uses an explicit user-provided remote debugging endpoint (`--cdp`).
+   - Preferred protocol seam for already-running Chromium/Electron hosts.
+   - Does not scan local ports.
+   - Does not silently attach to apps.
+
+3. **Installed host backend**
+   - Uses explicit `--host-path` / `--browser-path` executable path.
+   - Launches with remote debugging and a temporary profile, then inspects through CDP.
+   - Best suited to Chrome/Chromium/Edge-style hosts.
+   - Electron apps may not behave like generic URL browsers.
+   - VS Code/Code-family launch remains environment-dependent.
+
+4. **Playwright Core provider**
+   - Automation client provider, not a browser runtime.
+   - Resolution order:
+     - `TSPACK_PLAYWRIGHT_CORE_PATH`
+     - project-local `node_modules/playwright-core` / `node_modules/playwright`
+     - VS Code-family bundled `playwright-core` candidates
+   - Distinction:
+     - `playwright-core` = client library
+     - Playwright browser download = browser runtime artifact
+   - VS Code-bundled `playwright-core` use is opportunistic, not a stable external VS Code contract.
+
+## Safety policy
+
+- TSPack never silently scans local ports.
+- TSPack never silently attaches to arbitrary running apps.
+- You must provide one explicit input mode:
+  - URL (`tspack inspect <url>`),
+  - CDP endpoint (`--cdp`), or
+  - host executable path (`--host-path`, with `--browser-path` alias).
+
+## Recommended usage today
+
+Most reliable (already-running host with explicit endpoint):
+
+- `tspack inspect --cdp http://127.0.0.1:9222 --list-targets`
+- `tspack inspect --cdp http://127.0.0.1:9222 --target 0 --json`
+
+URL inspection:
+
+- `tspack inspect <url>` (Playwright backend; requires available browser runtime)
+- `tspack inspect <url> --host-path /path/to/chrome`
+
+VS Code/Electron app UI inspection:
+
+- launch the app yourself with remote debugging
+- then use explicit `--cdp` endpoint mode
+
+## VS Code / Code-family current status
+
+- Code-family executables may be discoverable.
+- On Linux, `/usr/bin/code` can be a wrapper while `/usr/share/code/code` is the Electron binary.
+- In this container probe environment, both wrapper-resolved and direct binary launch attempts failed due missing dbus, missing X server/`DISPLAY`, and platform initialization/SIGSEGV failures.
+- This is an environment/runtime blocker in containerized headless probes, not proof that desktop-local VS Code inspection is impossible.
+- Additional desktop-local verification is still needed.
 
 ## Command
 
@@ -23,24 +93,33 @@ Inspect uses a backend abstraction and keeps one shared analyzer/formatter pipel
 ## Options
 
 - `--browser auto|vscode|playwright-chromium|chromium|browser-path|host-path`
-- `--host-path <path>` (preferred explicit installed host launch)
+- `--host-path <path>` (preferred)
 - `--browser-path <path>` (compatibility alias)
-- `--cdp <endpoint>` (explicit CDP backend, example: `http://127.0.0.1:9222`)
-- `--list-targets` (list inspectable CDP targets without running analyzer)
-- `--target <index-or-id>` (select specific target from list)
-- `--target-url <substring>` (select first target by URL substring, ambiguous match fails)
-- `--viewport WxH` (default `1440x900`)
-- `--selector <css>` (first match is used)
-- `--point x,y` (repeatable)
-- `--json` (stdout JSON)
-- `--out <file>` (JSON file)
-- `--text <file>` (text file)
+- `--cdp <endpoint>`
+- `--list-targets`
+- `--target <index-or-id>`
+- `--target-url <substring>`
+- `--viewport WxH`
+- `--selector <css>`
+- `--point x,y`
+- `--json`
+- `--out <file>`
+- `--text <file>`
 
-## Diagnostics
+## Inspect diagnostics
 
-- `TSPACK_INSPECT_VSCODE_NOT_FOUND`
-- `TSPACK_INSPECT_VSCODE_ELECTRON_NOT_USABLE`
-- `TSPACK_INSPECT_BROWSER_PATH_NOT_FOUND`
+Target/input:
+- `TSPACK_INSPECT_TARGET_REQUIRED`
+- `TSPACK_INSPECT_INVALID_TARGET`
+
+Browser/backend:
+- `TSPACK_INSPECT_BROWSER_UNSUPPORTED`
+- `TSPACK_INSPECT_BROWSER_LAUNCH_FAILED`
+- `TSPACK_INSPECT_BRIDGE_MISSING`
+- `TSPACK_INSPECT_FAILED`
+- `TSPACK_INSPECT_INVALID_BACKEND_OPTIONS`
+
+CDP:
 - `TSPACK_INSPECT_CDP_ENDPOINT_REQUIRED`
 - `TSPACK_INSPECT_CDP_ENDPOINT_INVALID`
 - `TSPACK_INSPECT_CDP_CONNECT_FAILED`
@@ -48,122 +127,26 @@ Inspect uses a backend abstraction and keeps one shared analyzer/formatter pipel
 - `TSPACK_INSPECT_CDP_TARGET_AMBIGUOUS`
 - `TSPACK_INSPECT_CDP_TARGET_UNSUPPORTED`
 - `TSPACK_INSPECT_CDP_EVALUATION_FAILED`
-- `TSPACK_INSPECT_INVALID_BACKEND_OPTIONS`
-- existing inspect diagnostics remain unchanged (`...PAGE_LOAD_FAILED`, `...SELECTOR_NOT_FOUND`, etc).
 
-## Notes
+Installed host:
+- `TSPACK_INSPECT_HOST_PATH_NOT_FOUND`
+- `TSPACK_INSPECT_HOST_PATH_INVALID`
+- `TSPACK_INSPECT_HOST_LAUNCH_FAILED`
+- `TSPACK_INSPECT_HOST_CDP_ENDPOINT_FAILED`
+- `TSPACK_INSPECT_HOST_CLEANUP_FAILED`
 
-- Browser truth is still required (no static layout approximation in M21b).
-- `auto` prefers VS Code/Electron when runnable, then falls back to Playwright Chromium.
-- Backend/API-only projects still require a browser-rendered URL.
-- Hit tests use `document.elementsFromPoint(x, y)` and report the top-to-bottom stack.
+Playwright Core provider:
+- `TSPACK_INSPECT_PLAYWRIGHT_CORE_NOT_FOUND`
+- `TSPACK_INSPECT_PLAYWRIGHT_CORE_LOAD_FAILED`
 
-## CDP backend (installed/running host inspection)
+Page/analyzer:
+- `TSPACK_INSPECT_PAGE_LOAD_FAILED`
+- `TSPACK_INSPECT_ANALYSIS_FAILED`
+- `TSPACK_INSPECT_SELECTOR_NOT_FOUND`
+- `TSPACK_INSPECT_INVALID_VIEWPORT`
+- `TSPACK_INSPECT_INVALID_POINT`
 
-The CDP backend is for inspecting an already-running Chromium-compatible host that exposes a remote debugging endpoint.
-
-- Chrome/Chromium/Edge launched with remote debugging
-- VS Code / Code Insiders / VSCodium launched with remote debugging
-- Electron apps launched with remote debugging
-
-Example launch:
-
-- `chrome --remote-debugging-port=9222 --user-data-dir=/tmp/tspack-chrome`
-
-Examples:
-
-- `tspack inspect --cdp http://127.0.0.1:9222 --list-targets`
-- `tspack inspect --cdp http://127.0.0.1:9222 --target 0 --json`
-- `tspack inspect --cdp http://127.0.0.1:9222 --target-url localhost:5173 --json`
-- `tspack inspect http://localhost:5173 --cdp http://127.0.0.1:9222 --json`
-
-Scope/safety notes:
-
-- CDP attachment is explicit (`--cdp` required).
-- TSPack does not scan local ports and does not auto-attach to unrelated apps.
-
-
-## Installed host backend
-
-Use an explicit installed host runtime without Playwright-managed browser download:
-
-- `tspack inspect <url> --host-path /path/to/chrome`
-- `tspack inspect <url> --browser-path /path/to/chrome`
-
-Behavior:
-
-- TSPack validates the executable path, launches it with remote debugging and a temporary profile, then inspects through CDP.
-- TSPack does not scan local ports and does not auto-attach to unrelated running apps.
-- TSPack only launches the executable path you provide, or connects to an explicit `--cdp` endpoint.
-- Code-family executables (`code`, `code-insiders`, `code-oss`, `codium`, `vscodium`) are valid explicit host candidates when they expose CDP.
-- Not every Electron app supports arbitrary URL loading/debug flags; for already-running app targets prefer explicit CDP endpoint mode.
-
-For already-running hosts:
-
-- `tspack inspect --cdp http://127.0.0.1:9222 --list-targets`
-
-Playwright remains an optional backend/fallback. `--host-path` is the preferred explicit installed-host path.
-
-## Code-family host probe (manual)
-
-Use the included probe script to discover/installability status and CDP readiness:
+## Manual probes
 
 - `node scripts/inspect-host-probe.mjs`
-
-Manual command equivalents:
-
-- `command -v code || true`
-- `command -v code-insiders || true`
-- `command -v code-oss || true`
-- `command -v codium || true`
-- `command -v vscodium || true`
-- `code --version || true`
-- `code-oss --version || true`
-- `codium --version || true`
-- `vscodium --version || true`
-
-Debian/Ubuntu notes:
-
-- branded VS Code (`code`) usually comes from Microsoft's Linux repository / `.deb` setup.
-- Code-OSS package names vary by distro and may not be present in default apt repositories.
-- VSCodium commonly provides the `codium` executable via VSCodium distribution channels.
-
-
-Container/root note:
-
-- In root/container CI, some Electron hosts (including VS Code) may require sandbox overrides. Set `TSPACK_INSPECT_HOST_NO_SANDBOX=1` to enable `--no-sandbox --disable-gpu --disable-dev-shm-usage` for explicit host launch.
-- This is only for explicit host launch and does not change CDP attach behavior.
-
-VS Code/Electron host note:
-
-- VS Code/Electron may expose workbench/devtools CDP targets without acting as a generic URL browser host.
-- For generic URL inspection, Chrome/Chromium/Edge style hosts are usually more reliable.
-
-
-Linux VS Code wrapper note:
-
-- Code-family wrapper CLIs (for example `/usr/bin/code`) may not be the actual Electron binary used for process launch.
-- TSPack probe logic resolves wrapper paths toward underlying binaries when available (for example `/usr/share/code/code` on Ubuntu/Debian).
-- In this environment, probing both wrapper input and resolved binary was attempted; wrapper flags alone were not sufficient to expose `/json/version`.
-
-
-## Playwright Core provider resolution
-
-TSPack can resolve a Playwright automation client provider without downloading managed browsers.
-
-Resolution order:
-
-- `TSPACK_PLAYWRIGHT_CORE_PATH` (explicit)
-- project-local `node_modules/playwright-core` or `node_modules/playwright`
-- VS Code-family bundled candidates (for example `/usr/share/code/resources/app/node_modules/playwright-core`)
-
-Notes:
-
-- `playwright-core` is the automation client library.
-- Playwright browser binaries are separate managed downloads and are not required for CDP attach.
-- VS Code bundled `playwright-core` is opportunistic and not a stable external contract.
-- TSPack still requires explicit host/CDP endpoint policy (no silent attach or local port scan).
-
-Manual probe script:
-
 - `node scripts/inspect-playwright-core-probe.mjs`

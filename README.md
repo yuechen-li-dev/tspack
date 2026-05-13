@@ -49,4 +49,4 @@ See also `docs/artifacts.md` for standalone artifact mode details.
 See `docs/doom.md` for quarantine Doom/Prophecy execution details.
 
 
-- `tspack inspect <url>`: inspect a running URL via Chromium and emit structural UI JSON/text.
+- `tspack inspect <url>`: **experimental** structural UI inspection for rendered browser targets; backend support is still being refined.

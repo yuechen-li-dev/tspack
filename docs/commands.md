@@ -23,6 +23,10 @@ See also `docs/artifacts.md` for standalone artifact mode details.
 See also `docs/doom.md` for Prophecy/Doom behavior and limits.
 
 
-## inspect
+## inspect (experimental)
 
-`tspack inspect <url>` inspects a running browser URL. Supports explicit installed host launch via `--host-path` (or `--browser-path` alias) and explicit CDP endpoint attach via `--cdp`. It and reports structural UI/layout/accessibility-ish data (not screenshot matching).
+`inspect` is currently experimental/unstable.
+
+`tspack inspect <url>` performs structural UI inspection for rendered browser targets. It supports explicit installed host launch via `--host-path` (with `--browser-path` compatibility alias) and explicit CDP endpoint attach via `--cdp`.
+
+See `docs/inspect.md` for backend taxonomy, diagnostics, and current environment limitations.
