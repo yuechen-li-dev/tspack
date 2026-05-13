@@ -22,6 +22,7 @@ describe('native valid/invalid file execution', () => {
       export default (
         <Suite name="v">
           <Valid name="pass">{() => { expect.noErrors([]).because('no errors'); }}</Valid>
+          <Valid name="noError alias">{() => { expect.noError({ diagnostics: [] }).because('singular alias works in valid'); }}</Valid>
           <Valid name="assert fail">{() => { assert.equal(1, 2, 'should fail'); }}</Valid>
           <Valid name="skip">{() => { skip('skip valid'); }}</Valid>
           <Valid name="async">{async () => { await Promise.resolve(); assert.true(true, 'async valid'); }}</Valid>
@@ -35,6 +36,7 @@ describe('native valid/invalid file execution', () => {
       export default (
         <Suite name="i">
           <Invalid name="error match">{() => { expect.error([{ code: 'E_MATCH' }], 'E_MATCH').because('must match'); }}</Invalid>
+          <Invalid name="preflight noError">{() => { expect.noError([{ code: 'W1', severity: 'warning' }]).because('preflight can still be clean'); }}</Invalid>
           <Invalid name="error missing">{() => { expect.error([{ code: 'E_OTHER' }], 'E_EXPECTED').because('must fail'); }}</Invalid>
           <Invalid name="noErrors fail">{() => { expect.noErrors([{ code: 'E', severity: 'error' }]).because('error should fail'); }}</Invalid>
           <Invalid name="skip">{() => { skip('skip invalid'); }}</Invalid>
@@ -53,12 +55,14 @@ describe('native valid/invalid file execution', () => {
     const statusById = new Map(run.results.map((entry) => [entry.id, entry.status]));
 
     expect(statusById.get('fixtures.valid.tsx::v/valid/pass')).toBe('passed');
+    expect(statusById.get('fixtures.valid.tsx::v/valid/noError alias')).toBe('passed');
     expect(statusById.get('fixtures.valid.tsx::v/valid/assert fail')).toBe('failed');
     expect(statusById.get('fixtures.valid.tsx::v/valid/skip')).toBe('skipped');
     expect(statusById.get('fixtures.valid.tsx::v/valid/async')).toBe('passed');
     expect(statusById.get('fixtures.valid.tsx::v/valid/pending because')).toBe('failed');
 
     expect(statusById.get('fixtures.invalid.tsx::i/invalid/error match')).toBe('passed');
+    expect(statusById.get('fixtures.invalid.tsx::i/invalid/preflight noError')).toBe('passed');
     expect(statusById.get('fixtures.invalid.tsx::i/invalid/error missing')).toBe('failed');
     expect(statusById.get('fixtures.invalid.tsx::i/invalid/noErrors fail')).toBe('failed');
     expect(statusById.get('fixtures.invalid.tsx::i/invalid/skip')).toBe('skipped');
@@ -103,8 +107,12 @@ it('loaded xtest/valid/invalid/artifact files can use Project context and filter
   fs.writeFileSync(path.join(fixture, 'manifest.json'), '{"code":"E_MATCH"}');
 
   fs.writeFileSync(path.join(root, 'with-project.xtest.tsx'), `
-    import { Suite, Fact, Project, assert } from '${importPath}';
-    export default (<Suite name="x"><Fact name="f"><Project from="${fixturePath}" />{async ({ project }) => { await project.writeText('gen.txt', 'ok', 'write'); assert.equal(await project.readText('gen.txt'), 'ok', 'read'); }}</Fact></Suite>);
+    import { Suite, Fact, Theory, Case, Project, assert, expect } from '${importPath}';
+    export default (<Suite name="x">
+      <Fact name="f"><Project from="${fixturePath}" />{async ({ project }) => { await project.writeText('gen.txt', 'ok', 'write'); expect.noError([]).because('fact can use noError'); assert.equal(await project.readText('gen.txt'), 'ok', 'read'); }}</Fact>
+      <Fact name="lgtm-only">{() => { assert.LGTM({ diagnostics: [] }, 'lgtm-only fact is meaningful'); }}</Fact>
+      <Theory name="theory-lgtm"><Case name="one" /><Case name="two" />{() => { assert.LGTM([{ code: 'W1', severity: 'warning' }], 'theory case can use LGTM'); }}</Theory>
+    </Suite>);
   `);
   fs.writeFileSync(path.join(root, 'with-project.valid.tsx'), `
     import { Suite, Valid, Project, expect } from '${importPath}';

@@ -41,4 +41,42 @@ describe('expect api', () => {
     vexpect(() => expect.noErrors([{ code: 'E1', severity: 'error' }]).because('error fails')).toThrow();
     vexpect(() => expect.noErrors([{ code: 'X1' }]).because('no severity treated as error')).toThrow();
   });
+
+  it('expect.noError aliases noErrors for supported shapes and severity semantics', () => {
+    expect.noError([]).because('empty diagnostic array passes');
+    expect.noError({ diagnostics: [] }).because('diagnostics object passes');
+    expect.noError({ ok: true, diagnostics: [] }).because('ok+diagnostics object passes');
+    expect.noError([{ code: 'W1', severity: 'warning' }, { code: 'I1', severity: 'info' }]).because('warnings and infos pass');
+  });
+
+  it('expect.noError failure includes diagnostic codes and because is required', () => {
+    let thrown: unknown;
+    try {
+      expect.noError([{ code: 'E1', severity: 'error' }, { code: 'E2' }]).because('should fail');
+    } catch (error) {
+      thrown = error;
+    }
+
+    const failure = thrown as Error & { code?: string; actual?: unknown };
+    vexpect(failure.code).toBe('TSPACK_EXPECT_UNEXPECTED_ERRORS');
+    vexpect(failure.actual).toEqual(['E1', 'E2']);
+
+    expect.noError([]); // intentionally missing because
+    vexpect(() => verifyNoPendingExpectations()).toThrowError(/TSPACK_EXPECT_BECAUSE_REQUIRED|missing because/);
+  });
+
+  it('expect.noError and expect.noErrors are equivalent on representative pass/fail inputs', () => {
+    expect.noError([{ code: 'W1', severity: 'warning' }]).because('noError warning passes');
+    expect.noErrors([{ code: 'W1', severity: 'warning' }]).because('noErrors warning passes');
+
+    const runNoError = (): void => {
+      expect.noError([{ code: 'E1', severity: 'error' }]).because('noError fails with error');
+    };
+    const runNoErrors = (): void => {
+      expect.noErrors([{ code: 'E1', severity: 'error' }]).because('noErrors fails with error');
+    };
+
+    vexpect(runNoError).toThrow();
+    vexpect(runNoErrors).toThrow();
+  });
 });

@@ -84,6 +84,7 @@ export function expect(actual: unknown) {
 
 expect.error = (subject: unknown, code: string): PendingExpectation => buildErrorExpectation(subject, code);
 expect.noErrors = (subject: unknown): PendingExpectation => buildNoErrorsExpectation(subject);
+expect.noError = (subject: unknown): PendingExpectation => buildNoErrorsExpectation(subject);
 
 export function verifyNoPendingExpectations(): void {
   if (pending.size > 0) {

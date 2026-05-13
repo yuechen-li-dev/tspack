@@ -158,7 +158,24 @@ See also `docs/artifacts.md` for standalone artifact mode details.
 - Invalid invariants pass when expected diagnostics are observed (for example with `expect.error(...)`).
 - Use `expect.error(subject, code).because(reason)` to assert an error code exists.
 - Use `expect.noErrors(subject).because(reason)` to assert no error diagnostics exist.
+- Use `expect.noError(subject).because(reason)` as singular alias of `expect.noErrors(...)`.
+- Use `assert.LGTM(subject, reason)` for assert-style diagnostic cleanliness checks.
 - These fixture invariants run via the native xTest backend (`tspack test -xtest`) and are not included in `tspack artifact`.
+
+Diagnostic-clean semantics for `expect.noErrors`, `expect.noError`, and `assert.LGTM`:
+- supports `Diagnostic[]`
+- supports `{ diagnostics: Diagnostic[] }`
+- supports `{ ok: boolean, diagnostics: Diagnostic[] }`
+- `severity: "error"` fails
+- missing/unknown severity fails
+- `severity: "warning"` and `severity: "info"` pass
+- empty diagnostics pass
+
+Reasons are mandatory:
+- expectation chains must end in `.because(nonEmptyReason)` or fail with `TSPACK_EXPECT_BECAUSE_REQUIRED`
+- `assert.LGTM` requires a non-empty reason or fails with `TSPACK_ASSERT_REASON_REQUIRED`
+
+`assert.LGTM` is intentionally narrow: it only checks whether diagnostics are error-clean; it is not a broad semantic validator.
 
 ## Project fixtures (`<Project />`)
 
