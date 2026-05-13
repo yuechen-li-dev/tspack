@@ -145,3 +145,25 @@ Linux VS Code wrapper note:
 - Code-family wrapper CLIs (for example `/usr/bin/code`) may not be the actual Electron binary used for process launch.
 - TSPack probe logic resolves wrapper paths toward underlying binaries when available (for example `/usr/share/code/code` on Ubuntu/Debian).
 - In this environment, probing both wrapper input and resolved binary was attempted; wrapper flags alone were not sufficient to expose `/json/version`.
+
+
+## Playwright Core provider resolution
+
+TSPack can resolve a Playwright automation client provider without downloading managed browsers.
+
+Resolution order:
+
+- `TSPACK_PLAYWRIGHT_CORE_PATH` (explicit)
+- project-local `node_modules/playwright-core` or `node_modules/playwright`
+- VS Code-family bundled candidates (for example `/usr/share/code/resources/app/node_modules/playwright-core`)
+
+Notes:
+
+- `playwright-core` is the automation client library.
+- Playwright browser binaries are separate managed downloads and are not required for CDP attach.
+- VS Code bundled `playwright-core` is opportunistic and not a stable external contract.
+- TSPack still requires explicit host/CDP endpoint policy (no silent attach or local port scan).
+
+Manual probe script:
+
+- `node scripts/inspect-playwright-core-probe.mjs`
