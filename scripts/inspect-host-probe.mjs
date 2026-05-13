@@ -155,17 +155,21 @@ async function main() {
 
   const wrapperPath = process.env.TSPACK_INSPECT_HOST_PATH || found[0];
   const executablePath = resolveVSCodeElectronExecutable(wrapperPath);
-  console.log(`\nProbe input path: ${wrapperPath}`);
+  console.log(`\nInput path: ${wrapperPath}`);
   console.log(`Resolved executable path: ${executablePath}`);
-  console.log(`Resolved differs from input: ${wrapperPath !== executablePath}`);
+  console.log(`Launch mode: explicit host path`);
   const modes = [
     { name: 'workbench', extraArgs: [] },
     { name: 'workspace', extraArgs: ['__WORKSPACE__'] },
     { name: 'url', extraArgs: ['http://127.0.0.1:5173'] }
   ];
 
+  let anyReady = false;
+  let anyAttempt = false;
   for (const mode of modes) {
     const result = await probeMode(executablePath, mode.name, mode.extraArgs);
+    anyAttempt = true;
+    if (result.versionReady) anyReady = true;
     console.log(`\nMode: ${result.modeName}`);
     console.log(`  args: ${result.args.join(' ')}`);
     console.log(`  /json/version ready: ${result.versionReady}`);
@@ -177,6 +181,13 @@ async function main() {
     if (result.stderrTail) console.log(`  stderr tail: ${result.stderrTail}`);
     if (result.stdoutTail) console.log(`  stdout tail: ${result.stdoutTail}`);
   }
+
+  if (!anyAttempt) {
+    console.log('outcome: unavailable');
+    return;
+  }
+
+  console.log(`\noutcome: ${anyReady ? 'usable' : 'not-usable'}`);
 }
 
 main().catch((error) => {
