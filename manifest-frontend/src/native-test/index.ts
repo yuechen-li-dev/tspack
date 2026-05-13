@@ -8,7 +8,7 @@ export { listDiscoveredTests, listStandaloneArtifacts, listNativeTests, listNati
 export type { TestResult, DiscoveryResult, Diagnostic } from './types.js';
 
 type NodeShape = {
-  __tag: 'Suite' | 'Fact' | 'Theory' | 'Case' | 'Artifact' | 'Valid' | 'Invalid' | 'Project';
+  __tag: 'Suite' | 'Fact' | 'Theory' | 'Case' | 'Artifact' | 'Valid' | 'Invalid' | 'Project' | 'CycleTime';
   props: Record<string, unknown>;
   children: unknown[];
 };
@@ -28,3 +28,4 @@ export const Valid = makeTag('Valid');
 export const Invalid = makeTag('Invalid');
 
 export const Project = makeTag('Project');
+export const CycleTime = makeTag('CycleTime');

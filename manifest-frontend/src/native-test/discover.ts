@@ -13,9 +13,9 @@ import type {
 
 type NativeFileKind = 'xtest' | 'valid' | 'invalid';
 
-type AllowedElement = 'Fact' | 'Theory' | 'Artifact' | 'Valid' | 'Invalid' | 'Project';
+type AllowedElement = 'Fact' | 'Theory' | 'Artifact' | 'Valid' | 'Invalid' | 'Project' | 'CycleTime';
 
-const allAllowed = new Set<AllowedElement | 'Suite' | 'Case'>(['Suite', 'Fact', 'Theory', 'Case', 'Artifact', 'Valid', 'Invalid', 'Project']);
+const allAllowed = new Set<AllowedElement | 'Suite' | 'Case'>(['Suite', 'Fact', 'Theory', 'Case', 'Artifact', 'Valid', 'Invalid', 'Project', 'CycleTime']);
 
 function classifyNativeFile(filePath: string): NativeFileKind | undefined {
   if (filePath.endsWith('.xtest.tsx')) return 'xtest';
@@ -98,6 +98,10 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
       addDiag(child, 'TSPACK_PROJECT_FIXTURE_INVALID_DECLARATION', '<Project> must be declared inside an executable unit');
       continue;
     }
+    if (tag === 'CycleTime') {
+      addDiag(child, 'TSPACK_TEST_CYCLETIME_NOT_ALLOWED', '<CycleTime> is only allowed under Theory or suite-level Artifact');
+      continue;
+    }
 
     if (tag === 'Artifact') {
       const suiteArtifact = parseSuiteArtifact(child, suiteName, abs, path.dirname(abs), addDiag);
@@ -119,6 +123,7 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
         continue;
       }
       const id = `${suiteName}/${factName}`;
+      collectCycleTimeForbiddenChildren(child, addDiag);
       facts.push({ kind: 'fact', name: factName, id, artifacts: collectArtifacts(child, addDiag), project: collectProject(child, path.dirname(abs), addDiag) });
       tests.push(id);
       continue;
@@ -131,7 +136,7 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
         continue;
       }
       const cases = collectCases(child, suiteName, theoryName, addDiag);
-      theories.push({ kind: 'theory', name: theoryName, cases, artifacts: collectArtifacts(child, addDiag), project: collectProject(child, path.dirname(abs), addDiag) });
+      theories.push({ kind: 'theory', name: theoryName, cases, artifacts: collectArtifacts(child, addDiag), project: collectProject(child, path.dirname(abs), addDiag), cycleTimeSeconds: collectCycleTimeAllowed(child, addDiag) });
       for (const entry of cases) tests.push(entry.id);
       continue;
     }
@@ -144,6 +149,7 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
       }
       const kind = tag === 'Valid' ? 'valid' : 'invalid';
       const id = `${suiteName}/${kind}/${invariantName}`;
+      collectCycleTimeForbiddenChildren(child, addDiag);
       invariants.push({ kind, name: invariantName, id, project: collectProject(child, path.dirname(abs), addDiag) });
       tests.push(id);
     }
@@ -284,7 +290,7 @@ function parseSuiteArtifact(node: ts.JsxElement | ts.JsxSelfClosingElement, suit
     return undefined;
   }
   const id = `${filePath.split(path.sep).join('/')}::${suiteName}/artifact/${parsed.name}`;
-  return { id, filePath, suiteName, name: parsed.name, path: parsed.path, format: parsed.format, project: collectProject(node, fileDir, addDiag) };
+  return { id, filePath, suiteName, name: parsed.name, path: parsed.path, format: parsed.format, project: collectProject(node, fileDir, addDiag), cycleTimeSeconds: collectCycleTimeAllowed(node, addDiag) };
 }
 
 
@@ -318,4 +324,37 @@ function collectProject(node: ts.JsxElement | ts.JsxSelfClosingElement, fileDir:
     if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isDirectory()) { addDiag(project, 'TSPACK_PROJECT_FIXTURE_NOT_FOUND', `Project fixture not found: ${from}`); return undefined; }
   }
   return { from, name, keepOnFailure };
+}
+
+function collectCycleTimeForbiddenChildren(node: ts.JsxElement | ts.JsxSelfClosingElement, addDiag: (node: ts.Node, code: string, message: string) => void): void {
+  for (const child of getChildren(node)) {
+    if ((ts.isJsxElement(child) || ts.isJsxSelfClosingElement(child)) && getTagName(child) === 'CycleTime') {
+      addDiag(child, 'TSPACK_TEST_CYCLETIME_NOT_ALLOWED', '<CycleTime> is not allowed in this location');
+    }
+  }
+}
+
+function collectCycleTimeAllowed(node: ts.JsxElement | ts.JsxSelfClosingElement, addDiag: (node: ts.Node, code: string, message: string) => void): number | undefined {
+  const cycleNodes = getChildren(node).filter((child) => (ts.isJsxElement(child) || ts.isJsxSelfClosingElement(child)) && getTagName(child) === 'CycleTime') as Array<ts.JsxElement | ts.JsxSelfClosingElement>;
+  if (cycleNodes.length === 0) return undefined;
+  if (cycleNodes.length > 1) addDiag(cycleNodes[1], 'TSPACK_TEST_DUPLICATE_CYCLETIME', 'only one CycleTime is allowed per parent');
+  const cycle = cycleNodes[0];
+  let seconds: number | undefined;
+  for (const attr of getAttributes(cycle)) {
+    if (ts.isJsxSpreadAttribute(attr)) {
+      addDiag(attr, 'TSPACK_TEST_INVALID_CYCLETIME', 'CycleTime does not allow spread attributes');
+      return undefined;
+    }
+    if (!ts.isJsxAttribute(attr) || attr.name.getText() !== 'seconds') continue;
+    if (!attr.initializer || !ts.isJsxExpression(attr.initializer) || !attr.initializer.expression || !ts.isNumericLiteral(attr.initializer.expression)) {
+      addDiag(attr, 'TSPACK_TEST_INVALID_CYCLETIME', 'CycleTime seconds must be a number literal');
+      return undefined;
+    }
+    seconds = Number(attr.initializer.expression.text);
+  }
+  if (seconds === undefined || !Number.isFinite(seconds) || seconds <= 0) {
+    addDiag(cycle, 'TSPACK_TEST_INVALID_CYCLETIME', 'CycleTime seconds must be a positive finite number literal');
+    return undefined;
+  }
+  return seconds;
 }

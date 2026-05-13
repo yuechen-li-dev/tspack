@@ -36,6 +36,7 @@ export type DiscoveredStandaloneArtifact = {
   path: string;
   format?: string;
   project?: DiscoveredProjectFixture;
+  cycleTimeSeconds?: number;
 };
 
 export type DiscoveredFact = {
@@ -52,6 +53,7 @@ export type DiscoveredTheory = {
   cases: DiscoveredCase[];
   artifacts: DiscoveredArtifact[];
   project?: DiscoveredProjectFixture;
+  cycleTimeSeconds?: number;
 };
 
 export type DiscoveredInvariant = {
@@ -117,6 +119,7 @@ export type RunFilesOptions = {
   filter?: string;
   listOnly?: boolean;
   artifactRoot?: string;
+  defaultTimeoutSeconds?: number;
 };
 
 export type RunArtifactsOptions = {
@@ -125,6 +128,7 @@ export type RunArtifactsOptions = {
   filter?: string;
   artifactRoot?: string;
   listOnly?: boolean;
+  defaultTimeoutSeconds?: number;
 };
 
 export type FailureInfo = {

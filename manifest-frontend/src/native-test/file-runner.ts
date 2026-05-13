@@ -11,10 +11,11 @@ import { expect, clearPendingExpectations, verifyNoPendingExpectations } from '.
 import { assert } from './assert.js';
 import { isSkipSignal, skip } from './skip.js';
 import { runSuite } from './runner.js';
+import { markArtifactWriteActivity, setActivityTracker } from './activity.js';
 import type { ArtifactRunResult, Diagnostic, DiscoveredFile, RunArtifactsOptions, RunFilesOptions, RunFilesResult, StandaloneArtifactResult, TestArtifact, TestResult } from './types.js';
 
 type RuntimeNode = {
-  __tag: 'Suite' | 'Fact' | 'Theory' | 'Case' | 'Artifact' | 'Valid' | 'Invalid';
+  __tag: 'Suite' | 'Fact' | 'Theory' | 'Case' | 'Artifact' | 'Valid' | 'Invalid' | 'Project' | 'CycleTime';
   props: Record<string, unknown>;
   children: unknown[];
 };
@@ -41,7 +42,7 @@ export async function runNativeTestFiles(options: RunFilesOptions): Promise<RunF
     try {
       const root = await loadRuntimeSuite(file.filePath);
       const artifactRoot = options.artifactRoot ?? path.join(options.rootDir, '.tspack', 'test-artifacts');
-      const runResults = await runSuite(root, { artifactRoot });
+      const runResults = await runSuite(root, { artifactRoot, defaultTimeoutSeconds: options.defaultTimeoutSeconds });
       for (const result of runResults) {
         const fullId = `${path.relative(options.rootDir, file.filePath).split(path.sep).join('/')}::${result.id}`;
         if (matchesFilter(fullId, result.name, options.filter)) {
@@ -77,7 +78,7 @@ export async function runNativeArtifacts(options: RunArtifactsOptions): Promise<
     try {
       const root = await loadRuntimeSuite(file.filePath);
       for (const declared of fileArtifacts) {
-        artifacts.push(await runStandaloneArtifact(root, declared.id, declared.name, declared.path, declared.format, artifactRoot));
+        artifacts.push(await runStandaloneArtifact(root, declared.id, declared.name, declared.path, declared.format, artifactRoot, options.defaultTimeoutSeconds ?? 30));
       }
     } catch (error) {
       diagnostics.push({ code: 'TSPACK_ARTIFACT_FAILED', message: `failed to load module ${file.filePath}: ${(error as Error).message}`, file: file.filePath, severity: 'error' });
@@ -88,7 +89,7 @@ export async function runNativeArtifacts(options: RunArtifactsOptions): Promise<
   return { artifacts, diagnostics };
 }
 
-async function runStandaloneArtifact(root: RuntimeNode, id: string, name: string, declaredPath: string, format: string | undefined, artifactRoot: string): Promise<StandaloneArtifactResult> {
+async function runStandaloneArtifact(root: RuntimeNode, id: string, name: string, declaredPath: string, format: string | undefined, artifactRoot: string, defaultTimeoutSeconds: number): Promise<StandaloneArtifactResult> {
   const started = performance.now();
   const suiteChildren = root.children.filter((entry) => isNode(entry) && entry.__tag === 'Artifact') as RuntimeNode[];
   const node = suiteChildren.find((entry) => String(entry.props.name ?? '') === name && String(entry.props.path ?? '') === declaredPath);
@@ -100,11 +101,18 @@ async function runStandaloneArtifact(root: RuntimeNode, id: string, name: string
   const artifact = createSingleArtifactState(id, name, declaredPath, format, artifactRoot);
   const projectNode = node.children.find((entry) => isNode(entry) && entry.__tag === 'Project') as RuntimeNode | undefined;
   const project = projectNode ? await createStandaloneProjectContext(projectNode) : undefined;
+  const activity = { assertCount: 0, expectCount: 0, skipCount: 0, artifactWriteCount: 0 };
+  setActivityTracker({ markAssert: () => { activity.assertCount += 1; }, markExpect: () => { activity.expectCount += 1; }, markSkip: () => { activity.skipCount += 1; }, markArtifactWrite: () => { activity.artifactWriteCount += 1; } });
   try {
-    await callback?.({ artifact: artifact.writer, project });
+    const cycle = node.children.find((entry) => isNode(entry) && entry.__tag === 'CycleTime') as RuntimeNode | undefined;
+    const timeoutSeconds = typeof cycle?.props.seconds === 'number' ? cycle.props.seconds : defaultTimeoutSeconds;
+    await Promise.race([Promise.resolve(callback?.({ artifact: artifact.writer, project })), new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error(`test timed out after ${timeoutSeconds} seconds`), { code: 'TSPACK_TEST_TIMEOUT' })), Math.max(1, timeoutSeconds * 1000)))]);
     verifyNoPendingExpectations();
     if (!artifact.result.written) {
       return { id, name, status: 'failed', failure: { code: 'TSPACK_ARTIFACT_REQUIRED_NOT_WRITTEN', message: `required artifact not written: ${name}` }, artifact: artifact.result, durationMs: performance.now() - started };
+    }
+    if (activity.assertCount + activity.expectCount + activity.skipCount + activity.artifactWriteCount === 0) {
+      return { id, name, status: 'failed', failure: { code: 'TSPACK_TEST_NO_ASSERTION', message: 'artifact completed without meaningful action' }, artifact: artifact.result, durationMs: performance.now() - started };
     }
     return { id, name, status: 'passed', artifact: artifact.result, durationMs: performance.now() - started };
   } catch (error) {
@@ -115,6 +123,7 @@ async function runStandaloneArtifact(root: RuntimeNode, id: string, name: string
     const e = error as Error & { code?: string; reason?: string };
     return { id, name, status: 'failed', failure: { code: e.code, message: e.message, reason: e.reason }, artifact: artifact.result, durationMs: performance.now() - started };
   } finally {
+    setActivityTracker(undefined);
     if (project?.rootPath) {
       await fsp.rm(project.rootPath, { recursive: true, force: true });
     }
@@ -164,6 +173,7 @@ async function writeCommon(artifact: TestArtifact, name: string, reason: string,
   try {
     await fsp.mkdir(path.dirname(artifact.outputPath), { recursive: true });
     await fsp.writeFile(artifact.outputPath, data);
+    markArtifactWriteActivity();
     artifact.written = true;
     artifact.size = data.byteLength;
     artifact.reason = reason;
@@ -216,7 +226,7 @@ async function loadRuntimeSuite(filePath: string): Promise<RuntimeNode> {
   const compiled = ts.transpileModule(source, { fileName: filePath, compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.React, jsxFactory: '__tspackJsx' } });
   const prelude = `const __tspackJsx = (type, props, ...children) => { if (typeof type === 'function') return type(props ?? {}, ...children); return { __tag: String(type), props: props ?? {}, children }; };
 const makeTag = (tag) => (props, ...children) => ({ __tag: tag, props: props ?? {}, children });
-const Suite = makeTag('Suite'); const Fact = makeTag('Fact'); const Theory = makeTag('Theory'); const Case = makeTag('Case'); const Artifact = makeTag('Artifact'); const Valid = makeTag('Valid'); const Invalid = makeTag('Invalid'); const Project = makeTag('Project');
+const Suite = makeTag('Suite'); const Fact = makeTag('Fact'); const Theory = makeTag('Theory'); const Case = makeTag('Case'); const Artifact = makeTag('Artifact'); const Valid = makeTag('Valid'); const Invalid = makeTag('Invalid'); const Project = makeTag('Project'); const CycleTime = makeTag('CycleTime');
 const assert = globalThis.__tspackAssert; const expect = globalThis.__tspackExpect; const skip = globalThis.__tspackSkip;`;
   const tempFile = path.join(path.dirname(filePath), `${path.basename(filePath)}.tspack-temp.mjs`);
   (globalThis as Record<string, unknown>).__tspackAssert = assert;

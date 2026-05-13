@@ -176,3 +176,63 @@ Fixture copy skips `node_modules`, `.git`, `.tspack`, `tspack-artifacts`, and `d
 - No filesystem assertion helpers.
 - No snapshot/golden tooling.
 - No automatic valid/invalid parser runners.
+
+## M19e execution contracts
+
+### `CycleTime`
+
+Use `<CycleTime seconds={numberLiteral} />` to set execution timeout metadata.
+
+Allowed locations:
+- Under `<Theory>` (applies per theory case).
+- Under suite-level standalone `<Artifact>` (applies to artifact generation unit).
+
+Not allowed:
+- Under `<Fact>`, `<Valid>`, `<Invalid>`, `<Case>`, or nested test artifact declarations.
+
+Rules:
+- `seconds` is required.
+- Must be a positive finite number literal.
+- No dynamic expressions.
+- No JSX spread attributes.
+- Only one `CycleTime` per parent.
+
+Diagnostics:
+- `TSPACK_TEST_INVALID_CYCLETIME`
+- `TSPACK_TEST_DUPLICATE_CYCLETIME`
+- `TSPACK_TEST_CYCLETIME_NOT_ALLOWED`
+
+### Timeout behavior
+
+- Default timeout is **30 seconds** for executable native units.
+- Theory `CycleTime` overrides timeout per case.
+- Standalone Artifact `CycleTime` overrides timeout for artifact execution.
+- Custom Fact/Valid/Invalid timeout controls are intentionally out of scope for M19e.
+
+Limitation:
+- Current timeout guards async/awaited operations in the current runner.
+- It does not interrupt a hard synchronous infinite loop without future worker/process isolation.
+
+### Meaningful-action requirement
+
+Executable units must perform meaningful action.
+
+For Fact / Theory case / Valid / Invalid, meaningful action is at least one of:
+- `assert.*`
+- `expect(...).because(...)`
+- `skip(reason)`
+
+For standalone Artifact, meaningful action is at least one of:
+- `assert.*`
+- `expect(...).because(...)`
+- `skip(reason)`
+- `artifact.writeText`, `artifact.writeJson`, `artifact.writeBytes`
+
+If a unit otherwise completes successfully without meaningful action, it fails with `TSPACK_TEST_NO_ASSERTION`.
+
+### M19e non-goals
+
+- benchmarks
+- death tests
+- worker/process isolation
+- custom Fact timeout controls

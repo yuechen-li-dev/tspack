@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { markExpectationActivity } from './activity.js';
 import type { AssertionFailure } from './types.js';
 
 type PendingExpectation = { because: (reason: string) => void };
@@ -42,7 +43,7 @@ function buildPending(actual: unknown, expected: unknown, useDeepEqual: boolean,
     if (!ok) throw expectationFailure('TSPACK_ASSERT_FAILURE', `${negate ? 'not.' : ''}${useDeepEqual ? 'toEqual' : 'toBe'}`, reason, expected, actual);
   } };
   pending.add(token);
-  return { because(reason: string): void { pending.delete(token); token.finalize(reason); } };
+  return { because(reason: string): void { markExpectationActivity(); pending.delete(token); token.finalize(reason); } };
 }
 
 function buildErrorExpectation(subject: unknown, expectedCode: string): PendingExpectation {
@@ -55,7 +56,7 @@ function buildErrorExpectation(subject: unknown, expectedCode: string): PendingE
     }
   } };
   pending.add(token);
-  return { because(reason: string): void { pending.delete(token); token.finalize(reason); } };
+  return { because(reason: string): void { markExpectationActivity(); pending.delete(token); token.finalize(reason); } };
 }
 
 function isErrorSeverity(value: unknown): boolean {
@@ -73,7 +74,7 @@ function buildNoErrorsExpectation(subject: unknown): PendingExpectation {
     }
   } };
   pending.add(token);
-  return { because(reason: string): void { pending.delete(token); token.finalize(reason); } };
+  return { because(reason: string): void { markExpectationActivity(); pending.delete(token); token.finalize(reason); } };
 }
 
 export function expect(actual: unknown) {

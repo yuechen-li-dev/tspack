@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { markAssertActivity } from './activity.js';
 import type { AssertionFailure } from './types.js';
 
 function createFailure(assertion: string, reason: string, expected?: unknown, actual?: unknown): AssertionFailure {
@@ -12,6 +13,7 @@ function createFailure(assertion: string, reason: string, expected?: unknown, ac
 }
 
 function validateReason(reason: string): void {
+  markAssertActivity();
   if (typeof reason !== 'string' || reason.trim().length === 0) {
     const error = new Error('assertion reason is required') as AssertionFailure;
     error.code = 'TSPACK_ASSERT_REASON_REQUIRED';
