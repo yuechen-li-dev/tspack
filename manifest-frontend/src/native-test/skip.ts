@@ -1,4 +1,5 @@
 import type { AssertionFailure } from './types.js';
+import { markSkipActivity } from './activity.js';
 
 export type SkipSignal = Error & {
   code: 'TSPACK_TEST_SKIPPED';
@@ -6,6 +7,7 @@ export type SkipSignal = Error & {
 };
 
 export function skip(reason: string): never {
+  markSkipActivity();
   if (typeof reason !== 'string' || reason.trim().length === 0) {
     const error = new Error('skip reason is required') as AssertionFailure;
     error.code = 'TSPACK_SKIP_REASON_REQUIRED';

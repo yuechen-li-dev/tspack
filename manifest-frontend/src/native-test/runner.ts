@@ -3,17 +3,18 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { markArtifactWriteActivity, setActivityTracker } from './activity.js';
 import { clearPendingExpectations, verifyNoPendingExpectations } from './expect.js';
 import { isSkipSignal } from './skip.js';
 import type { DiscoveredArtifact, DiscoveredProjectFixture, ProjectResultInfo, TestArtifact, TestResult } from './types.js';
 
 type RuntimeNode = {
-  __tag: 'Suite' | 'Fact' | 'Theory' | 'Case' | 'Artifact' | 'Valid' | 'Invalid' | 'Project';
+  __tag: 'Suite' | 'Fact' | 'Theory' | 'Case' | 'Artifact' | 'Valid' | 'Invalid' | 'Project' | 'CycleTime';
   props: Record<string, unknown>;
   children: unknown[];
 };
 
-type RunSuiteOptions = { artifactRoot?: string };
+type RunSuiteOptions = { artifactRoot?: string; defaultTimeoutSeconds?: number };
 type TestContext = { artifact: ArtifactWriter; project?: ProjectContext };
 
 type ArtifactWriter = {
@@ -49,17 +50,18 @@ export async function runSuite(root: RuntimeNode, options: RunSuiteOptions = {})
       const factName = String(child.props.name ?? '');
       const id = `${suiteName}/${factName}`;
       const cb = child.children.find((e) => typeof e === 'function') as ((ctx?: TestContext) => unknown) | undefined;
-      results.push(await runSingle(id, factName, declarations, project, artifactRoot, async (ctx) => cb?.(ctx)));
+      results.push(await runSingle(id, factName, declarations, project, artifactRoot, options.defaultTimeoutSeconds ?? 30, async (ctx) => cb?.(ctx)));
     }
     if (child.__tag === 'Theory') {
       const declarations = collectDeclarations(child);
       const project = collectProject(child);
       const theoryName = String(child.props.name ?? '');
       const cb = child.children.find((e) => typeof e === 'function') as ((data: Record<string, unknown>, ctx?: TestContext) => unknown) | undefined;
+      const cycleTimeSeconds = readCycleTimeSeconds(child) ?? options.defaultTimeoutSeconds ?? 30;
       const cases = child.children.filter((entry) => isNode(entry) && entry.__tag === 'Case') as RuntimeNode[];
       for (let i = 0; i < cases.length; i += 1) {
         const id = `${suiteName}/${theoryName}[${i}]`;
-        results.push(await runSingle(id, theoryName, declarations, project, artifactRoot, async (ctx) => cb?.({ ...cases[i].props }, ctx)));
+        results.push(await runSingle(id, theoryName, declarations, project, artifactRoot, cycleTimeSeconds, async (ctx) => cb?.({ ...cases[i].props }, ctx)));
       }
     }
     if (child.__tag === 'Valid' || child.__tag === 'Invalid') {
@@ -68,23 +70,33 @@ export async function runSuite(root: RuntimeNode, options: RunSuiteOptions = {})
       const kind = child.__tag === 'Valid' ? 'valid' : 'invalid';
       const id = `${suiteName}/${kind}/${invariantName}`;
       const cb = child.children.find((e) => typeof e === 'function') as ((ctx?: TestContext) => unknown) | undefined;
-      results.push(await runSingle(id, invariantName, [], project, artifactRoot, async (ctx) => cb?.(ctx)));
+      results.push(await runSingle(id, invariantName, [], project, artifactRoot, options.defaultTimeoutSeconds ?? 30, async (ctx) => cb?.(ctx)));
     }
   }
   return results;
 }
 
-async function runSingle(id: string, name: string, declarations: DiscoveredArtifact[], projectDecl: DiscoveredProjectFixture | undefined, artifactRoot: string, fn: (ctx: TestContext) => unknown): Promise<TestResult> {
+async function runSingle(id: string, name: string, declarations: DiscoveredArtifact[], projectDecl: DiscoveredProjectFixture | undefined, artifactRoot: string, timeoutSeconds: number, fn: (ctx: TestContext) => unknown): Promise<TestResult> {
   const started = performance.now();
   const state = createArtifactState(id, declarations, artifactRoot);
   let projectResult: ProjectResultInfo | undefined;
   let sandboxRoot: string | undefined;
+  const activity = { assertCount: 0, expectCount: 0, skipCount: 0, artifactWriteCount: 0 };
+  setActivityTracker({
+    markAssert: () => { activity.assertCount += 1; },
+    markExpect: () => { activity.expectCount += 1; },
+    markSkip: () => { activity.skipCount += 1; },
+    markArtifactWrite: () => { activity.artifactWriteCount += 1; },
+  });
   try {
     const projectContext = projectDecl ? await createProjectContext(id, projectDecl) : undefined;
     sandboxRoot = projectContext?.rootPath;
-    await fn({ artifact: state.writer, project: projectContext });
+    await withTimeout(fn({ artifact: state.writer, project: projectContext }), timeoutSeconds);
     verifyNoPendingExpectations();
     for (const entry of state.results) if (entry.required && !entry.written) throw withCode('TSPACK_ARTIFACT_REQUIRED_NOT_WRITTEN', `required artifact not written: ${entry.name}`);
+    if (activity.assertCount + activity.expectCount + activity.skipCount === 0) {
+      throw withCode('TSPACK_TEST_NO_ASSERTION', 'test completed without meaningful action');
+    }
     if (projectDecl && sandboxRoot) {
       await fs.rm(sandboxRoot, { recursive: true, force: true });
       projectResult = { sourcePath: projectDecl.from, name: projectDecl.name, kept: false };
@@ -102,6 +114,29 @@ async function runSingle(id: string, name: string, declarations: DiscoveredArtif
       projectResult = { sourcePath: projectDecl.from, name: projectDecl.name, kept: keep, rootPath: keep ? sandboxRoot : undefined };
     }
     return { id, name, status: 'failed', durationMs: performance.now() - started, error: error as Error, artifacts: state.results, project: projectResult };
+  } finally {
+    setActivityTracker(undefined);
+  }
+}
+function readCycleTimeSeconds(node: RuntimeNode): number | undefined {
+  const cycleTime = node.children.find((entry) => isNode(entry) && entry.__tag === 'CycleTime') as RuntimeNode | undefined;
+  if (!cycleTime) return undefined;
+  const raw = cycleTime.props.seconds;
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return raw;
+  return undefined;
+}
+async function withTimeout<T>(value: Promise<T> | T, timeoutSeconds: number): Promise<T> {
+  const timeoutMs = Math.max(1, timeoutSeconds * 1000);
+  let handle: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      Promise.resolve(value),
+      new Promise<T>((_, reject) => {
+        handle = setTimeout(() => reject(withCode('TSPACK_TEST_TIMEOUT', `test timed out after ${timeoutSeconds} seconds`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (handle) clearTimeout(handle);
   }
 }
 
@@ -135,7 +170,7 @@ async function createProjectContext(id: string, projectDecl: DiscoveredProjectFi
 async function writeProjectFile(targetPath: string, data: Buffer): Promise<void> { try { await fs.mkdir(path.dirname(targetPath), { recursive: true }); await fs.writeFile(targetPath, data); } catch (e) { throw withCode('TSPACK_PROJECT_WRITE_FAILED', (e as Error).message); } }
 async function copyFixtureDirectory(sourcePath: string, targetPath: string): Promise<void> { for (const entry of (await fs.readdir(sourcePath, { withFileTypes: true })).sort((a,b)=>a.name.localeCompare(b.name))) { if (SKIP_FIXTURE_DIRS.has(entry.name)) continue; const src = path.join(sourcePath, entry.name); const dest = path.join(targetPath, entry.name); if (entry.isSymbolicLink()) throw withCode('TSPACK_PROJECT_SYMLINK_UNSUPPORTED', `symlink unsupported: ${src}`); if (entry.isDirectory()) { await fs.mkdir(dest, { recursive: true }); await copyFixtureDirectory(src, dest); continue; } if (entry.isFile()) { await fs.mkdir(path.dirname(dest), { recursive: true }); await fs.copyFile(src, dest); } } }
 function withCode(code: string, message: string): Error & { code: string } { const e = new Error(message) as Error & { code: string }; e.code = code; return e; }
-function createArtifactState(id: string, declarations: DiscoveredArtifact[], artifactRoot: string) { const baseDir = path.join(artifactRoot, sanitizeId(id)); const results: TestArtifact[] = declarations.map((item) => ({ name: item.name, declaredPath: item.path, outputPath: path.join(baseDir, item.path), format: item.format, required: item.required, written: false })); const writeCommon = async (name: string, reason: string, data: Buffer): Promise<void> => { if (!reason || !reason.trim()) throw withCode('TSPACK_ARTIFACT_REASON_REQUIRED', 'artifact reason is required'); const artifact = results.find((entry) => entry.name === name); if (!artifact) throw withCode('TSPACK_ARTIFACT_UNKNOWN', `unknown artifact: ${name}`); if (artifact.written) throw withCode('TSPACK_ARTIFACT_ALREADY_WRITTEN', `artifact already written: ${name}`); try { await fs.mkdir(path.dirname(artifact.outputPath), { recursive: true }); await fs.writeFile(artifact.outputPath, data); artifact.written = true; artifact.size = data.byteLength; artifact.reason = reason; artifact.hash = `sha256:${crypto.createHash('sha256').update(data).digest('hex')}`; } catch (cause) { throw withCode('TSPACK_ARTIFACT_WRITE_FAILED', `artifact write failed: ${(cause as Error).message}`); } }; return { writer: { writeText: async (name, text, reason) => writeCommon(name, reason, Buffer.from(text, 'utf8')), writeJson: async (name, value, reason) => writeCommon(name, reason, Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8')), writeBytes: async (name, bytes, reason) => writeCommon(name, reason, Buffer.from(bytes)) }, results }; }
+function createArtifactState(id: string, declarations: DiscoveredArtifact[], artifactRoot: string) { const baseDir = path.join(artifactRoot, sanitizeId(id)); const results: TestArtifact[] = declarations.map((item) => ({ name: item.name, declaredPath: item.path, outputPath: path.join(baseDir, item.path), format: item.format, required: item.required, written: false })); const writeCommon = async (name: string, reason: string, data: Buffer): Promise<void> => { if (!reason || !reason.trim()) throw withCode('TSPACK_ARTIFACT_REASON_REQUIRED', 'artifact reason is required'); const artifact = results.find((entry) => entry.name === name); if (!artifact) throw withCode('TSPACK_ARTIFACT_UNKNOWN', `unknown artifact: ${name}`); if (artifact.written) throw withCode('TSPACK_ARTIFACT_ALREADY_WRITTEN', `artifact already written: ${name}`); try { await fs.mkdir(path.dirname(artifact.outputPath), { recursive: true }); await fs.writeFile(artifact.outputPath, data); markArtifactWriteActivity(); artifact.written = true; artifact.size = data.byteLength; artifact.reason = reason; artifact.hash = `sha256:${crypto.createHash('sha256').update(data).digest('hex')}`; } catch (cause) { throw withCode('TSPACK_ARTIFACT_WRITE_FAILED', `artifact write failed: ${(cause as Error).message}`); } }; return { writer: { writeText: async (name, text, reason) => writeCommon(name, reason, Buffer.from(text, 'utf8')), writeJson: async (name, value, reason) => writeCommon(name, reason, Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8')), writeBytes: async (name, bytes, reason) => writeCommon(name, reason, Buffer.from(bytes)) }, results }; }
 function collectDeclarations(node: RuntimeNode): DiscoveredArtifact[] { return node.children.filter((c) => isNode(c) && c.__tag === 'Artifact').map((child) => ({ name: String((child as RuntimeNode).props.name ?? ''), path: String((child as RuntimeNode).props.path ?? ''), format: typeof (child as RuntimeNode).props.format === 'string' ? (child as RuntimeNode).props.format as string : undefined, required: (child as RuntimeNode).props.optional !== true })); }
 function collectProject(node: RuntimeNode): DiscoveredProjectFixture | undefined { const child = node.children.find((c) => isNode(c) && c.__tag === 'Project') as RuntimeNode | undefined; if (!child) return undefined; return { from: typeof child.props.from === 'string' ? child.props.from : undefined, name: typeof child.props.name === 'string' ? child.props.name : undefined, keepOnFailure: child.props.keepOnFailure === true }; }
 function sanitizeId(value: string): string { return value.replace(/[^a-zA-Z0-9._-]+/g, '__').replace(/^_+|_+$/g, '').toLowerCase(); }

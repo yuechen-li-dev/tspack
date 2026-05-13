@@ -16,6 +16,34 @@ function write(root: string, rel: string, source: string): string {
 }
 
 describe('native test discovery', () => {
+  it('discovers CycleTime on Theory and suite Artifact', () => {
+    const root = makeDir();
+    const file = write(root, 'c.xtest.tsx', `
+      export default (<Suite name="s">
+        <Theory name="t"><CycleTime seconds={1.5} /><Case n={1} />{() => {}}</Theory>
+        <Artifact name="a" path="a.txt"><CycleTime seconds={2} />{() => {}}</Artifact>
+      </Suite>);
+    `);
+    const discovered = discoverNativeTestFile(file);
+    expect(discovered.theories[0].cycleTimeSeconds).toBe(1.5);
+    expect(discovered.standaloneArtifacts[0].cycleTimeSeconds).toBe(2);
+  });
+
+  it('validates CycleTime placement and value rules', () => {
+    const root = makeDir();
+    const file = write(root, 'bad.xtest.tsx', `
+      const dyn = 2;
+      export default (<Suite name="s">
+        <Fact name="f"><CycleTime seconds={1} />{() => {}}</Fact>
+        <Theory name="t"><CycleTime seconds={dyn} /><CycleTime seconds={0} /><Case n={1} />{() => {}}</Theory>
+        <Artifact name="a" path="a.txt"><CycleTime />{() => {}}</Artifact>
+      </Suite>);
+    `);
+    const codes = discoverNativeTestFile(file).diagnostics.map((d) => d.code);
+    expect(codes).toContain('TSPACK_TEST_CYCLETIME_NOT_ALLOWED');
+    expect(codes).toContain('TSPACK_TEST_DUPLICATE_CYCLETIME');
+    expect(codes).toContain('TSPACK_TEST_INVALID_CYCLETIME');
+  });
   it('discovers valid/invalid and ignores conventional test/spec files', () => {
     const root = makeDir();
     write(root, 'a.valid.tsx', 'export default (<Suite name="s"><Valid name="ok">{() => {}}</Valid></Suite>);');
