@@ -5,11 +5,12 @@ export { discoverNativeTestFile, discoverNativeTestFiles } from './discover.js';
 export { runSuite } from './runner.js';
 export { runNativeTestFiles, runNativeArtifacts } from './file-runner.js';
 export { listNativeBenchmarks, runNativeBenchmarks } from './benchmark.js';
+export { listNativeProphecies, runNativeProphecies, createNativeDoomReport, formatNativeDoomTextReport, formatNativeDoomJsonReport, nativeDoomExitCode } from './doom.js';
 export { listDiscoveredTests, listStandaloneArtifacts, listNativeTests, listNativeArtifacts, createNativeTestReport, createNativeArtifactReport, createNativeBenchmarkReport, formatNativeTestTextReport, formatNativeArtifactTextReport, formatNativeBenchmarkTextReport, formatNativeTestJsonReport, formatNativeArtifactJsonReport, formatNativeBenchmarkJsonReport, nativeTestExitCode, nativeArtifactExitCode, nativeBenchmarkExitCode } from './list-report.js';
 export type { TestResult, DiscoveryResult, Diagnostic } from './types.js';
 
 type NodeShape = {
-  __tag: 'Suite' | 'Fact' | 'Theory' | 'Case' | 'Artifact' | 'Valid' | 'Invalid' | 'Project' | 'CycleTime' | 'Benchmark' | 'Iterations' | 'Warmup';
+  __tag: 'Suite' | 'Fact' | 'Theory' | 'Case' | 'Artifact' | 'Valid' | 'Invalid' | 'Project' | 'CycleTime' | 'Benchmark' | 'Iterations' | 'Warmup' | 'Prophecy' | 'Foretell';
   props: Record<string, unknown>;
   children: unknown[];
 };
@@ -33,3 +34,5 @@ export const CycleTime = makeTag('CycleTime');
 export const Benchmark = makeTag('Benchmark');
 export const Iterations = makeTag('Iterations');
 export const Warmup = makeTag('Warmup');
+export const Prophecy = makeTag('Prophecy');
+export const Foretell = makeTag('Foretell');

@@ -40,6 +40,10 @@ func main() {
 		runBenchCommand(args)
 		return
 	}
+	if args[0] == "doom" {
+		runDoomCommand(args)
+		return
+	}
 
 	fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", args[0])
 	printHelp()
@@ -60,6 +64,54 @@ func printHelp() {
 	fmt.Println("  tspack test [--root .] [-xtest] [-vitest] [--list] [--filter text]")
 	fmt.Println("  tspack artifact [--root .] [--out path] [--list] [--filter text] [--json]")
 	fmt.Println("  tspack bench [--root .] [--list] [--filter text] [--json]")
+	fmt.Println("  tspack doom [--root .] [--list] [--filter text] [--json] [--out path]")
+}
+func runDoomCommand(args []string) {
+	root := "."
+	out := ""
+	list := false
+	filter := ""
+	jsonOut := false
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--root":
+			i++
+			root = args[i]
+		case "--out":
+			i++
+			out = args[i]
+		case "--list":
+			list = true
+		case "--filter":
+			i++
+			filter = args[i]
+		case "--json":
+			jsonOut = true
+		default:
+			fmt.Fprintf(os.Stderr, "unknown doom flag: %s\n", args[i])
+			os.Exit(1)
+		}
+	}
+	bridge := filepath.Join("manifest-frontend", "dist", "src", "native-test-cli.js")
+	if _, err := os.Stat(bridge); err != nil {
+		fmt.Fprintln(os.Stderr, "TSPACK_DOOM_BRIDGE_MISSING: native doom bridge not found")
+		os.Exit(1)
+	}
+	nodeArgs := []string{bridge, "doom", "--root", root}
+	if out != "" { nodeArgs = append(nodeArgs, "--out", out) }
+	if list { nodeArgs = append(nodeArgs, "--list") }
+	if filter != "" { nodeArgs = append(nodeArgs, "--filter", filter) }
+	if jsonOut { nodeArgs = append(nodeArgs, "--json") }
+	cmd := exec.Command("node", nodeArgs...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+		fmt.Fprintf(os.Stderr, "TSPACK_DOOM_FAILED: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func runBenchCommand(args []string) {
