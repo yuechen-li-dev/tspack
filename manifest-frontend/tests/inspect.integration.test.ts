@@ -6,6 +6,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { inspectAndWrite, parsePoint } from '../src/inspect/index.js';
 import { runInspect } from '../src/inspect/backend.js';
 import { formatInspectJson, formatInspectText } from '../src/inspect/format.js';
+import { launchInspectableHost } from '../src/inspect/host-launch.js';
+import { listCdpTargets } from '../src/inspect/cdp.js';
 
 type TestServer = {
   baseUrl: string;
@@ -202,3 +204,67 @@ if (!chromium.available) {
   // eslint-disable-next-line no-console
   console.warn(chromium.reason);
 }
+
+const hostPath = process.env.TSPACK_INSPECT_HOST_PATH;
+const describeHostIntegration = hostPath ? describe : describe.skip;
+if (!hostPath) {
+  // eslint-disable-next-line no-console
+  console.warn('HOST_PATH_UNSET: set TSPACK_INSPECT_HOST_PATH=/path/to/code-or-compatible-host to run installed-host inspect integration.');
+}
+
+describeHostIntegration('inspect installed host integration', () => {
+  let hostServer: TestServer;
+
+  beforeAll(async () => {
+    hostServer = await createServer();
+  });
+
+  afterAll(async () => {
+    await hostServer.close();
+  });
+
+  it('launches explicit host and probes CDP targets', async () => {
+    try {
+      const hostProbe = await launchInspectableHost({ executablePath: hostPath as string });
+      expect(hostProbe.endpoint).toContain('http://127.0.0.1:');
+      expect(fs.existsSync(hostProbe.userDataDir)).toBe(true);
+      const targetList = await listCdpTargets(hostProbe.endpoint);
+      expect(Array.isArray(targetList.targets)).toBe(true);
+      await hostProbe.cleanup();
+      expect(fs.existsSync(hostProbe.userDataDir)).toBe(false);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toMatch(/TSPACK_INSPECT_(HOST_LAUNCH_FAILED|HOST_CDP_ENDPOINT_FAILED|CDP_CONNECT_FAILED)/);
+    }
+  });
+
+  it('attempts URL inspection with explicit host and reports host limitations', async () => {
+    try {
+      const result = await runInspect({
+      url: `${hostServer.baseUrl}/selector`,
+      browser: 'host-path',
+      hostPath: hostPath as string,
+      viewport: { width: 1024, height: 768 },
+      selector: '#root',
+      points: [parsePoint('130,100')],
+      json: true
+      });
+
+      expect(result.root).toBeTruthy();
+      expect(result.root?.tag).toBe('section');
+      expect(result.browser.name).toBe('cdp');
+      expect(result.browser.backend).toBe('cdp');
+
+      const text = formatInspectText(result);
+      expect(text).toContain('Inside Root');
+      expect(text).toContain('Root Button');
+
+      if (result.hitTests.length > 0 && result.hitTests[0].elements.length > 0) {
+        expect(result.hitTests[0].elements[0].visible).toBe(true);
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toMatch(/TSPACK_INSPECT_(PAGE_LOAD_FAILED|CDP_TARGET_NOT_FOUND|CDP_EVALUATION_FAILED|HOST_CDP_ENDPOINT_FAILED|HOST_LAUNCH_FAILED)/);
+    }
+  });
+});
