@@ -45,4 +45,33 @@ describe('assert api', () => {
     expect(() => assert.near(1, Number.POSITIVE_INFINITY, 0.1, 'expected must be finite')).toThrow();
     expect(() => assert.near(1, 1, Number.NaN, 'tolerance must be finite')).toThrow();
   });
+
+  it('LGTM passes for clean diagnostics and ignores warning/info severities', () => {
+    assert.LGTM([], 'empty array is clean');
+    assert.LGTM({ diagnostics: [] }, 'diagnostics object is clean');
+    assert.LGTM({ ok: true, diagnostics: [] }, 'ok+diagnostics object is clean');
+    assert.LGTM([{ code: 'W1', severity: 'warning' }, { code: 'I1', severity: 'info' }], 'warning/info are non-fatal');
+  });
+
+  it('LGTM fails for error/no-severity diagnostics and includes codes', () => {
+    let thrownError: unknown;
+    try {
+      assert.LGTM([{ code: 'E1', severity: 'error' }, { code: 'E2' }], 'must fail');
+    } catch (error) {
+      thrownError = error;
+    }
+    const failure = thrownError as { code: string; assertion: string; actual: unknown };
+    expect(failure.code).toBe('TSPACK_ASSERT_LGTM_FAILED');
+    expect(failure.assertion).toBe('LGTM');
+    expect(failure.actual).toEqual(['E1', 'E2']);
+  });
+
+  it('LGTM requires a non-empty reason', () => {
+    expect(() => assert.LGTM([], '')).toThrow();
+    try {
+      assert.LGTM([], '');
+    } catch (error) {
+      expect((error as { code?: string }).code).toBe('TSPACK_ASSERT_REASON_REQUIRED');
+    }
+  });
 });

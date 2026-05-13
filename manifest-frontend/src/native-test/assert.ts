@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { markAssertActivity } from './activity.js';
 import type { AssertionFailure } from './types.js';
+type DiagnosticLike = { code?: unknown; severity?: unknown };
 
 function createFailure(assertion: string, reason: string, expected?: unknown, actual?: unknown): AssertionFailure {
   const error = new Error(`${assertion} failed: ${reason}`) as AssertionFailure;
@@ -83,4 +84,38 @@ export const assert = {
       throw failure;
     }
   },
+  LGTM(subject: unknown, reason: string): void {
+    validateReason(reason);
+    const diagnostics = extractDiagnostics(subject);
+    const errorCodes = diagnostics.filter((entry) => isErrorSeverity(entry.severity)).map((entry) => String(entry.code ?? ''));
+    if (errorCodes.length > 0) {
+      const failure = createFailure('LGTM', reason, [], errorCodes);
+      failure.code = 'TSPACK_ASSERT_LGTM_FAILED';
+      throw failure;
+    }
+  },
 };
+
+function extractDiagnostics(subject: unknown): DiagnosticLike[] {
+  if (Array.isArray(subject)) {
+    return subject;
+  }
+
+  if (subject && typeof subject === 'object') {
+    const diagnostics = (subject as { diagnostics?: unknown }).diagnostics;
+    if (Array.isArray(diagnostics)) {
+      return diagnostics;
+    }
+  }
+
+  return [];
+}
+
+function isErrorSeverity(value: unknown): boolean {
+  if (typeof value !== 'string') {
+    return true;
+  }
+
+  const normalized = value.toLowerCase();
+  return normalized !== 'warning' && normalized !== 'info';
+}
