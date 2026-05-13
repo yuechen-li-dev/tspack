@@ -7,6 +7,7 @@ import { listCdpTargets, normalizeCdpEndpoint } from './cdp.js';
 export type InspectOptions = {
   url?: string;
   browser: InspectBackendName;
+  hostPath?: string;
   browserPath?: string;
   viewport: { width: number; height: number };
   selector?: string;
@@ -43,6 +44,10 @@ export function parsePoint(input: string): { x: number; y: number } {
 }
 
 export async function inspectAndWrite(options: InspectOptions): Promise<void> {
+  if (options.hostPath && options.browserPath) {
+    throw new Error('TSPACK_INSPECT_INVALID_BACKEND_OPTIONS');
+  }
+
   if (options.cdpEndpoint) {
     options.cdpEndpoint = normalizeCdpEndpoint(options.cdpEndpoint);
   }

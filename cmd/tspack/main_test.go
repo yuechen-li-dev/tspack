@@ -301,13 +301,15 @@ func TestCLIInspectCommandRouting(t *testing.T) {
 const args=process.argv.slice(2);
 if(!args.includes('http://example.test')){console.error('missing-url');process.exit(1)}
 if(!args.includes('--cdp') || !args.includes('http://127.0.0.1:9222')){console.error('missing-cdp');process.exit(1)}
+if(!args.includes('--host-path') || !args.includes('/tmp/host')){console.error('missing-host-path');process.exit(1)}
+if(!args.includes('--browser-path') || !args.includes('/tmp/browser')){console.error('missing-browser-path');process.exit(1)}
 if(!args.includes('--list-targets') || !args.includes('--target') || !args.includes('0') || !args.includes('--target-url') || !args.includes('localhost:5173')){console.error('missing-target-flags');process.exit(1)}
 if(args.includes('--json')){console.log('{"ok":true}');process.exit(0)}
 console.log(args.join(' '));`
 	_ = os.WriteFile(bridge, []byte(stub), 0o755)
 	t.Cleanup(func() { _ = os.Remove(bridge) })
 
-	cmd := exec.Command("go", "run", "./cmd/tspack", "inspect", "http://example.test", "--json", "--cdp", "http://127.0.0.1:9222", "--list-targets", "--target", "0", "--target-url", "localhost:5173")
+	cmd := exec.Command("go", "run", "./cmd/tspack", "inspect", "http://example.test", "--json", "--cdp", "http://127.0.0.1:9222", "--host-path", "/tmp/host", "--browser-path", "/tmp/browser", "--list-targets", "--target", "0", "--target-url", "localhost:5173")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil || !strings.Contains(string(b), "{\"ok\":true}") {

@@ -1,10 +1,12 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import type { InspectOptions } from './index.js';
 import { INSPECT_ANALYZER_SCRIPT } from './analyzer.js';
 import type { InspectBrowserName, UIInspectResult, CDPTargetSummary } from './types.js';
 import { listCdpTargets } from './cdp.js';
+import { launchInspectableHost, validateHostPath } from './host-launch.js';
 
-export type InspectBackendName = 'auto' | 'vscode' | 'playwright-chromium' | 'browser-path' | 'chromium' | 'cdp';
+export type InspectBackendName = 'auto' | 'vscode' | 'playwright-chromium' | 'browser-path' | 'host-path' | 'chromium' | 'cdp';
 
 export type InspectBackendProbe = {
   executablePath?: string;
@@ -25,11 +27,39 @@ export function findVSCodeExecutable(): string | null {
   return null;
 }
 
+export function resolveVSCodeElectronExecutable(wrapperPath: string): string {
+  const wrapperName = path.basename(wrapperPath);
+  const variants: Record<string, string[]> = {
+    code: ['/usr/share/code/code'],
+    'code-insiders': ['/usr/share/code-insiders/code-insiders'],
+    codium: ['/usr/share/codium/codium'],
+    'code-oss': ['/usr/share/code-oss/code-oss'],
+    vscodium: ['/usr/share/vscodium/vscodium']
+  };
+
+  const wrapperDirCandidate = path.resolve(path.dirname(wrapperPath), '..', 'share', wrapperName, wrapperName);
+  const knownCandidates = variants[wrapperName] ?? [];
+  const candidates = [wrapperDirCandidate, ...knownCandidates, wrapperPath];
+
+  for (const candidate of candidates) {
+    if (!fs.existsSync(candidate)) {
+      continue;
+    }
+    const stat = fs.statSync(candidate);
+    if (stat.isFile()) {
+      return candidate;
+    }
+  }
+
+  return wrapperPath;
+}
+
 export async function probeVSCodeElectronBackend(): Promise<InspectBackendProbe> {
-  const executablePath = findVSCodeExecutable();
-  if (!executablePath) {
+  const wrapperPath = findVSCodeExecutable();
+  if (!wrapperPath) {
     return { reason: 'TSPACK_INSPECT_VSCODE_NOT_FOUND' };
   }
+  const executablePath = resolveVSCodeElectronExecutable(wrapperPath);
 
   try {
     const playwright = await import('playwright');
@@ -165,10 +195,23 @@ export async function runInspect(options: InspectOptions): Promise<UIInspectResu
     throw new Error('TSPACK_INSPECT_INVALID_TARGET');
   }
 
+  const hostPath = options.hostPath;
   const browserPath = options.browserPath;
   const backend = options.browser;
 
+  if (hostPath && browserPath) {
+    throw new Error('TSPACK_INSPECT_INVALID_BACKEND_OPTIONS');
+  }
+
+  if (options.cdpEndpoint && (hostPath || browserPath)) {
+    throw new Error('TSPACK_INSPECT_INVALID_BACKEND_OPTIONS');
+  }
+
   if (options.cdpEndpoint && backend !== 'cdp') {
+    throw new Error('TSPACK_INSPECT_INVALID_BACKEND_OPTIONS');
+  }
+
+  if ((hostPath || browserPath) && backend !== 'auto' && backend !== 'host-path' && backend !== 'browser-path') {
     throw new Error('TSPACK_INSPECT_INVALID_BACKEND_OPTIONS');
   }
 
@@ -185,6 +228,29 @@ export async function runInspect(options: InspectOptions): Promise<UIInspectResu
       throw new Error('TSPACK_INSPECT_BROWSER_PATH_NOT_FOUND');
     }
     return inspectWithChromium(options, { executablePath: browserPath, browserName: 'chromium' });
+  }
+
+  if (backend === 'host-path' || hostPath || browserPath) {
+    const explicitHostPath = hostPath ?? browserPath;
+    if (!explicitHostPath) {
+      throw new Error('TSPACK_INSPECT_HOST_PATH_NOT_FOUND');
+    }
+    validateHostPath(explicitHostPath);
+    const launchedHost = await launchInspectableHost({ executablePath: explicitHostPath });
+    try {
+      return await inspectWithCdp({
+        ...options,
+        cdpEndpoint: launchedHost.endpoint,
+        browser: 'cdp'
+      });
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.startsWith('TSPACK_INSPECT_')) {
+        throw error;
+      }
+      throw new Error('TSPACK_INSPECT_HOST_CDP_ENDPOINT_FAILED');
+    } finally {
+      await launchedHost.cleanup();
+    }
   }
 
   if (backend === 'vscode') {

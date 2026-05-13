@@ -13,6 +13,7 @@ async function main(): Promise<void> {
     out: undefined as string | undefined,
     text: undefined as string | undefined,
     browserPath: undefined as string | undefined,
+    hostPath: undefined as string | undefined,
     cdpEndpoint: undefined as string | undefined,
     listTargets: false,
     target: undefined as string | undefined,
@@ -31,6 +32,7 @@ async function main(): Promise<void> {
     if (arg === '--text') { i += 1; options.text = args[i]; continue; }
     if (arg === '--selector') { i += 1; options.selector = args[i]; continue; }
     if (arg === '--browser') { i += 1; options.browser = args[i] as typeof options.browser; continue; }
+    if (arg === '--host-path') { i += 1; options.hostPath = args[i]; continue; }
     if (arg === '--browser-path') { i += 1; options.browserPath = args[i]; continue; }
     if (arg === '--cdp') { i += 1; options.cdpEndpoint = args[i]; options.browser = 'cdp'; continue; }
     if (arg === '--list-targets') { options.listTargets = true; continue; }
