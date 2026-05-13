@@ -12,7 +12,11 @@ async function main(): Promise<void> {
     json: false,
     out: undefined as string | undefined,
     text: undefined as string | undefined,
-    browserPath: undefined as string | undefined
+    browserPath: undefined as string | undefined,
+    cdpEndpoint: undefined as string | undefined,
+    listTargets: false,
+    target: undefined as string | undefined,
+    targetUrl: undefined as string | undefined
   };
 
   for (let i = cursor; i < args.length; i += 1) {
@@ -28,6 +32,10 @@ async function main(): Promise<void> {
     if (arg === '--selector') { i += 1; options.selector = args[i]; continue; }
     if (arg === '--browser') { i += 1; options.browser = args[i] as typeof options.browser; continue; }
     if (arg === '--browser-path') { i += 1; options.browserPath = args[i]; continue; }
+    if (arg === '--cdp') { i += 1; options.cdpEndpoint = args[i]; options.browser = 'cdp'; continue; }
+    if (arg === '--list-targets') { options.listTargets = true; continue; }
+    if (arg === '--target') { i += 1; options.target = args[i]; continue; }
+    if (arg === '--target-url') { i += 1; options.targetUrl = args[i]; continue; }
     if (arg === '--viewport') { i += 1; options.viewport = parseViewport(args[i]); continue; }
     if (arg === '--point') { i += 1; options.points.push(parsePoint(args[i])); continue; }
     throw new Error(`unknown flag: ${arg}`);
