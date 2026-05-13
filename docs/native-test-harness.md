@@ -255,3 +255,15 @@ If a unit otherwise completes successfully without meaningful action, it fails w
 - death tests
 - worker/process isolation
 - custom Fact timeout controls
+
+
+## Doom (Prophecy) tests
+
+- File naming: `*.prophecy.tsx`
+- Top-level unit: `<Prophecy name="...">` with required `<Foretell reason="..." />`.
+- Run with `tspack doom`; this mode is isolated from `tspack test`, `tspack bench`, and `tspack artifact`.
+- Each prophecy runs in a subprocess and writes envelope artifacts (`envelope.json`, `stdout.txt`, `stderr.txt`) under doom artifact root.
+- Timeout via `<CycleTime seconds={...} />` is supported; timeout is a failure (`TSPACK_DOOM_TIMEOUT`) in M19h.
+- `assert.doom(...)` can validate doom results in harness tests.
+
+See also `docs/doom.md` for detailed Prophecy/Doom semantics and future-work limits.

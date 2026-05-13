@@ -63,6 +63,15 @@ export type DiscoveredInvariant = {
   project?: DiscoveredProjectFixture;
 };
 
+export type DiscoveredProphecy = {
+  id: string;
+  filePath: string;
+  suiteName: string;
+  name: string;
+  foretell: { reason: string };
+  cycleTimeSeconds: number;
+};
+
 export type DiscoveryResult = {
   suiteName?: string;
   tests: string[];
@@ -71,6 +80,7 @@ export type DiscoveryResult = {
   invariants: DiscoveredInvariant[];
   standaloneArtifacts: DiscoveredStandaloneArtifact[];
   benchmarks: DiscoveredBenchmark[];
+  prophecies: DiscoveredProphecy[];
   diagnostics: Diagnostic[];
 };
 
@@ -87,8 +97,31 @@ export type DiscoveredFile = {
   tests: DiscoveredTest[];
   standaloneArtifacts: DiscoveredStandaloneArtifact[];
   benchmarks: DiscoveredBenchmark[];
+  prophecies: DiscoveredProphecy[];
   diagnostics: Diagnostic[];
 };
+
+export type DoomEnvelope = {
+  prophecyId: string;
+  suiteName: string;
+  name: string;
+  foretell: { reason: string };
+  phase: 'before-doom';
+};
+export type DoomResult = {
+  id: string;
+  name: string;
+  status: 'passed' | 'failed' | 'skipped';
+  exitCode?: number | null;
+  signal?: string | null;
+  stdout?: string;
+  stderr?: string;
+  envelopePath?: string;
+  envelope?: DoomEnvelope;
+  failure?: FailureInfo;
+};
+export type DoomRunResult = { prophecies: DoomResult[]; diagnostics: Diagnostic[] };
+export type NativeDoomRunReport = { summary: NativeTestSummary; prophecies: DoomResult[]; diagnostics: Diagnostic[] };
 
 export type DiscoverOptions = {
   rootDir: string;

@@ -43,3 +43,7 @@ See `docs/release-checklist.md` for release smoke commands and audit checklist.
 
 
 See also `docs/artifacts.md` for standalone artifact mode details.
+
+- `tspack doom` runs quarantined abnormal-termination Prophecy tests (`*.prophecy.tsx`) in subprocesses and writes doom artifacts.
+
+See `docs/doom.md` for quarantine Doom/Prophecy execution details.

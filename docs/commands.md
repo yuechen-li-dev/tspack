@@ -17,3 +17,7 @@
 
 
 See also `docs/artifacts.md` for standalone artifact mode details.
+
+- `tspack doom [--root .] [--list] [--filter <text>] [--json] [--out <path>]`: runs quarantined abnormal-termination Prophecy units from `*.prophecy.tsx` in child processes.
+
+See also `docs/doom.md` for Prophecy/Doom behavior and limits.

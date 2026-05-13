@@ -232,3 +232,62 @@ fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'artifact.txt'
 		t.Fatalf("expected json output: %v\n%s", err, string(b))
 	}
 }
+
+func TestCLIDoomCommand(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	_ = os.MkdirAll(frontend, 0o755)
+	bridge := filepath.Join(frontend, "native-test-cli.js")
+	stub := `#!/usr/bin/env node
+const args=process.argv.slice(2);
+if(args[0]!=='doom'){process.exit(2)}
+if(args.includes('--list')){console.log('TSPack doom\n\nPASS demo.prophecy.tsx::suite/prophecy/x\n');process.exit(0)}
+const filterIdx=args.indexOf('--filter'); const filter=filterIdx>=0?args[filterIdx+1]:'';
+if(filter==='none'){console.error('TSPACK_DOOM_FILTER_NO_MATCH: none');process.exit(1)}
+if(args.includes('--json')){console.log(JSON.stringify({summary:{total:1,passed:1,failed:0,skipped:0,diagnostics:0},prophecies:[{id:'x',name:'x',status:'passed'}]},null,2));process.exit(0)}
+console.log('PASS demo.prophecy.tsx::suite/prophecy/x');`
+	_ = os.WriteFile(bridge, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(bridge) })
+
+	root := t.TempDir()
+	cmd := exec.Command("go", "run", "./cmd/tspack", "doom", "--root", root, "--list")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "TSPack doom") {
+		t.Fatalf("doom list failed: %v\n%s", err, string(b))
+	}
+	cmd = exec.Command("go", "run", "./cmd/tspack", "doom", "--root", root)
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "PASS") {
+		t.Fatalf("doom run failed: %v\n%s", err, string(b))
+	}
+	cmd = exec.Command("go", "run", "./cmd/tspack", "doom", "--root", root, "--filter", "none")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_DOOM_FILTER_NO_MATCH") {
+		t.Fatalf("expected doom no-match failure: %v\n%s", err, string(b))
+	}
+	cmd = exec.Command("go", "run", "./cmd/tspack", "doom", "--root", root, "--json")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "\"prophecies\"") {
+		t.Fatalf("expected doom json output: %v\n%s", err, string(b))
+	}
+}
+
+func TestCLIDoomBridgeMissing(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	bridge := filepath.Join(repo, "manifest-frontend", "dist", "src", "native-test-cli.js")
+	backup := bridge + ".bak"
+	if _, err := os.Stat(bridge); err == nil {
+		_ = os.Rename(bridge, backup)
+		defer func() { _ = os.Rename(backup, bridge) }()
+	}
+	cmd := exec.Command("go", "run", "./cmd/tspack", "doom", "--root", t.TempDir())
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_DOOM_BRIDGE_MISSING") {
+		t.Fatalf("expected bridge missing diagnostic: %v\n%s", err, string(b))
+	}
+}

@@ -11,17 +11,18 @@ import type {
   Literal,
 } from './types.js';
 
-type NativeFileKind = 'xtest' | 'valid' | 'invalid' | 'benchmark';
+type NativeFileKind = 'xtest' | 'valid' | 'invalid' | 'benchmark' | 'prophecy';
 
-type AllowedElement = 'Fact' | 'Theory' | 'Artifact' | 'Valid' | 'Invalid' | 'Project' | 'CycleTime' | 'Benchmark' | 'Iterations' | 'Warmup';
+type AllowedElement = 'Fact' | 'Theory' | 'Artifact' | 'Valid' | 'Invalid' | 'Project' | 'CycleTime' | 'Benchmark' | 'Iterations' | 'Warmup' | 'Prophecy' | 'Foretell';
 
-const allAllowed = new Set<AllowedElement | 'Suite' | 'Case'>(['Suite', 'Fact', 'Theory', 'Case', 'Artifact', 'Valid', 'Invalid', 'Project', 'CycleTime', 'Benchmark', 'Iterations', 'Warmup']);
+const allAllowed = new Set<AllowedElement | 'Suite' | 'Case'>(['Suite', 'Fact', 'Theory', 'Case', 'Artifact', 'Valid', 'Invalid', 'Project', 'CycleTime', 'Benchmark', 'Iterations', 'Warmup', 'Prophecy', 'Foretell']);
 
 function classifyNativeFile(filePath: string): NativeFileKind | undefined {
   if (filePath.endsWith('.xtest.tsx')) return 'xtest';
   if (filePath.endsWith('.valid.tsx')) return 'valid';
   if (filePath.endsWith('.invalid.tsx')) return 'invalid';
   if (filePath.endsWith('.benchmark.tsx')) return 'benchmark';
+  if (filePath.endsWith('.prophecy.tsx')) return 'prophecy';
   return undefined;
 }
 
@@ -33,6 +34,7 @@ function allowedChildrenFor(kind: NativeFileKind): Set<AllowedElement> {
     return new Set(['Valid']);
   }
   if (kind === 'benchmark') return new Set(['Benchmark']);
+  if (kind === 'prophecy') return new Set(['Prophecy']);
   return new Set(['Invalid']);
 }
 
@@ -42,7 +44,7 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
   if (!fileKind) {
     return {
       tests: [], facts: [], theories: [], invariants: [], standaloneArtifacts: [], diagnostics: [
-        { code: 'TSPACK_TEST_NON_NATIVE_FILE', message: 'native test files must end with .xtest.tsx, .valid.tsx, .invalid.tsx, or .benchmark.tsx', file: abs },
+        { code: 'TSPACK_TEST_NON_NATIVE_FILE', message: 'native test files must end with .xtest.tsx, .valid.tsx, .invalid.tsx, .benchmark.tsx, or .prophecy.tsx', file: abs },
       ],
     };
   }
@@ -61,13 +63,13 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
   }
   if (!exportExpr) {
     diagnostics.push({ code: 'TSPACK_TEST_INVALID_DEFAULT_EXPORT', message: 'default export must be a Suite JSX tree', file: abs });
-    return { diagnostics, tests: [], facts: [], theories: [], invariants: [], standaloneArtifacts: [], benchmarks: [] };
+    return { diagnostics, tests: [], facts: [], theories: [], invariants: [], standaloneArtifacts: [], benchmarks: [], prophecies: [] };
   }
 
   const root = unwrap(exportExpr);
   if (!ts.isJsxElement(root) && !ts.isJsxSelfClosingElement(root)) {
     diagnostics.push({ code: 'TSPACK_TEST_INVALID_DEFAULT_EXPORT', message: 'default export must be JSX', file: abs });
-    return { diagnostics, tests: [], facts: [], theories: [], invariants: [], standaloneArtifacts: [], benchmarks: [] };
+    return { diagnostics, tests: [], facts: [], theories: [], invariants: [], standaloneArtifacts: [], benchmarks: [], prophecies: [] };
   }
 
   const tests: string[] = [];
@@ -76,6 +78,7 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
   const invariants: DiscoveryResult['invariants'] = [];
   const standaloneArtifacts: DiscoveredStandaloneArtifact[] = [];
   const benchmarks: DiscoveryResult['benchmarks'] = [];
+  const prophecies: DiscoveryResult['prophecies'] = [];
 
   const suiteName = parseName(getTagName(root), getAttributes(root), root, addDiag);
   if (getTagName(root) !== 'Suite') {
@@ -158,6 +161,21 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
       tests.push(id);
       continue;
     }
+    if (tag === 'Prophecy') {
+      const prophecyName = parseName(tag, getAttributes(child), child, addDiag);
+      if (!getJsxBodyFunction(child)) {
+        addDiag(child, 'TSPACK_DOOM_MISSING_BODY', 'Prophecy requires callback body');
+        continue;
+      }
+      const foretell = collectForetell(child, addDiag);
+      if (!foretell) {
+        continue;
+      }
+      const cycleTimeSeconds = collectCycleTimeAllowed(child, addDiag) ?? 30;
+      const id = `${path.basename(abs)}::${suiteName}/prophecy/${prophecyName}`;
+      prophecies.push({ id, filePath: abs, suiteName, name: prophecyName, foretell, cycleTimeSeconds });
+      continue;
+    }
 
     if (tag === 'Valid' || tag === 'Invalid') {
       const invariantName = parseName(tag, getAttributes(child), child, addDiag);
@@ -173,7 +191,7 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
     }
   }
 
-  return { suiteName, tests, facts, theories, invariants, standaloneArtifacts, benchmarks, diagnostics };
+  return { suiteName, tests, facts, theories, invariants, standaloneArtifacts, benchmarks, prophecies, diagnostics };
 }
 
 const defaultIgnore = new Set(['node_modules', '.git', 'dist']);
@@ -194,7 +212,8 @@ export function discoverNativeTestFiles(options: DiscoverOptions): DiscoverFiles
         ...discovered.tests.filter((id) => id.includes('/benchmark/')).map((id) => ({ id: `${relativeFilePath}::${id}`, name: id.split('/').at(-1) ?? id, kind: 'fact' as const, filePath })),
       ];
       const benchmarks = discovered.benchmarks.map((entry) => ({ ...entry, id: `${relativeFilePath}::${entry.id.split('::').pop() ?? entry.id}`, filePath: relativeFilePath }));
-      files.push({ filePath, suiteName: discovered.suiteName ?? '', tests, standaloneArtifacts: discovered.standaloneArtifacts, benchmarks, diagnostics: discovered.diagnostics });
+      const prophecies = discovered.prophecies.map((entry) => ({ ...entry, id: `${relativeFilePath}::${entry.id.split('::').pop() ?? entry.id}`, filePath: relativeFilePath }));
+      files.push({ filePath, suiteName: discovered.suiteName ?? '', tests, standaloneArtifacts: discovered.standaloneArtifacts, benchmarks, prophecies, diagnostics: discovered.diagnostics });
       diagnostics.push(...discovered.diagnostics);
     } catch (error) {
       diagnostics.push({ code: 'TSPACK_TEST_DISCOVERY_FAILED', message: `failed to discover native test file: ${(error as Error).message}`, file: filePath });
@@ -232,7 +251,37 @@ function renderAllowedFileKind(tag: string): string {
   if (tag === 'Valid') return '*.valid.tsx';
   if (tag === 'Invalid') return '*.invalid.tsx';
   if (tag === 'Benchmark') return '*.benchmark.tsx';
+  if (tag === 'Prophecy') return '*.prophecy.tsx';
   return '*.xtest.tsx';
+}
+function collectForetell(node: ts.JsxElement | ts.JsxSelfClosingElement, addDiag: (node: ts.Node, code: string, message: string) => void): { reason: string } | undefined {
+  const matches = getChildren(node).filter((child) => (ts.isJsxElement(child) || ts.isJsxSelfClosingElement(child)) && getTagName(child) === 'Foretell') as Array<ts.JsxElement | ts.JsxSelfClosingElement>;
+  if (matches.length === 0) {
+    addDiag(node, 'TSPACK_DOOM_MISSING_FORETELL', 'Prophecy requires one <Foretell reason=\"...\" />');
+    return undefined;
+  }
+  if (matches.length > 1) {
+    addDiag(matches[1], 'TSPACK_DOOM_DUPLICATE_FORETELL', 'Prophecy allows only one Foretell');
+    return undefined;
+  }
+  let reason: string | undefined;
+  for (const attr of getAttributes(matches[0])) {
+    if (ts.isJsxSpreadAttribute(attr)) {
+      addDiag(attr, 'TSPACK_TEST_FORBIDDEN_SPREAD', 'spread attributes are forbidden');
+      return undefined;
+    }
+    if (!ts.isJsxAttribute(attr) || attr.name.getText() !== 'reason') continue;
+    if (!attr.initializer || !ts.isStringLiteral(attr.initializer) || attr.initializer.text.trim().length === 0) {
+      addDiag(attr, 'TSPACK_DOOM_INVALID_FORETELL', 'Foretell reason must be a non-empty string literal');
+      return undefined;
+    }
+    reason = attr.initializer.text;
+  }
+  if (!reason) {
+    addDiag(matches[0], 'TSPACK_DOOM_INVALID_FORETELL', 'Foretell reason is required');
+    return undefined;
+  }
+  return { reason };
 }
 function parseName(tag: string, attrs: readonly ts.JsxAttributeLike[], node: ts.Node, addDiag: (node: ts.Node, code: string, message: string) => void): string { for (const attr of attrs){ if(ts.isJsxSpreadAttribute(attr)){ addDiag(attr,'TSPACK_TEST_FORBIDDEN_SPREAD','spread attributes are forbidden'); continue;} if(!ts.isJsxAttribute(attr)||attr.name.getText()!=='name'){ continue;} const init=attr.initializer; if(!init||!ts.isStringLiteral(init)){ addDiag(attr,'TSPACK_TEST_INVALID_NAME',`${tag} name must be string literal`); return '';} return init.text;} addDiag(node,'TSPACK_TEST_INVALID_NAME',`${tag} name is required`); return ''; }
 function literalFrom(expr: ts.Expression): Literal | undefined { if (ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr)) return expr.text; if (ts.isNumericLiteral(expr)) return Number(expr.text); if (expr.kind===ts.SyntaxKind.TrueKeyword) return true; if(expr.kind===ts.SyntaxKind.FalseKeyword) return false; if(expr.kind===ts.SyntaxKind.NullKeyword) return null; return undefined; }

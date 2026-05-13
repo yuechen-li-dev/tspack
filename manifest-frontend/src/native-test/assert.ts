@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import { markAssertActivity } from './activity.js';
-import type { AssertionFailure } from './types.js';
+import type { AssertionFailure, DoomResult } from './types.js';
 type DiagnosticLike = { code?: unknown; severity?: unknown };
 
 function createFailure(assertion: string, reason: string, expected?: unknown, actual?: unknown): AssertionFailure {
@@ -91,6 +91,21 @@ export const assert = {
     if (errorCodes.length > 0) {
       const failure = createFailure('LGTM', reason, [], errorCodes);
       failure.code = 'TSPACK_ASSERT_LGTM_FAILED';
+      throw failure;
+    }
+  },
+  doom(result: DoomResult, expected: { reason?: string; abnormal?: boolean }, reason: string): void {
+    validateReason(reason);
+    const abnormalExpected = expected.abnormal ?? true;
+    const isAbnormal = result.status === 'passed';
+    if (abnormalExpected && !isAbnormal) {
+      const failure = createFailure('doom', reason, true, false);
+      failure.code = 'TSPACK_ASSERT_DOOM_FAILED';
+      throw failure;
+    }
+    if (expected.reason && result.envelope?.foretell.reason !== expected.reason) {
+      const failure = createFailure('doom', reason, expected.reason, result.envelope?.foretell.reason);
+      failure.code = 'TSPACK_ASSERT_DOOM_FAILED';
       throw failure;
     }
   },
