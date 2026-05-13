@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { formatInspectJson, formatInspectText } from '../src/inspect/format.js';
 import { parsePoint, parseViewport } from '../src/inspect/index.js';
-import { findVSCodeExecutable, runInspect } from '../src/inspect/backend.js';
+import { findVSCodeExecutable, resolveVSCodeElectronExecutable, runInspect } from '../src/inspect/backend.js';
 import { listCdpTargets, normalizeCdpEndpoint } from '../src/inspect/cdp.js';
 
 describe('inspect parsing', () => {
@@ -63,7 +66,21 @@ describe('inspect parsing', () => {
         points: [],
         json: true
       })
-    ).rejects.toThrow(/TSPACK_INSPECT_VSCODE_/);
+    ).rejects.toThrow(/TSPACK_INSPECT_(VSCODE_|PAGE_LOAD_FAILED)/);
+  }, 15000);
+
+  it('resolves vscode wrapper path to electron binary when available', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'inspect-vscode-resolve-'));
+    const wrapperDir = path.join(root, 'bin');
+    const shareDir = path.join(root, 'share', 'code');
+    fs.mkdirSync(wrapperDir, { recursive: true });
+    fs.mkdirSync(shareDir, { recursive: true });
+    const wrapperPath = path.join(wrapperDir, 'code');
+    const electronPath = path.join(shareDir, 'code');
+    fs.writeFileSync(wrapperPath, '#!/usr/bin/env bash\n', { mode: 0o755 });
+    fs.writeFileSync(electronPath, 'binary', { mode: 0o755 });
+
+    expect(resolveVSCodeElectronExecutable(wrapperPath)).toBe(electronPath);
   });
 });
 

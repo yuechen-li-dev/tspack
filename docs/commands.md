@@ -25,4 +25,4 @@ See also `docs/doom.md` for Prophecy/Doom behavior and limits.
 
 ## inspect
 
-`tspack inspect <url>` inspects a running browser URL and reports structural UI/layout/accessibility-ish data (not screenshot matching).
+`tspack inspect <url>` inspects a running browser URL. Supports explicit installed host launch via `--host-path` (or `--browser-path` alias) and explicit CDP endpoint attach via `--cdp`. It and reports structural UI/layout/accessibility-ish data (not screenshot matching).
