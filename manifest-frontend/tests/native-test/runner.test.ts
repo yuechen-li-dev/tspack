@@ -139,3 +139,83 @@ it('enforces project path/write/read safety and keepOnFailure semantics', async 
   expect(byId.get('px/keep true fail')?.project?.kept).toBe(true);
   expect(byId.get('px/keep true pass')?.project?.kept).toBe(false);
 });
+
+describe('native runner command helpers', () => {
+  it('provides command context only for project tests and captures evidence', async () => {
+    const artifactRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'native-command-artifacts-'));
+    const root = Suite({ name: 'cmd' },
+      Fact({ name: 'no-project' }, async ({ command }) => {
+        expect(command).toBeUndefined();
+        assert.true(true, 'explicit assertion');
+      }),
+      Fact({ name: 'with-project' }, Project({}), async ({ command, project }) => {
+        expect(command).toBeDefined();
+        const result = await command!.run(['node', '-e', 'console.log(process.cwd())'], 'print cwd');
+        assert.exitCode(result, 0, 'node command should pass');
+        assert.true(result.stdout.includes(project!.rootPath), 'command should run in project cwd');
+      }),
+    );
+
+    const results = await runSuite(root, { artifactRoot });
+    expect(results[0].status).toBe('passed');
+    expect(results[1].status).toBe('passed');
+
+    const commandDir = path.join(artifactRoot, 'cmd__with-project', 'commands');
+    expect(fs.existsSync(path.join(commandDir, '0.stdout.txt'))).toBe(true);
+    expect(fs.existsSync(path.join(commandDir, '0.stderr.txt'))).toBe(true);
+    expect(fs.existsSync(path.join(commandDir, '0.command.json'))).toBe(true);
+    const payload = JSON.parse(fs.readFileSync(path.join(commandDir, '0.command.json'), 'utf8'));
+    expect(payload.env).toBeUndefined();
+  });
+
+  it('supports invalid args/reason, timeout, nonzero, and invalid cwd', async () => {
+    const root = Suite({ name: 'cmd2' },
+      Fact({ name: 'nonzero' }, Project({}), async ({ command }) => {
+        const result = await command!.run(['node', '-e', 'process.exit(5)'], 'nonzero');
+        assert.exitCode(result, 5, 'expected nonzero should pass');
+      }),
+      Fact({ name: 'timeout' }, Project({}), async ({ command }) => {
+        const result = await command!.run(['node', '-e', 'setTimeout(()=>{}, 2000)'], 'timeout', { timeoutSeconds: 0.05 });
+        assert.true(result.timedOut, 'command should time out');
+      }),
+      Fact({ name: 'invalid-cwd' }, Project({}), async ({ command }) => {
+        await command!.run(['node', '-e', 'console.log(1)'], 'bad cwd', { cwd: '../escape' });
+      }),
+      Fact({ name: 'missing-reason' }, Project({}), async ({ command }) => {
+        await command!.run(['node', '-e', 'console.log(1)'], '');
+      }),
+    );
+
+    const results = await runSuite(root, {});
+    expect(results[0].status).toBe('passed');
+    expect(results[1].status).toBe('passed');
+    expect((results[2].error as { code?: string }).code).toBe('TSPACK_COMMAND_INVALID_CWD');
+    expect((results[3].error as { code?: string }).code).toBe('TSPACK_COMMAND_REASON_REQUIRED');
+  });
+
+  it('supports command.tspack via injected executable path', async () => {
+    const toolRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-tspack-'));
+    const fakeTool = path.join(toolRoot, 'fake-tspack.js');
+    fs.writeFileSync(fakeTool, `#!/usr/bin/env node\nconsole.log(JSON.stringify({argv: process.argv.slice(2), cwd: process.cwd(), marker: process.env.MARKER ?? ''}))\n`);
+    fs.chmodSync(fakeTool, 0o755);
+    process.env.TSPACK_TEST_TSPACK_PATH = fakeTool;
+    try {
+      const root = Suite({ name: 'cmd3' },
+        Fact({ name: 'tspack' }, Project({}), async ({ command, project }) => {
+          fs.mkdirSync(path.join(project!.rootPath, 'sub'), { recursive: true });
+          const result = await command!.tspack(['alpha', 'beta'], 'call tspack', { cwd: 'sub', env: { MARKER: 'yes' } });
+          assert.exitCode(result, 0, 'fake tspack should pass');
+          const payload = JSON.parse(result.stdout.trim());
+          assert.equal(payload.argv, ['alpha', 'beta'], 'args passed');
+          assert.true(String(payload.cwd).endsWith('/sub'), 'cwd option applied');
+          assert.equal(payload.marker, 'yes', 'env merged');
+          assert.true(!!result.evidence?.commandPath, 'evidence path provided');
+        }),
+      );
+      const results = await runSuite(root, {});
+      expect(results[0].status).toBe('passed');
+    } finally {
+      delete process.env.TSPACK_TEST_TSPACK_PATH;
+    }
+  });
+});

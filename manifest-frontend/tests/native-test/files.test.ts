@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createNativeTestReport, listNativeArtifacts, listNativeTests, runNativeArtifacts, runNativeTestFiles } from '../../src/native-test';
+import { createNativeTestReport, listNativeArtifacts, listNativeTests, runNativeArtifacts, runNativeBenchmarks, runNativeProphecies, runNativeTestFiles } from '../../src/native-test';
 
 function makeDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'tspack-native-files-'));
@@ -141,4 +141,41 @@ it('loaded xtest/valid/invalid/artifact files can use Project context and filter
 
   const artifacts = await runNativeArtifacts({ rootDir: root, filter: 'one' });
   expect(artifacts.artifacts[0].status).toBe('passed');
+});
+
+it('loaded command helpers and context exclusion matrix', async () => {
+  const root = makeDir();
+  const importPath = nativeImportPath();
+  const fixture = path.join(root, 'fixture');
+  fs.mkdirSync(path.join(fixture, 'sub'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'm.xtest.tsx'), `
+    import { Suite, Fact, Theory, Case, Valid, Invalid, Artifact, Project, assert } from '${importPath}';
+    export default (<Suite name="m">
+      <Fact name="with"><Project from="${fixture.replace(/\\/g, '/')}" />{async ({ command }) => { const r = await command.run(['node','-e','process.exit(3)'], 'fact'); assert.exitCode(r, 3, 'fact code'); }}</Fact>
+      <Fact name="without">{({ command }) => { assert.true(command === undefined, 'no project no command fact'); }}</Fact>
+      <Theory name="with"><Project from="${fixture.replace(/\\/g, '/')}" /><Case n={1} />{async (_d, { command }) => { const r = await command.run(['node','-e','console.log(1)'], 'theory'); assert.exitCode(r, 0, 'theory code'); }}</Theory>
+      <Theory name="without"><Case n={1} />{(_d, { command }) => { assert.true(command === undefined, 'no project no command theory'); }}</Theory>
+      <Valid name="with"><Project from="${fixture.replace(/\\/g, '/')}" />{async ({ command }) => { const r = await command.run(['node','-e','process.exit(0)'], 'valid'); assert.exitCode(r, 0, 'valid code'); }}</Valid>
+      <Valid name="without">{({ command }) => { assert.true(command === undefined, 'no project no command valid'); }}</Valid>
+      <Invalid name="with"><Project from="${fixture.replace(/\\/g, '/')}" />{async ({ command }) => { const r = await command.run(['node','-e','process.exit(0)'], 'invalid'); assert.exitCode(r, 0, 'invalid code'); }}</Invalid>
+      <Invalid name="without">{({ command }) => { assert.true(command === undefined, 'no project no command invalid'); }}</Invalid>
+      <Artifact name="a" path="a.txt"><Project from="${fixture.replace(/\\/g, '/')}" />{async ({ artifact, command }) => { const r = await command.run(['node','-e','console.log(2)'], 'artifact'); assert.exitCode(r, 0, 'artifact code'); await artifact.writeText('a', 'ok', 'artifact'); }}</Artifact>
+    </Suite>);
+  `);
+  fs.writeFileSync(path.join(root, 'm.benchmark.tsx'), `
+    import { Suite, Benchmark, Project } from '${importPath}';
+    export default (<Suite name="m"><Benchmark name="b"><Project from="${fixture.replace(/\\/g, '/')}" />{({ command, bench }) => { bench.check(() => { if (command !== undefined) throw new Error('command must be undefined'); }); bench.measure(() => {}); }}</Benchmark></Suite>);
+  `);
+  fs.writeFileSync(path.join(root, 'p.prophecy.tsx'), `
+    import { Suite, Prophecy, Foretell } from '${importPath}';
+    export default (<Suite name="p"><Prophecy name="x"><Foretell reason="r" />{(ctx = {}) => { if (ctx.command !== undefined) { throw new Error('command should be undefined'); } process.exit(7); }}</Prophecy></Suite>);
+  `);
+  const run = await runNativeTestFiles({ rootDir: root });
+  expect(run.results.every((r) => r.status === 'passed')).toBe(true);
+  const art = await runNativeArtifacts({ rootDir: root });
+  expect(art.artifacts[0].status).toBe('passed');
+  const bench = await runNativeBenchmarks({ rootDir: root });
+  expect(bench.benchmarks[0].status).toBe('passed');
+  const doom = await runNativeProphecies({ rootDir: root });
+  expect(doom.prophecies).toHaveLength(1);
 });

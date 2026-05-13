@@ -7,6 +7,7 @@ import { markArtifactWriteActivity, setActivityTracker } from './activity.js';
 import { clearPendingExpectations, verifyNoPendingExpectations } from './expect.js';
 import { isSkipSignal } from './skip.js';
 import type { DiscoveredArtifact, DiscoveredProjectFixture, ProjectResultInfo, TestArtifact, TestResult } from './types.js';
+import { createCommandContext, type CommandContext } from './command.js';
 
 type RuntimeNode = {
   __tag: 'Suite' | 'Fact' | 'Theory' | 'Case' | 'Artifact' | 'Valid' | 'Invalid' | 'Project' | 'CycleTime';
@@ -15,7 +16,7 @@ type RuntimeNode = {
 };
 
 type RunSuiteOptions = { artifactRoot?: string; defaultTimeoutSeconds?: number };
-type TestContext = { artifact: ArtifactWriter; project?: ProjectContext };
+type TestContext = { artifact: ArtifactWriter; project?: ProjectContext; command?: CommandContext };
 
 type ArtifactWriter = {
   writeText: (name: string, text: string, reason: string) => Promise<void>;
@@ -91,7 +92,12 @@ async function runSingle(id: string, name: string, declarations: DiscoveredArtif
   try {
     const projectContext = projectDecl ? await createProjectContext(id, projectDecl) : undefined;
     sandboxRoot = projectContext?.rootPath;
-    await withTimeout(fn({ artifact: state.writer, project: projectContext }), timeoutSeconds);
+    const command = projectContext ? createCommandContext({
+      projectRoot: projectContext.rootPath,
+      evidenceDir: path.join(state.baseDir, 'commands'),
+      tspackPath: process.env.TSPACK_TEST_TSPACK_PATH,
+    }) : undefined;
+    await withTimeout(fn({ artifact: state.writer, project: projectContext, command }), timeoutSeconds);
     verifyNoPendingExpectations();
     for (const entry of state.results) if (entry.required && !entry.written) throw withCode('TSPACK_ARTIFACT_REQUIRED_NOT_WRITTEN', `required artifact not written: ${entry.name}`);
     if (activity.assertCount + activity.expectCount + activity.skipCount === 0) {
@@ -170,7 +176,7 @@ async function createProjectContext(id: string, projectDecl: DiscoveredProjectFi
 async function writeProjectFile(targetPath: string, data: Buffer): Promise<void> { try { await fs.mkdir(path.dirname(targetPath), { recursive: true }); await fs.writeFile(targetPath, data); } catch (e) { throw withCode('TSPACK_PROJECT_WRITE_FAILED', (e as Error).message); } }
 async function copyFixtureDirectory(sourcePath: string, targetPath: string): Promise<void> { for (const entry of (await fs.readdir(sourcePath, { withFileTypes: true })).sort((a,b)=>a.name.localeCompare(b.name))) { if (SKIP_FIXTURE_DIRS.has(entry.name)) continue; const src = path.join(sourcePath, entry.name); const dest = path.join(targetPath, entry.name); if (entry.isSymbolicLink()) throw withCode('TSPACK_PROJECT_SYMLINK_UNSUPPORTED', `symlink unsupported: ${src}`); if (entry.isDirectory()) { await fs.mkdir(dest, { recursive: true }); await copyFixtureDirectory(src, dest); continue; } if (entry.isFile()) { await fs.mkdir(path.dirname(dest), { recursive: true }); await fs.copyFile(src, dest); } } }
 function withCode(code: string, message: string): Error & { code: string } { const e = new Error(message) as Error & { code: string }; e.code = code; return e; }
-function createArtifactState(id: string, declarations: DiscoveredArtifact[], artifactRoot: string) { const baseDir = path.join(artifactRoot, sanitizeId(id)); const results: TestArtifact[] = declarations.map((item) => ({ name: item.name, declaredPath: item.path, outputPath: path.join(baseDir, item.path), format: item.format, required: item.required, written: false })); const writeCommon = async (name: string, reason: string, data: Buffer): Promise<void> => { if (!reason || !reason.trim()) throw withCode('TSPACK_ARTIFACT_REASON_REQUIRED', 'artifact reason is required'); const artifact = results.find((entry) => entry.name === name); if (!artifact) throw withCode('TSPACK_ARTIFACT_UNKNOWN', `unknown artifact: ${name}`); if (artifact.written) throw withCode('TSPACK_ARTIFACT_ALREADY_WRITTEN', `artifact already written: ${name}`); try { await fs.mkdir(path.dirname(artifact.outputPath), { recursive: true }); await fs.writeFile(artifact.outputPath, data); markArtifactWriteActivity(); artifact.written = true; artifact.size = data.byteLength; artifact.reason = reason; artifact.hash = `sha256:${crypto.createHash('sha256').update(data).digest('hex')}`; } catch (cause) { throw withCode('TSPACK_ARTIFACT_WRITE_FAILED', `artifact write failed: ${(cause as Error).message}`); } }; return { writer: { writeText: async (name, text, reason) => writeCommon(name, reason, Buffer.from(text, 'utf8')), writeJson: async (name, value, reason) => writeCommon(name, reason, Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8')), writeBytes: async (name, bytes, reason) => writeCommon(name, reason, Buffer.from(bytes)) }, results }; }
+function createArtifactState(id: string, declarations: DiscoveredArtifact[], artifactRoot: string) { const baseDir = path.join(artifactRoot, sanitizeId(id)); const results: TestArtifact[] = declarations.map((item) => ({ name: item.name, declaredPath: item.path, outputPath: path.join(baseDir, item.path), format: item.format, required: item.required, written: false })); const writeCommon = async (name: string, reason: string, data: Buffer): Promise<void> => { if (!reason || !reason.trim()) throw withCode('TSPACK_ARTIFACT_REASON_REQUIRED', 'artifact reason is required'); const artifact = results.find((entry) => entry.name === name); if (!artifact) throw withCode('TSPACK_ARTIFACT_UNKNOWN', `unknown artifact: ${name}`); if (artifact.written) throw withCode('TSPACK_ARTIFACT_ALREADY_WRITTEN', `artifact already written: ${name}`); try { await fs.mkdir(path.dirname(artifact.outputPath), { recursive: true }); await fs.writeFile(artifact.outputPath, data); markArtifactWriteActivity(); artifact.written = true; artifact.size = data.byteLength; artifact.reason = reason; artifact.hash = `sha256:${crypto.createHash('sha256').update(data).digest('hex')}`; } catch (cause) { throw withCode('TSPACK_ARTIFACT_WRITE_FAILED', `artifact write failed: ${(cause as Error).message}`); } }; return { baseDir, writer: { writeText: async (name, text, reason) => writeCommon(name, reason, Buffer.from(text, 'utf8')), writeJson: async (name, value, reason) => writeCommon(name, reason, Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8')), writeBytes: async (name, bytes, reason) => writeCommon(name, reason, Buffer.from(bytes)) }, results }; }
 function collectDeclarations(node: RuntimeNode): DiscoveredArtifact[] { return node.children.filter((c) => isNode(c) && c.__tag === 'Artifact').map((child) => ({ name: String((child as RuntimeNode).props.name ?? ''), path: String((child as RuntimeNode).props.path ?? ''), format: typeof (child as RuntimeNode).props.format === 'string' ? (child as RuntimeNode).props.format as string : undefined, required: (child as RuntimeNode).props.optional !== true })); }
 function collectProject(node: RuntimeNode): DiscoveredProjectFixture | undefined { const child = node.children.find((c) => isNode(c) && c.__tag === 'Project') as RuntimeNode | undefined; if (!child) return undefined; return { from: typeof child.props.from === 'string' ? child.props.from : undefined, name: typeof child.props.name === 'string' ? child.props.name : undefined, keepOnFailure: child.props.keepOnFailure === true }; }
 function sanitizeId(value: string): string { return value.replace(/[^a-zA-Z0-9._-]+/g, '__').replace(/^_+|_+$/g, '').toLowerCase(); }

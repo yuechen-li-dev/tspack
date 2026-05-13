@@ -74,4 +74,12 @@ describe('assert api', () => {
       expect((error as { code?: string }).code).toBe('TSPACK_ASSERT_REASON_REQUIRED');
     }
   });
+
+  it('exitCode assertion behavior', () => {
+    const base = { args: [], cwd: '.', exitCode: 2, timedOut: false, stdout: '', stderr: '', durationMs: 1, diagnostics: [] };
+    assert.exitCode(base, 2, 'matching code passes');
+    expect(() => assert.exitCode(base, 0, 'wrong code fails')).toThrow();
+    expect(() => assert.exitCode({ ...base, timedOut: true }, 2, 'timeout fails')).toThrow();
+    expect(() => assert.exitCode(base, 2, '')).toThrow();
+  });
 });

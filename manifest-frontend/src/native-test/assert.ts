@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { markAssertActivity } from './activity.js';
 import type { AssertionFailure, DoomResult } from './types.js';
+import type { CommandResult } from './command.js';
 type DiagnosticLike = { code?: unknown; severity?: unknown };
 
 function createFailure(assertion: string, reason: string, expected?: unknown, actual?: unknown): AssertionFailure {
@@ -81,6 +82,21 @@ export const assert = {
       failure.code = 'TSPACK_ASSERT_NEAR_FAILED';
       (failure as AssertionFailure & { tolerance: number; difference: number }).tolerance = tolerance;
       (failure as AssertionFailure & { tolerance: number; difference: number }).difference = difference;
+      throw failure;
+    }
+  },
+
+  exitCode(result: CommandResult, expected: number, reason: string): void {
+    validateReason(reason);
+    if (result.timedOut || result.exitCode !== expected) {
+      const failure = createFailure('exitCode', reason, expected, result.exitCode);
+      failure.code = 'TSPACK_ASSERT_EXIT_CODE_FAILED';
+      failure.details = {
+        exitCode: result.exitCode,
+        timedOut: result.timedOut,
+        signal: result.signal,
+        diagnostics: result.diagnostics.map((entry) => entry.code),
+      };
       throw failure;
     }
   },

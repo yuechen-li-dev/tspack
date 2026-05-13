@@ -12,6 +12,7 @@ import { assert } from './assert.js';
 import { isSkipSignal, skip } from './skip.js';
 import { runSuite } from './runner.js';
 import { markArtifactWriteActivity, setActivityTracker } from './activity.js';
+import { createCommandContext } from './command.js';
 import type { ArtifactRunResult, Diagnostic, DiscoveredFile, RunArtifactsOptions, RunFilesOptions, RunFilesResult, StandaloneArtifactResult, TestArtifact, TestResult } from './types.js';
 
 type RuntimeNode = {
@@ -97,16 +98,21 @@ async function runStandaloneArtifact(root: RuntimeNode, id: string, name: string
     return { id, name, status: 'failed', failure: { code: 'TSPACK_ARTIFACT_UNKNOWN', message: `standalone artifact not found: ${name}` }, durationMs: performance.now() - started };
   }
 
-  const callback = node.children.find((entry) => typeof entry === 'function') as ((ctx: { artifact: any; project?: any }) => unknown) | undefined;
+  const callback = node.children.find((entry) => typeof entry === 'function') as ((ctx: { artifact: any; project?: any; command?: any }) => unknown) | undefined;
   const artifact = createSingleArtifactState(id, name, declaredPath, format, artifactRoot);
   const projectNode = node.children.find((entry) => isNode(entry) && entry.__tag === 'Project') as RuntimeNode | undefined;
   const project = projectNode ? await createStandaloneProjectContext(projectNode) : undefined;
+  const command = project ? createCommandContext({
+    projectRoot: project.rootPath,
+    evidenceDir: path.join(path.dirname(artifact.result.outputPath), 'commands'),
+    tspackPath: process.env.TSPACK_TEST_TSPACK_PATH,
+  }) : undefined;
   const activity = { assertCount: 0, expectCount: 0, skipCount: 0, artifactWriteCount: 0 };
   setActivityTracker({ markAssert: () => { activity.assertCount += 1; }, markExpect: () => { activity.expectCount += 1; }, markSkip: () => { activity.skipCount += 1; }, markArtifactWrite: () => { activity.artifactWriteCount += 1; } });
   try {
     const cycle = node.children.find((entry) => isNode(entry) && entry.__tag === 'CycleTime') as RuntimeNode | undefined;
     const timeoutSeconds = typeof cycle?.props.seconds === 'number' ? cycle.props.seconds : defaultTimeoutSeconds;
-    await Promise.race([Promise.resolve(callback?.({ artifact: artifact.writer, project })), new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error(`test timed out after ${timeoutSeconds} seconds`), { code: 'TSPACK_TEST_TIMEOUT' })), Math.max(1, timeoutSeconds * 1000)))]);
+    await Promise.race([Promise.resolve(callback?.({ artifact: artifact.writer, project, command })), new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error(`test timed out after ${timeoutSeconds} seconds`), { code: 'TSPACK_TEST_TIMEOUT' })), Math.max(1, timeoutSeconds * 1000)))]);
     verifyNoPendingExpectations();
     if (!artifact.result.written) {
       return { id, name, status: 'failed', failure: { code: 'TSPACK_ARTIFACT_REQUIRED_NOT_WRITTEN', message: `required artifact not written: ${name}` }, artifact: artifact.result, durationMs: performance.now() - started };
