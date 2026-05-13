@@ -36,6 +36,10 @@ func main() {
 		runArtifactCommand(args)
 		return
 	}
+	if args[0] == "bench" {
+		runBenchCommand(args)
+		return
+	}
 
 	fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", args[0])
 	printHelp()
@@ -55,6 +59,56 @@ func printHelp() {
 	fmt.Println("  tspack why <query> [--root .] [--package name]")
 	fmt.Println("  tspack test [--root .] [-xtest] [-vitest] [--list] [--filter text]")
 	fmt.Println("  tspack artifact [--root .] [--out path] [--list] [--filter text] [--json]")
+	fmt.Println("  tspack bench [--root .] [--list] [--filter text] [--json]")
+}
+
+func runBenchCommand(args []string) {
+	root := "."
+	list := false
+	filter := ""
+	jsonOut := false
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--root":
+			i++
+			root = args[i]
+		case "--list":
+			list = true
+		case "--filter":
+			i++
+			filter = args[i]
+		case "--json":
+			jsonOut = true
+		default:
+			fmt.Fprintf(os.Stderr, "unknown bench flag: %s\n", args[i])
+			os.Exit(1)
+		}
+	}
+	bridge := filepath.Join("manifest-frontend", "dist", "src", "native-test-cli.js")
+	if _, err := os.Stat(bridge); err != nil {
+		fmt.Fprintln(os.Stderr, "TSPACK_BENCH_BRIDGE_MISSING: native benchmark bridge not found")
+		os.Exit(1)
+	}
+	nodeArgs := []string{bridge, "bench", "--root", root}
+	if list {
+		nodeArgs = append(nodeArgs, "--list")
+	}
+	if filter != "" {
+		nodeArgs = append(nodeArgs, "--filter", filter)
+	}
+	if jsonOut {
+		nodeArgs = append(nodeArgs, "--json")
+	}
+	cmd := exec.Command("node", nodeArgs...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+		fmt.Fprintf(os.Stderr, "TSPACK_BENCH_FAILED: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func runArtifactCommand(args []string) {

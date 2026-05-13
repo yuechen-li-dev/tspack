@@ -70,6 +70,7 @@ export type DiscoveryResult = {
   theories: DiscoveredTheory[];
   invariants: DiscoveredInvariant[];
   standaloneArtifacts: DiscoveredStandaloneArtifact[];
+  benchmarks: DiscoveredBenchmark[];
   diagnostics: Diagnostic[];
 };
 
@@ -85,6 +86,7 @@ export type DiscoveredFile = {
   suiteName: string;
   tests: DiscoveredTest[];
   standaloneArtifacts: DiscoveredStandaloneArtifact[];
+  benchmarks: DiscoveredBenchmark[];
   diagnostics: Diagnostic[];
 };
 
@@ -223,6 +225,53 @@ export type NativeTestRunReport = {
 export type NativeArtifactRunReport = {
   summary: NativeTestSummary;
   artifacts: StandaloneArtifactResult[];
+  diagnostics: Diagnostic[];
+};
+
+export type DiscoveredBenchmark = {
+  id: string;
+  filePath: string;
+  suiteName: string;
+  name: string;
+  iterations: number;
+  warmup: number;
+  cycleTimeSeconds: number;
+  project?: DiscoveredProjectFixture;
+};
+
+export type RunBenchmarksOptions = {
+  rootDir: string;
+  files?: string[];
+  filter?: string;
+  listOnly?: boolean;
+  defaultCycleTimeSeconds?: number;
+};
+
+export type BenchmarkResult = {
+  id: string;
+  name: string;
+  status: 'passed' | 'failed' | 'skipped';
+  iterations: number;
+  warmup: number;
+  totalMs?: number;
+  meanMs?: number;
+  minMs?: number;
+  maxMs?: number;
+  medianMs?: number;
+  p95Ms?: number;
+  opsPerSecond?: number;
+  failure?: FailureInfo;
+  skipReason?: string;
+};
+
+export type BenchmarkRunResult = {
+  benchmarks: BenchmarkResult[];
+  diagnostics: Diagnostic[];
+};
+
+export type NativeBenchmarkRunReport = {
+  summary: NativeTestSummary;
+  benchmarks: BenchmarkResult[];
   diagnostics: Diagnostic[];
 };
 

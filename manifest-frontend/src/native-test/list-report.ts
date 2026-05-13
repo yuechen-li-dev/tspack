@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { discoverNativeTestFile, discoverNativeTestFiles } from './discover.js';
-import type { ArtifactRunResult, Diagnostic, DiscoverFilesResult, DiscoverOptions, FailureInfo, ListedStandaloneArtifact, ListedTest, NativeArtifactRunReport, NativeTestRunReport, ReportedTest, RunFilesResult } from './types.js';
+import type { ArtifactRunResult, BenchmarkRunResult, Diagnostic, DiscoverFilesResult, DiscoverOptions, FailureInfo, ListedStandaloneArtifact, ListedTest, NativeArtifactRunReport, NativeBenchmarkRunReport, NativeTestRunReport, ReportedTest, RunFilesResult } from './types.js';
 
 export function listDiscoveredTests(discovery: DiscoverFilesResult): ListedTest[] {
   const listed: ListedTest[] = [];
@@ -114,6 +114,40 @@ export function formatNativeArtifactJsonReport(report: NativeArtifactRunReport):
 
 export function nativeTestExitCode(report: NativeTestRunReport): 0 | 1 { if (report.summary.failed > 0) return 1; if (report.diagnostics.some((diag) => (diag.severity ?? 'error') === 'error')) return 1; return 0; }
 export function nativeArtifactExitCode(report: NativeArtifactRunReport): 0 | 1 { if (report.summary.failed > 0) return 1; if (report.diagnostics.some((diag) => (diag.severity ?? 'error') === 'error')) return 1; return 0; }
+export function createNativeBenchmarkReport(result: BenchmarkRunResult): NativeBenchmarkRunReport {
+  const benchmarks = [...result.benchmarks].sort((a, b) => a.id.localeCompare(b.id));
+  const summary = { total: benchmarks.length, passed: benchmarks.filter((b) => b.status === 'passed').length, failed: benchmarks.filter((b) => b.status === 'failed').length, skipped: benchmarks.filter((b) => b.status === 'skipped').length, diagnostics: result.diagnostics.length };
+  return { summary, benchmarks, diagnostics: [...result.diagnostics] };
+}
+export function formatNativeBenchmarkTextReport(report: NativeBenchmarkRunReport): string {
+  const lines: string[] = ['TSPack benchmarks', ''];
+  for (const benchmark of report.benchmarks) {
+    const prefix = benchmark.status === 'passed' ? 'PASS' : benchmark.status === 'failed' ? 'FAIL' : 'SKIP';
+    lines.push(`${prefix} ${benchmark.id}`);
+    lines.push(`  iterations: ${benchmark.iterations}`);
+    lines.push(`  warmup: ${benchmark.warmup}`);
+    if (benchmark.totalMs !== undefined) lines.push(`  total: ${benchmark.totalMs.toFixed(6)} ms`);
+    if (benchmark.meanMs !== undefined) lines.push(`  mean: ${benchmark.meanMs.toFixed(6)} ms`);
+    if (benchmark.minMs !== undefined) lines.push(`  min: ${benchmark.minMs.toFixed(6)} ms`);
+    if (benchmark.maxMs !== undefined) lines.push(`  max: ${benchmark.maxMs.toFixed(6)} ms`);
+    if (benchmark.medianMs !== undefined) lines.push(`  median: ${benchmark.medianMs.toFixed(6)} ms`);
+    if (benchmark.p95Ms !== undefined) lines.push(`  p95: ${benchmark.p95Ms.toFixed(6)} ms`);
+    if (benchmark.opsPerSecond !== undefined) lines.push(`  ops/sec: ${benchmark.opsPerSecond.toFixed(2)}`);
+    if (benchmark.failure?.code) lines.push(`  code: ${benchmark.failure.code}`);
+    if (benchmark.failure?.message) lines.push(`  message: ${benchmark.failure.message}`);
+    if (benchmark.skipReason) lines.push(`  reason: ${benchmark.skipReason}`);
+    lines.push('');
+  }
+  lines.push('Summary:');
+  lines.push(`  total: ${report.summary.total}`);
+  lines.push(`  passed: ${report.summary.passed}`);
+  lines.push(`  failed: ${report.summary.failed}`);
+  lines.push(`  skipped: ${report.summary.skipped}`);
+  lines.push(`  diagnostics: ${report.summary.diagnostics}`);
+  return `${lines.join('\n')}\n`;
+}
+export function formatNativeBenchmarkJsonReport(report: NativeBenchmarkRunReport): string { return `${JSON.stringify(report, null, 2)}\n`; }
+export function nativeBenchmarkExitCode(report: NativeBenchmarkRunReport): 0 | 1 { if (report.summary.failed > 0) return 1; if (report.diagnostics.some((diag) => (diag.severity ?? 'error') === 'error')) return 1; return 0; }
 
 function normalizeFailure(error: Error & { code?: string; reason?: string; assertion?: string; expected?: unknown; actual?: unknown }): FailureInfo {
   const details: Record<string, unknown> = {};

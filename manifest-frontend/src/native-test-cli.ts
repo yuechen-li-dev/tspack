@@ -1,10 +1,10 @@
-import { createNativeArtifactReport, createNativeTestReport, formatNativeArtifactJsonReport, formatNativeArtifactTextReport, formatNativeTestJsonReport, formatNativeTestTextReport, listNativeArtifacts, listNativeTests, nativeArtifactExitCode, nativeTestExitCode, runNativeArtifacts, runNativeTestFiles } from './native-test/index.js';
+import { createNativeArtifactReport, createNativeBenchmarkReport, createNativeTestReport, formatNativeArtifactJsonReport, formatNativeArtifactTextReport, formatNativeBenchmarkJsonReport, formatNativeBenchmarkTextReport, formatNativeTestJsonReport, formatNativeTestTextReport, listNativeArtifacts, listNativeBenchmarks, listNativeTests, nativeArtifactExitCode, nativeBenchmarkExitCode, nativeTestExitCode, runNativeArtifacts, runNativeBenchmarks, runNativeTestFiles } from './native-test/index.js';
 
-type Mode = 'test' | 'artifact';
+type Mode = 'test' | 'artifact' | 'bench';
 type Options = { mode: Mode; rootDir: string; list: boolean; filter?: string; json: boolean; out?: string };
 
 function parseArgs(argv: string[]): Options {
-  const mode = (argv[2] === 'artifact' ? 'artifact' : 'test') as Mode;
+  const mode = (argv[2] === 'artifact' ? 'artifact' : argv[2] === 'bench' ? 'bench' : 'test') as Mode;
   const options: Options = { mode, rootDir: '.', list: false, json: false };
   for (let i = 3; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -31,6 +31,18 @@ async function main(): Promise<void> {
     const report = createNativeArtifactReport(result);
     process.stdout.write(options.json ? formatNativeArtifactJsonReport(report) : formatNativeArtifactTextReport(report));
     process.exit(nativeArtifactExitCode(report));
+  }
+  if (options.mode === 'bench') {
+    if (options.list) {
+      const listed = listNativeBenchmarks({ rootDir: options.rootDir });
+      const report = createNativeBenchmarkReport({ benchmarks: listed.benchmarks.map((b) => ({ id: b.id, name: b.name, status: 'passed', iterations: b.iterations, warmup: b.warmup })), diagnostics: listed.diagnostics });
+      process.stdout.write(options.json ? formatNativeBenchmarkJsonReport(report) : formatNativeBenchmarkTextReport(report));
+      process.exit(nativeBenchmarkExitCode(report));
+    }
+    const run = await runNativeBenchmarks({ rootDir: options.rootDir, filter: options.filter });
+    const report = createNativeBenchmarkReport(run);
+    process.stdout.write(options.json ? formatNativeBenchmarkJsonReport(report) : formatNativeBenchmarkTextReport(report));
+    process.exit(nativeBenchmarkExitCode(report));
   }
 
   if (options.list) {
