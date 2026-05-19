@@ -143,7 +143,7 @@ func TestCLIHelpAndUnsupportedCommands(t *testing.T) {
 		t.Fatalf("help failed: %v\n%s", err, string(b))
 	}
 	text := string(b)
-	for _, cmd := range []string{"check", "update", "sync", "pack", "why", "run", "test", "artifact", "bench", "doom", "inspect", "--version", "help"} {
+	for _, cmd := range []string{"check", "update", "sync", "pack", "why", "format", "lint", "run", "test", "artifact", "bench", "doom", "inspect", "--version", "help"} {
 		if !strings.Contains(text, cmd) {
 			t.Fatalf("help missing %s: %s", cmd, text)
 		}
@@ -177,7 +177,7 @@ func TestDocsCommandsInventoryIncludesCurrentSurface(t *testing.T) {
 		t.Fatalf("read commands doc: %v", err)
 	}
 	text := string(doc)
-	for _, cmd := range []string{"check", "update", "sync", "why", "pack", "run", "test", "artifact", "bench", "doom", "inspect"} {
+	for _, cmd := range []string{"check", "update", "sync", "why", "pack", "format", "lint", "run", "test", "artifact", "bench", "doom", "inspect"} {
 		if !strings.Contains(text, "`tspack "+cmd) {
 			t.Fatalf("commands doc missing %s", cmd)
 		}
@@ -773,5 +773,92 @@ func TestCLIRunProcessExitedEarly(t *testing.T) {
 	b, err := cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(b), "TSPACK_RUN_PROCESS_EXITED_EARLY") {
 		t.Fatalf("expected exited early: %v\n%s", err, string(b))
+	}
+}
+
+func TestCLIHelpIncludesFormatAndLint(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	cmd := exec.Command("go", "run", "./cmd/tspack", "help")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("help failed: %v\n%s", err, string(b))
+	}
+	out := string(b)
+	if !strings.Contains(out, "tspack format") || !strings.Contains(out, "tspack lint") {
+		t.Fatalf("help missing format/lint: %s", out)
+	}
+}
+
+func TestCLIBiomeBackendResolutionAndArgs(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	binDir := filepath.Join(root, "node_modules", ".bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	capture := filepath.Join(root, "capture.json")
+	backend := "#!/usr/bin/env node\nconst fs=require('fs');const p=process.env.TSPACK_CAPTURE;fs.writeFileSync(p,JSON.stringify({argv:process.argv.slice(2),cwd:process.cwd()}));process.stdout.write('LOCAL_BACKEND\\n');"
+	if err := os.WriteFile(filepath.Join(binDir, "biome"), []byte(backend), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pathDir := t.TempDir()
+	pathBackend := "#!/usr/bin/env node\nprocess.stdout.write('PATH_BACKEND\\n');"
+	if err := os.WriteFile(filepath.Join(pathDir, "biome"), []byte(pathBackend), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "format", "src", "tests", "--root", root)
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "PATH="+pathDir+":"+os.Getenv("PATH"), "TSPACK_CAPTURE="+capture)
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("format failed: %v\n%s", err, string(b))
+	}
+	if !strings.Contains(string(b), "LOCAL_BACKEND") {
+		t.Fatalf("expected local backend: %s", string(b))
+	}
+	if strings.Contains(string(b), "PATH_BACKEND") {
+		t.Fatalf("path backend should not run: %s", string(b))
+	}
+	data, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Argv []string `json:"argv"`
+	}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(got.Argv, " ")
+	if !strings.Contains(joined, "format") || !strings.Contains(joined, "--write") || !strings.Contains(joined, "src") || !strings.Contains(joined, "tests") {
+		t.Fatalf("unexpected argv: %v", got.Argv)
+	}
+}
+
+func TestCLIBiomeMissingBackendAndInvalidFlags(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	cmd := exec.Command("go", "run", "./cmd/tspack", "format", "--root", root)
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "PATH="+t.TempDir())
+	b, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_BIOME_BACKEND_NOT_FOUND") {
+		t.Fatalf("missing backend diagnostic not shown: %v\n%s", err, string(b))
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "format", "--fix", "--root", root)
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_FORMAT_INVALID_FLAGS") {
+		t.Fatalf("format invalid flags missing: %v\n%s", err, string(b))
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "lint", "--check", "--root", root)
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_LINT_INVALID_FLAGS") {
+		t.Fatalf("lint invalid flags missing: %v\n%s", err, string(b))
 	}
 }

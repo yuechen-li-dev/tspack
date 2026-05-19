@@ -25,3 +25,6 @@
 
 - Unsupported command examples (`build`, `dev`, `publish`, `install`) must fail deterministically.
 - `run` and `inspect` must not infer `package.json` scripts when no declared `RunTargets` exist.
+
+
+- `tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. See `docs/format-lint.md`.

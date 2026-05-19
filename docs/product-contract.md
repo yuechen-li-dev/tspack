@@ -95,3 +95,6 @@ Unless explicitly documented otherwise:
 - Manifest frontend and native harness bridges are explicit seams between Go CLI orchestration and TypeScript runtime helpers.
 - Inspect backends (Playwright/CDP/host paths) are explicit backend seams and remain experimental.
 - Runtime launch backends are explicit `RunTarget.runtime` launch adapters, not task-runner plugins.
+
+
+- `tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. See `docs/format-lint.md`.

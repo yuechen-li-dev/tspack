@@ -19,3 +19,6 @@
 - Stable core package surface: `check`, `update`, `sync`, `why`, `pack`.
 - Stable native harness surface: `test`, `artifact`, `bench`, `doom`.
 - Experimental surface: `inspect`.
+
+
+- `tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. See `docs/format-lint.md`.

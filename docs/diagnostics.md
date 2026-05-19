@@ -74,3 +74,6 @@ Page/analyzer:
 - `TSPACK_INSPECT_SELECTOR_NOT_FOUND`
 - `TSPACK_INSPECT_INVALID_VIEWPORT`
 - `TSPACK_INSPECT_INVALID_POINT`
+
+
+- `tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. See `docs/format-lint.md`.

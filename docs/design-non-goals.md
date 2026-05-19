@@ -28,3 +28,6 @@ TSPack is still not:
 
 - `run` executes declared `RunTargets` from manifest contract, not `package.json` scripts.
 - `inspect` is an experimental inspection loop, not a stable browser automation API.
+
+
+- `tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. See `docs/format-lint.md`.
