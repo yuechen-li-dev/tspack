@@ -52,3 +52,5 @@ See:
 
 
 - `tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. See `docs/format-lint.md`.
+
+- `tspack doctor` adds non-mutating environment diagnostics. See `docs/doctor.md`.
