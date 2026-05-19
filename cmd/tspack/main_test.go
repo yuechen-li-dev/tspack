@@ -143,12 +143,19 @@ func TestCLIHelpAndUnsupportedCommands(t *testing.T) {
 		t.Fatalf("help failed: %v\n%s", err, string(b))
 	}
 	text := string(b)
-	for _, cmd := range []string{"check", "update", "sync", "pack", "why", "--version", "help"} {
+	for _, cmd := range []string{"check", "update", "sync", "pack", "why", "run", "test", "artifact", "bench", "doom", "inspect", "--version", "help"} {
 		if !strings.Contains(text, cmd) {
 			t.Fatalf("help missing %s: %s", cmd, text)
 		}
 	}
-	for _, unsupported := range []string{"build", "dev", "publish", "add", "remove"} {
+
+	if !strings.Contains(text, "inspect <url> [experimental]") {
+		t.Fatalf("help must mark inspect experimental: %s", text)
+	}
+	if !strings.Contains(text, "run [target]") {
+		t.Fatalf("help missing run usage: %s", text)
+	}
+	for _, unsupported := range []string{"build", "dev", "publish", "add", "remove", "install"} {
 		if strings.Contains(text, "tspack "+unsupported) {
 			t.Fatalf("help unexpectedly advertises unsupported command %s", unsupported)
 		}
@@ -160,6 +167,24 @@ func TestCLIHelpAndUnsupportedCommands(t *testing.T) {
 		ob, e := cmd.CombinedOutput()
 		if e == nil || !strings.Contains(string(ob), "unknown command") {
 			t.Fatalf("expected deterministic unknown command for %s: %v\n%s", c, e, string(ob))
+		}
+	}
+}
+
+func TestDocsCommandsInventoryIncludesCurrentSurface(t *testing.T) {
+	doc, err := os.ReadFile(filepath.Join("..", "..", "docs", "commands.md"))
+	if err != nil {
+		t.Fatalf("read commands doc: %v", err)
+	}
+	text := string(doc)
+	for _, cmd := range []string{"check", "update", "sync", "why", "pack", "run", "test", "artifact", "bench", "doom", "inspect"} {
+		if !strings.Contains(text, "`tspack "+cmd) {
+			t.Fatalf("commands doc missing %s", cmd)
+		}
+	}
+	for _, phrase := range []string{"core", "native", "experimental"} {
+		if !strings.Contains(text, phrase) {
+			t.Fatalf("commands doc missing grouping/stability phrase %q", phrase)
 		}
 	}
 }

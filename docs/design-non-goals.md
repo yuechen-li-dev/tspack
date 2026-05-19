@@ -1,0 +1,30 @@
+# Design scope and non-goals (M24)
+
+## Intentionally supported now
+
+TSPack intentionally supports:
+- package lifecycle commands (`check`, `update`, `sync`, `why`, `pack`)
+- native test harness (`test`, xTest/Vitest orchestration)
+- standalone artifacts (`artifact`)
+- benchmark units (`bench`)
+- doom/prophecy units (`doom`)
+- declared runtime targets (`run`)
+- structural inspection via `inspect` (**experimental**)
+
+## Still out of scope
+
+TSPack is still not:
+- npm script compatibility layer
+- arbitrary task runner
+- build/bundler framework
+- publish/deployment workflow
+- lifecycle script executor by default
+- Storybook clone
+- screenshot visual testing system
+- machine vision product
+- automatic app attach / local port scanner
+
+## Clarifying boundaries
+
+- `run` executes declared `RunTargets` from manifest contract, not `package.json` scripts.
+- `inspect` is an experimental inspection loop, not a stable browser automation API.

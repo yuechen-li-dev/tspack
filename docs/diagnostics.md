@@ -1,72 +1,54 @@
-# Diagnostic inventory (M15b)
+# Diagnostic inventory (M24)
 
-This inventory groups primary diagnostic code families by subsystem. Exact per-code definitions remain in subsystem code and tests.
+This inventory groups primary diagnostic families by subsystem to keep command-surface expectations aligned with product scope.
 
-## Manifest frontend
+## Package/core diagnostics
 
-- `TSPACK_FRONTEND_*`: restricted AST parse/validation failures.
-
-## IR validation
-
-- `TSPACK_IR_*`: manifest IR semantic/shape validation failures.
-
-## Graph
-
-- `TSPACK_GRAPH_*`: graph construction and invariants.
-
-## Import scanning / boundary
-
+- `TSPACK_FRONTEND_*`
+- `TSPACK_IR_*`
+- `TSPACK_GRAPH_*`
 - `TSPACK_IMPORTSCAN_*`
 - `TSPACK_BOUNDARY_*`
-
-## Type surface
-
 - `TSPACK_TYPESURFACE_*`
-
-## Lockfile
-
 - `TSPACK_LOCK_*`
-
-## Resolver
-
 - `TSPACK_RESOLVE_*`
-
-## Store
-
 - `TSPACK_STORE_*`
-
-## Materializer
-
 - `TSPACK_MATERIALIZE_*`
-
-## Project / commands
-
 - `TSPACK_PROJECT_*`
 - `TSPACK_CHECK_*`
 - `TSPACK_SYNC_*`
-
-## Pack
-
 - `TSPACK_PACK_*`
-
-## Why
-
 - `TSPACK_WHY_*`
-
-## Capability / security
-
 - `TSPACK_CAPABILITY_*`
 
+## Harness diagnostics
 
-## Inspect (experimental)
+- `TSPACK_TEST_*`
+- `TSPACK_ARTIFACT_*`
+- `TSPACK_BENCH_*`
+- `TSPACK_DOOM_*`
 
+## Run diagnostics
+
+- `TSPACK_RUN_*` (target resolution, launch, readiness, timeout, process lifecycle)
+
+## Inspect diagnostics (experimental)
+
+Target/input:
 - `TSPACK_INSPECT_TARGET_REQUIRED`
 - `TSPACK_INSPECT_INVALID_TARGET`
+- `TSPACK_INSPECT_INVALID_TARGET_OPTIONS`
+- `TSPACK_INSPECT_RUN_TARGET_MISSING`
+- `TSPACK_INSPECT_RUN_TARGET_NOT_FOUND`
+
+Browser/backend:
 - `TSPACK_INSPECT_BROWSER_UNSUPPORTED`
 - `TSPACK_INSPECT_BROWSER_LAUNCH_FAILED`
 - `TSPACK_INSPECT_BRIDGE_MISSING`
 - `TSPACK_INSPECT_FAILED`
 - `TSPACK_INSPECT_INVALID_BACKEND_OPTIONS`
+
+CDP:
 - `TSPACK_INSPECT_CDP_ENDPOINT_REQUIRED`
 - `TSPACK_INSPECT_CDP_ENDPOINT_INVALID`
 - `TSPACK_INSPECT_CDP_CONNECT_FAILED`
@@ -74,13 +56,19 @@ This inventory groups primary diagnostic code families by subsystem. Exact per-c
 - `TSPACK_INSPECT_CDP_TARGET_AMBIGUOUS`
 - `TSPACK_INSPECT_CDP_TARGET_UNSUPPORTED`
 - `TSPACK_INSPECT_CDP_EVALUATION_FAILED`
+
+Installed host:
 - `TSPACK_INSPECT_HOST_PATH_NOT_FOUND`
 - `TSPACK_INSPECT_HOST_PATH_INVALID`
 - `TSPACK_INSPECT_HOST_LAUNCH_FAILED`
 - `TSPACK_INSPECT_HOST_CDP_ENDPOINT_FAILED`
 - `TSPACK_INSPECT_HOST_CLEANUP_FAILED`
+
+Playwright Core provider:
 - `TSPACK_INSPECT_PLAYWRIGHT_CORE_NOT_FOUND`
 - `TSPACK_INSPECT_PLAYWRIGHT_CORE_LOAD_FAILED`
+
+Page/analyzer:
 - `TSPACK_INSPECT_PAGE_LOAD_FAILED`
 - `TSPACK_INSPECT_ANALYSIS_FAILED`
 - `TSPACK_INSPECT_SELECTOR_NOT_FOUND`

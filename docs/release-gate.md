@@ -1,0 +1,27 @@
+# Release gate (M24 command surface)
+
+## Smoke command checklist
+
+- `tspack check`
+- `tspack update`
+- `tspack sync`
+- `tspack why <dep>`
+- `tspack pack`
+- `tspack test`
+- `tspack artifact`
+- `tspack bench`
+- `tspack doom`
+- `tspack run`
+- `tspack inspect <target>` (**experimental**)
+
+## Mutation expectations
+
+- `update` mutates `ts-lock.toml`.
+- `check`, `sync`, `pack`, `why`, `run`, and `inspect` do not mutate `ts-lock.toml` unless explicitly documented.
+- `run` and `inspect --run` do not mutate manifest contract files.
+- `artifact`, `test`, `bench`, and `doom` may write harness outputs/artifacts but do not rewrite manifest/lock contract state.
+
+## Non-goal checks
+
+- Unsupported command examples (`build`, `dev`, `publish`, `install`) must fail deterministically.
+- `run` and `inspect` must not infer `package.json` scripts when no declared `RunTargets` exist.
