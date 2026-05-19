@@ -67,7 +67,19 @@ describe('inspect parsing', () => {
         json: true
       })
     ).rejects.toThrow(/TSPACK_INSPECT_(VSCODE_|PAGE_LOAD_FAILED)/);
+
+
+    await expect(
+      runInspect({
+        url: 'http://127.0.0.1:9999',
+        browser: 'platform-webview',
+        viewport: { width: 800, height: 600 },
+        points: [],
+        json: true
+      })
+    ).rejects.toThrow(/TSPACK_INSPECT_PLATFORM_WEBVIEW_(UNAVAILABLE|INIT_FAILED)/);
   }, 15000);
+
 
   it('resolves vscode wrapper path to electron binary when available', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'inspect-vscode-resolve-'));

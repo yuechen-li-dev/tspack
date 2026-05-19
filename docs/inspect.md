@@ -16,6 +16,7 @@ It is **not** screenshot matching, visual diffing, machine vision, component ren
 - structural DOM/layout/style/text/role extraction
 - JSON and text output
 - selector filtering and hit-test support
+- platform-webview backend scaffold/probe (intended future default)
 - Playwright-backed inspection path
 - explicit CDP endpoint inspection path
 - explicit installed-host launch path
@@ -25,25 +26,35 @@ It is **not** screenshot matching, visual diffing, machine vision, component ren
 
 The analyzer core is shared across backends. Backends are responsible for obtaining a browser-like execution context.
 
-1. **Playwright backend**
-   - Uses Playwright automation.
-   - May require Playwright browser binaries.
-   - Useful for controlled browser inspection and CI when browsers are installed.
+1. **Platform WebView backend (`platform-webview`)**
+   - Intended future stable/default backend direction.
+   - Uses the OS-provided webview engine where feasible:
+     - Windows: WebView2
+     - macOS: WKWebView / WebKit
+     - Linux: WebKitGTK
+   - Current M26 status: scaffold/probe only, still experimental.
+   - Why this direction: reduce dependence on Playwright browser downloads and use platform-provided runtime engines.
+   - Limitations: platform APIs differ, Linux often needs WebKitGTK + display/session runtime, and this is not a cross-browser conformance layer.
 
-2. **CDP backend**
+2. **CDP backend (`cdp`)**
    - Uses an explicit user-provided remote debugging endpoint (`--cdp`).
    - Preferred protocol seam for already-running Chromium/Electron hosts.
    - Does not scan local ports.
    - Does not silently attach to apps.
 
-3. **Installed host backend**
+3. **Installed host backend (`host-path`)**
    - Uses explicit `--host-path` / `--browser-path` executable path.
    - Launches with remote debugging and a temporary profile, then inspects through CDP.
    - Best suited to Chrome/Chromium/Edge-style hosts.
    - Electron apps may not behave like generic URL browsers.
    - VS Code/Code-family launch remains environment-dependent.
 
-4. **Playwright Core provider**
+4. **Playwright backend (`playwright-chromium`)**
+   - Uses Playwright automation.
+   - May require Playwright browser binaries.
+   - Useful for controlled browser inspection and CI when browsers are installed.
+
+5. **Playwright Core provider**
    - Automation client provider, not a browser runtime.
    - Resolution order:
      - `TSPACK_PLAYWRIGHT_CORE_PATH`
@@ -97,7 +108,7 @@ VS Code/Electron app UI inspection:
 
 ## Options
 
-- `--browser auto|vscode|playwright-chromium|chromium|browser-path|host-path`
+- `--browser auto|platform-webview|cdp|host-path|browser-path|playwright-chromium|chromium|vscode`
 - `--host-path <path>` (preferred)
 - `--browser-path <path>` (compatibility alias)
 - `--cdp <endpoint>`
@@ -137,6 +148,12 @@ CDP:
 - `TSPACK_INSPECT_CDP_TARGET_UNSUPPORTED`
 - `TSPACK_INSPECT_CDP_EVALUATION_FAILED`
 
+Platform webview:
+- `TSPACK_INSPECT_PLATFORM_WEBVIEW_UNAVAILABLE`
+- `TSPACK_INSPECT_PLATFORM_WEBVIEW_INIT_FAILED`
+- `TSPACK_INSPECT_PLATFORM_WEBVIEW_EVALUATION_FAILED`
+- `TSPACK_INSPECT_PLATFORM_WEBVIEW_UNSUPPORTED_OS`
+
 Installed host:
 - `TSPACK_INSPECT_HOST_PATH_NOT_FOUND`
 - `TSPACK_INSPECT_HOST_PATH_INVALID`
@@ -159,3 +176,4 @@ Page/analyzer:
 
 - `node scripts/inspect-host-probe.mjs`
 - `node scripts/inspect-playwright-core-probe.mjs`
+- `node scripts/inspect-platform-webview-probe.mjs`
