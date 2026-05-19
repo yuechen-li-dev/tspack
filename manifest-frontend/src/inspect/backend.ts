@@ -6,12 +6,69 @@ import type { InspectBrowserName, UIInspectResult, CDPTargetSummary } from './ty
 import { listCdpTargets } from './cdp.js';
 import { launchInspectableHost, validateHostPath } from './host-launch.js';
 
-export type InspectBackendName = 'auto' | 'vscode' | 'playwright-chromium' | 'browser-path' | 'host-path' | 'chromium' | 'cdp';
+export type InspectBackendName = 'auto' | 'vscode' | 'playwright-chromium' | 'browser-path' | 'host-path' | 'chromium' | 'cdp' | 'platform-webview';
 
 export type InspectBackendProbe = {
   executablePath?: string;
   reason?: string;
 };
+
+
+type PlatformWebViewProbeResult = {
+  os: NodeJS.Platform;
+  candidate: 'webview2' | 'wkwebview' | 'webkitgtk';
+  checks: string[];
+  blocker?: string;
+  outcome: 'usable' | 'not-usable' | 'unavailable';
+};
+
+function probePlatformWebViewEnvironment(): PlatformWebViewProbeResult {
+  const os = process.platform;
+
+  if (os === 'win32') {
+    const checks = ['platform=windows', 'expected-engine=WebView2'];
+    return {
+      os,
+      candidate: 'webview2',
+      checks,
+      blocker: 'TSPACK_INSPECT_PLATFORM_WEBVIEW_UNAVAILABLE: WebView2 probe is not implemented yet in Node-only backend.',
+      outcome: 'not-usable'
+    };
+  }
+
+  if (os === 'darwin') {
+    const checks = ['platform=macos', 'expected-engine=WKWebView'];
+    return {
+      os,
+      candidate: 'wkwebview',
+      checks,
+      blocker: 'TSPACK_INSPECT_PLATFORM_WEBVIEW_UNAVAILABLE: WKWebView probe is not implemented yet in Node-only backend.',
+      outcome: 'not-usable'
+    };
+  }
+
+  const checks: string[] = ['platform=linux', 'expected-engine=WebKitGTK'];
+  const hasDisplay = Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
+  checks.push(`display=${hasDisplay ? 'present' : 'missing'}`);
+
+  if (!hasDisplay) {
+    return {
+      os,
+      candidate: 'webkitgtk',
+      checks,
+      blocker: 'TSPACK_INSPECT_PLATFORM_WEBVIEW_UNAVAILABLE: missing DISPLAY/WAYLAND_DISPLAY for WebKitGTK runtime session.',
+      outcome: 'unavailable'
+    };
+  }
+
+  return {
+    os,
+    candidate: 'webkitgtk',
+    checks,
+    blocker: 'TSPACK_INSPECT_PLATFORM_WEBVIEW_INIT_FAILED: WebKitGTK backend scaffold exists but runtime host is not wired yet.',
+    outcome: 'not-usable'
+  };
+}
 
 export function findVSCodeExecutable(): string | null {
   const candidates = ['code', 'code-insiders', 'codium'];
@@ -213,6 +270,13 @@ export async function runInspect(options: InspectOptions): Promise<UIInspectResu
 
   if ((hostPath || browserPath) && backend !== 'auto' && backend !== 'host-path' && backend !== 'browser-path') {
     throw new Error('TSPACK_INSPECT_INVALID_BACKEND_OPTIONS');
+  }
+
+  if (backend === 'platform-webview') {
+    const probe = probePlatformWebViewEnvironment();
+    const checks = probe.checks.join(',');
+    const blocker = probe.blocker ?? 'TSPACK_INSPECT_PLATFORM_WEBVIEW_UNAVAILABLE';
+    throw new Error(`${blocker} [${checks}]`);
   }
 
   if (backend === 'cdp') {

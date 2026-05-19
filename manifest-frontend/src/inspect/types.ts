@@ -43,7 +43,7 @@ export type UIInspectResult = {
   };
   browser: {
     name: InspectBrowserName;
-    backend?: 'playwright' | 'cdp' | 'vscode' | 'browser-path';
+    backend?: 'playwright' | 'cdp' | 'vscode' | 'browser-path' | 'platform-webview';
   };
   viewport: {
     width: number;
