@@ -5,6 +5,9 @@
 > `tspack inspect` is a structural UI inspection experiment. It is useful today, but it is not yet a stable public contract and CLI/API flags may still change as backend support is refined.
 
 `tspack inspect <url>` performs structural UI inspection for rendered browser targets.
+M23 also supports inspecting declared run targets:
+- `tspack inspect dev`
+- `tspack inspect --run dev`
 
 It is **not** screenshot matching, visual diffing, machine vision, component rendering, or dev-server startup.
 
@@ -89,6 +92,8 @@ VS Code/Electron app UI inspection:
 
 - `tspack inspect <url>`
 - `tspack inspect --url <url>`
+- `tspack inspect <target>`
+- `tspack inspect --run <target>`
 
 ## Options
 
@@ -105,6 +110,10 @@ VS Code/Electron app UI inspection:
 - `--json`
 - `--out <file>`
 - `--text <file>`
+- `--run <target>`
+- `--run-ready-timeout <seconds>` (default 30)
+
+When `--json` is set and `--run` is used, progress and run-target logs go to stderr and JSON output remains on stdout.
 
 ## Inspect diagnostics
 

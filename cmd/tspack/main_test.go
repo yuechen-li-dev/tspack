@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -326,6 +327,229 @@ console.log(args.join(' '));`
 	b, err := cmd.CombinedOutput()
 	if err != nil || !strings.Contains(string(b), "{\"ok\":true}") {
 		t.Fatalf("inspect routing failed: %v\n%s", err, string(b))
+	}
+}
+
+func TestCLIInspectRunTargetByName(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	server := `const http=require('http'); const p=5221; http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}).listen(p,'127.0.0.1'); setInterval(()=>{},1000);`
+	_ = os.WriteFile(filepath.Join(root, "server.js"), []byte(server), 0o644)
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js"],url:"http://127.0.0.1:5221",ready:{kind:"http",path:"/"}}]}]}`)
+
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	bridge := filepath.Join(frontend, "inspect-cli.js")
+	stub := `#!/usr/bin/env node
+const args=process.argv.slice(2);
+if(args[1] !== 'http://127.0.0.1:5221'){console.error('missing-run-url');process.exit(1)}
+console.log('{"ok":true}');`
+	_ = os.WriteFile(bridge, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(bridge) })
+	cmd := exec.Command("go", "run", "./cmd/tspack", "inspect", "dev", "--root", root, "--json")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "{\"ok\":true}") {
+		t.Fatalf("inspect run target failed: %v\n%s", err, string(b))
+	}
+}
+
+func TestCLIInspectRunTargetConflict(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	cmd := exec.Command("go", "run", "./cmd/tspack", "inspect", "http://localhost:1234", "--run", "dev")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_INSPECT_INVALID_TARGET_OPTIONS") {
+		t.Fatalf("expected conflict failure: %v\n%s", err, string(b))
+	}
+}
+
+func TestCLIInspectRunFlagExplicit(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	port := reservePort(t)
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	server := fmt.Sprintf(`const http=require('http'); http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}).listen(%d,'127.0.0.1'); setInterval(()=>{},1000);`, port)
+	_ = os.WriteFile(filepath.Join(root, "server.js"), []byte(server), 0o644)
+	writeRunFrontendStub(t, fmt.Sprintf(`{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}}]}]}`, port))
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	bridge := filepath.Join(frontend, "inspect-cli.js")
+	stub := fmt.Sprintf(`#!/usr/bin/env node
+const args=process.argv.slice(2);
+if (args[1] !== 'http://127.0.0.1:%d') { process.exit(2); }
+console.log('{"ok":true}');`, port)
+	_ = os.WriteFile(bridge, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(bridge) })
+	cmd := exec.Command("go", "run", "./cmd/tspack", "inspect", "--run", "dev", "--root", root, "--json")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), `{"ok":true}`) || !strings.Contains(string(b), `Stopped run target "dev".`) {
+		t.Fatalf("inspect --run failed: %v\n%s", err, string(b))
+	}
+}
+
+func TestCLIInspectTargetRequiredStillEnforced(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	_ = os.MkdirAll(frontend, 0o755)
+	bridge := filepath.Join(frontend, "inspect-cli.js")
+	_ = os.WriteFile(bridge, []byte("#!/usr/bin/env node\nprocess.stderr.write('TSPACK_INSPECT_TARGET_REQUIRED\\n'); process.exit(1)\n"), 0o755)
+	t.Cleanup(func() { _ = os.Remove(bridge) })
+	cmd := exec.Command("go", "run", "./cmd/tspack", "inspect")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_INSPECT_TARGET_REQUIRED") {
+		t.Fatalf("expected inspect target required: %v\n%s", err, string(b))
+	}
+}
+
+func TestCLIInspectRunTargetNotFound(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","x.js"],url:"http://127.0.0.1:1"}]}]}`)
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	bridge := filepath.Join(frontend, "inspect-cli.js")
+	_ = os.WriteFile(bridge, []byte("#!/usr/bin/env node\nprocess.exit(0)\n"), 0o755)
+	t.Cleanup(func() { _ = os.Remove(bridge) })
+	cmd := exec.Command("go", "run", "./cmd/tspack", "inspect", "nope", "--root", root)
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_INSPECT_RUN_TARGET_NOT_FOUND") {
+		t.Fatalf("expected run target not found: %v\n%s", err, string(b))
+	}
+}
+
+func TestCLIInspectRunTimeoutAndExitedEarly(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "hang.js"), []byte("setInterval(()=>{},1000)\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "exit.js"), []byte("process.exit(0)\n"), 0o644)
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	bridge := filepath.Join(frontend, "inspect-cli.js")
+	_ = os.WriteFile(bridge, []byte("#!/usr/bin/env node\nconsole.log('{\"ok\":true}')\n"), 0o755)
+	t.Cleanup(func() { _ = os.Remove(bridge) })
+
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","hang.js"],url:"http://127.0.0.1:5233",ready:{kind:"http",path:"/"}}]}]}`)
+	cmd := exec.Command("go", "run", "./cmd/tspack", "inspect", "--run", "dev", "--root", root, "--run-ready-timeout", "1")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_INSPECT_RUN_READY_TIMEOUT") {
+		t.Fatalf("expected inspect run timeout: %v\n%s", err, string(b))
+	}
+
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","exit.js"],url:"http://127.0.0.1:5234",ready:{kind:"http",path:"/"}}]}]}`)
+	cmd = exec.Command("go", "run", "./cmd/tspack", "inspect", "--run", "dev", "--root", root, "--run-ready-timeout", "2")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_INSPECT_RUN_EXITED_EARLY") {
+		t.Fatalf("expected inspect run exited early: %v\n%s", err, string(b))
+	}
+}
+
+func TestCLIInspectRunBridgeFailureStillStopsTargetAndJsonClean(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	port := reservePort(t)
+	marker := filepath.Join(root, "run-marker.txt")
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	server := fmt.Sprintf(`const fs=require('fs'); const http=require('http'); fs.writeFileSync(%q,'started');
+const srv=http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}); srv.listen(%d,'127.0.0.1'); process.on('SIGTERM',()=>{fs.writeFileSync(%q,'stopped'); srv.close(()=>process.exit(0));}); setInterval(()=>{},1000);`, marker, port, marker)
+	_ = os.WriteFile(filepath.Join(root, "server.js"), []byte(server), 0o644)
+	writeRunFrontendStub(t, fmt.Sprintf(`{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}}]}]}`, port))
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	bridge := filepath.Join(frontend, "inspect-cli.js")
+	stub := `#!/usr/bin/env node
+console.error("bridge-failed");
+process.exit(7);`
+	_ = os.WriteFile(bridge, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(bridge) })
+	cmd := exec.Command("go", "run", "./cmd/tspack", "inspect", "--run", "dev", "--root", root, "--json")
+	cmd.Dir = repo
+	out, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "bridge-failed") || !strings.Contains(string(out), `Stopped run target "dev".`) {
+		t.Fatalf("expected bridge failure with shutdown: %v\n%s", err, string(out))
+	}
+	b, readErr := os.ReadFile(marker)
+	if readErr != nil || strings.TrimSpace(string(b)) != "stopped" {
+		t.Fatalf("expected stopped marker: err=%v marker=%q output=%s", readErr, string(b), string(out))
+	}
+}
+
+func TestCLIInspectRunPassesThroughFlagsAndMutationContractAndNoNpmInference(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	port := reservePort(t)
+	manifestPath := filepath.Join(root, "manifest.tsx")
+	lockPath := filepath.Join(root, "ts-lock.toml")
+	_ = os.WriteFile(manifestPath, []byte("export default {}\n"), 0o644)
+	_ = os.WriteFile(lockPath, []byte("[lock]\nformat=1\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"scripts":{"dev":"node no-run-target.js"}}`), 0o644)
+	server := fmt.Sprintf(`const http=require('http'); http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}).listen(%d,'127.0.0.1'); setInterval(()=>{},1000);`, port)
+	_ = os.WriteFile(filepath.Join(root, "server.js"), []byte(server), 0o644)
+	_ = os.MkdirAll(filepath.Join(root, "node_modules", ".bin"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "node_modules", ".bin", "dev-server"), []byte(fmt.Sprintf("#!/bin/sh\nexec node %q\n", filepath.Join(root, "server.js"))), 0o755)
+	argsPath := filepath.Join(root, "bridge-args.json")
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	bridge := filepath.Join(frontend, "inspect-cli.js")
+	stub := fmt.Sprintf(`#!/usr/bin/env node
+import fs from 'node:fs';
+fs.writeFileSync(%q, JSON.stringify(process.argv.slice(2)));
+console.log('{"ok":true}');`, argsPath)
+	_ = os.WriteFile(bridge, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(bridge) })
+	writeRunFrontendStub(t, fmt.Sprintf(`{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"node",command:["dev-server"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}}]}]}`, port))
+	beforeManifest, _ := os.ReadFile(manifestPath)
+	beforeLock, _ := os.ReadFile(lockPath)
+	outPath := filepath.Join(root, "inspect.json")
+	textPath := filepath.Join(root, "inspect.txt")
+	cmd := exec.Command("go", "run", "./cmd/tspack", "inspect", "--run", "dev", "--root", root, "--json", "--out", outPath, "--text", textPath, "--selector", "#root", "--point", "320,148", "--viewport", "1024x768", "--cdp", "http://127.0.0.1:9222", "--host-path", "/tmp/host")
+	cmd.Dir = repo
+	var stdoutBuf strings.Builder
+	var stderrBuf strings.Builder
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+	err := cmd.Run()
+	stdout := []byte(stdoutBuf.String())
+	if err != nil {
+		t.Fatalf("inspect run with passthrough flags failed: %v\nstdout=%s\nstderr=%s", err, stdoutBuf.String(), stderrBuf.String())
+	}
+	var payload map[string]any
+	if unmarshalErr := json.Unmarshal(stdout, &payload); unmarshalErr != nil || payload["ok"] != true {
+		t.Fatalf("stdout not clean json: err=%v output=%s", unmarshalErr, string(stdout))
+	}
+	if !strings.Contains(stderrBuf.String(), "Starting run target") || strings.Contains(stdoutBuf.String(), "Starting run target") {
+		t.Fatalf("expected progress logs on stderr only; stdout=%q stderr=%q", stdoutBuf.String(), stderrBuf.String())
+	}
+	argsRaw, readErr := os.ReadFile(argsPath)
+	if readErr != nil {
+		t.Fatalf("missing bridge args: %v", readErr)
+	}
+	argsText := string(argsRaw)
+	for _, expected := range []string{"--out", outPath, "--text", textPath, "--selector", "#root", "--point", "320,148", "--viewport", "1024x768", "--cdp", "http://127.0.0.1:9222", "--host-path", "/tmp/host"} {
+		if !strings.Contains(argsText, expected) {
+			t.Fatalf("missing bridge passthrough %q in %s", expected, argsText)
+		}
+	}
+	if !strings.Contains(argsText, fmt.Sprintf("http://127.0.0.1:%d", port)) {
+		t.Fatalf("missing resolved run url in bridge args: %s", argsText)
+	}
+	afterManifest, _ := os.ReadFile(manifestPath)
+	afterLock, _ := os.ReadFile(lockPath)
+	if string(beforeManifest) != string(afterManifest) || string(beforeLock) != string(afterLock) {
+		t.Fatalf("inspect run mutated manifest or lock")
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "node_modules")); statErr != nil {
+		t.Fatalf("expected existing node_modules for local bin fixture: %v", statErr)
+	}
+
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[]}]} `)
+	cmd = exec.Command("go", "run", "./cmd/tspack", "inspect", "dev", "--root", root)
+	cmd.Dir = repo
+	bad, runErr := cmd.CombinedOutput()
+	if runErr == nil || !strings.Contains(string(bad), "TSPACK_INSPECT_RUN_TARGET_NOT_FOUND") {
+		t.Fatalf("expected no npm script inference failure: %v\n%s", runErr, string(bad))
 	}
 }
 
