@@ -49,6 +49,6 @@ See also `docs/artifacts.md` for standalone artifact mode details.
 See `docs/doom.md` for quarantine Doom/Prophecy execution details.
 
 
-- `tspack inspect <url>`: **experimental** structural UI inspection for rendered browser targets; backend support is still being refined.
+- `tspack inspect <url|target>`: **experimental** structural UI inspection for rendered browser targets; supports declared run targets via `tspack inspect dev` / `tspack inspect --run dev`.
 
 - `tspack run [target]`: launch declared runtime targets from manifest `RunTargets`; not an npm script launcher.

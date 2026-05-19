@@ -5,8 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/tspack/tspack/internal/diag"
+	"github.com/tspack/tspack/internal/manifest"
 	"github.com/tspack/tspack/internal/project"
 	"github.com/tspack/tspack/internal/testcmd"
 )
@@ -79,23 +83,134 @@ func printHelp() {
 }
 
 func runInspectCommand(args []string) {
+	root := "."
+	runTarget := ""
+	runReadyTimeout := 30
+	positionalTarget := ""
+	bridgeArgs := []string{}
+	for i := 1; i < len(args); i++ {
+		a := args[i]
+		switch a {
+		case "--root":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "TSPACK_INSPECT_INVALID_TARGET_OPTIONS: --root requires a value")
+				os.Exit(1)
+			}
+			i++
+			root = args[i]
+			bridgeArgs = append(bridgeArgs, "--root", root)
+		case "--run":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				fmt.Fprintln(os.Stderr, "TSPACK_INSPECT_RUN_TARGET_MISSING: --run requires a target name")
+				os.Exit(1)
+			}
+			i++
+			runTarget = args[i]
+		case "--run-ready-timeout":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "TSPACK_INSPECT_INVALID_TARGET_OPTIONS: --run-ready-timeout requires a value")
+				os.Exit(1)
+			}
+			i++
+			n, err := strconv.Atoi(args[i])
+			if err != nil || n <= 0 {
+				fmt.Fprintln(os.Stderr, "TSPACK_INSPECT_INVALID_TARGET_OPTIONS: --run-ready-timeout must be positive seconds")
+				os.Exit(1)
+			}
+			runReadyTimeout = n
+		default:
+			if !strings.HasPrefix(a, "-") && positionalTarget == "" {
+				positionalTarget = a
+			}
+			bridgeArgs = append(bridgeArgs, a)
+		}
+	}
+	if runTarget != "" && positionalTarget != "" && (strings.HasPrefix(positionalTarget, "http://") || strings.HasPrefix(positionalTarget, "https://")) {
+		fmt.Fprintln(os.Stderr, "TSPACK_INSPECT_INVALID_TARGET_OPTIONS: cannot combine URL target with --run")
+		os.Exit(1)
+	}
+	if runTarget == "" && positionalTarget != "" && !strings.HasPrefix(positionalTarget, "http://") && !strings.HasPrefix(positionalTarget, "https://") {
+		runTarget = positionalTarget
+		bridgeArgs = append([]string{}, bridgeArgs[1:]...)
+	}
+
 	bridge := filepath.Join("manifest-frontend", "dist", "src", "inspect-cli.js")
 	if _, err := os.Stat(bridge); err != nil {
 		fmt.Fprintln(os.Stderr, "TSPACK_INSPECT_BRIDGE_MISSING: inspect bridge not found")
 		os.Exit(1)
 	}
 	nodeArgs := []string{bridge, "inspect"}
-	nodeArgs = append(nodeArgs, args[1:]...)
+	exitCode := 0
+	exitMessage := ""
+	if runTarget != "" {
+		ir := loadManifestForRun(root)
+		rt, ok := findRunTargetByName(ir, runTarget)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "TSPACK_INSPECT_RUN_TARGET_NOT_FOUND: %s\n", runTarget)
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr, "Starting run target %q...\n", runTarget)
+		session, readyErr := startRunTarget(root, rt, time.Duration(runReadyTimeout)*time.Second, os.Stderr, os.Stderr)
+		if readyErr != nil {
+			code := "TSPACK_INSPECT_RUN_START_FAILED"
+			switch readyErr.code {
+			case "TSPACK_RUN_READY_TIMEOUT":
+				code = "TSPACK_INSPECT_RUN_READY_TIMEOUT"
+			case "TSPACK_RUN_PROCESS_EXITED_EARLY":
+				code = "TSPACK_INSPECT_RUN_EXITED_EARLY"
+			}
+			fmt.Fprintf(os.Stderr, "%s: %s\n", code, readyErr.msg)
+			os.Exit(1)
+		}
+		defer func() {
+			if err := session.Stop(); err != nil {
+				fmt.Fprintf(os.Stderr, "TSPACK_INSPECT_RUN_SHUTDOWN_FAILED: %v\n", err)
+			}
+			fmt.Fprintf(os.Stderr, "Stopped run target %q.\n", runTarget)
+			if exitCode != 0 {
+				if exitMessage != "" {
+					fmt.Fprintln(os.Stderr, exitMessage)
+				}
+				os.Exit(exitCode)
+			}
+		}()
+		fmt.Fprintf(os.Stderr, "Ready: %s\n", session.URL)
+		fmt.Fprintf(os.Stderr, "Inspecting: %s\n", session.URL)
+		nodeArgs = append(nodeArgs, session.URL)
+		nodeArgs = append(nodeArgs, bridgeArgs...)
+	} else {
+		nodeArgs = append(nodeArgs, args[1:]...)
+	}
 	cmd := exec.Command("node", nodeArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitErr.ExitCode())
+			exitCode = exitErr.ExitCode()
+			if runTarget != "" {
+				return
+			}
+			os.Exit(exitCode)
 		}
-		fmt.Fprintf(os.Stderr, "TSPACK_INSPECT_FAILED: %v\n", err)
-		os.Exit(1)
+		exitMessage = fmt.Sprintf("TSPACK_INSPECT_FAILED: %v", err)
+		exitCode = 1
+		if runTarget != "" {
+			return
+		}
+		fmt.Fprintln(os.Stderr, exitMessage)
+		os.Exit(exitCode)
 	}
+}
+
+func findRunTargetByName(ir *manifest.ManifestIR, name string) (manifest.RunTarget, bool) {
+	for _, pkg := range ir.Packages {
+		for _, target := range pkg.RunTargets {
+			if target.Name == name {
+				return target, true
+			}
+		}
+	}
+	return manifest.RunTarget{}, false
 }
 
 func runDoomCommand(args []string) {

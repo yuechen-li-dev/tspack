@@ -19,6 +19,52 @@ import (
 	"github.com/tspack/tspack/internal/manifest"
 )
 
+type RunTargetSession struct {
+	Target   manifest.RunTarget
+	Cmd      *exec.Cmd
+	URL      string
+	ReadyURL string
+	waitCh   chan error
+}
+
+func (s *RunTargetSession) Stop() error {
+	if s == nil || s.Cmd == nil {
+		return nil
+	}
+	if err := terminate(s.Cmd); err != nil {
+		return err
+	}
+	if s.waitCh != nil {
+		<-s.waitCh
+	}
+	return nil
+}
+
+func startRunTarget(root string, target manifest.RunTarget, timeout time.Duration, stdout io.Writer, stderr io.Writer) (*RunTargetSession, *runErr) {
+	resolved := target
+	if resolved.Runtime == "node" {
+		resolved.Command = resolveNodeLocalCommand(root, resolved.Command)
+	}
+	cmd := exec.Command(resolved.Command[0], resolved.Command[1:]...)
+	cmd.Dir = root
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if resolved.Runtime == "node" {
+		prependNodeModulesBin(cmd, root)
+	}
+	readyURL := readinessURL(resolved)
+	if err := cmd.Start(); err != nil {
+		return nil, &runErr{code: "TSPACK_RUN_PROCESS_START_FAILED", msg: err.Error()}
+	}
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- cmd.Wait() }()
+	if readyErr := waitReady(waitCh, readyURL, timeout); readyErr != nil {
+		_ = terminate(cmd)
+		return nil, readyErr
+	}
+	return &RunTargetSession{Target: resolved, Cmd: cmd, URL: resolved.URL, ReadyURL: readyURL, waitCh: waitCh}, nil
+}
+
 func runRunCommand(args []string) {
 	root := "."
 	timeoutSeconds := 30
@@ -51,41 +97,24 @@ func runRunCommand(args []string) {
 	}
 	ir := loadManifestForRun(root)
 	rt := selectRunTarget(ir, targetArg)
-	if rt.Runtime == "node" {
-		rt.Command = resolveNodeLocalCommand(root, rt.Command)
-	}
-	cmd := exec.Command(rt.Command[0], rt.Command[1:]...)
-	cmd.Dir = root
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if rt.Runtime == "node" {
-		prependNodeModulesBin(cmd, root)
-	}
 	fmt.Printf("Starting run target %q\n", rt.Name)
 	fmt.Printf("Runtime: %s\n", rt.Runtime)
 	fmt.Printf("Command: %s\n", bytes.Join(stringSliceBytes(rt.Command), []byte(" ")))
 	readyURL := readinessURL(rt)
 	fmt.Printf("Waiting for: %s\n", readyURL)
-	if err := cmd.Start(); err != nil {
-		failRun("TSPACK_RUN_PROCESS_START_FAILED", err.Error())
-	}
-	waitCh := make(chan error, 1)
-	go func() { waitCh <- cmd.Wait() }()
-	readyErr := waitReady(waitCh, readyURL, time.Duration(timeoutSeconds)*time.Second)
+	session, readyErr := startRunTarget(root, rt, time.Duration(timeoutSeconds)*time.Second, os.Stdout, os.Stderr)
 	if readyErr != nil {
-		_ = terminate(cmd)
 		failRun(readyErr.code, readyErr.msg)
 	}
-	fmt.Printf("Ready: %s\n", rt.URL)
+	fmt.Printf("Ready: %s\n", session.URL)
 	if once {
-		_ = terminate(cmd)
-		<-waitCh
+		_ = session.Stop()
 		return
 	}
 	sig := make(chan os.Signal, 2)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-	go func() { <-sig; _ = terminate(cmd) }()
-	<-waitCh
+	go func() { <-sig; _ = session.Stop() }()
+	<-session.waitCh
 }
 
 type runErr struct{ code, msg string }

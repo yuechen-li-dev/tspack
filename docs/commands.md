@@ -27,7 +27,7 @@ See also `docs/doom.md` for Prophecy/Doom behavior and limits.
 
 `inspect` is currently experimental/unstable.
 
-`tspack inspect <url>` performs structural UI inspection for rendered browser targets. It supports explicit installed host launch via `--host-path` (with `--browser-path` compatibility alias) and explicit CDP endpoint attach via `--cdp`.
+`tspack inspect <url>` performs structural UI inspection for rendered browser targets. It also supports declared run targets (`tspack inspect dev` / `tspack inspect --run dev`) that are started, waited for readiness, inspected, then shut down. It supports explicit installed host launch via `--host-path` (with `--browser-path` compatibility alias) and explicit CDP endpoint attach via `--cdp`.
 
 See `docs/inspect.md` for backend taxonomy, diagnostics, and current environment limitations.
 

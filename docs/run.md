@@ -38,12 +38,18 @@ M22 readiness is HTTP polling:
 - timeout via `--ready-timeout` (default 30s)
 - `--once` exits after ready and terminates child process
 
+## Inspect integration (M23)
+- `tspack inspect dev`
+- `tspack inspect --run dev`
+
+`inspect` can start a declared run target, wait for HTTP readiness, inspect its URL, then terminate the process.
+
 ## Not supported
 - npm scripts (`npm run`)
 - `npx`
 - package.json script inference
 - shell-string command execution
-- inspect integration (future work)
+- npm script inference for inspect/run
 
 ## Mutation contract
 `tspack run` does not mutate:
