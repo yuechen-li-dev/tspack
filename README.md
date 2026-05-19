@@ -1,28 +1,41 @@
 # TSPack
 
-TSPack is a TypeScript-first package manager prototype centered on deterministic intent (`manifest.tsx`) and deterministic resolved truth (`ts-lock.toml`).
+TSPack is a TypeScript lifecycle tool centered on deterministic intent (`manifest.tsx`) and deterministic resolved truth (`ts-lock.toml`).
 
-## v1 command loop (M15b release-gate)
+Core thesis: **Declare targets. Resolve sources. Enforce boundaries. Lock reality. Pack exactly.**
 
-- `tspack check`
-- `tspack update`
-- `tspack sync`
-- `tspack why <query>`
-- `tspack pack`
-- `tspack test`
+## Command surface
+
+| Group | Command | Purpose | Mutation / Stability |
+|---|---|---|---|
+| Core package | `tspack check` | Validate manifest/frontend, graph, boundaries, and lock consistency. | Does not mutate lock. |
+| Core package | `tspack update` | Resolve and write deterministic `ts-lock.toml`. | Mutates lock. |
+| Core package | `tspack sync` | Materialize compatibility `node_modules` from lock/store. | Does not mutate lock. |
+| Core package | `tspack why` | Explain dependency/target reachability and presence. | Does not mutate lock. |
+| Core package | `tspack pack` | Build deterministic package archives. | Does not mutate lock. |
+| Native harness | `tspack test` | Run native xTest/Vitest command loop. | May write test outputs; no lock/manifest mutation. |
+| Native harness | `tspack artifact` | Run standalone suite-level native artifact units. | May write artifact output; no lock/manifest mutation. |
+| Native harness | `tspack bench` | Run native benchmark units (`*.benchmark.tsx`). | May write benchmark outputs; no lock/manifest mutation. |
+| Native harness | `tspack doom` | Run quarantined prophecy/doom units (`*.prophecy.tsx`). | May write doom outputs; no lock/manifest mutation. |
+| Runtime / inspection | `tspack run [target]` | Start declared manifest `RunTargets` and wait for readiness. | **Not npm scripts**; no lock/manifest mutation. |
+| Runtime / inspection | `tspack inspect <url\|target>` | Structural UI inspection; supports declared run target inspection. | **Experimental**; backend surface may evolve. |
 
 ## Core contracts
 
-- `manifest.tsx` and `package.manifest.tsx` are parsed as restricted documents; they are **not executed**.
+- `manifest.tsx` and `package.manifest.tsx` are restricted documents; they are **not executed**.
 - `ts-lock.toml` is resolved truth.
 - `node_modules` is a generated compatibility artifact, not source of truth.
-- Fetch is not execute: dependency lifecycle scripts are not run.
+- Fetch is not execute: dependency lifecycle scripts are not run by default.
 
-## v1 non-goals
+## Non-goals (current)
 
-TSPack v1 does **not** implement package-manager commands for `build`, `dev`, `publish`, `add`, or `remove`, and does not run package scripts.
+TSPack does **not** aim to become:
+- npm-script compatibility mode
+- arbitrary task runner
+- build/bundler tool
+- publish pipeline
 
-`tspack test` is an orchestrator for native xTest and Vitest backends. See `docs/test-command.md`.
+`inspect` remains experimental and should not be treated as a stable contract yet.
 
 ## Testing
 
@@ -31,24 +44,8 @@ go test ./...
 cd manifest-frontend && npm test
 ```
 
-See `docs/release-checklist.md` for release smoke commands and audit checklist.
-
-
-## Standalone artifacts
-
-- `tspack artifact
-- `tspack bench` runs native benchmark units (`*.benchmark.tsx`).
-` runs standalone native xTest `<Artifact>` units declared directly under `<Suite>`.
-- `tspack pack` creates package `.tgz` archives; it is unrelated to native test artifacts.
-
-
-See also `docs/artifacts.md` for standalone artifact mode details.
-
-- `tspack doom` runs quarantined abnormal-termination Prophecy tests (`*.prophecy.tsx`) in subprocesses and writes doom artifacts.
-
-See `docs/doom.md` for quarantine Doom/Prophecy execution details.
-
-
-- `tspack inspect <url|target>`: **experimental** structural UI inspection for rendered browser targets; supports declared run targets via `tspack inspect dev` / `tspack inspect --run dev`.
-
-- `tspack run [target]`: launch declared runtime targets from manifest `RunTargets`; not an npm script launcher.
+See:
+- `docs/product-contract.md`
+- `docs/commands.md`
+- `docs/design-non-goals.md`
+- `docs/release-gate.md`

@@ -1,37 +1,21 @@
-# Commands (M13)
+# Command inventory (M24)
 
-- `tspack check`: validates manifest/frontend, IR, graph, boundaries, type surfaces, and lock consistency when lockfile exists. It warns on lifecycle-script capabilities (`TSPACK_CAPABILITY_LIFECYCLE_SCRIPT_PRESENT`). It does **not** write lockfile, store artifacts, or `node_modules`.
-- `tspack update`: resolves sources and writes `ts-lock.toml` deterministically.
-- `tspack sync`: requires an existing lockfile, validates lock consistency against graph, then materializes strict `node_modules` from store artifacts. It never mutates `ts-lock.toml`.
-- `tspack pack [--root .] [--out <dir>] [--package <name>] [--dry-run]`: creates deterministic local package archives.
-- `tspack why <query> [--root .] [--manifest <path>] [--lockfile <path>] [--package <name>]`: explains why a dependency/target/lock package is present.
-- `tspack test [--root .] [-xtest|--xtest] [-vitest|--vitest] [--list] [--filter <text>]`: runs test backends (xTest and/or Vitest).
+| Command | Purpose | Mutates manifest/lock? | Notable non-goals | Details |
+|---|---|---|---|---|
+| `tspack check` | Validate manifest/frontend, graph, boundaries, type surfaces, and lock consistency when lock exists. | No / No | Does not resolve or install packages. | `docs/contract.md` |
+| `tspack update` | Resolve sources and write deterministic `ts-lock.toml`. | No / **Yes (lock)** | Not a package installer/materializer command. | `docs/lockfile.md`, `docs/source-resolvers.md` |
+| `tspack sync` | Materialize compatibility `node_modules` from lock/store. | No / No | Does not re-resolve versions. | `docs/materialization.md` |
+| `tspack why` | Explain why dependency/target/lock package is present. | No / No | Not a resolver/editor command. | `docs/why.md` |
+| `tspack pack` | Create deterministic package archives. | No / No | Not a build pipeline or publish command. | `docs/pack.md` |
+| `tspack run [target]` | Start declared manifest `RunTargets` and wait for readiness. | No / No | Not `npm run`; no package.json script inference. | `docs/run.md` |
+| `tspack test` | Run test backends (native xTest and/or Vitest). | No / No | Not a generic task runner. | `docs/test-command.md`, `docs/native-test-harness.md` |
+| `tspack artifact` | Run standalone native suite artifacts. | No / No | Not package artifact packing. | `docs/artifacts.md` |
+| `tspack bench` | Run native benchmark units (`*.benchmark.tsx`). | No / No | Not a general profiling framework. | `docs/benchmarks.md` |
+| `tspack doom` | Run quarantined prophecy/doom units (`*.prophecy.tsx`). | No / No | Not a generic chaos platform. | `docs/doom.md` |
+| `tspack inspect <url\|target>` | Structural UI inspection and run-target inspection. | No / No | Not screenshot diffing/visual testing; not auto-attach. | `docs/inspect.md` (**experimental**) |
 
+## Stability
 
-## Standalone artifacts
-
-- `tspack artifact
-- `tspack bench [--root .] [--list] [--filter <text>] [--json]`: runs native benchmark units from `*.benchmark.tsx`.
-` runs standalone native xTest `<Artifact>` units declared directly under `<Suite>`.
-- `tspack pack` creates package `.tgz` archives; it is unrelated to native test artifacts.
-
-
-See also `docs/artifacts.md` for standalone artifact mode details.
-
-- `tspack doom [--root .] [--list] [--filter <text>] [--json] [--out <path>]`: runs quarantined abnormal-termination Prophecy units from `*.prophecy.tsx` in child processes.
-
-See also `docs/doom.md` for Prophecy/Doom behavior and limits.
-
-
-## inspect (experimental)
-
-`inspect` is currently experimental/unstable.
-
-`tspack inspect <url>` performs structural UI inspection for rendered browser targets. It also supports declared run targets (`tspack inspect dev` / `tspack inspect --run dev`) that are started, waited for readiness, inspected, then shut down. It supports explicit installed host launch via `--host-path` (with `--browser-path` compatibility alias) and explicit CDP endpoint attach via `--cdp`.
-
-See `docs/inspect.md` for backend taxonomy, diagnostics, and current environment limitations.
-
-
-## run
-
-`tspack run [target]` starts a declared `<RunTargets />` runtime target, waits for HTTP readiness, then streams logs until interrupted. Use `--once` for smoke checks. It is **not** an npm script runner. See `docs/run.md`.
+- Stable core package surface: `check`, `update`, `sync`, `why`, `pack`.
+- Stable native harness surface: `test`, `artifact`, `bench`, `doom`.
+- Experimental surface: `inspect`.
