@@ -49,3 +49,6 @@ See:
 - `docs/commands.md`
 - `docs/design-non-goals.md`
 - `docs/release-gate.md`
+
+
+- `tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. See `docs/format-lint.md`.

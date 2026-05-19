@@ -53,6 +53,16 @@ func main() {
 		return
 	}
 
+	if args[0] == "format" {
+		runFormatCommand(args)
+		return
+	}
+
+	if args[0] == "lint" {
+		runLintCommand(args)
+		return
+	}
+
 	if args[0] == "inspect" {
 		runInspectCommand(args)
 		return
@@ -79,6 +89,8 @@ func printHelp() {
 	fmt.Println("  tspack bench [--root .] [--list] [--filter text] [--json]")
 	fmt.Println("  tspack doom [--root .] [--list] [--filter text] [--json] [--out path]")
 	fmt.Println("  tspack run [target] [--root .] [--ready-timeout seconds] [--once]")
+	fmt.Println("  tspack format [paths...] [--root .] [--check]")
+	fmt.Println("  tspack lint [paths...] [--root .] [--fix]")
 	fmt.Println("  tspack inspect <url> [experimental] [--url <url>] [--browser auto|vscode|playwright-chromium|chromium|browser-path|host-path|cdp] [--host-path path] [--browser-path path] [--cdp endpoint] [--list-targets] [--target index-or-id] [--target-url substring] [--viewport WxH] [--selector css] [--point x,y] [--json] [--out file] [--text file]")
 }
 
