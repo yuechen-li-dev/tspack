@@ -17,6 +17,11 @@
 - Format/lint readiness: Biome backend resolution and config presence.
 - Run readiness: runtime executables and declared run targets.
 - Inspect readiness (**experimental**): environment suitability and explicit-backend requirements.
+  - platform-webview candidate and session env checks (`DISPLAY`, `WAYLAND_DISPLAY`, `DBUS_SESSION_BUS_ADDRESS`).
+  - CDP explicit endpoint policy readiness (`TSPACK_INSPECT_CDP_ENDPOINT` if set).
+  - host-path explicit executable policy readiness (`TSPACK_INSPECT_HOST_PATH` if set).
+  - Playwright Core provider resolution (`TSPACK_PLAYWRIGHT_CORE_PATH`, project-local, VS Code bundle candidates).
+  - VS Code-family executable discovery (`code`, `code-insiders`, `code-oss`, `codium`, `vscodium`).
 
 ## What doctor does not do
 
@@ -25,6 +30,16 @@
 - No port scanning.
 - No auto-attachment to running apps.
 - No package-manager mutation.
+
+Scoped exit behavior:
+- `tspack doctor format` exits nonzero when format-critical checks have errors.
+- `tspack doctor run` exits nonzero when run-critical checks have errors.
+- `tspack doctor` (all) and `tspack doctor inspect` remain informational by default.
+
+Environment variables used only for readiness checks:
+- `TSPACK_INSPECT_CDP_ENDPOINT`
+- `TSPACK_INSPECT_HOST_PATH`
+- `TSPACK_PLAYWRIGHT_CORE_PATH`
 
 ## Status meanings
 
