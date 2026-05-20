@@ -57,6 +57,12 @@ func TestDoctorHelpAndJson(t *testing.T) {
 	if e := json.Unmarshal(b, &parsed); e != nil {
 		t.Fatalf("invalid json: %v", e)
 	}
+	if !strings.HasSuffix(string(b), "\n") {
+		t.Fatalf("doctor json output must end with newline")
+	}
+	if !strings.Contains(string(b), "\n  \"root\"") {
+		t.Fatalf("doctor json must use two-space indentation")
+	}
 }
 
 func TestDoctorInvalidScope(t *testing.T) {
@@ -66,5 +72,18 @@ func TestDoctorInvalidScope(t *testing.T) {
 	b, err := cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(b), "TSPACK_DOCTOR_INVALID_SCOPE") {
 		t.Fatalf("expected invalid scope: %v\n%s", err, string(b))
+	}
+}
+
+func TestDoctorFormatMissingBiomeExitsNonzero(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "format", "--root", root)
+	cmd.Dir = repo
+	cmd.Env = []string{"PATH=/definitely-missing"}
+	b, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected nonzero exit for missing biome: %s", string(b))
 	}
 }

@@ -6,7 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 )
 
 type doctorScope string
@@ -141,18 +143,34 @@ func doctorProject(root string) doctorBuilder {
 
 func doctorFormat(root string) doctorBuilder {
 	d := doctorBuilder{}
-	local := filepath.Join(root, "node_modules", ".bin", "biome")
-	if _, err := os.Stat(local); err == nil {
-		d.checks = append(d.checks, DoctorCheck{Name: "biome", Status: "ok", Message: "biome found", Details: map[string]any{"path": local, "source": "local"}})
-	} else if p, err := exec.LookPath("biome"); err == nil {
-		d.checks = append(d.checks, DoctorCheck{Name: "biome", Status: "ok", Message: "biome found", Details: map[string]any{"path": p, "source": "path"}})
+	localBiome := filepath.Join(root, "node_modules", ".bin", "biome")
+	pathBiome, pathErr := exec.LookPath("biome")
+	selected := resolveBiomeBackend(root)
+	if selected != "" {
+		details := map[string]any{
+			"selectedPath": selected,
+			"source":       "path",
+			"localPath":    localBiome,
+			"pathPath":     pathBiome,
+		}
+		if localBiome != "" && selected == localBiome {
+			details["source"] = "local"
+		}
+		if version := commandVersion(selected, "--version"); version != "" {
+			details["version"] = version
+		}
+		d.checks = append(d.checks, DoctorCheck{Name: "biome", Status: "ok", Message: "biome backend found", Details: details})
 	} else {
-		d.checks = append(d.checks, DoctorCheck{Name: "biome", Status: "error", Message: "biome backend missing", Recommendation: "Install biome for format/lint support."})
+		details := map[string]any{"localPath": localBiome}
+		if pathErr == nil {
+			details["pathPath"] = pathBiome
+		}
+		d.checks = append(d.checks, DoctorCheck{Name: "biome", Status: "error", Message: "biome backend missing", Details: details, Recommendation: "Install biome for format/lint support."})
 	}
 	if _, err := os.Stat(filepath.Join(root, "biome.json")); err == nil {
-		d.checks = append(d.checks, DoctorCheck{Name: "config", Status: "ok", Message: "biome.json found"})
+		d.checks = append(d.checks, DoctorCheck{Name: "config", Status: "ok", Message: "biome.json found", Details: map[string]any{"configPath": filepath.Join(root, "biome.json")}})
 	} else if _, err := os.Stat(filepath.Join(root, "biome.jsonc")); err == nil {
-		d.checks = append(d.checks, DoctorCheck{Name: "config", Status: "ok", Message: "biome.jsonc found"})
+		d.checks = append(d.checks, DoctorCheck{Name: "config", Status: "ok", Message: "biome.jsonc found", Details: map[string]any{"configPath": filepath.Join(root, "biome.jsonc")}})
 	} else {
 		d.checks = append(d.checks, DoctorCheck{Name: "config", Status: "warning", Message: "biome config not found; TSPack defaults will be used"})
 	}
@@ -161,21 +179,10 @@ func doctorFormat(root string) doctorBuilder {
 
 func doctorRun(root string) doctorBuilder {
 	d := doctorBuilder{}
-	if p, err := exec.LookPath("node"); err == nil {
-		d.checks = append(d.checks, DoctorCheck{Name: "node", Status: "ok", Message: "node found", Details: map[string]any{"path": p}})
-	} else {
-		d.checks = append(d.checks, DoctorCheck{Name: "node", Status: "warning", Message: "node not found"})
-	}
-	if _, err := exec.LookPath("bun"); err == nil {
-		d.checks = append(d.checks, DoctorCheck{Name: "bun", Status: "ok", Message: "bun found"})
-	} else {
-		d.checks = append(d.checks, DoctorCheck{Name: "bun", Status: "warning", Message: "bun not found"})
-	}
-	if _, err := exec.LookPath("deno"); err == nil {
-		d.checks = append(d.checks, DoctorCheck{Name: "deno", Status: "ok", Message: "deno found"})
-	} else {
-		d.checks = append(d.checks, DoctorCheck{Name: "deno", Status: "warning", Message: "deno not found"})
-	}
+	d.checks = append(d.checks, runtimeCheck("node", "--version"))
+	d.checks = append(d.checks, runtimeCheck("bun", "--version"))
+	d.checks = append(d.checks, runtimeCheck("deno", "--version"))
+	d.checks = append(d.checks, DoctorCheck{Name: "runtime:system", Status: "ok", Message: "system runtime support available"})
 	if _, err := os.Stat(filepath.Join(root, "manifest.tsx")); err != nil {
 		d.checks = append(d.checks, DoctorCheck{Name: "runTargets", Status: "error", Message: "manifest.tsx missing"})
 		return d
@@ -185,7 +192,26 @@ func doctorRun(root string) doctorBuilder {
 	for _, pkg := range ir.Packages {
 		for _, rt := range pkg.RunTargets {
 			count++
-			d.checks = append(d.checks, DoctorCheck{Name: "runTarget:" + rt.Name, Status: "ok", Message: fmt.Sprintf("%s runtime=%s url=%s", rt.Name, rt.Runtime, rt.URL)})
+			readyKind := ""
+			readyPath := ""
+			if rt.Ready != nil {
+				readyKind = rt.Ready.Kind
+				readyPath = rt.Ready.Path
+			}
+			d.checks = append(d.checks, DoctorCheck{
+				Name:    "runTarget:" + rt.Name,
+				Status:  "ok",
+				Message: fmt.Sprintf("%s runtime=%s url=%s", rt.Name, rt.Runtime, rt.URL),
+				Details: map[string]any{
+					"name":              rt.Name,
+					"runtime":           rt.Runtime,
+					"url":               rt.URL,
+					"readyKind":         readyKind,
+					"readyPath":         readyPath,
+					"commandFirstToken": firstToken(rt.Command),
+					"runtimeAvailable":  runtimeAvailable(rt.Runtime),
+				},
+			})
 		}
 	}
 	if count == 0 {
@@ -198,15 +224,151 @@ func doctorInspect(root string) doctorBuilder {
 	_ = root
 	d := doctorBuilder{}
 	d.checks = append(d.checks, DoctorCheck{Name: "inspect", Status: "warning", Message: "inspect is experimental"})
-	display := os.Getenv("DISPLAY") != "" || os.Getenv("WAYLAND_DISPLAY") != ""
-	if display {
-		d.checks = append(d.checks, DoctorCheck{Name: "platform-webview", Status: "ok", Message: "display session detected", Details: map[string]any{"candidate": "webkitgtk"}})
-	} else {
-		d.checks = append(d.checks, DoctorCheck{Name: "platform-webview", Status: "warning", Message: "display session missing (DISPLAY/WAYLAND_DISPLAY)", Details: map[string]any{"candidate": "webkitgtk"}})
-	}
-	d.checks = append(d.checks, DoctorCheck{Name: "cdp", Status: "not_applicable", Message: "available when explicit --cdp endpoint is provided"})
-	d.checks = append(d.checks, DoctorCheck{Name: "host-path", Status: "not_applicable", Message: "explicit host path required"})
+	d.checks = append(d.checks, platformWebviewCheck())
+	d.checks = append(d.checks, DoctorCheck{Name: "cdp", Status: "not_applicable", Message: "explicit endpoint required", Details: map[string]any{"policy": "explicit endpoint only; no port scanning"}})
+	d.checks = append(d.checks, DoctorCheck{Name: "host-path", Status: "not_applicable", Message: "explicit path required", Details: map[string]any{"policy": "explicit host executable path required"}})
+	d.checks = append(d.checks, doctorPlaywrightProvider(root))
+	d.checks = append(d.checks, doctorVSCodeFamily())
 	return d
+}
+
+func runtimeCheck(command string, versionFlag string) DoctorCheck {
+	path, err := exec.LookPath(command)
+	if err != nil {
+		return DoctorCheck{Name: command, Status: "warning", Message: command + " not found"}
+	}
+	details := map[string]any{"path": path}
+	version := commandVersion(path, versionFlag)
+	if version != "" {
+		details["version"] = version
+	}
+	return DoctorCheck{Name: command, Status: "ok", Message: command + " found", Details: details}
+}
+
+func commandVersion(path string, flag string) string {
+	cmd := exec.Command(path, flag)
+	cmd.Env = os.Environ()
+	out, err := runCommandWithTimeout(cmd, time.Second)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func runCommandWithTimeout(cmd *exec.Cmd, timeout time.Duration) ([]byte, error) {
+	timer := time.AfterFunc(timeout, func() {
+		_ = cmd.Process.Kill()
+	})
+	defer timer.Stop()
+	return cmd.Output()
+}
+
+func firstToken(parts []string) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	return parts[0]
+}
+
+func runtimeAvailable(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
+func platformWebviewCheck() DoctorCheck {
+	candidate := "webkitgtk"
+	if runtime.GOOS == "windows" {
+		candidate = "webview2"
+	} else if runtime.GOOS == "darwin" {
+		candidate = "wkwebview"
+	}
+
+	details := map[string]any{
+		"candidate":             candidate,
+		"display":               os.Getenv("DISPLAY"),
+		"waylandDisplay":        os.Getenv("WAYLAND_DISPLAY"),
+		"dbusSessionBusAddress": os.Getenv("DBUS_SESSION_BUS_ADDRESS"),
+	}
+	if runtime.GOOS == "linux" && os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
+		return DoctorCheck{
+			Name:           "platform-webview",
+			Status:         "warning",
+			Message:        "display session missing (DISPLAY/WAYLAND_DISPLAY)",
+			Details:        details,
+			Recommendation: "Run in a desktop session to enable WebKitGTK-based inspect backend checks.",
+		}
+	}
+	return DoctorCheck{Name: "platform-webview", Status: "warning", Message: "platform-webview backend remains experimental", Details: details}
+}
+
+func doctorPlaywrightProvider(root string) DoctorCheck {
+	modulePath, source := resolvePlaywrightCoreProviderPath(root)
+	if modulePath == "" {
+		return DoctorCheck{
+			Name:           "playwright-core-provider",
+			Status:         "warning",
+			Message:        "playwright-core provider missing",
+			Recommendation: "Set TSPACK_PLAYWRIGHT_CORE_PATH or install playwright-core.",
+		}
+	}
+	return DoctorCheck{
+		Name:    "playwright-core-provider",
+		Status:  "ok",
+		Message: "playwright-core provider found",
+		Details: map[string]any{"source": source, "path": modulePath, "loadable": true},
+	}
+}
+func resolvePlaywrightCoreProviderPath(root string) (string, string) {
+	envPath := os.Getenv("TSPACK_PLAYWRIGHT_CORE_PATH")
+	if envPath != "" && fileExists(filepath.Join(envPath, "package.json")) {
+		return envPath, "TSPACK_PLAYWRIGHT_CORE_PATH"
+	}
+	localCandidates := []string{
+		filepath.Join(root, "node_modules", "playwright-core"),
+		filepath.Join(root, "node_modules", "playwright"),
+	}
+	for _, candidate := range localCandidates {
+		if fileExists(filepath.Join(candidate, "package.json")) {
+			return candidate, "project-local"
+		}
+	}
+	vscodeCandidates := []string{
+		"/usr/share/code/resources/app/node_modules/playwright-core",
+		"/usr/share/code-insiders/resources/app/node_modules/playwright-core",
+		"/usr/share/codium/resources/app/node_modules/playwright-core",
+		"/usr/share/code-oss/resources/app/node_modules/playwright-core",
+	}
+	for _, candidate := range vscodeCandidates {
+		if fileExists(filepath.Join(candidate, "package.json")) {
+			return candidate, "VS Code bundle"
+		}
+	}
+	return "", ""
+}
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func doctorVSCodeFamily() DoctorCheck {
+	names := []string{"code", "code-insiders", "code-oss", "codium", "vscodium"}
+	found := []map[string]any{}
+	for _, name := range names {
+		path, err := exec.LookPath(name)
+		if err != nil {
+			continue
+		}
+		entry := map[string]any{"name": name, "path": path}
+		version := commandVersion(path, "--version")
+		if version != "" {
+			entry["version"] = strings.Split(version, "\n")[0]
+		}
+		found = append(found, entry)
+	}
+	if len(found) == 0 {
+		return DoctorCheck{Name: "vscode-family", Status: "warning", Message: "no VS Code-family executables found"}
+	}
+	return DoctorCheck{Name: "vscode-family", Status: "ok", Message: "VS Code-family executable(s) found", Details: map[string]any{"executables": found}}
 }
 
 func printDoctorText(report DoctorReport) {
