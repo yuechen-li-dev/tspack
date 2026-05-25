@@ -40,6 +40,7 @@ This inventory groups primary diagnostic families by subsystem to keep command-s
 - Human CLI output prints diagnostic detail lines under `CODE: message` with indentation for easier resolver/store debugging.
 - Severity is preserved (`error`, `warning`, `info`), and warning diagnostics are included in the report summary.
 - `ok` is `false` when one or more `error` diagnostics exist, otherwise `true`.
+- `TSPACK_WHY_NOT_FOUND` may include detail lines with matching lock package IDs and a suggested `tspack why npm:<name>@<version>` query when a bare package name only matches transitive lock entries.
 
 ## Harness diagnostics
 

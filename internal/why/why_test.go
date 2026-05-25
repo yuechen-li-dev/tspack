@@ -1,6 +1,7 @@
 package why
 
 import (
+	"strings"
 	"reflect"
 	"testing"
 
@@ -49,6 +50,29 @@ func TestWhyMatrix(t *testing.T) {
 	t.Run("missing query", func(t *testing.T) {
 		r := Analyze(g, lf, Options{Query: "left-pad-missing"})
 		assertDiag(t, r.Diagnostics, "TSPACK_WHY_NOT_FOUND")
+	})
+
+	t.Run("missing query with transitive lock suggestion", func(t *testing.T) {
+		r := Analyze(g, lf, Options{Query: "left-pad"})
+		d := mustFindDiag(t, r.Diagnostics, "TSPACK_WHY_NOT_FOUND")
+		if !strings.Contains(d.Message, "why query not found: left-pad") {
+			t.Fatalf("unexpected message: %s", d.Message)
+		}
+		assertDetailContains(t, d.Details, "matching lock packages exist:")
+		assertDetailContains(t, d.Details, "  npm:left-pad@1.2.0")
+		assertDetailContains(t, d.Details, "  tspack why npm:left-pad@1.2.0")
+	})
+
+	t.Run("dedupe duplicate lock edges", func(t *testing.T) {
+		r := Analyze(g, buildLockWithDuplicateEdge(), Options{Query: "left-pad"})
+		d := mustFindDiag(t, r.Diagnostics, "TSPACK_WHY_NOT_FOUND")
+		assertDetailContains(t, d.Details, "  npm:left-pad@1.2.0")
+
+		r2 := Analyze(g, buildLockWithDuplicateEdge(), Options{Query: "npm:left-pad@1.2.0"})
+		e := mustFindExplanation(t, r2, "lock-package", "", "", "")
+		if len(e.LockEdges) != 1 {
+			t.Fatalf("expected single deduped lock edge, got %#v", e.LockEdges)
+		}
 	})
 
 	t.Run("lock direct id", func(t *testing.T) {
@@ -110,6 +134,12 @@ func buildLock() *lockfile.Lockfile {
 	return &lockfile.Lockfile{Packages: []lockfile.Package{{ID: "npm:vue@3.4.0", Name: "vue", Version: "3.4.0", Source: "npm"}, {ID: "npm:react@19.1.0", Name: "react", Version: "19.1.0", Source: "npm"}, {ID: "npm:left-pad@1.2.0", Name: "left-pad", Version: "1.2.0", Source: "npm"}, {ID: "npm:dep-a@1.0.0", Name: "dep-a", Version: "1.0.0", Source: "npm"}}, Edges: []lockfile.Edge{{From: "app:target:vue", To: "npm:vue@3.4.0", Kind: "peer", Optional: true}, {From: "app:target:react", To: "npm:react@19.1.0", Kind: "peer"}, {From: "npm:dep-a@1.0.0", To: "npm:left-pad@1.2.0", Kind: "runtime"}}}
 }
 
+func buildLockWithDuplicateEdge() *lockfile.Lockfile {
+	lf := buildLock()
+	lf.Edges = append(lf.Edges, lockfile.Edge{From: "npm:dep-a@1.0.0", To: "npm:left-pad@1.2.0", Kind: "runtime"})
+	return lf
+}
+
 func mustFindExplanation(t *testing.T, r Result, matchType, pkg, dep, target string) Explanation {
 	t.Helper()
 	for _, e := range r.Explanations {
@@ -140,4 +170,25 @@ func assertDiag(t *testing.T, diags []diag.Diagnostic, code string) {
 		}
 	}
 	t.Fatalf("missing diagnostic %s in %#v", code, diags)
+}
+
+func mustFindDiag(t *testing.T, diags []diag.Diagnostic, code string) diag.Diagnostic {
+	t.Helper()
+	for _, d := range diags {
+		if d.Code == code {
+			return d
+		}
+	}
+	t.Fatalf("missing diagnostic %s in %#v", code, diags)
+	return diag.Diagnostic{}
+}
+
+func assertDetailContains(t *testing.T, details []string, expected string) {
+	t.Helper()
+	for _, detail := range details {
+		if detail == expected {
+			return
+		}
+	}
+	t.Fatalf("expected detail %q in %#v", expected, details)
 }

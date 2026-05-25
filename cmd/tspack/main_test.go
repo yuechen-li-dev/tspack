@@ -129,7 +129,7 @@ process.stdout.write(JSON.stringify(out));`
 	_ = os.WriteFile(filepath.Join(root, "dist", "index.d.ts"), []byte("x\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "dist", "vue.d.ts"), []byte("x\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "dist", "react.d.ts"), []byte("x\n"), 0o644)
-	lock := "[lock]\nformat=1\ntool=\"tspack\"\n[[package]]\nid=\"npm:vue@3.4.0\"\nname=\"vue\"\nversion=\"3.4.0\"\nsource=\"npm\"\nhash=\"h\"\n[[package]]\nid=\"npm:dep-a@1.0.0\"\nname=\"dep-a\"\nversion=\"1.0.0\"\nsource=\"npm\"\nhash=\"h\"\n[[package]]\nid=\"npm:left-pad@1.2.0\"\nname=\"left-pad\"\nversion=\"1.2.0\"\nsource=\"npm\"\nhash=\"h\"\n[[edge]]\nfrom=\"app:target:vue\"\nto=\"npm:vue@3.4.0\"\nkind=\"peer\"\noptional=true\n[[edge]]\nfrom=\"npm:dep-a@1.0.0\"\nto=\"npm:left-pad@1.2.0\"\nkind=\"runtime\"\n[[target]]\npackage=\"app\"\nname=\"core\"\nexport=\".\"\nentry=\"src/index.ts\"\nruntime=\"src/index.ts\"\ntypes=\"dist/index.d.ts\"\n[[target]]\npackage=\"app\"\nname=\"react\"\nexport=\"./react\"\nentry=\"src/react.ts\"\nruntime=\"src/react.ts\"\ntypes=\"dist/react.d.ts\"\n[[target]]\npackage=\"app\"\nname=\"vue\"\nexport=\"./vue\"\nentry=\"src/vue.ts\"\nruntime=\"src/vue.ts\"\ntypes=\"dist/vue.d.ts\"\n"
+	lock := "[lock]\nformat=1\ntool=\"tspack\"\n[[package]]\nid=\"npm:vue@3.4.0\"\nname=\"vue\"\nversion=\"3.4.0\"\nsource=\"npm\"\nhash=\"h\"\n[[package]]\nid=\"npm:dep-a@1.0.0\"\nname=\"dep-a\"\nversion=\"1.0.0\"\nsource=\"npm\"\nhash=\"h\"\n[[package]]\nid=\"npm:left-pad@1.2.0\"\nname=\"left-pad\"\nversion=\"1.2.0\"\nsource=\"npm\"\nhash=\"h\"\n[[package]]\nid=\"npm:left-pad@1.3.0\"\nname=\"left-pad\"\nversion=\"1.3.0\"\nsource=\"npm\"\nhash=\"h\"\n[[edge]]\nfrom=\"app:target:vue\"\nto=\"npm:vue@3.4.0\"\nkind=\"peer\"\noptional=true\n[[edge]]\nfrom=\"npm:dep-a@1.0.0\"\nto=\"npm:left-pad@1.2.0\"\nkind=\"runtime\"\n[[target]]\npackage=\"app\"\nname=\"core\"\nexport=\".\"\nentry=\"src/index.ts\"\nruntime=\"src/index.ts\"\ntypes=\"dist/index.d.ts\"\n[[target]]\npackage=\"app\"\nname=\"react\"\nexport=\"./react\"\nentry=\"src/react.ts\"\nruntime=\"src/react.ts\"\ntypes=\"dist/react.d.ts\"\n[[target]]\npackage=\"app\"\nname=\"vue\"\nexport=\"./vue\"\nentry=\"src/vue.ts\"\nruntime=\"src/vue.ts\"\ntypes=\"dist/vue.d.ts\"\n"
 	_ = os.WriteFile(filepath.Join(root, "ts-lock.toml"), []byte(lock), 0o644)
 
 	cmd := exec.Command("go", "run", "./cmd/tspack", "why", "vue", "--root", root, "--lockfile", filepath.Join(root, "ts-lock.toml"))
@@ -152,6 +152,26 @@ process.stdout.write(JSON.stringify(out));`
 	o = string(b)
 	if !strings.Contains(o, "left-pad") || !strings.Contains(o, "npm:dep-a@1.0.0") {
 		t.Fatalf("expected transitive edge details: %s", o)
+	}
+	if strings.Count(o, "npm:dep-a@1.0.0 -> npm:left-pad@1.2.0 runtime") != 1 {
+		t.Fatalf("expected deduped lock edge output: %s", o)
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "why", "left-pad", "--root", root, "--lockfile", filepath.Join(root, "ts-lock.toml"))
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("why left-pad should be not found and fail: %s", string(b))
+	}
+	o = string(b)
+	if !strings.Contains(o, "TSPACK_WHY_NOT_FOUND: why query not found: left-pad") {
+		t.Fatalf("expected not-found message with query, got: %s", o)
+	}
+	if !strings.Contains(o, "matching lock packages exist:") || !strings.Contains(o, "npm:left-pad@1.2.0") || !strings.Contains(o, "npm:left-pad@1.3.0") {
+		t.Fatalf("expected lock package suggestions: %s", o)
+	}
+	if !strings.Contains(o, "tspack why npm:left-pad@1.2.0") {
+		t.Fatalf("expected concrete suggestion command: %s", o)
 	}
 
 	cmd = exec.Command("go", "run", "./cmd/tspack", "why")
