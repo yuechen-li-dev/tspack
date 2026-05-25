@@ -5,13 +5,13 @@ import path from 'node:path';
 import os from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
-import ts from 'typescript';
 import { discoverNativeTestFiles } from './discover.js';
 import { expect, clearPendingExpectations, verifyNoPendingExpectations } from './expect.js';
 import { assert } from './assert.js';
 import { isSkipSignal, skip } from './skip.js';
 import { runSuite } from './runner.js';
 import { markArtifactWriteActivity, setActivityTracker } from './activity.js';
+import { loadRuntimeSuiteForFile } from './runtime-load.js';
 import { createCommandContext } from './command.js';
 import type { ArtifactRunResult, Diagnostic, DiscoveredFile, RunArtifactsOptions, RunFilesOptions, RunFilesResult, StandaloneArtifactResult, TestArtifact, TestResult } from './types.js';
 
@@ -41,7 +41,7 @@ export async function runNativeTestFiles(options: RunFilesOptions): Promise<RunF
 
   for (const file of runnableFiles) {
     try {
-      const root = await loadRuntimeSuite(file.filePath);
+      const root = await loadRuntimeSuiteForFile(file.filePath, { rootDir: options.rootDir });
       const artifactRoot = options.artifactRoot ?? path.join(options.rootDir, '.tspack', 'test-artifacts');
       const runResults = await runSuite(root, { artifactRoot, defaultTimeoutSeconds: options.defaultTimeoutSeconds });
       for (const result of runResults) {
@@ -77,7 +77,7 @@ export async function runNativeArtifacts(options: RunArtifactsOptions): Promise<
       continue;
     }
     try {
-      const root = await loadRuntimeSuite(file.filePath);
+      const root = await loadRuntimeSuiteForFile(file.filePath, { rootDir: options.rootDir });
       for (const declared of fileArtifacts) {
         artifacts.push(await runStandaloneArtifact(root, declared.id, declared.name, declared.path, declared.format, artifactRoot, options.defaultTimeoutSeconds ?? 30));
       }
@@ -227,29 +227,6 @@ function sanitizeId(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]+/g, '__').replace(/^_+|_+$/g, '').toLowerCase();
 }
 
-async function loadRuntimeSuite(filePath: string): Promise<RuntimeNode> {
-  const source = fs.readFileSync(filePath, 'utf8');
-  const compiled = ts.transpileModule(source, { fileName: filePath, compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.React, jsxFactory: '__tspackJsx' } });
-  const prelude = `const __tspackJsx = (type, props, ...children) => { if (typeof type === 'function') return type(props ?? {}, ...children); return { __tag: String(type), props: props ?? {}, children }; };
-const makeTag = (tag) => (props, ...children) => ({ __tag: tag, props: props ?? {}, children });
-const Suite = makeTag('Suite'); const Fact = makeTag('Fact'); const Theory = makeTag('Theory'); const Case = makeTag('Case'); const Artifact = makeTag('Artifact'); const Valid = makeTag('Valid'); const Invalid = makeTag('Invalid'); const Project = makeTag('Project'); const CycleTime = makeTag('CycleTime');
-const assert = globalThis.__tspackAssert; const expect = globalThis.__tspackExpect; const skip = globalThis.__tspackSkip;`;
-  const tempFile = path.join(path.dirname(filePath), `${path.basename(filePath)}.tspack-temp.mjs`);
-  (globalThis as Record<string, unknown>).__tspackAssert = assert;
-  (globalThis as Record<string, unknown>).__tspackExpect = expect;
-  (globalThis as Record<string, unknown>).__tspackSkip = skip;
-  fs.writeFileSync(tempFile, `${prelude}\n${compiled.outputText}`);
-  try {
-    const mod = await import(pathToFileURL(tempFile).href);
-    const root = mod.default as RuntimeNode;
-    if (!root || root.__tag !== 'Suite') {
-      throw new Error('default export must evaluate to Suite runtime node');
-    }
-    return root;
-  } finally {
-    fs.rmSync(tempFile, { force: true });
-  }
-}
 
 function isNode(value: unknown): value is RuntimeNode {
   return !!value && typeof value === 'object' && typeof (value as RuntimeNode).__tag === 'string' && Array.isArray((value as RuntimeNode).children);
