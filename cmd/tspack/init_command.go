@@ -131,9 +131,9 @@ func parseInitArgs(args []string) (initConfig, []string) {
 		case "--dry-run":
 			cfg.dryRun = true
 		case "--target", "--runtime-target":
-			i++
-			if i >= len(args) {
-				diags = append(diags, "TSPACK_INIT_WRITE_FAILED: "+a+" requires a value")
+			diags = append(diags, "TSPACK_INIT_UNSUPPORTED_FLAG: "+a+" is not supported in M30")
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				i++
 			}
 		default:
 			diags = append(diags, "TSPACK_INIT_WRITE_FAILED: unknown init flag: "+a)

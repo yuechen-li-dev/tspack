@@ -1,11 +1,15 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tspack/tspack/internal/project"
 )
 
 func TestInitHelpIncludesCommand(t *testing.T) {
@@ -71,6 +75,23 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		b, err := cmd.CombinedOutput()
 		if err == nil || !strings.Contains(string(b), "TSPACK_INIT_INVALID_VERSION") {
 			t.Fatalf("expected invalid version diagnostic: %v\n%s", err, string(b))
+		}
+	})
+
+	t.Run("unsupported flags", func(t *testing.T) {
+		root := t.TempDir()
+		cmd := exec.Command("go", "run", "./cmd/tspack", "init", "--root", root, "--kind", "library", "--name", "demo", "--target", "core")
+		cmd.Dir = repo
+		b, err := cmd.CombinedOutput()
+		if err == nil || !strings.Contains(string(b), "TSPACK_INIT_UNSUPPORTED_FLAG") {
+			t.Fatalf("expected unsupported flag diagnostic: %v\n%s", err, string(b))
+		}
+
+		cmd = exec.Command("go", "run", "./cmd/tspack", "init", "--root", root, "--kind", "app", "--name", "demo", "--runtime-target")
+		cmd.Dir = repo
+		b, err = cmd.CombinedOutput()
+		if err == nil || !strings.Contains(string(b), "TSPACK_INIT_UNSUPPORTED_FLAG") {
+			t.Fatalf("expected unsupported runtime-target diagnostic: %v\n%s", err, string(b))
 		}
 	})
 
@@ -154,4 +175,125 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("generated manifests parse through frontend and validate", func(t *testing.T) {
+		frontendCLIPath := filepath.Join(repo, "manifest-frontend", "dist", "src", "cli.js")
+		if _, err := os.Stat(frontendCLIPath); err != nil {
+			t.Skipf("frontend CLI not built: %v", err)
+		}
+
+		cases := []struct {
+			kind            string
+			name            string
+			version         string
+			targetName      string
+			wantDeclarations string
+		}{
+			{
+				kind:            "library",
+				name:            "@acme/widgets",
+				version:         "0.1.0",
+				targetName:      "core",
+				wantDeclarations: "required",
+			},
+			{
+				kind:            "app",
+				name:            "acme-demo",
+				version:         "0.1.0",
+				targetName:      "app",
+				wantDeclarations: "optional",
+			},
+		}
+
+		for _, tc := range cases {
+			tc := tc
+			t.Run(tc.kind, func(t *testing.T) {
+				root := t.TempDir()
+				cmd := exec.Command("go", "run", "./cmd/tspack", "init", "--root", root, "--kind", tc.kind, "--name", tc.name, "--version", tc.version)
+				cmd.Dir = repo
+				b, err := cmd.CombinedOutput()
+				if err != nil {
+					t.Fatalf("init failed: %v\n%s", err, string(b))
+				}
+
+				opts := project.DefaultOptions(root)
+				opts.FrontendCLIPath = frontendCLIPath
+				result := project.Check(opts)
+				for _, d := range result.Diagnostics {
+					if d.Severity == "error" {
+						t.Fatalf("manifest frontend/IR validation failed: %#v", result.Diagnostics)
+					}
+				}
+
+				rawIR, err := loadManifestIR(opts)
+				if err != nil {
+					t.Fatalf("frontend IR diagnostics: %v", err)
+				}
+				packages, ok := rawIR["packages"].([]any)
+				if !ok || len(packages) != 1 {
+					t.Fatalf("expected one package, got %#v", rawIR["packages"])
+				}
+				pkg, ok := packages[0].(map[string]any)
+				if !ok {
+					t.Fatalf("package should be object: %#v", packages[0])
+				}
+				if pkg["name"] != tc.name {
+					t.Fatalf("unexpected package name: %#v", pkg["name"])
+				}
+				if pkg["version"] != tc.version {
+					t.Fatalf("unexpected package version: %#v", pkg["version"])
+				}
+				if pkg["kind"] != tc.kind {
+					t.Fatalf("unexpected package kind: %#v", pkg["kind"])
+				}
+				targets, ok := pkg["targets"].([]any)
+				if !ok || len(targets) != 1 {
+					t.Fatalf("unexpected target set: %#v", pkg["targets"])
+				}
+				target, ok := targets[0].(map[string]any)
+				if !ok || target["name"] != tc.targetName {
+					t.Fatalf("unexpected target set: %#v", targets)
+				}
+				policies, ok := pkg["policies"].(map[string]any)
+				if !ok {
+					t.Fatalf("missing policies: %#v", pkg["policies"])
+				}
+				typePolicy, ok := policies["types"].(map[string]any)
+				if !ok || typePolicy["declarations"] != tc.wantDeclarations {
+					t.Fatalf("unexpected declarations policy: %#v", typePolicy)
+				}
+				boundariesPolicy, ok := policies["boundaries"].(map[string]any)
+				if !ok || boundariesPolicy["crossTargetImports"] == "" {
+					t.Fatalf("boundaries policy should be present: %#v", boundariesPolicy)
+				}
+			})
+		}
+	})
+}
+
+func loadManifestIR(opts project.Options) (map[string]any, error) {
+	cliPath := opts.FrontendCLIPath
+	cmd := exec.Command("node", cliPath, opts.ManifestPath)
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, err
+	}
+
+	type cliOutput struct {
+		OK          bool            `json:"ok"`
+		IR          json.RawMessage `json:"ir"`
+		Diagnostics []any           `json:"diagnostics"`
+	}
+	var out cliOutput
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	if !out.OK {
+		return nil, fmt.Errorf("frontend returned diagnostics: %#v", out.Diagnostics)
+	}
+	var ir map[string]any
+	if err := json.Unmarshal(out.IR, &ir); err != nil {
+		return nil, err
+	}
+	return ir, nil
 }
