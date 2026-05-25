@@ -33,3 +33,7 @@ TSPack is still not:
 - `tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. See `docs/format-lint.md`.
 
 - `tspack doctor` adds non-mutating environment diagnostics. See `docs/doctor.md`.
+
+
+- VS Code extension and standalone LSP are not required for manifest authoring in M31f.
+- Manifest helper authoring surface is not runtime helper execution.

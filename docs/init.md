@@ -13,6 +13,8 @@ Generated manifests import from `tspack/manifest`, so TS-aware editors provide a
 - `manifest.tsx`
 - `src/index.ts` for libraries
 - `src/main.ts` for apps
+- `.tspack/types/tspack-manifest.d.ts` (local manifest authoring declaration surface)
+- `tspack-env.d.ts` (project-level TypeScript reference for `tspack/manifest`)
 
 ## Flags
 
@@ -45,3 +47,10 @@ By default, `tspack init` refuses to overwrite existing generated files and emit
 - `tspack update`
 - `tspack sync`
 - `tspack run` (after manually declaring `RunTargets`)
+
+
+## Manifest authoring type support
+
+The generated declaration files exist only for local editor/autocomplete/typechecking support.
+They are not runtime helpers and are not the manifest parser or validator source of truth.
+If removed, regenerate them by rerunning `tspack init --force` in the project root.
