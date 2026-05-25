@@ -122,3 +122,11 @@ Page/analyzer:
 - `TSPACK_TEST_IMPORT_OUTSIDE_ROOT`
 - `TSPACK_TEST_UNSUPPORTED_IMPORT`
 - `TSPACK_TEST_MODULE_TRANSPILE_FAILED`
+
+## Update target diagnostics
+
+- `TSPACK_UPDATE_TARGET_NOT_FOUND`: no declared dependency key or npm package matched the query.
+- `TSPACK_UPDATE_TARGET_AMBIGUOUS`: query matched multiple incompatible declared dependencies.
+- `TSPACK_UPDATE_TARGET_UNSUPPORTED_SOURCE`: query selected a non-npm declared dependency kind.
+- `TSPACK_UPDATE_TARGET_LOCK_MISSING`: non-selected root dependency had no prior lock pin and may refresh.
+- `TSPACK_UPDATE_TARGET_RESOLUTION_FAILED`: targeted resolution failed.

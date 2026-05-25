@@ -179,3 +179,51 @@ func fakeIntegrity(body []byte) string {
 	s := sha512.Sum512(body)
 	return "sha512-" + base64.StdEncoding.EncodeToString(s[:])
 }
+
+func TestTargetedUpdatePreservesNonSelectedRootDep(t *testing.T) {
+	root := t.TempDir()
+	irPath := writeIR(t, root, map[string]any{"format": 1, "workspace": map[string]any{"name": "ws"}, "packages": []map[string]any{{"name": "app", "version": "1.0.0", "kind": "library", "dependencies": []map[string]any{{"key": "react", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "react", "range": "^18.0.0"}}, {"key": "lodash", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "lodash", "range": "^4.0.0"}}}, "targets": []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "src/index.ts", "types": "dist/index.d.ts", "deps": []string{"react", "lodash"}, "peers": []string{}}}, "tools": []string{}, "boundaries": []any{}, "publish": map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}}}}})
+
+	client := &fakeClient{meta: map[string]*resolver.PackageMetadata{}, tar: map[string][]byte{}}
+	react182 := fakeRegistryTarball(t, "react", "18.2.0", nil)
+	react183 := fakeRegistryTarball(t, "react", "18.3.1", nil)
+	lodash420 := fakeRegistryTarball(t, "lodash", "4.17.20", nil)
+	lodash421 := fakeRegistryTarball(t, "lodash", "4.17.21", nil)
+	client.meta["react"] = &resolver.PackageMetadata{Name: "react", Versions: map[string]resolver.PackageVersion{"18.2.0": {Name: "react", Version: "18.2.0", Dist: resolver.PackageDist{Tarball: "react-182", Integrity: fakeIntegrity(react182)}}}}
+	client.meta["lodash"] = &resolver.PackageMetadata{Name: "lodash", Versions: map[string]resolver.PackageVersion{"4.17.20": {Name: "lodash", Version: "4.17.20", Dist: resolver.PackageDist{Tarball: "lodash-420", Integrity: fakeIntegrity(lodash420)}}}}
+	client.tar["react-182"] = react182
+	client.tar["react-183"] = react183
+	client.tar["lodash-420"] = lodash420
+	client.tar["lodash-421"] = lodash421
+
+	opts := DefaultOptions(root)
+	opts.ManifestIRPath = irPath
+	opts.ResolverClient = client
+	first := Update(opts)
+	if hasErrors(first.Diagnostics) {
+		t.Fatalf("initial update failed: %#v", first.Diagnostics)
+	}
+	client.meta["react"].Versions["18.3.1"] = resolver.PackageVersion{Name: "react", Version: "18.3.1", Dist: resolver.PackageDist{Tarball: "react-183", Integrity: fakeIntegrity(react183)}}
+	client.meta["lodash"].Versions["4.17.21"] = resolver.PackageVersion{Name: "lodash", Version: "4.17.21", Dist: resolver.PackageDist{Tarball: "lodash-421", Integrity: fakeIntegrity(lodash421)}}
+	second := UpdateWithOptions(opts, UpdateOptions{Query: "react"})
+	if hasErrors(second.Diagnostics) {
+		t.Fatalf("targeted update failed: %#v", second.Diagnostics)
+	}
+	lf, _, err := lockfile.LoadFile(opts.LockfilePath)
+	if err != nil {
+		t.Fatalf("load lock: %v", err)
+	}
+	foundReact := false
+	foundLodash := false
+	for _, p := range lf.Packages {
+		if p.Name == "react" && p.Version == "18.3.1" {
+			foundReact = true
+		}
+		if p.Name == "lodash" && p.Version == "4.17.20" {
+			foundLodash = true
+		}
+	}
+	if !foundReact || !foundLodash {
+		t.Fatalf("expected react upgraded and lodash pinned; lock=%#v", lf.Packages)
+	}
+}

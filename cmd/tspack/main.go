@@ -43,13 +43,16 @@ type CheckJSONDiagnostic struct {
 	Fixes    interface{} `json:"fixes,omitempty"`
 }
 type UpdateDryRunJSONReport struct {
-	Command     string                `json:"command"`
-	DryRun      bool                  `json:"dryRun"`
-	OK          bool                  `json:"ok"`
-	Root        string                `json:"root"`
-	Summary     UpdateDryRunSummary   `json:"summary"`
-	Changes     UpdateDryRunChanges   `json:"changes"`
-	Diagnostics []CheckJSONDiagnostic `json:"diagnostics"`
+	Command     string                         `json:"command"`
+	DryRun      bool                           `json:"dryRun"`
+	OK          bool                           `json:"ok"`
+	Root        string                         `json:"root"`
+	Targeted    bool                           `json:"targeted,omitempty"`
+	Query       string                         `json:"query,omitempty"`
+	Selected    []project.UpdateSelectedTarget `json:"selected,omitempty"`
+	Summary     UpdateDryRunSummary            `json:"summary"`
+	Changes     UpdateDryRunChanges            `json:"changes"`
+	Diagnostics []CheckJSONDiagnostic          `json:"diagnostics"`
 }
 type UpdateDryRunSummary struct {
 	Added     int `json:"added"`
@@ -506,6 +509,7 @@ func runCommand(args []string) {
 	jsonOutput := false
 	clean := false
 	updateDryRun := false
+	updateQuery := ""
 	packOpts := project.PackOptions{}
 	whyOpts := project.WhyOptions{}
 	for i := 1; i < len(args); i++ {
@@ -561,20 +565,28 @@ func runCommand(args []string) {
 				fmt.Fprintf(os.Stderr, "unknown %s flag: %s\n", cmd, args[i])
 				os.Exit(1)
 			}
+			if cmd == "update" {
+				if updateQuery != "" {
+					fmt.Fprintln(os.Stderr, "update accepts at most one query")
+					os.Exit(1)
+				}
+				updateQuery = args[i]
+			}
 		}
 	}
 	var result project.Result
 	if cmd == "why" && len(args) > 1 {
 		whyOpts.Query = args[1]
 	}
+	updateOptions := project.UpdateOptions{Query: updateQuery}
 	switch cmd {
 	case "check":
 		result = project.Check(opts)
 	case "update":
 		if updateDryRun {
-			result = project.UpdateDryRun(opts)
+			result = project.UpdateDryRunWithOptions(opts, updateOptions)
 		} else {
-			result = project.Update(opts)
+			result = project.UpdateWithOptions(opts, updateOptions)
 		}
 	case "sync":
 		result = project.Sync(opts, clean)
@@ -737,6 +749,11 @@ func runCommand(args []string) {
 func printUpdateDryRunPlan(result project.Result) {
 	fmt.Println("TSPack update dry run")
 	fmt.Println()
+	if result.UpdateTarget != nil && result.UpdateTarget.Targeted {
+		fmt.Println("Target:")
+		fmt.Printf("  %s\n", result.UpdateTarget.Query)
+		fmt.Println()
+	}
 	fmt.Println("Lockfile changes:")
 	diff := result.LockDiff
 	if diff == nil || (len(diff.PackagesAdded) == 0 && len(diff.PackagesRemoved) == 0 && len(diff.PackagesChanged) == 0) {
@@ -773,6 +790,11 @@ func buildUpdateDryRunJSONReport(opts project.Options, result project.Result) Up
 		DryRun:  true,
 		OK:      !hasErrors(result.Diagnostics),
 		Root:    opts.RootDir,
+	}
+	if result.UpdateTarget != nil {
+		report.Targeted = result.UpdateTarget.Targeted
+		report.Query = result.UpdateTarget.Query
+		report.Selected = result.UpdateTarget.Selected
 	}
 	if result.DryRun != nil {
 		report.Summary = UpdateDryRunSummary(result.DryRun.Summary)
