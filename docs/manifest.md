@@ -3,13 +3,20 @@
 `manifest.tsx` is a **typed document**, not an executable TypeScript program.
 TSPack parses/analyzes AST and never executes user manifest code.
 
+## Authoring type surface
+
+TSPack provides a local TypeScript authoring surface at `tspack/manifest`.
+- Import helpers, policy types, and JSX manifest elements directly from `tspack/manifest`.
+- This surface is for editor autocomplete/typechecking only.
+- Manifests are still statically parsed; helper functions are not runtime-executed.
+
 ## M1 constraints
 
 - File must be root `manifest.tsx`.
 - Imports allowed only from `tspack/manifest` (including `import type`).
 - Default export must be `define(<Workspace>...</Workspace>)`.
 - Approved helpers: `define`, `defineDeps`, `npm`, `git`, `path`, `workspace`, `dep`, `peer`, `tool`.
-- Approved JSX elements: `Workspace`, `Package`, `Policies`, `Targets`, `Tools`, `Boundaries`, `Publish`.
+- Approved JSX elements: `Workspace`, `Packages`, `Package`, `Policies`, `Targets`, `RunTargets`, `Tools`, `Boundaries`, `Publish`.
 - `rows={[...]}` and `values={[...]}` must remain literal/restricted.
 
 ## Forbidden constructs

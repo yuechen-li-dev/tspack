@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "jsx": "preserve",
+    "types": [],
+    "baseUrl": ".",
+    "paths": {
+      "tspack/manifest": ["src/tspack-manifest.d.ts"]
+    }
+  },
+  "include": [
+    "tests/typing-fixtures/valid/**/*.tsx",
+    "src/tspack-manifest.d.ts"
+  ]
+}
