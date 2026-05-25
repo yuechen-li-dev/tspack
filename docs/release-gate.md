@@ -43,3 +43,5 @@
 - `npm test` in `manifest-frontend/` remains responsible for executing frontend tests.
 - `npm run typecheck:manifest-api` in `manifest-frontend/` validates `tspack/manifest` authoring declarations against typed fixtures.
 - Stricter standalone test-file typecheck is tracked as future M31c work.
+
+- `tspack outdated --json` (fixture/fake-registry based in CI).

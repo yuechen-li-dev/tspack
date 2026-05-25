@@ -8,6 +8,7 @@
 | `tspack sync` | Materialize compatibility `node_modules` from lock/store. | No / No | Does not re-resolve versions. | `docs/materialization.md` |
 | `tspack why`
 - `tspack how` | Explain why dependency/target/lock package is present. | No / No | Not a resolver/editor command. | `docs/why.md` |
+| `tspack outdated` | Report declared dependencies with current/wanted/latest npm freshness data (`--json` supported). | No / No | Read-only query; no lock/store/node_modules mutation. | `docs/outdated.md` |
 | `tspack pack` | Create deterministic package archives. | No / No | Not a build pipeline or publish command. | `docs/pack.md` |
 | `tspack run [target]` | Start declared manifest `RunTargets` and wait for readiness. | No / No | Not `npm run`; no package.json script inference. | `docs/run.md` |
 | `tspack test` | Run test backends (native xTest and/or Vitest). | No / No | Not a generic task runner. | `docs/test-command.md`, `docs/native-test-harness.md` |

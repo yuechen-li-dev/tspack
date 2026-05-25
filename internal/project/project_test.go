@@ -22,11 +22,22 @@ import (
 )
 
 type fakeClient struct {
-	meta map[string]*resolver.PackageMetadata
-	tar  map[string][]byte
+	meta             map[string]*resolver.PackageMetadata
+	metaErr          map[string]error
+	tar              map[string][]byte
+	metaCalls        []string
+	tarCalls         []string
+	packageMetaCalls int
 }
 
 func (f *fakeClient) PackageMetadata(_ context.Context, name string) (*resolver.PackageMetadata, error) {
+	f.metaCalls = append(f.metaCalls, name)
+	f.packageMetaCalls++
+	if f.metaErr != nil {
+		if err, ok := f.metaErr[name]; ok {
+			return nil, err
+		}
+	}
 	m, ok := f.meta[name]
 	if !ok {
 		return nil, errors.New("not found")
@@ -34,6 +45,7 @@ func (f *fakeClient) PackageMetadata(_ context.Context, name string) (*resolver.
 	return m, nil
 }
 func (f *fakeClient) Tarball(_ context.Context, url string) ([]byte, error) {
+	f.tarCalls = append(f.tarCalls, url)
 	b, ok := f.tar[url]
 	if !ok {
 		return nil, errors.New("not found")
@@ -233,6 +245,212 @@ func TestFrontendBridgeMissingCLI(t *testing.T) {
 	res := Check(opts)
 	if !hasErrCode(res.Diagnostics, "TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED") {
 		t.Fatalf("expected frontend failure")
+	}
+}
+
+func TestOutdatedWantedAndLatestAvailable(t *testing.T) {
+	dir := t.TempDir()
+	ir := simpleIR()
+	pkgs := ir["packages"].([]map[string]any)
+	pkgs[0]["dependencies"] = []map[string]any{
+		{"kind": "peer", "name": "react", "source": map[string]any{"kind": "npm", "package": "react", "range": ">=18 <20"}},
+	}
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = writeIR(t, dir, ir)
+	lf := &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"}, Packages: []lockfile.Package{{ID: "npm:react@18.2.0", Name: "react", Source: "npm", Version: "18.2.0", Hash: "sha256:dummy"}}}
+	b, _ := lockfile.Marshal(lf)
+	_ = os.WriteFile(opts.LockfilePath, b, 0o644)
+	opts.ResolverClient = &fakeClient{meta: map[string]*resolver.PackageMetadata{"react": {Name: "react", DistTags: map[string]string{"latest": "20.0.0"}, Versions: map[string]resolver.PackageVersion{"18.2.0": {Version: "18.2.0"}, "19.2.0": {Version: "19.2.0"}, "20.0.0": {Version: "20.0.0"}}}}}
+	res := Outdated(opts)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("outdated failed: %#v", res.Diagnostics)
+	}
+	if got := res.Outdated.Dependencies[0].Status; got != "wanted_available" {
+		t.Fatalf("expected wanted_available, got %s", got)
+	}
+}
+
+func TestOutdatedMissingLockWarning(t *testing.T) {
+	dir := t.TempDir()
+	ir := simpleIR()
+	pkgs := ir["packages"].([]map[string]any)
+	pkgs[0]["dependencies"] = []map[string]any{
+		{"kind": "dep", "name": "left-pad", "source": map[string]any{"kind": "npm", "package": "left-pad", "range": "^1.0.0"}},
+	}
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = writeIR(t, dir, ir)
+	opts.ResolverClient = &fakeClient{meta: map[string]*resolver.PackageMetadata{"left-pad": {Name: "left-pad", DistTags: map[string]string{"latest": "1.3.0"}, Versions: map[string]resolver.PackageVersion{"1.0.0": {Version: "1.0.0"}, "1.3.0": {Version: "1.3.0"}}}}}
+	res := Outdated(opts)
+	if !hasErrCode(res.Diagnostics, "TSPACK_OUTDATED_LOCKFILE_MISSING") {
+		t.Fatalf("expected lockfile warning")
+	}
+	if status := res.Outdated.Dependencies[0].Status; status != "missing_lock" {
+		t.Fatalf("expected missing_lock, got %s", status)
+	}
+	if opts.ResolverClient.(*fakeClient).packageMetaCalls != 1 {
+		t.Fatalf("expected metadata fetch for missing lock")
+	}
+}
+
+func TestOutdatedCurrentStatusAndNoDiagnostics(t *testing.T) {
+	dir := t.TempDir()
+	ir := simpleIR()
+	pkgs := ir["packages"].([]map[string]any)
+	pkgs[0]["dependencies"] = []map[string]any{
+		{"kind": "dep", "name": "left-pad", "source": map[string]any{"kind": "npm", "package": "left-pad", "range": "^1.0.0"}},
+	}
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = writeIR(t, dir, ir)
+	lf := &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"}, Packages: []lockfile.Package{{ID: "npm:left-pad@1.0.0", Name: "left-pad", Source: "npm", Version: "1.0.0", Hash: "sha256:dummy"}}}
+	lockBytes, _ := lockfile.Marshal(lf)
+	_ = os.WriteFile(opts.LockfilePath, lockBytes, 0o644)
+	client := &fakeClient{meta: map[string]*resolver.PackageMetadata{"left-pad": {Name: "left-pad", DistTags: map[string]string{"latest": "1.0.0"}, Versions: map[string]resolver.PackageVersion{"1.0.0": {Version: "1.0.0"}}}}}
+	opts.ResolverClient = client
+	res := Outdated(opts)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("outdated failed: %#v", res.Diagnostics)
+	}
+	if len(res.Diagnostics) != 0 {
+		t.Fatalf("expected no diagnostics, got %#v", res.Diagnostics)
+	}
+	dep := res.Outdated.Dependencies[0]
+	if dep.Status != "current" {
+		t.Fatalf("expected current, got %s", dep.Status)
+	}
+	if res.Outdated.Summary.Current != 1 || res.Outdated.Summary.Outdated != 0 {
+		t.Fatalf("unexpected summary: %#v", res.Outdated.Summary)
+	}
+	if len(client.tarCalls) != 0 {
+		t.Fatalf("outdated should not fetch tarballs")
+	}
+	lockAfter, _ := os.ReadFile(opts.LockfilePath)
+	if !bytes.Equal(lockBytes, lockAfter) {
+		t.Fatalf("outdated mutated lockfile")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "node_modules")); !os.IsNotExist(err) {
+		t.Fatalf("outdated created node_modules")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".tspack", "store")); !os.IsNotExist(err) {
+		t.Fatalf("outdated created store")
+	}
+}
+
+func TestOutdatedLatestOutsideRange(t *testing.T) {
+	dir := t.TempDir()
+	ir := simpleIR()
+	pkgs := ir["packages"].([]map[string]any)
+	pkgs[0]["dependencies"] = []map[string]any{
+		{"kind": "dep", "name": "dep-a", "source": map[string]any{"kind": "npm", "package": "dep-a", "range": "^1.0.0"}},
+	}
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = writeIR(t, dir, ir)
+	lf := &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"}, Packages: []lockfile.Package{{ID: "npm:dep-a@1.5.0", Name: "dep-a", Source: "npm", Version: "1.5.0", Hash: "sha256:dummy"}}}
+	lockBytes, _ := lockfile.Marshal(lf)
+	_ = os.WriteFile(opts.LockfilePath, lockBytes, 0o644)
+	opts.ResolverClient = &fakeClient{meta: map[string]*resolver.PackageMetadata{"dep-a": {Name: "dep-a", DistTags: map[string]string{"latest": "2.0.0"}, Versions: map[string]resolver.PackageVersion{"1.4.0": {Version: "1.4.0"}, "1.5.0": {Version: "1.5.0"}, "2.0.0": {Version: "2.0.0"}}}}}
+	res := Outdated(opts)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("outdated failed: %#v", res.Diagnostics)
+	}
+	dep := res.Outdated.Dependencies[0]
+	if dep.Status != "latest_available" || dep.Wanted != "1.5.0" || dep.Latest != "2.0.0" {
+		t.Fatalf("unexpected dependency: %#v", dep)
+	}
+}
+
+func TestOutdatedSkipsNonNPMSourcesWithoutMetadataFetch(t *testing.T) {
+	dir := t.TempDir()
+	ir := simpleIR()
+	pkgs := ir["packages"].([]map[string]any)
+	pkgs[0]["dependencies"] = []map[string]any{
+		{"kind": "workspace", "name": "core", "source": map[string]any{"kind": "workspace", "package": "core"}},
+	}
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = writeIR(t, dir, ir)
+	client := &fakeClient{meta: map[string]*resolver.PackageMetadata{}}
+	opts.ResolverClient = client
+	res := Outdated(opts)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("outdated failed: %#v", res.Diagnostics)
+	}
+	if client.packageMetaCalls != 0 {
+		t.Fatalf("expected no registry fetch for non-npm dependency")
+	}
+	dep := res.Outdated.Dependencies[0]
+	if dep.Status != "not_applicable" {
+		t.Fatalf("expected not_applicable, got %s", dep.Status)
+	}
+	if !hasErrCode(res.Diagnostics, "TSPACK_OUTDATED_UNSUPPORTED_SOURCE") {
+		t.Fatalf("expected unsupported source warning")
+	}
+}
+
+func TestOutdatedMetadataFailureAndMultipleLockedVersions(t *testing.T) {
+	dir := t.TempDir()
+	ir := simpleIR()
+	pkgs := ir["packages"].([]map[string]any)
+	pkgs[0]["dependencies"] = []map[string]any{
+		{"kind": "dep", "name": "dep-a", "source": map[string]any{"kind": "npm", "package": "dep-a", "range": "^1.0.0"}},
+	}
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = writeIR(t, dir, ir)
+	lf := &lockfile.Lockfile{
+		Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"},
+		Packages: []lockfile.Package{
+			{ID: "npm:dep-a@1.0.0", Name: "dep-a", Source: "npm", Version: "1.0.0", Hash: "sha256:a"},
+			{ID: "npm:dep-a@1.1.0", Name: "dep-a", Source: "npm", Version: "1.1.0", Hash: "sha256:b"},
+		},
+	}
+	lockBytes, _ := lockfile.Marshal(lf)
+	_ = os.WriteFile(opts.LockfilePath, lockBytes, 0o644)
+	client := &fakeClient{
+		meta:    map[string]*resolver.PackageMetadata{},
+		metaErr: map[string]error{"dep-a": errors.New("metadata request failed: status=500 package=dep-a")},
+	}
+	opts.ResolverClient = client
+	res := Outdated(opts)
+	if !hasErrors(res.Diagnostics) {
+		t.Fatalf("expected metadata error")
+	}
+	dep := res.Outdated.Dependencies[0]
+	if dep.Status != "error" {
+		t.Fatalf("expected error status, got %s", dep.Status)
+	}
+	if !reflect.DeepEqual(dep.Current, []string{"1.0.0", "1.1.0"}) {
+		t.Fatalf("unexpected current versions: %#v", dep.Current)
+	}
+	if !hasErrCode(res.Diagnostics, "TSPACK_OUTDATED_METADATA_FETCH_FAILED") {
+		t.Fatalf("expected metadata fetch diagnostic")
+	}
+	if len(res.Diagnostics) == 0 || len(res.Diagnostics[0].Details) == 0 {
+		t.Fatalf("expected diagnostic details with package identity")
+	}
+}
+
+func TestOutdatedRootDirFromDifferentCWD(t *testing.T) {
+	root := t.TempDir()
+	other := t.TempDir()
+	ir := simpleIR()
+	pkgs := ir["packages"].([]map[string]any)
+	pkgs[0]["dependencies"] = []map[string]any{
+		{"kind": "dep", "name": "dep-a", "source": map[string]any{"kind": "npm", "package": "dep-a", "range": "^1.0.0"}},
+	}
+	opts := DefaultOptions(root)
+	opts.ManifestIRPath = writeIR(t, root, ir)
+	lf := &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"}, Packages: []lockfile.Package{{ID: "npm:dep-a@1.0.0", Name: "dep-a", Source: "npm", Version: "1.0.0", Hash: "sha256:dummy"}}}
+	lockBytes, _ := lockfile.Marshal(lf)
+	_ = os.WriteFile(opts.LockfilePath, lockBytes, 0o644)
+	client := &fakeClient{meta: map[string]*resolver.PackageMetadata{"dep-a": {Name: "dep-a", DistTags: map[string]string{"latest": "1.0.0"}, Versions: map[string]resolver.PackageVersion{"1.0.0": {Version: "1.0.0"}}}}}
+	opts.ResolverClient = client
+	cwd, _ := os.Getwd()
+	defer func() { _ = os.Chdir(cwd) }()
+	_ = os.Chdir(other)
+	res := Outdated(opts)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("outdated failed: %#v", res.Diagnostics)
+	}
+	if client.packageMetaCalls != 1 || len(client.metaCalls) != 1 || client.metaCalls[0] != "dep-a" {
+		t.Fatalf("unexpected registry lookup calls: %#v", client.metaCalls)
 	}
 }
 

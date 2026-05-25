@@ -207,7 +207,7 @@ func TestCLIHelpAndUnsupportedCommands(t *testing.T) {
 		t.Fatalf("help failed: %v\n%s", err, string(b))
 	}
 	text := string(b)
-	for _, cmd := range []string{"check", "update", "sync", "pack", "why", "how", "format", "lint", "run", "test", "artifact", "bench", "doom", "inspect", "--version", "help"} {
+	for _, cmd := range []string{"check", "update", "sync", "pack", "why", "outdated", "how", "format", "lint", "run", "test", "artifact", "bench", "doom", "inspect", "--version", "help"} {
 		if !strings.Contains(text, cmd) {
 			t.Fatalf("help missing %s: %s", cmd, text)
 		}
@@ -344,7 +344,7 @@ func TestDocsCommandsInventoryIncludesCurrentSurface(t *testing.T) {
 		t.Fatalf("read commands doc: %v", err)
 	}
 	text := string(doc)
-	for _, cmd := range []string{"check", "update", "sync", "why", "pack", "format", "lint", "run", "test", "artifact", "bench", "doom", "inspect"} {
+	for _, cmd := range []string{"check", "update", "sync", "why", "outdated", "pack", "format", "lint", "run", "test", "artifact", "bench", "doom", "inspect"} {
 		if !strings.Contains(text, "`tspack "+cmd) {
 			t.Fatalf("commands doc missing %s", cmd)
 		}

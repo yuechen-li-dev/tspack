@@ -65,3 +65,5 @@ Capabilities are sorted/deduplicated deterministically and round-trip through lo
 - native build support
 - binary download support
 - script execution
+
+- `tspack outdated` fetches registry metadata only; it does not fetch tarballs or execute scripts.

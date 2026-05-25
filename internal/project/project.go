@@ -33,6 +33,7 @@ type Result struct {
 	DryRun      *UpdateDryRunResult
 	PackResult  *PackResult
 	WhyResult   *why.Result
+	Outdated    *OutdatedResult
 }
 type UpdateDryRunResult struct {
 	Changed bool

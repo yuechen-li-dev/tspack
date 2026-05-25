@@ -86,7 +86,7 @@ func main() {
 		fmt.Println(version)
 		return
 	}
-	if args[0] == "check" || args[0] == "update" || args[0] == "sync" || args[0] == "pack" || args[0] == "why" {
+	if args[0] == "check" || args[0] == "update" || args[0] == "sync" || args[0] == "pack" || args[0] == "why" || args[0] == "outdated" {
 		runCommand(args)
 		return
 	}
@@ -154,6 +154,7 @@ func printHelp() {
 	fmt.Println("  tspack sync [--root .] [--clean]")
 	fmt.Println("  tspack pack [--root .] [--out dir] [--package name] [--dry-run]")
 	fmt.Println("  tspack why <query> [--root .] [--package name]")
+	fmt.Println("  tspack outdated [--root .] [--json]")
 	fmt.Println("  tspack how <diagnostic-code> [--json]")
 	fmt.Println("  tspack how --list [--json]")
 	fmt.Println("  tspack test [--root .] [-xtest] [-vitest] [--list] [--filter text]")
@@ -581,6 +582,28 @@ func runCommand(args []string) {
 		result = project.Pack(opts, packOpts)
 	case "why":
 		result = project.Why(opts, whyOpts)
+	case "outdated":
+		result = project.Outdated(opts)
+	}
+	if cmd == "outdated" && jsonOutput {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		report := map[string]any{
+			"command":      "outdated",
+			"ok":           !hasErrors(result.Diagnostics),
+			"root":         opts.RootDir,
+			"summary":      result.Outdated.Summary,
+			"dependencies": result.Outdated.Dependencies,
+			"diagnostics":  buildCheckJSONReport(opts, result).Diagnostics,
+		}
+		if err := enc.Encode(report); err != nil {
+			fmt.Fprintf(os.Stderr, "TSPACK_OUTDATED_JSON_ENCODE_FAILED: %v\n", err)
+			os.Exit(1)
+		}
+		if hasErrors(result.Diagnostics) {
+			os.Exit(1)
+		}
+		return
 	}
 	if cmd == "update" && updateDryRun && jsonOutput {
 		report := buildUpdateDryRunJSONReport(opts, result)
@@ -682,6 +705,29 @@ func runCommand(args []string) {
 				fmt.Printf("%s %s <- %s\n", f.PackageName, f.ArchivePath, f.SourcePath)
 			}
 		}
+	}
+	if result.Outdated != nil {
+		fmt.Println("TSPack outdated")
+		fmt.Println()
+		for _, dep := range result.Outdated.Dependencies {
+			fmt.Println(dep.Name)
+			fmt.Printf("  kind: %s\n", dep.Kind)
+			fmt.Printf("  requested: %s\n", dep.Requested)
+			if len(dep.Current) == 0 {
+				fmt.Println("  current: -")
+			} else {
+				fmt.Printf("  current: %s\n", strings.Join(dep.Current, ", "))
+			}
+			fmt.Printf("  wanted: %s\n", dep.Wanted)
+			fmt.Printf("  latest: %s\n", dep.Latest)
+			fmt.Printf("  status: %s\n", strings.ReplaceAll(dep.Status, "_", " "))
+		}
+		fmt.Println()
+		fmt.Println("Summary:")
+		fmt.Printf("  current: %d\n", result.Outdated.Summary.Current)
+		fmt.Printf("  outdated: %d\n", result.Outdated.Summary.Outdated)
+		fmt.Printf("  skipped: %d\n", result.Outdated.Summary.Skipped)
+		fmt.Printf("  errors: %d\n", result.Outdated.Summary.Errors)
 	}
 	if hasErrors(result.Diagnostics) {
 		os.Exit(1)
