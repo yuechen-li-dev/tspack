@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/tspack/tspack/internal/check"
 	"github.com/tspack/tspack/internal/diag"
@@ -28,12 +30,13 @@ type Options struct {
 	ResolverClient                                 resolver.NPMRegistryClient
 }
 type Result struct {
-	Diagnostics []diag.Diagnostic
-	LockDiff    *lockfile.Diff
-	DryRun      *UpdateDryRunResult
-	PackResult  *PackResult
-	WhyResult   *why.Result
-	Outdated    *OutdatedResult
+	Diagnostics  []diag.Diagnostic
+	LockDiff     *lockfile.Diff
+	DryRun       *UpdateDryRunResult
+	UpdateTarget *UpdateTargetResult
+	PackResult   *PackResult
+	WhyResult    *why.Result
+	Outdated     *OutdatedResult
 }
 type UpdateDryRunResult struct {
 	Changed bool
@@ -41,6 +44,23 @@ type UpdateDryRunResult struct {
 }
 type UpdateDiffSummary struct {
 	Added, Removed, Changed, Unchanged int
+}
+
+type UpdateOptions struct {
+	Query string
+}
+
+type UpdateTargetResult struct {
+	Targeted bool
+	Query    string
+	Selected []UpdateSelectedTarget
+}
+
+type UpdateSelectedTarget struct {
+	Package string
+	Key     string
+	Name    string
+	Source  string
 }
 
 type WhyOptions struct {
@@ -107,19 +127,28 @@ func Check(opts Options) Result {
 }
 
 func Update(opts Options) Result {
-	return updateWithMode(opts, false)
+	return UpdateWithOptions(opts, UpdateOptions{})
 }
 
 func UpdateDryRun(opts Options) Result {
-	return updateWithMode(opts, true)
+	return UpdateDryRunWithOptions(opts, UpdateOptions{})
 }
 
-func updateWithMode(opts Options, dryRun bool) Result {
+func UpdateWithOptions(opts Options, updateOpts UpdateOptions) Result {
+	return updateWithMode(opts, false, updateOpts)
+}
+
+func UpdateDryRunWithOptions(opts Options, updateOpts UpdateOptions) Result {
+	return updateWithMode(opts, true, updateOpts)
+}
+
+func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result {
 	_, g, out := loadManifestAndGraph(opts)
 	out = append(out, check.CheckPackage(check.CheckOptions{RootDir: opts.RootDir, Graph: g}).Diagnostics...)
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
 	}
+	targetResult := &UpdateTargetResult{Targeted: updateOpts.Query != "", Query: updateOpts.Query}
 	var old *lockfile.Lockfile
 	if _, err := os.Stat(opts.LockfilePath); err == nil {
 		lf, d, e := lockfile.LoadFile(opts.LockfilePath)
@@ -129,6 +158,21 @@ func updateWithMode(opts Options, dryRun bool) Result {
 		}
 		out = append(out, d...)
 		old = lf
+	}
+	if updateOpts.Query != "" {
+		selection, selectionDiags := selectUpdateTargets(g, updateOpts.Query)
+		out = append(out, selectionDiags...)
+		if hasErrors(out) {
+			return Result{Diagnostics: out, UpdateTarget: targetResult}
+		}
+		targetResult.Selected = selection
+		if old != nil {
+			preserveDiags := preserveNonSelectedNPMLocks(g, old, selection)
+			out = append(out, preserveDiags...)
+			if hasErrors(out) {
+				return Result{Diagnostics: out, UpdateTarget: targetResult}
+			}
+		}
 	}
 	client := opts.ResolverClient
 	if client == nil {
@@ -150,12 +194,12 @@ func updateWithMode(opts Options, dryRun bool) Result {
 		if summary.Unchanged < 0 {
 			summary.Unchanged = 0
 		}
-		return Result{Diagnostics: out, LockDiff: &d, DryRun: &UpdateDryRunResult{Changed: summary.Added > 0 || summary.Removed > 0 || summary.Changed > 0, Summary: summary}}
+		return Result{Diagnostics: out, LockDiff: &d, DryRun: &UpdateDryRunResult{Changed: summary.Added > 0 || summary.Removed > 0 || summary.Changed > 0, Summary: summary}, UpdateTarget: targetResult}
 	}
 	st, err := store.Open(opts.StoreRoot)
 	if err != nil {
 		out = append(out, errDiag("TSPACK_UPDATE_STORE_OPEN_FAILED", "failed to open store", err.Error()))
-		return Result{Diagnostics: out}
+		return Result{Diagnostics: out, UpdateTarget: targetResult}
 	}
 	for i := range res.Lock.Packages {
 		pkg := &res.Lock.Packages[i]
@@ -184,21 +228,123 @@ func updateWithMode(opts Options, dryRun bool) Result {
 		}
 	}
 	if hasErrors(out) {
-		return Result{Diagnostics: out}
+		return Result{Diagnostics: out, UpdateTarget: targetResult}
 	}
 	b, e := lockfile.Marshal(res.Lock)
 	if e != nil {
 		out = append(out, errDiag("TSPACK_UPDATE_WRITE_FAILED", "failed to encode lockfile", e.Error()))
-		return Result{Diagnostics: out}
+		return Result{Diagnostics: out, UpdateTarget: targetResult}
 	}
 	if e = os.MkdirAll(filepath.Dir(opts.LockfilePath), 0o755); e != nil {
 		out = append(out, errDiag("TSPACK_UPDATE_WRITE_FAILED", "failed to create lockfile dir", e.Error()))
-		return Result{Diagnostics: out}
+		return Result{Diagnostics: out, UpdateTarget: targetResult}
 	}
 	if e = os.WriteFile(opts.LockfilePath, b, 0o644); e != nil {
 		out = append(out, errDiag("TSPACK_UPDATE_WRITE_FAILED", "failed to write lockfile", e.Error()))
 	}
-	return Result{Diagnostics: out, LockDiff: &d}
+	return Result{Diagnostics: out, LockDiff: &d, UpdateTarget: targetResult}
+}
+
+func selectUpdateTargets(g *graph.WorkspaceGraph, query string) ([]UpdateSelectedTarget, []diag.Diagnostic) {
+	type match struct {
+		pkgName string
+		dep     *graph.DependencyNode
+	}
+	matches := make([]match, 0)
+	for _, pkg := range g.AllPackages() {
+		for _, dep := range pkg.AllDependencies() {
+			if dep.Key == query {
+				matches = append(matches, match{pkgName: pkg.Name, dep: dep})
+			}
+		}
+	}
+	if len(matches) == 0 {
+		for _, pkg := range g.AllPackages() {
+			for _, dep := range pkg.AllDependencies() {
+				if dep.Source.Kind == "npm" && dep.Source.Package == query {
+					matches = append(matches, match{pkgName: pkg.Name, dep: dep})
+				}
+			}
+		}
+	}
+	if len(matches) == 0 && strings.HasPrefix(query, "npm:") {
+		npmName := strings.TrimPrefix(query, "npm:")
+		for _, pkg := range g.AllPackages() {
+			for _, dep := range pkg.AllDependencies() {
+				if dep.Source.Kind == "npm" && dep.Source.Package == npmName {
+					matches = append(matches, match{pkgName: pkg.Name, dep: dep})
+				}
+			}
+		}
+	}
+	if len(matches) == 0 {
+		d := errDiag("TSPACK_UPDATE_TARGET_NOT_FOUND", "targeted update query did not match declared dependency", fmt.Sprintf("no declared dependency key or npm package matched %q", query), "targeted update only updates declared dependencies", "use `tspack outdated` to see declared dependencies", "use full update for transitive refresh")
+		return nil, []diag.Diagnostic{d}
+	}
+	selected := make([]UpdateSelectedTarget, 0, len(matches))
+	packageName := ""
+	for _, m := range matches {
+		if m.dep.Source.Kind != "npm" {
+			return nil, []diag.Diagnostic{errDiag("TSPACK_UPDATE_TARGET_UNSUPPORTED_SOURCE", "targeted update currently supports npm dependencies only", m.dep.Key, m.dep.Source.Kind)}
+		}
+		if packageName == "" {
+			packageName = m.dep.Source.Package
+		} else if packageName != m.dep.Source.Package {
+			details := []string{"query matched multiple declared dependencies:"}
+			for _, mm := range matches {
+				details = append(details, fmt.Sprintf("%s.%s -> %s:%s", mm.pkgName, mm.dep.Key, mm.dep.Source.Kind, mm.dep.Source.Package))
+			}
+			return nil, []diag.Diagnostic{errDiag("TSPACK_UPDATE_TARGET_AMBIGUOUS", "targeted update query is ambiguous", details...)}
+		}
+		selected = append(selected, UpdateSelectedTarget{Package: m.pkgName, Key: m.dep.Key, Name: m.dep.Source.Package, Source: m.dep.Source.Kind})
+	}
+	sort.SliceStable(selected, func(i, j int) bool {
+		if selected[i].Package != selected[j].Package {
+			return selected[i].Package < selected[j].Package
+		}
+		return selected[i].Key < selected[j].Key
+	})
+	return selected, nil
+}
+
+func preserveNonSelectedNPMLocks(g *graph.WorkspaceGraph, old *lockfile.Lockfile, selected []UpdateSelectedTarget) []diag.Diagnostic {
+	selectedKeys := map[string]bool{}
+	for _, s := range selected {
+		selectedKeys[s.Package+":"+s.Key] = true
+	}
+	lockedVersionByName := map[string]string{}
+	for _, e := range old.Edges {
+		if !strings.Contains(e.From, ":target:") && !strings.HasSuffix(e.From, ":tool") {
+			continue
+		}
+		if !strings.HasPrefix(e.To, "npm:") {
+			continue
+		}
+		for _, pkg := range old.Packages {
+			if pkg.ID == e.To {
+				lockedVersionByName[pkg.Name] = pkg.Version
+			}
+		}
+	}
+	var out []diag.Diagnostic
+	for _, pkg := range g.AllPackages() {
+		for _, dep := range pkg.AllDependencies() {
+			if dep.Source.Kind != "npm" {
+				continue
+			}
+			depID := pkg.Name + ":" + dep.Key
+			if selectedKeys[depID] {
+				continue
+			}
+			lockedVersion, ok := lockedVersionByName[dep.Source.Package]
+			if !ok {
+				out = append(out, diag.Diagnostic{Code: "TSPACK_UPDATE_TARGET_LOCK_MISSING", Severity: diag.SeverityWarning, Message: "non-selected dependency not locked; resolver may refresh it", Details: []string{pkg.Name, dep.Key, dep.Source.Package}})
+				continue
+			}
+			dep.Source.Range = lockedVersion
+		}
+	}
+	return out
 }
 
 func Pack(opts Options, packOpts PackOptions) Result {

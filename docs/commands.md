@@ -43,3 +43,13 @@
 - `tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. See `docs/format-lint.md`.
 
 - `tspack doctor` adds non-mutating environment diagnostics. See `docs/doctor.md`.
+
+## `tspack update <query>`
+
+- Targets declared dependency intents only (not arbitrary transitive lock packages).
+- Query matching order:
+  1. dependency key exact match
+  2. npm package name exact match
+  3. `npm:<name>` exact match
+- Non-selected declared npm roots are preserved from the existing lock when possible.
+- `--dry-run` and `--json` compose with targeted update.

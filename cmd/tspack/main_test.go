@@ -1341,3 +1341,45 @@ process.stdout.write(JSON.stringify(out));`
 		t.Fatalf("expected TSPACK_LOCK_VERSION_CONFLICT in diagnostics: %#v", report.Diagnostics)
 	}
 }
+
+func TestCLIUpdateTargetedDryRunJSONIncludesTargetFieldsOnlyJSON(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	_ = os.MkdirAll(frontend, 0o755)
+	cliPath := filepath.Join(frontend, "cli.js")
+	stub := `#!/usr/bin/env node
+const out={ok:true,ir:{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"library",dependencies:[{key:"react",kind:"dep",source:{kind:"npm",package:"react",range:"18.2.0"}}],targets:[{name:"core",export:".",entry:"src/index.ts",runtime:"src/index.ts",types:"dist/index.d.ts",deps:["react"],peers:[]}],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{types:{},boundaries:{}}}]},diagnostics:[]};
+process.stdout.write(JSON.stringify(out));`
+	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(cliPath) })
+
+	root := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(root, "src"), 0o755)
+	_ = os.MkdirAll(filepath.Join(root, "dist"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "src", "index.ts"), []byte("export const x=1\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "dist", "index.d.ts"), []byte("export declare const x:number\n"), 0o644)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "update", "react", "--root", root, "--dry-run", "--json")
+	cmd.Dir = repo
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("targeted dry-run json failed: %v", err)
+	}
+	if stderr.String() != "" {
+		t.Fatalf("expected no stderr output in json mode, got %q", stderr.String())
+	}
+	var report map[string]any
+	if err := json.Unmarshal(out, &report); err != nil {
+		t.Fatalf("invalid json: %v\n%s", err, string(out))
+	}
+	if report["targeted"] != true || report["query"] != "react" {
+		t.Fatalf("missing targeted fields: %#v", report)
+	}
+	selected, ok := report["selected"].([]any)
+	if !ok || len(selected) != 1 {
+		t.Fatalf("expected selected target, got %#v", report["selected"])
+	}
+}

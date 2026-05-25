@@ -45,3 +45,4 @@
 - Stricter standalone test-file typecheck is tracked as future M31c work.
 
 - `tspack outdated --json` (fixture/fake-registry based in CI).
+- targeted smoke: `tspack update react --root <fixture>` updates selected root dependency while preserving non-selected locked roots when valid.

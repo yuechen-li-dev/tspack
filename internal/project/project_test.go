@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/tspack/tspack/internal/diag"
@@ -860,4 +861,126 @@ func TestV1GoldenPathCommandLoop(t *testing.T) {
 	if !bytes.Equal(lockAfterWhy, lockAfterPack) {
 		t.Fatalf("pack mutated lockfile")
 	}
+}
+
+func targetedIRWithDeps(deps []map[string]any, depRefs []string) map[string]any {
+	return map[string]any{"format": 1, "workspace": map[string]any{"name": "ws"}, "packages": []map[string]any{{"name": "app", "version": "1.0.0", "kind": "library", "dependencies": deps, "targets": []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "src/index.ts", "types": "dist/index.d.ts", "deps": depRefs, "peers": []string{}}}, "tools": []string{}, "boundaries": []any{}, "publish": map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}}}}}
+}
+
+func TestTargetedSelectionKeyNameAndQualifiedName(t *testing.T) {
+	deps := []map[string]any{{"key": "react", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "react", "range": "^18"}}, {"key": "lodash", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "lodash", "range": "^4"}}}
+	dir := t.TempDir()
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = writeIR(t, dir, targetedIRWithDeps(deps, []string{"react", "lodash"}))
+	opts.ResolverClient = buildRegistryForTargetedSelection(t)
+	for _, q := range []string{"react", "npm:react"} {
+		res := UpdateDryRunWithOptions(opts, UpdateOptions{Query: q})
+		if hasErrors(res.Diagnostics) {
+			t.Fatalf("query %s failed: %#v", q, res.Diagnostics)
+		}
+		if res.UpdateTarget == nil || len(res.UpdateTarget.Selected) != 1 || res.UpdateTarget.Selected[0].Name != "react" {
+			t.Fatalf("query %s selected unexpected target: %#v", q, res.UpdateTarget)
+		}
+	}
+	resByName := UpdateDryRunWithOptions(opts, UpdateOptions{Query: "lodash"})
+	if hasErrors(resByName.Diagnostics) {
+		t.Fatalf("query by package name failed: %#v", resByName.Diagnostics)
+	}
+	if resByName.UpdateTarget == nil || len(resByName.UpdateTarget.Selected) != 1 || resByName.UpdateTarget.Selected[0].Name != "lodash" {
+		t.Fatalf("query by package name selected unexpected target: %#v", resByName.UpdateTarget)
+	}
+}
+
+func TestTargetedSelectionNotFoundAndTransitiveOnly(t *testing.T) {
+	dir := t.TempDir()
+	deps := []map[string]any{{"key": "react", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "react", "range": "^18"}}}
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = writeIR(t, dir, targetedIRWithDeps(deps, []string{"react"}))
+	opts.ResolverClient = buildRegistryForTargetedSelection(t)
+	res := UpdateDryRunWithOptions(opts, UpdateOptions{Query: "loose-envify"})
+	if !hasErrCode(res.Diagnostics, "TSPACK_UPDATE_TARGET_NOT_FOUND") {
+		t.Fatalf("expected not found diagnostic: %#v", res.Diagnostics)
+	}
+	if !diagnosticHasDetail(res.Diagnostics, "TSPACK_UPDATE_TARGET_NOT_FOUND", "targeted update only updates declared dependencies") {
+		t.Fatalf("expected declared-only detail: %#v", res.Diagnostics)
+	}
+}
+
+func TestTargetedSelectionAmbiguousAndUnsupportedSource(t *testing.T) {
+	dir := t.TempDir()
+	deps := []map[string]any{{"key": "react", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "react", "range": "^18"}}, {"key": "local-shared", "kind": "dep", "source": map[string]any{"kind": "path", "path": "vendor/shared"}}}
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = writeIR(t, dir, map[string]any{"format": 1, "workspace": map[string]any{"name": "ws"}, "packages": []map[string]any{{"name": "app", "version": "1.0.0", "kind": "library", "dependencies": deps, "targets": []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "src/index.ts", "types": "dist/index.d.ts", "deps": []string{"react", "local-shared"}, "peers": []string{}}}, "tools": []string{}, "boundaries": []any{}, "publish": map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}}}}})
+	opts.ResolverClient = buildRegistryForTargetedSelection(t)
+	res := UpdateDryRunWithOptions(opts, UpdateOptions{Query: "local-shared"})
+	if !hasErrCode(res.Diagnostics, "TSPACK_UPDATE_TARGET_UNSUPPORTED_SOURCE") {
+		t.Fatalf("expected unsupported source diagnostic: %#v", res.Diagnostics)
+	}
+
+	dir2 := t.TempDir()
+	opts2 := DefaultOptions(dir2)
+	app1 := map[string]any{
+		"name":         "app",
+		"version":      "1.0.0",
+		"kind":         "library",
+		"dependencies": []map[string]any{{"key": "shared", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "react", "range": "^18"}}},
+		"targets":      []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "src/index.ts", "types": "dist/index.d.ts", "deps": []string{"shared"}, "peers": []string{}}},
+		"tools":        []string{},
+		"boundaries":   []any{},
+		"publish":      map[string]any{"include": []string{"dist/**"}, "exclude": []string{}},
+		"policies":     map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}},
+	}
+	app2 := map[string]any{
+		"name":         "app2",
+		"version":      "1.0.0",
+		"kind":         "library",
+		"dependencies": []map[string]any{{"key": "shared", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "react-dom", "range": "^18"}}},
+		"targets":      []map[string]any{{"name": "core", "export": "./2", "entry": "src/index.ts", "runtime": "src/index.ts", "types": "dist/index.d.ts", "deps": []string{"shared"}, "peers": []string{}}},
+		"tools":        []string{},
+		"boundaries":   []any{},
+		"publish":      map[string]any{"include": []string{"dist/**"}, "exclude": []string{}},
+		"policies":     map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}},
+	}
+	opts2.ManifestIRPath = writeIR(t, dir2, map[string]any{"format": 1, "workspace": map[string]any{"name": "ws"}, "packages": []map[string]any{app1, app2}})
+	opts2.ResolverClient = buildRegistryForTargetedSelection(t)
+	res2 := UpdateDryRunWithOptions(opts2, UpdateOptions{Query: "shared"})
+	if !hasErrCode(res2.Diagnostics, "TSPACK_UPDATE_TARGET_AMBIGUOUS") {
+		t.Fatalf("expected ambiguous diagnostic: %#v", res2.Diagnostics)
+	}
+	if !diagnosticHasDetail(res2.Diagnostics, "TSPACK_UPDATE_TARGET_AMBIGUOUS", "query matched multiple declared dependencies") {
+		t.Fatalf("expected ambiguous matches detail: %#v", res2.Diagnostics)
+	}
+}
+
+func diagnosticHasDetail(diags []diag.Diagnostic, code, needle string) bool {
+	for _, d := range diags {
+		if d.Code != code {
+			continue
+		}
+		for _, detail := range d.Details {
+			if strings.Contains(detail, needle) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func buildRegistryForTargetedSelection(t *testing.T) *fakeClient {
+	t.Helper()
+	tarballs := map[string][]byte{}
+	makeVer := func(name, version string, deps map[string]string) resolver.PackageVersion {
+		body := tarball(name, version, deps)
+		url := "https://example.invalid/" + name + "-" + version + ".tgz"
+		tarballs[url] = body
+		sum := sha512sum(body)
+		return resolver.PackageVersion{Name: name, Version: version, Dependencies: deps, Dist: resolver.PackageDist{Tarball: url, Integrity: "sha512-" + base64.StdEncoding.EncodeToString(sum)}}
+	}
+	meta := map[string]*resolver.PackageMetadata{
+		"react":        {Name: "react", Versions: map[string]resolver.PackageVersion{"18.2.0": makeVer("react", "18.2.0", map[string]string{"loose-envify": "1.4.0"})}},
+		"lodash":       {Name: "lodash", Versions: map[string]resolver.PackageVersion{"4.17.20": makeVer("lodash", "4.17.20", nil)}},
+		"react-dom":    {Name: "react-dom", Versions: map[string]resolver.PackageVersion{"18.2.0": makeVer("react-dom", "18.2.0", nil)}},
+		"loose-envify": {Name: "loose-envify", Versions: map[string]resolver.PackageVersion{"1.4.0": makeVer("loose-envify", "1.4.0", nil)}},
+	}
+	return &fakeClient{meta: meta, tar: tarballs}
 }
