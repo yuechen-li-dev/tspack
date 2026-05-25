@@ -111,6 +111,12 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		if _, err := os.Stat(srcPath); err != nil {
 			t.Fatalf("missing src index: %v", err)
 		}
+		if _, err := os.Stat(filepath.Join(root, ".tspack", "types", "tspack-manifest.d.ts")); err != nil {
+			t.Fatalf("missing manifest type support: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(root, "tspack-env.d.ts")); err != nil {
+			t.Fatalf("missing tspack env type support: %v", err)
+		}
 		text, _ := os.ReadFile(manifestPath)
 		m := string(text)
 		for _, want := range []string{"from \"tspack/manifest\"", "<Workspace", "kind=\"library\"", "name: \"core\"", "<Publish"} {
@@ -156,7 +162,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, "manifest.tsx")); !os.IsNotExist(err) {
 			t.Fatalf("dry-run should not write files")
 		}
-		if !strings.Contains(string(b), "Would write") || !strings.Contains(string(b), "src/main.ts") {
+		if !strings.Contains(string(b), "Would write") || !strings.Contains(string(b), "src/main.ts") || !strings.Contains(string(b), ".tspack/types/tspack-manifest.d.ts") || !strings.Contains(string(b), "tspack-env.d.ts") {
 			t.Fatalf("dry-run output missing file list: %s", string(b))
 		}
 
@@ -167,6 +173,12 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 			t.Fatalf("init app failed: %v\n%s", err, string(b))
 		}
 		manifestPath := filepath.Join(root, "manifest.tsx")
+		if _, err := os.Stat(filepath.Join(root, ".tspack", "types", "tspack-manifest.d.ts")); err != nil {
+			t.Fatalf("missing manifest type support: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(root, "tspack-env.d.ts")); err != nil {
+			t.Fatalf("missing tspack env type support: %v", err)
+		}
 		text, _ := os.ReadFile(manifestPath)
 		m := string(text)
 		for _, want := range []string{"kind=\"app\"", "name: \"app\"", "missingTypes: \"ignore\"", "declarations: \"optional\""} {
@@ -269,6 +281,64 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 			})
 		}
 	})
+}
+
+
+func TestInitManifestTypeSupportDriftAndTypecheck(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	canonicalPath := filepath.Join(repo, "manifest-frontend", "src", "tspack-manifest.d.ts")
+	canonical, err := os.ReadFile(canonicalPath)
+	if err != nil {
+		t.Fatalf("read canonical declaration: %v", err)
+	}
+	if string(canonical) != initManifestTypesDTS {
+		t.Fatalf("init type support drifted from canonical declaration")
+	}
+
+	cases := []struct {
+		kind string
+		name string
+	}{
+		{kind: "library", name: "@acme/widgets"},
+		{kind: "app", name: "acme-demo"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.kind, func(t *testing.T) {
+			root := t.TempDir()
+			cmd := exec.Command("go", "run", "./cmd/tspack", "init", "--root", root, "--kind", tc.kind, "--name", tc.name)
+			cmd.Dir = repo
+			b, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("init failed: %v\n%s", err, string(b))
+			}
+			tsconfig := `{
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "preserve"
+  },
+  "include": ["manifest.tsx", "tspack-env.d.ts"]
+}
+`
+			if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(tsconfig), 0o644); err != nil {
+				t.Fatalf("write tsconfig: %v", err)
+			}
+			tscPath, err := filepath.Abs(filepath.Join(repo, "manifest-frontend", "node_modules", "typescript", "bin", "tsc"))
+			if err != nil {
+				t.Fatalf("resolve tsc path: %v", err)
+			}
+			tsc := exec.Command("node", tscPath, "--project", filepath.Join(root, "tsconfig.json"), "--noEmit")
+			tsc.Dir = repo
+			out, err := tsc.CombinedOutput()
+			if err != nil {
+				t.Fatalf("tsc typecheck failed: %v\n%s", err, string(out))
+			}
+		})
+	}
 }
 
 func loadManifestIR(opts project.Options) (map[string]any, error) {

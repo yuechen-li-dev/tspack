@@ -162,8 +162,16 @@ func buildInitFiles(cfg initConfig) []plannedFile {
 		entryPath = "src/main.ts"
 	}
 	entry := fmt.Sprintf("export const version = %q;\n", cfg.version)
-	return []plannedFile{{path: "manifest.tsx", content: manifest}, {path: entryPath, content: entry}}
+	return []plannedFile{
+		{path: "manifest.tsx", content: manifest},
+		{path: entryPath, content: entry},
+		{path: ".tspack/types/tspack-manifest.d.ts", content: initManifestTypesDTS},
+		{path: "tspack-env.d.ts", content: initTSPackEnvDTS},
+	}
 }
+
+const initTSPackEnvDTS = `/// <reference path="./.tspack/types/tspack-manifest.d.ts" />
+`
 
 func writeGeneratedFile(path, content string, force bool) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -216,6 +224,11 @@ func renderManifest(cfg initConfig) string {
 
 	return fmt.Sprintf(`import {
   define,
+  Package,
+  Policies,
+  Publish,
+  Targets,
+  Workspace,
   type BoundaryPolicy,
   type TypePolicy,
 } from "tspack/manifest";

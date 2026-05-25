@@ -15,6 +15,7 @@ Its architecture is layered, with package lifecycle guarantees at the center and
 Scope:
 - manifest intent (`manifest.tsx` / `package.manifest.tsx`)
 - authoring-only manifest TypeScript surface (`tspack/manifest`) for editor typechecking/autocomplete
+- init-generated local declaration delivery for manifest authoring (`.tspack/types/tspack-manifest.d.ts`, `tspack-env.d.ts`)
 - target-scoped graph + dependency classification
 - resolver + lockfile (`ts-lock.toml`)
 - sync/materialization (`node_modules` compatibility artifact)

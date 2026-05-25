@@ -7,7 +7,9 @@ TSPack parses/analyzes AST and never executes user manifest code.
 
 TSPack provides a local TypeScript authoring surface at `tspack/manifest`.
 - Import helpers, policy types, and JSX manifest elements directly from `tspack/manifest`.
+- `tspack init` writes project-local declaration support (`.tspack/types/tspack-manifest.d.ts` and `tspack-env.d.ts`) so standard TypeScript tooling resolves the module without an npm package or editor extension.
 - This surface is for editor autocomplete/typechecking only.
+- Parser, normalized IR, and Go validation remain authoritative.
 - Manifests are still statically parsed; helper functions are not runtime-executed.
 
 ## M1 constraints
