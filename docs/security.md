@@ -49,6 +49,7 @@ Capabilities are sorted/deduplicated deterministically and round-trip through lo
 - `tspack update` produces lockfile changes when capabilities change.
 - `tspack check` warns with `TSPACK_CAPABILITY_LIFECYCLE_SCRIPT_PRESENT` when lockfile packages include lifecycle capabilities.
 - `tspack update` may fetch npm tarballs and populate the store, but it never executes package code or lifecycle scripts.
+- `tspack update --dry-run` may fetch registry metadata for version resolution but does not fetch/store tarballs or materialize `node_modules`.
 - `tspack sync` materializes files only and never executes scripts.
 
 ## Current policy status

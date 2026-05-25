@@ -30,8 +30,16 @@ type Options struct {
 type Result struct {
 	Diagnostics []diag.Diagnostic
 	LockDiff    *lockfile.Diff
+	DryRun      *UpdateDryRunResult
 	PackResult  *PackResult
 	WhyResult   *why.Result
+}
+type UpdateDryRunResult struct {
+	Changed bool
+	Summary UpdateDiffSummary
+}
+type UpdateDiffSummary struct {
+	Added, Removed, Changed, Unchanged int
 }
 
 type WhyOptions struct {
@@ -98,6 +106,14 @@ func Check(opts Options) Result {
 }
 
 func Update(opts Options) Result {
+	return updateWithMode(opts, false)
+}
+
+func UpdateDryRun(opts Options) Result {
+	return updateWithMode(opts, true)
+}
+
+func updateWithMode(opts Options, dryRun bool) Result {
 	_, g, out := loadManifestAndGraph(opts)
 	out = append(out, check.CheckPackage(check.CheckOptions{RootDir: opts.RootDir, Graph: g}).Diagnostics...)
 	if hasErrors(out) {
@@ -121,6 +137,19 @@ func Update(opts Options) Result {
 	out = append(out, res.Diagnostics...)
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
+	}
+	d := lockfile.DiffLockfiles(old, res.Lock)
+	if dryRun {
+		summary := UpdateDiffSummary{
+			Added:     len(d.PackagesAdded),
+			Removed:   len(d.PackagesRemoved),
+			Changed:   len(d.PackagesChanged),
+			Unchanged: len(res.Lock.Packages) - len(d.PackagesAdded) - len(d.PackagesChanged),
+		}
+		if summary.Unchanged < 0 {
+			summary.Unchanged = 0
+		}
+		return Result{Diagnostics: out, LockDiff: &d, DryRun: &UpdateDryRunResult{Changed: summary.Added > 0 || summary.Removed > 0 || summary.Changed > 0, Summary: summary}}
 	}
 	st, err := store.Open(opts.StoreRoot)
 	if err != nil {
@@ -168,7 +197,6 @@ func Update(opts Options) Result {
 	if e = os.WriteFile(opts.LockfilePath, b, 0o644); e != nil {
 		out = append(out, errDiag("TSPACK_UPDATE_WRITE_FAILED", "failed to write lockfile", e.Error()))
 	}
-	d := lockfile.DiffLockfiles(old, res.Lock)
 	return Result{Diagnostics: out, LockDiff: &d}
 }
 

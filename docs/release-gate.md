@@ -5,6 +5,7 @@
 - `tspack init --kind <library|app> --name <package-name>`
 - `tspack check`
 - `tspack update`
+- `tspack update --dry-run`
 - `tspack sync`
 - `tspack why <dep>`
 - `tspack how --list`
@@ -20,6 +21,7 @@
 ## Mutation expectations
 
 - `update` mutates `ts-lock.toml` and populates required store artifacts.
+- `update --dry-run` must not mutate lock/store/node_modules while still producing a lock change plan.
 - Release smoke must pass `tspack update --root <fixture>` followed by `tspack sync --root <fixture>` using a local/fake registry fixture.
 - `check`, `sync`, `pack`, `why`, `run`, and `inspect` do not mutate `ts-lock.toml` unless explicitly documented.
 - `run` and `inspect --run` do not mutate manifest contract files.

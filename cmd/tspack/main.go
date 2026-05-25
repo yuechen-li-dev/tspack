@@ -42,6 +42,36 @@ type CheckJSONDiagnostic struct {
 	Details  interface{} `json:"details,omitempty"`
 	Fixes    interface{} `json:"fixes,omitempty"`
 }
+type UpdateDryRunJSONReport struct {
+	Command     string                `json:"command"`
+	DryRun      bool                  `json:"dryRun"`
+	OK          bool                  `json:"ok"`
+	Root        string                `json:"root"`
+	Summary     UpdateDryRunSummary   `json:"summary"`
+	Changes     UpdateDryRunChanges   `json:"changes"`
+	Diagnostics []CheckJSONDiagnostic `json:"diagnostics"`
+}
+type UpdateDryRunSummary struct {
+	Added     int `json:"added"`
+	Removed   int `json:"removed"`
+	Changed   int `json:"changed"`
+	Unchanged int `json:"unchanged"`
+}
+type UpdateDryRunChanges struct {
+	Added   []lockDiffPackage       `json:"added"`
+	Removed []lockDiffPackage       `json:"removed"`
+	Changed []lockDiffPackageChange `json:"changed"`
+}
+type lockDiffPackage struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Source  string `json:"source"`
+}
+type lockDiffPackageChange struct {
+	From lockDiffPackage `json:"from"`
+	To   lockDiffPackage `json:"to"`
+}
 
 const version = "tspack 0.0.0-dev"
 
@@ -474,6 +504,7 @@ func runCommand(args []string) {
 	storeExplicit := false
 	jsonOutput := false
 	clean := false
+	updateDryRun := false
 	packOpts := project.PackOptions{}
 	whyOpts := project.WhyOptions{}
 	for i := 1; i < len(args); i++ {
@@ -508,13 +539,27 @@ func runCommand(args []string) {
 			i++
 			packOpts.OutputDir = args[i]
 		case "--dry-run":
-			packOpts.DryRun = true
+			if cmd == "pack" {
+				packOpts.DryRun = true
+				continue
+			}
+			if cmd == "update" {
+				updateDryRun = true
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "unknown %s flag: --dry-run\n", cmd)
+			os.Exit(1)
 		case "--package":
 			i++
 			packOpts.PackageName = args[i]
 			whyOpts.PackageName = args[i]
 		case "--json":
 			jsonOutput = true
+		default:
+			if strings.HasPrefix(args[i], "-") {
+				fmt.Fprintf(os.Stderr, "unknown %s flag: %s\n", cmd, args[i])
+				os.Exit(1)
+			}
 		}
 	}
 	var result project.Result
@@ -525,13 +570,30 @@ func runCommand(args []string) {
 	case "check":
 		result = project.Check(opts)
 	case "update":
-		result = project.Update(opts)
+		if updateDryRun {
+			result = project.UpdateDryRun(opts)
+		} else {
+			result = project.Update(opts)
+		}
 	case "sync":
 		result = project.Sync(opts, clean)
 	case "pack":
 		result = project.Pack(opts, packOpts)
 	case "why":
 		result = project.Why(opts, whyOpts)
+	}
+	if cmd == "update" && updateDryRun && jsonOutput {
+		report := buildUpdateDryRunJSONReport(opts, result)
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(report); err != nil {
+			fmt.Fprintf(os.Stderr, "TSPACK_UPDATE_JSON_ENCODE_FAILED: %v\n", err)
+			os.Exit(1)
+		}
+		if hasErrors(result.Diagnostics) {
+			os.Exit(1)
+		}
+		return
 	}
 	if cmd == "check" && jsonOutput {
 		report := buildCheckJSONReport(opts, result)
@@ -556,7 +618,11 @@ func runCommand(args []string) {
 		}
 	}
 	if result.LockDiff != nil {
-		fmt.Printf("lockfile diff: +%d -%d\n", len(result.LockDiff.PackagesAdded), len(result.LockDiff.PackagesRemoved))
+		if cmd == "update" && updateDryRun {
+			printUpdateDryRunPlan(result)
+		} else {
+			fmt.Printf("lockfile diff: +%d -%d\n", len(result.LockDiff.PackagesAdded), len(result.LockDiff.PackagesRemoved))
+		}
 	}
 	if result.WhyResult != nil {
 		printedLockEdges := map[string]bool{}
@@ -620,6 +686,76 @@ func runCommand(args []string) {
 	if hasErrors(result.Diagnostics) {
 		os.Exit(1)
 	}
+}
+
+func printUpdateDryRunPlan(result project.Result) {
+	fmt.Println("TSPack update dry run")
+	fmt.Println()
+	fmt.Println("Lockfile changes:")
+	diff := result.LockDiff
+	if diff == nil || (len(diff.PackagesAdded) == 0 && len(diff.PackagesRemoved) == 0 && len(diff.PackagesChanged) == 0) {
+		fmt.Println("  none")
+		fmt.Println()
+		fmt.Println("No files were written.")
+		return
+	}
+	if len(diff.PackagesAdded) > 0 {
+		fmt.Println("  added:")
+		for _, pkg := range diff.PackagesAdded {
+			fmt.Printf("    %s\n", pkg.ID)
+		}
+	}
+	if len(diff.PackagesChanged) > 0 {
+		fmt.Println("  changed:")
+		for _, ch := range diff.PackagesChanged {
+			fmt.Printf("    %s -> %s\n", ch.Old.ID, ch.New.ID)
+		}
+	}
+	if len(diff.PackagesRemoved) > 0 {
+		fmt.Println("  removed:")
+		for _, pkg := range diff.PackagesRemoved {
+			fmt.Printf("    %s\n", pkg.ID)
+		}
+	}
+	fmt.Println()
+	fmt.Println("No files were written.")
+}
+
+func buildUpdateDryRunJSONReport(opts project.Options, result project.Result) UpdateDryRunJSONReport {
+	report := UpdateDryRunJSONReport{
+		Command: "update",
+		DryRun:  true,
+		OK:      !hasErrors(result.Diagnostics),
+		Root:    opts.RootDir,
+	}
+	if result.DryRun != nil {
+		report.Summary = UpdateDryRunSummary(result.DryRun.Summary)
+	}
+	if result.LockDiff != nil {
+		for _, pkg := range result.LockDiff.PackagesAdded {
+			report.Changes.Added = append(report.Changes.Added, lockDiffPackage{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source})
+		}
+		for _, pkg := range result.LockDiff.PackagesRemoved {
+			report.Changes.Removed = append(report.Changes.Removed, lockDiffPackage{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source})
+		}
+		for _, ch := range result.LockDiff.PackagesChanged {
+			report.Changes.Changed = append(report.Changes.Changed, lockDiffPackageChange{
+				From: lockDiffPackage{ID: ch.Old.ID, Name: ch.Old.Name, Version: ch.Old.Version, Source: ch.Old.Source},
+				To:   lockDiffPackage{ID: ch.New.ID, Name: ch.New.Name, Version: ch.New.Version, Source: ch.New.Source},
+			})
+		}
+	}
+	diags := append([]diag.Diagnostic(nil), result.Diagnostics...)
+	diag.SortDiagnostics(diags)
+	for _, d := range diags {
+		report.Diagnostics = append(report.Diagnostics, CheckJSONDiagnostic{
+			Code:     d.Code,
+			Severity: string(d.Severity),
+			Message:  d.Message,
+			Details:  d.Details,
+		})
+	}
+	return report
 }
 
 func buildCheckJSONReport(opts project.Options, result project.Result) CheckJSONReport {

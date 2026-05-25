@@ -32,6 +32,17 @@ type checkJSONDiagnostic struct {
 	Message  string   `json:"message"`
 	Details  []string `json:"details"`
 }
+type updateDryRunJSONReport struct {
+	Command string `json:"command"`
+	DryRun  bool   `json:"dryRun"`
+	OK      bool   `json:"ok"`
+	Summary struct {
+		Added     int `json:"added"`
+		Removed   int `json:"removed"`
+		Changed   int `json:"changed"`
+		Unchanged int `json:"unchanged"`
+	} `json:"summary"`
+}
 
 func buildTspackBinary(t *testing.T, repo string) string {
 	t.Helper()
@@ -221,6 +232,55 @@ func TestCLIHelpAndUnsupportedCommands(t *testing.T) {
 		if e == nil || !strings.Contains(string(ob), "unknown command") {
 			t.Fatalf("expected deterministic unknown command for %s: %v\n%s", c, e, string(ob))
 		}
+	}
+}
+
+func TestCLIUpdateDryRunUnknownFlagFailsDeterministically(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	cmd := exec.Command("go", "run", "./cmd/tspack", "update", "--dry-run", "--unknown")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected failure for unknown flag: %s", string(b))
+	}
+	if !strings.Contains(string(b), "unknown update flag: --unknown") {
+		t.Fatalf("unexpected output: %s", string(b))
+	}
+}
+
+func TestCLIUpdateDryRunJSON(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	_ = os.MkdirAll(frontend, 0o755)
+	cliPath := filepath.Join(frontend, "cli.js")
+	stub := `#!/usr/bin/env node
+const out={ok:true,ir:{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"library",dependencies:[],targets:[{name:"core",export:".",entry:"src/index.ts",runtime:"src/index.ts",types:"dist/index.d.ts",deps:[],peers:[]}],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{types:{},boundaries:{}}}]},diagnostics:[]};
+process.stdout.write(JSON.stringify(out));`
+	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(cliPath) })
+
+	root := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(root, "src"), 0o755)
+	_ = os.MkdirAll(filepath.Join(root, "dist"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "src", "index.ts"), []byte("export const x = 1\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "dist", "index.d.ts"), []byte("export declare const x: number\n"), 0o644)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "update", "--root", root, "--dry-run", "--json")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("update dry-run --json failed: %v\n%s", err, string(b))
+	}
+	var report updateDryRunJSONReport
+	if e := json.Unmarshal(b, &report); e != nil {
+		t.Fatalf("invalid json output: %v\n%s", e, string(b))
+	}
+	if report.Command != "update" || !report.DryRun || !report.OK {
+		t.Fatalf("unexpected json report: %#v", report)
+	}
+	if report.Summary.Added != 0 || report.Summary.Changed != 0 || report.Summary.Removed != 0 {
+		t.Fatalf("expected empty change summary: %#v", report.Summary)
 	}
 }
 
