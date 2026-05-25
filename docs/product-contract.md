@@ -21,6 +21,7 @@ Scope:
 - security and capability policy
 
 Primary commands:
+- `tspack init`
 - `tspack check`
 - `tspack update`
 - `tspack sync`

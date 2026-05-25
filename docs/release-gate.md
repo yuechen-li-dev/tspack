@@ -2,6 +2,7 @@
 
 ## Smoke command checklist
 
+- `tspack init --kind <library|app> --name <package-name>`
 - `tspack check`
 - `tspack update`
 - `tspack sync`
