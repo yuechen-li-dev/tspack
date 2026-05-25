@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,32 @@ import (
 	"github.com/tspack/tspack/internal/project"
 	"github.com/tspack/tspack/internal/testcmd"
 )
+
+type CheckJSONReport struct {
+	Command      string                `json:"command"`
+	OK           bool                  `json:"ok"`
+	Root         string                `json:"root"`
+	ManifestPath string                `json:"manifestPath,omitempty"`
+	LockfilePath string                `json:"lockfilePath,omitempty"`
+	Summary      CheckJSONSummary      `json:"summary"`
+	Diagnostics  []CheckJSONDiagnostic `json:"diagnostics"`
+}
+
+type CheckJSONSummary struct {
+	Errors   int `json:"errors"`
+	Warnings int `json:"warnings"`
+	Info     int `json:"info"`
+	Total    int `json:"total"`
+}
+
+type CheckJSONDiagnostic struct {
+	Code     string      `json:"code"`
+	Severity string      `json:"severity"`
+	Message  string      `json:"message"`
+	File     string      `json:"file,omitempty"`
+	Details  interface{} `json:"details,omitempty"`
+	Fixes    interface{} `json:"fixes,omitempty"`
+}
 
 const version = "tspack 0.0.0-dev"
 
@@ -432,6 +459,7 @@ func runCommand(args []string) {
 	manifestExplicit := false
 	lockfileExplicit := false
 	storeExplicit := false
+	jsonOutput := false
 	clean := false
 	packOpts := project.PackOptions{}
 	whyOpts := project.WhyOptions{}
@@ -472,6 +500,8 @@ func runCommand(args []string) {
 			i++
 			packOpts.PackageName = args[i]
 			whyOpts.PackageName = args[i]
+		case "--json":
+			jsonOutput = true
 		}
 	}
 	var result project.Result
@@ -489,6 +519,19 @@ func runCommand(args []string) {
 		result = project.Pack(opts, packOpts)
 	case "why":
 		result = project.Why(opts, whyOpts)
+	}
+	if cmd == "check" && jsonOutput {
+		report := buildCheckJSONReport(opts, result)
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(report); err != nil {
+			fmt.Fprintf(os.Stderr, "TSPACK_CHECK_JSON_ENCODE_FAILED: %v\n", err)
+			os.Exit(1)
+		}
+		if hasErrors(result.Diagnostics) {
+			os.Exit(1)
+		}
+		return
 	}
 	for _, d := range result.Diagnostics {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", d.Code, d.Message)
@@ -542,6 +585,48 @@ func runCommand(args []string) {
 	}
 	if hasErrors(result.Diagnostics) {
 		os.Exit(1)
+	}
+}
+
+func buildCheckJSONReport(opts project.Options, result project.Result) CheckJSONReport {
+	diags := append([]diag.Diagnostic(nil), result.Diagnostics...)
+	diag.SortDiagnostics(diags)
+	summary := CheckJSONSummary{}
+	jsonDiagnostics := make([]CheckJSONDiagnostic, 0, len(diags))
+	for _, d := range diags {
+		switch d.Severity {
+		case diag.SeverityError:
+			summary.Errors++
+		case diag.SeverityWarning:
+			summary.Warnings++
+		default:
+			summary.Info++
+		}
+		summary.Total++
+		jd := CheckJSONDiagnostic{
+			Code:     d.Code,
+			Severity: string(d.Severity),
+			Message:  d.Message,
+		}
+		if d.File != "" {
+			jd.File = d.File
+		}
+		if len(d.Details) > 0 {
+			jd.Details = d.Details
+		}
+		if len(d.Fixes) > 0 {
+			jd.Fixes = d.Fixes
+		}
+		jsonDiagnostics = append(jsonDiagnostics, jd)
+	}
+	return CheckJSONReport{
+		Command:      "check",
+		OK:           summary.Errors == 0,
+		Root:         opts.RootDir,
+		ManifestPath: opts.ManifestPath,
+		LockfilePath: opts.LockfilePath,
+		Summary:      summary,
+		Diagnostics:  jsonDiagnostics,
 	}
 }
 
