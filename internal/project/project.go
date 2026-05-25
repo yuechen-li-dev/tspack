@@ -81,6 +81,7 @@ func Check(opts Options) Result {
 		} else {
 			out = append(out, d...)
 			out = append(out, lockfile.CheckGraphConsistency(g, lf).Diagnostics...)
+			out = append(out, lockfile.CheckVersionConflicts(lf).Diagnostics...)
 			for _, pkg := range lf.Packages {
 				for _, cap := range pkg.Capabilities {
 					if cap.Kind == "lifecycle-script" {

@@ -41,6 +41,8 @@ type Target struct{ Package, Name, Export, Entry, Runtime, Types string }
 
 type ConsistencyResult struct{ Diagnostics []diag.Diagnostic }
 
+type VersionConflictResult struct{ Diagnostics []diag.Diagnostic }
+
 type Diff struct {
 	PackagesAdded, PackagesRemoved []Package
 	PackagesChanged                []PackageChange
@@ -110,6 +112,77 @@ func CheckGraphConsistency(g *graph.WorkspaceGraph, lf *Lockfile) ConsistencyRes
 		}
 	}
 	diag.SortDiagnostics(out.Diagnostics)
+	return out
+}
+
+func CheckVersionConflicts(lf *Lockfile) VersionConflictResult {
+	out := VersionConflictResult{}
+	if lf == nil {
+		return out
+	}
+
+	type groupKey struct {
+		Source string
+		Name   string
+	}
+
+	versionsByGroup := map[groupKey]map[string][]string{}
+	for _, pkg := range lf.Packages {
+		if pkg.Source == "" || pkg.Name == "" || pkg.Version == "" {
+			continue
+		}
+
+		key := groupKey{Source: pkg.Source, Name: pkg.Name}
+		versions, ok := versionsByGroup[key]
+		if !ok {
+			versions = map[string][]string{}
+			versionsByGroup[key] = versions
+		}
+		versions[pkg.Version] = append(versions[pkg.Version], pkg.ID)
+	}
+
+	keys := make([]groupKey, 0, len(versionsByGroup))
+	for key, versions := range versionsByGroup {
+		if len(versions) > 1 {
+			keys = append(keys, key)
+		}
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].Name != keys[j].Name {
+			return keys[i].Name < keys[j].Name
+		}
+		return keys[i].Source < keys[j].Source
+	})
+
+	for _, key := range keys {
+		versions := versionsByGroup[key]
+		versionNames := make([]string, 0, len(versions))
+		for version := range versions {
+			versionNames = append(versionNames, version)
+		}
+		sort.Strings(versionNames)
+
+		details := []string{
+			"source: " + key.Source,
+			"versions:",
+		}
+		for _, version := range versionNames {
+			packageIDs := append([]string(nil), versions[version]...)
+			sort.Strings(packageIDs)
+			for _, packageID := range packageIDs {
+				details = append(details, "  "+version+" -> "+packageID)
+			}
+		}
+		details = append(details, "This can be valid, but may indicate duplicated runtime dependencies or peer version drift.")
+
+		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{
+			Code:     "TSPACK_LOCK_VERSION_CONFLICT",
+			Severity: diag.SeverityWarning,
+			Message:  "package \"" + key.Name + "\" appears at multiple versions",
+			Details:  details,
+		})
+	}
+
 	return out
 }
 

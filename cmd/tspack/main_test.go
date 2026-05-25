@@ -27,8 +27,10 @@ type checkJSONSummary struct {
 }
 
 type checkJSONDiagnostic struct {
-	Code     string `json:"code"`
-	Severity string `json:"severity"`
+	Code     string   `json:"code"`
+	Severity string   `json:"severity"`
+	Message  string   `json:"message"`
+	Details  []string `json:"details"`
 }
 
 func buildTspackBinary(t *testing.T, repo string) string {
@@ -1084,6 +1086,17 @@ func TestCLIHowCommand(t *testing.T) {
 		t.Fatalf("expected not found diagnostic: %v\n%s", err, string(b))
 	}
 
+	cmd = exec.Command("go", "run", "./cmd/tspack", "how", "TSPACK_LOCK_VERSION_CONFLICT")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("how new code failed: %v\n%s", err, string(b))
+	}
+	text := string(b)
+	if !strings.Contains(text, "multiple versions") || !strings.Contains(text, "tspack why") || !strings.Contains(text, "valid") {
+		t.Fatalf("expected guidance for conflict diagnostic: %s", text)
+	}
+
 	cmd = exec.Command("go", "run", "./cmd/tspack", "how", "TSPACK_IR_INVALID_RELATIVE_PATH")
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
@@ -1159,5 +1172,112 @@ process.stdout.write(JSON.stringify(out));`
 	details, ok := found["details"].([]any)
 	if !ok || len(details) != 2 {
 		t.Fatalf("expected structured details in json output: %#v", found)
+	}
+}
+
+func TestCheckVersionConflictTextAndLockfileImmutable(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	_ = os.MkdirAll(frontend, 0o755)
+	cliPath := filepath.Join(frontend, "cli.js")
+	stub := `#!/usr/bin/env node
+const out={ok:true,ir:{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"library",dependencies:[],targets:[{name:"core",export:".",entry:"src/index.ts",runtime:"dist/index.js",types:"dist/index.d.ts",deps:[],peers:[]}],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{types:{},boundaries:{}}}]},diagnostics:[]};
+process.stdout.write(JSON.stringify(out));`
+	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(cliPath) })
+	binPath := buildTspackBinary(t, repo)
+
+	root := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(root, "src"), 0o755)
+	_ = os.MkdirAll(filepath.Join(root, "dist"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "src", "index.ts"), []byte("export const x = 1\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "dist", "index.js"), []byte("export const x = 1\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "dist", "index.d.ts"), []byte("export declare const x: number\n"), 0o644)
+
+	lockfilePath := filepath.Join(root, "ts-lock.toml")
+	lockBody := "[lock]\nformat = 1\ntool = \"tspack\"\n\n[[package]]\nid = \"npm:react@18.3.1\"\nname = \"react\"\nversion = \"18.3.1\"\nsource = \"npm\"\nintegrity = \"sha512-a\"\n\n[[package]]\nid = \"npm:react@19.2.6\"\nname = \"react\"\nversion = \"19.2.6\"\nsource = \"npm\"\nintegrity = \"sha512-b\"\n\n[[target]]\npackage = \"app\"\nname = \"core\"\nexport = \".\"\nentry = \"src/index.ts\"\nruntime = \"dist/index.js\"\ntypes = \"dist/index.d.ts\"\n"
+	_ = os.WriteFile(lockfilePath, []byte(lockBody), 0o644)
+	before, _ := os.ReadFile(lockfilePath)
+
+	cmd := exec.Command(binPath, "check", "--root", root)
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("warnings-only check should exit zero: %v\n%s", err, string(b))
+	}
+	out := string(b)
+	if !strings.Contains(out, "TSPACK_LOCK_VERSION_CONFLICT") {
+		t.Fatalf("expected conflict warning in text output: %s", out)
+	}
+	if !strings.Contains(out, "npm:react@18.3.1") || !strings.Contains(out, "npm:react@19.2.6") {
+		t.Fatalf("expected both package IDs in output: %s", out)
+	}
+
+	after, _ := os.ReadFile(lockfilePath)
+	if string(before) != string(after) {
+		t.Fatalf("lockfile changed after check")
+	}
+}
+
+func TestCheckVersionConflictJSON(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	_ = os.MkdirAll(frontend, 0o755)
+	cliPath := filepath.Join(frontend, "cli.js")
+	stub := `#!/usr/bin/env node
+const out={ok:true,ir:{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"library",dependencies:[],targets:[{name:"core",export:".",entry:"src/index.ts",runtime:"dist/index.js",types:"dist/index.d.ts",deps:[],peers:[]}],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{types:{},boundaries:{}}}]},diagnostics:[]};
+process.stdout.write(JSON.stringify(out));`
+	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(cliPath) })
+	binPath := buildTspackBinary(t, repo)
+
+	root := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(root, "src"), 0o755)
+	_ = os.MkdirAll(filepath.Join(root, "dist"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "src", "index.ts"), []byte("export const x = 1\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "dist", "index.js"), []byte("export const x = 1\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "dist", "index.d.ts"), []byte("export declare const x: number\n"), 0o644)
+
+	lockfilePath := filepath.Join(root, "ts-lock.toml")
+	lockBody := "[lock]\nformat = 1\ntool = \"tspack\"\n\n[[package]]\nid = \"npm:react@18.3.1\"\nname = \"react\"\nversion = \"18.3.1\"\nsource = \"npm\"\nintegrity = \"sha512-a\"\n\n[[package]]\nid = \"npm:react@19.2.6\"\nname = \"react\"\nversion = \"19.2.6\"\nsource = \"npm\"\nintegrity = \"sha512-b\"\n\n[[target]]\npackage = \"app\"\nname = \"core\"\nexport = \".\"\nentry = \"src/index.ts\"\nruntime = \"dist/index.js\"\ntypes = \"dist/index.d.ts\"\n"
+	_ = os.WriteFile(lockfilePath, []byte(lockBody), 0o644)
+
+	cmd := exec.Command(binPath, "check", "--root", root, "--json")
+	cmd.Dir = repo
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("warnings-only json check should exit zero: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stderr.String(), "TSPACK_LOCK_VERSION_CONFLICT") {
+		t.Fatalf("expected no duplicated human diagnostics on stderr, got: %s", stderr.String())
+	}
+
+	var report checkJSONReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("invalid json: %v\n%s", err, stdout.String())
+	}
+	if !report.OK {
+		t.Fatalf("expected ok=true for warnings-only report: %+v", report)
+	}
+	if report.Summary.Warnings == 0 {
+		t.Fatalf("expected warnings in summary: %+v", report.Summary)
+	}
+	found := false
+	for _, d := range report.Diagnostics {
+		if d.Code == "TSPACK_LOCK_VERSION_CONFLICT" {
+			found = true
+			detailsText := strings.Join(d.Details, "\n")
+			if !strings.Contains(detailsText, "npm:react@18.3.1") || !strings.Contains(detailsText, "npm:react@19.2.6") {
+				t.Fatalf("expected both package IDs in details: %#v", d)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected TSPACK_LOCK_VERSION_CONFLICT in diagnostics: %#v", report.Diagnostics)
 	}
 }

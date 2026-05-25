@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/tspack/tspack/internal/graph"
@@ -105,4 +106,72 @@ func TestLockfileTargetPathsRejectBareDot(t *testing.T) {
 	if !found {
 		t.Fatalf("expected TSPACK_LOCK_INVALID_PATH, got %#v", diags)
 	}
+}
+
+func TestCheckVersionConflicts(t *testing.T) {
+	t.Run("no warning when one version", func(t *testing.T) {
+		lf := &Lockfile{Packages: []Package{{ID: "npm:react@18.3.1", Source: "npm", Name: "react", Version: "18.3.1"}}}
+		res := CheckVersionConflicts(lf)
+		if len(res.Diagnostics) != 0 {
+			t.Fatalf("expected no diagnostics, got %#v", res.Diagnostics)
+		}
+	})
+
+	t.Run("warns for duplicate npm versions with both package IDs", func(t *testing.T) {
+		lf := &Lockfile{Packages: []Package{
+			{ID: "npm:react@18.3.1", Source: "npm", Name: "react", Version: "18.3.1"},
+			{ID: "npm:react@19.2.6", Source: "npm", Name: "react", Version: "19.2.6"},
+		}}
+		res := CheckVersionConflicts(lf)
+		if len(res.Diagnostics) != 1 {
+			t.Fatalf("expected 1 diagnostic, got %#v", res.Diagnostics)
+		}
+		d := res.Diagnostics[0]
+		if d.Code != "TSPACK_LOCK_VERSION_CONFLICT" {
+			t.Fatalf("unexpected code: %#v", d)
+		}
+		if d.Severity != "warning" {
+			t.Fatalf("expected warning severity, got %#v", d)
+		}
+		joined := strings.Join(d.Details, "\n")
+		if !strings.Contains(joined, "npm:react@18.3.1") || !strings.Contains(joined, "npm:react@19.2.6") {
+			t.Fatalf("expected both package IDs in details, got %#v", d.Details)
+		}
+	})
+
+	t.Run("scoped package name groups correctly", func(t *testing.T) {
+		lf := &Lockfile{Packages: []Package{
+			{ID: "npm:@types/react@18.3.1", Source: "npm", Name: "@types/react", Version: "18.3.1"},
+			{ID: "npm:@types/react@19.2.6", Source: "npm", Name: "@types/react", Version: "19.2.6"},
+		}}
+		res := CheckVersionConflicts(lf)
+		if len(res.Diagnostics) != 1 {
+			t.Fatalf("expected 1 diagnostic, got %#v", res.Diagnostics)
+		}
+		if !strings.Contains(res.Diagnostics[0].Message, "@types/react") {
+			t.Fatalf("expected scoped package name in message, got %q", res.Diagnostics[0].Message)
+		}
+	})
+
+	t.Run("different source kinds do not conflict", func(t *testing.T) {
+		lf := &Lockfile{Packages: []Package{
+			{ID: "npm:react@18.3.1", Source: "npm", Name: "react", Version: "18.3.1"},
+			{ID: "workspace:react#abc", Source: "workspace", Name: "react", Version: ""},
+		}}
+		res := CheckVersionConflicts(lf)
+		if len(res.Diagnostics) != 0 {
+			t.Fatalf("expected no diagnostics, got %#v", res.Diagnostics)
+		}
+	})
+
+	t.Run("missing version ignored", func(t *testing.T) {
+		lf := &Lockfile{Packages: []Package{
+			{ID: "git:react#abc", Source: "git", Name: "react", Version: ""},
+			{ID: "git:react#def", Source: "git", Name: "react", Version: ""},
+		}}
+		res := CheckVersionConflicts(lf)
+		if len(res.Diagnostics) != 0 {
+			t.Fatalf("expected no diagnostics, got %#v", res.Diagnostics)
+		}
+	})
 }
