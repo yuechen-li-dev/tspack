@@ -277,13 +277,16 @@ function jsxEval(node: ts.JsxElement | ts.JsxSelfClosingElement, sf: ts.SourceFi
   const props: Record<string, unknown> = {};
   for (const attr of open.attributes.properties) {
     if (ts.isJsxAttribute(attr) && attr.name) {
-      const key = attr.name.text;
+      const key = attr.name.getText(sf);
       if (attr.initializer && ts.isJsxExpression(attr.initializer) && attr.initializer.expression) props[key] = evalNode(attr.initializer.expression, sf, diags, file, env);
       else if (attr.initializer && ts.isStringLiteral(attr.initializer)) props[key] = attr.initializer.text;
     }
   }
-  const children = ts.isJsxElement(node) ? node.children.filter(ts.isJsxElement).concat(node.children.filter(ts.isJsxSelfClosingElement)) : [];
-  return { __tag: tag, ...props, __children: children.map((c) => jsxEval(c as any, sf, diags, file, env)) };
+  const children = ts.isJsxElement(node)
+    ? node.children.filter((child): child is ts.JsxElement | ts.JsxSelfClosingElement => ts.isJsxElement(child) || ts.isJsxSelfClosingElement(child))
+    : [];
+
+  return { __tag: tag, ...props, __children: children.map((child) => jsxEval(child, sf, diags, file, env)) };
 }
 
 function isSafeRel(p: string): boolean {

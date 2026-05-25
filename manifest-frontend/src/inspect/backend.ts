@@ -14,6 +14,24 @@ export type InspectBackendProbe = {
 };
 
 
+
+type InspectAnalyzerPayload = {
+  root: UIInspectResult['root'];
+  hitTests: UIInspectResult['hitTests'];
+};
+
+function asInspectAnalyzerPayload(value: unknown): InspectAnalyzerPayload {
+  if (!value || typeof value !== 'object') {
+    return { root: null, hitTests: [] };
+  }
+
+  const payload = value as Partial<InspectAnalyzerPayload>;
+  return {
+    root: payload.root ?? null,
+    hitTests: Array.isArray(payload.hitTests) ? payload.hitTests : []
+  };
+}
+
 type PlatformWebViewProbeResult = {
   os: NodeJS.Platform;
   candidate: 'webview2' | 'wkwebview' | 'webkitgtk';
@@ -142,7 +160,7 @@ async function inspectWithChromium(options: InspectOptions, overrides?: { execut
     const page = await browser.newPage({ viewport: { width: options.viewport.width, height: options.viewport.height } });
     await page.goto(options.url as string, { waitUntil: 'load' });
 
-    const payload = await page.evaluate(INSPECT_ANALYZER_SCRIPT, { selector: options.selector, points: options.points });
+    const payload = asInspectAnalyzerPayload(await page.evaluate(INSPECT_ANALYZER_SCRIPT, { selector: options.selector, points: options.points }));
     if (options.selector && !payload.root) {
       throw new Error('TSPACK_INSPECT_SELECTOR_NOT_FOUND');
     }
@@ -225,7 +243,7 @@ async function inspectWithCdp(options: InspectOptions): Promise<UIInspectResult>
       await page.setViewportSize({ width: options.viewport.width, height: options.viewport.height });
     }
 
-    const payload = await page.evaluate(INSPECT_ANALYZER_SCRIPT, { selector: options.selector, points: options.points });
+    const payload = asInspectAnalyzerPayload(await page.evaluate(INSPECT_ANALYZER_SCRIPT, { selector: options.selector, points: options.points }));
     if (options.selector && !payload.root) {
       throw new Error('TSPACK_INSPECT_SELECTOR_NOT_FOUND');
     }

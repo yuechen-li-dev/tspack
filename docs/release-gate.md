@@ -31,3 +31,9 @@
 - `tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. See `docs/format-lint.md`.
 
 - `tspack doctor` adds non-mutating environment diagnostics. See `docs/doctor.md`.
+
+## Manifest frontend build scope
+
+- `npm run build` in `manifest-frontend/` validates production source files only (`src/index`, `src/cli`, and `src/inspect/*`).
+- `npm test` in `manifest-frontend/` remains responsible for executing frontend tests.
+- Stricter standalone test-file typecheck is tracked as future M31c work.
