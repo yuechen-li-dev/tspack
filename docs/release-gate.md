@@ -38,4 +38,5 @@
 
 - `npm run build` in `manifest-frontend/` validates production source files only (`src/index`, `src/cli`, and `src/inspect/*`).
 - `npm test` in `manifest-frontend/` remains responsible for executing frontend tests.
+- `npm run typecheck:manifest-api` in `manifest-frontend/` validates `tspack/manifest` authoring declarations against typed fixtures.
 - Stricter standalone test-file typecheck is tracked as future M31c work.

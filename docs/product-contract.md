@@ -14,6 +14,7 @@ Its architecture is layered, with package lifecycle guarantees at the center and
 
 Scope:
 - manifest intent (`manifest.tsx` / `package.manifest.tsx`)
+- authoring-only manifest TypeScript surface (`tspack/manifest`) for editor typechecking/autocomplete
 - target-scoped graph + dependency classification
 - resolver + lockfile (`ts-lock.toml`)
 - sync/materialization (`node_modules` compatibility artifact)
@@ -80,6 +81,7 @@ Unless explicitly documented otherwise:
 ## Security guarantees
 
 - Fetch is not execute.
+- Manifest helper typings are authoring support only; they do not execute manifest code.
 - Lifecycle scripts are not executed by default.
 - Arbitrary package script execution is not part of the contract.
 - `node_modules` is a compatibility artifact, not source-of-truth state.

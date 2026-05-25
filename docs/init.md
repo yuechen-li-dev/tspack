@@ -1,6 +1,7 @@
 # `tspack init` (M30)
 
 `tspack init` scaffolds a readable starter `manifest.tsx` and a matching source entry file.
+Generated manifests import from `tspack/manifest`, so TS-aware editors provide autocomplete/typechecking while authoring.
 
 ## Kinds
 
