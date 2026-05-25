@@ -22,6 +22,7 @@
 - The JSON report includes command metadata, `ok`, summary counts (`errors`, `warnings`, `info`, `total`), and ordered diagnostics.
 - In JSON mode, human-readable diagnostics are not mixed into stdout.
 - Exit behavior is unchanged:
+  - warning diagnostics (including lock version conflicts) keep exit `0` when no errors exist;
   - exit `0` when there are no error diagnostics (warnings-only remains `0`);
   - nonzero when one or more error diagnostics exist, or on fatal runtime/command failure.
 

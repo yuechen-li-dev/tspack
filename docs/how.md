@@ -23,6 +23,7 @@
 
 - `tspack check --json`
 - `tspack how TSPACK_IR_INVALID_RELATIVE_PATH`
+- `tspack how TSPACK_LOCK_VERSION_CONFLICT`
 - `tspack how --list`
 
 ## Scope

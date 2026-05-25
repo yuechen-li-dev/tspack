@@ -62,7 +62,7 @@ Primary commands:
 
 ## Command responsibility boundaries
 
-- **check** validates contract consistency; no lock mutation.
+- **check** validates contract consistency (including suspicious lock graph conditions like duplicate locked versions); no lock mutation.
 - **update** resolves and writes lockfile.
 - **sync** materializes from lock; no lock mutation.
 - **pack** creates package archives; no lock mutation.
