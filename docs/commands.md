@@ -2,6 +2,7 @@
 
 | Command | Purpose | Mutates manifest/lock? | Notable non-goals | Details |
 |---|---|---|---|---|
+| `tspack init` | Scaffold a starter manifest and entry source for `library` or `app`. | **Yes (files)** / No | Does not install, update lock, sync, or build outputs. | `docs/init.md` |
 | `tspack check` | Validate manifest/frontend, graph, boundaries, type surfaces, and lock consistency when lock exists. | No / No | Does not resolve or install packages. | `docs/contract.md` |
 | `tspack update` | Resolve sources and write deterministic `ts-lock.toml`. | No / **Yes (lock)** | Not a package installer/materializer command. | `docs/lockfile.md`, `docs/source-resolvers.md` |
 | `tspack sync` | Materialize compatibility `node_modules` from lock/store. | No / No | Does not re-resolve versions. | `docs/materialization.md` |

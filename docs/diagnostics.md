@@ -2,6 +2,17 @@
 
 This inventory groups primary diagnostic families by subsystem to keep command-surface expectations aligned with product scope.
 
+## Init diagnostics
+
+- `TSPACK_INIT_KIND_REQUIRED`
+- `TSPACK_INIT_INVALID_KIND`
+- `TSPACK_INIT_NAME_REQUIRED`
+- `TSPACK_INIT_INVALID_NAME`
+- `TSPACK_INIT_INVALID_VERSION`
+- `TSPACK_INIT_FILE_EXISTS`
+- `TSPACK_INIT_WRITE_FAILED`
+- `TSPACK_INIT_UNSAFE_ROOT`
+
 ## Package/core diagnostics
 
 - `TSPACK_FRONTEND_*`
