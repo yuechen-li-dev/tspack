@@ -203,7 +203,7 @@ func renderManifest(cfg initConfig) string {
 	if cfg.kind == "app" {
 		entry = "src/main.ts"
 		runtime = "dist/main.js"
-		types = "dist/main.d.ts"
+		types = ""
 		targetName = "app"
 		typePolicy = `  const types = {
     declarations: "optional",

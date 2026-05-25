@@ -171,6 +171,60 @@ func TestCLIHelpAndUnsupportedCommands(t *testing.T) {
 	}
 }
 
+func TestCLIRootRecomputesDefaultManifestPathAndRespectsExplicitManifest(t *testing.T) {
+	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("abs repo: %v", err)
+	}
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	_ = os.MkdirAll(frontend, 0o755)
+	cliPath := filepath.Join(frontend, "cli.js")
+	stub := `#!/usr/bin/env node
+const expected = process.env.TSPACK_EXPECT_MANIFEST;
+const got = process.argv[2];
+if (expected && got !== expected) {
+  process.stdout.write(JSON.stringify({ok:false,ir:null,diagnostics:[{code:"TSPACK_TEST_UNEXPECTED_MANIFEST_PATH",severity:"error",message:"expected="+expected+" got="+got}]}));
+  process.exit(0);
+}
+const out={ok:true,ir:{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"library",dependencies:[],targets:[{name:"core",export:".",entry:"src/index.ts",runtime:"dist/index.js",types:"dist/index.d.ts",deps:[],peers:[]}],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{types:{},boundaries:{}}}]},diagnostics:[]};
+process.stdout.write(JSON.stringify(out));`
+	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(cliPath) })
+
+	fixtureRoot := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(fixtureRoot, "src"), 0o755)
+	_ = os.MkdirAll(filepath.Join(fixtureRoot, "dist"), 0o755)
+	_ = os.WriteFile(filepath.Join(fixtureRoot, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(fixtureRoot, "src", "index.ts"), []byte("x\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(fixtureRoot, "dist", "index.js"), []byte("x\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(fixtureRoot, "dist", "index.d.ts"), []byte("x\n"), 0o644)
+
+	binPath := filepath.Join(t.TempDir(), "tspack-test-bin")
+	buildCmd := exec.Command("go", "build", "-o", binPath, "./cmd/tspack")
+	buildCmd.Dir = repo
+	if buildOut, buildErr := buildCmd.CombinedOutput(); buildErr != nil {
+		t.Fatalf("build tspack binary failed: %v\n%s", buildErr, string(buildOut))
+	}
+
+	cmd := exec.Command(binPath, "check", "--root", fixtureRoot)
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "TSPACK_EXPECT_MANIFEST="+filepath.Join(fixtureRoot, "manifest.tsx"))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("check with root default manifest failed: %v\n%s", err, string(out))
+	}
+
+	explicit := filepath.Join(fixtureRoot, "explicit-manifest.tsx")
+	_ = os.WriteFile(explicit, []byte("export default {}\n"), 0o644)
+	cmd = exec.Command(binPath, "check", "--root", fixtureRoot, "--manifest", explicit)
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "TSPACK_EXPECT_MANIFEST="+explicit)
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("check with explicit manifest failed: %v\n%s", err, string(out))
+	}
+}
+
 func TestDocsCommandsInventoryIncludesCurrentSurface(t *testing.T) {
 	doc, err := os.ReadFile(filepath.Join("..", "..", "docs", "commands.md"))
 	if err != nil {

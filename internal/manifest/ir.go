@@ -199,6 +199,9 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 			}
 			seenExport[t.Export] = struct{}{}
 			for _, f := range []struct{ name, v string }{{"entry", t.Entry}, {"runtime", t.Runtime}, {"types", t.Types}} {
+				if p.Kind == "app" && f.name == "types" && f.v == "" {
+					continue
+				}
 				if !pathutil.IsSafePackageFilePath(f.v) {
 					add("TSPACK_IR_INVALID_RELATIVE_PATH", tp+"."+f.name+" must be a safe relative path")
 				}

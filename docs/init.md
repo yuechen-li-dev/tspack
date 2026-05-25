@@ -5,7 +5,7 @@
 ## Kinds
 
 - `--kind library` creates `src/index.ts` and a library-oriented manifest target.
-- `--kind app` creates `src/main.ts` and an app-oriented manifest target with relaxed type policy defaults.
+- `--kind app` creates `src/main.ts` and an app-oriented manifest target with relaxed type policy defaults (`types: ""` for no public type output).
 
 ## Generated files
 

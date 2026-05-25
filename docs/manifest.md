@@ -53,6 +53,10 @@ Path rules:
 - `row.manifest` must be located under `row.root`.
 - Paths inside `package.manifest.tsx` (for example target `entry` and `types`) are relative to the package root.
 
+Type output rules:
+- `library` targets should declare a non-empty safe `types` output path (for example `dist/index.d.ts`).
+- `app` targets may set `types: ""` to explicitly indicate there is no public type output for that target.
+
 
 ## RunTargets
 

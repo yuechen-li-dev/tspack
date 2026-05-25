@@ -38,6 +38,36 @@ describe('manifest frontend parser', () => {
     expect(JSON.stringify(result.ir)).toBe(golden('valid', 'm22-run-target'));
   });
 
+  it('workspace helper emits workspace source.name', () => {
+    const tmpDir = fs.mkdtempSync(path.join(root, 'fixtures', 'tmp-workspace-helper-'));
+    const manifestPath = path.join(tmpDir, 'manifest.tsx');
+    fs.writeFileSync(
+      manifestPath,
+      `import { define, dep, defineDeps, workspace } from "tspack/manifest";
+const deps = defineDeps({ core: dep(workspace("@acme/core")) });
+export default define(
+  <Workspace name="ws">
+    <Package name="@acme/app" version="1.0.0" kind="library" dependencies={{ values: [deps.core] }}>
+      <Targets rows={[{ name: "core", export: ".", entry: "src/index.ts", runtime: "dist/index.js", types: "dist/index.d.ts" }]} />
+    </Package>
+  </Workspace>
+);
+`,
+      'utf8',
+    );
+    try {
+      const result = parseManifestFile(manifestPath);
+      expect(result.ok).toBe(true);
+      const pkg = result.ir.packages[0];
+      const depSource = pkg.dependencies[0].source as Record<string, unknown>;
+      expect(depSource.kind).toBe('workspace');
+      expect(depSource.name).toBe('@acme/core');
+      expect(depSource.source).toBeUndefined();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('run targets parse deterministically', () => {
     const a = JSON.stringify(parseManifestFile(fixture('valid', 'm22-run-target')).ir);
     const b = JSON.stringify(parseManifestFile(fixture('valid', 'm22-run-target')).ir);

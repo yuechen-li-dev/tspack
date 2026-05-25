@@ -429,6 +429,9 @@ func runTestCommand(args []string) {
 func runCommand(args []string) {
 	cmd := args[0]
 	opts := project.DefaultOptions(".")
+	manifestExplicit := false
+	lockfileExplicit := false
+	storeExplicit := false
 	clean := false
 	packOpts := project.PackOptions{}
 	whyOpts := project.WhyOptions{}
@@ -437,20 +440,27 @@ func runCommand(args []string) {
 		case "--root":
 			i++
 			opts.RootDir = args[i]
-			if opts.ManifestPath == "./manifest.tsx" {
+			if !manifestExplicit {
 				opts.ManifestPath = filepath.Join(opts.RootDir, "manifest.tsx")
+			}
+			if !lockfileExplicit {
 				opts.LockfilePath = filepath.Join(opts.RootDir, "ts-lock.toml")
+			}
+			if !storeExplicit {
 				opts.StoreRoot = filepath.Join(opts.RootDir, ".tspack", "store")
 			}
 		case "--manifest":
 			i++
 			opts.ManifestPath = args[i]
+			manifestExplicit = true
 		case "--lockfile":
 			i++
 			opts.LockfilePath = args[i]
+			lockfileExplicit = true
 		case "--store":
 			i++
 			opts.StoreRoot = args[i]
+			storeExplicit = true
 		case "--clean":
 			clean = true
 		case "--out":

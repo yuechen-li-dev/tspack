@@ -127,6 +127,29 @@ func TestTargetPathsRejectBareDot(t *testing.T) {
 	}
 }
 
+func TestAppTargetAllowsEmptyTypes(t *testing.T) {
+	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"app","dependencies":[],"targets":[{"name":"app","export":".","entry":"src/main.ts","runtime":"dist/main.js","types":"","peers":[],"deps":[]}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	_, diags := LoadBytes("x.json", []byte(j))
+	if len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diags)
+	}
+}
+
+func TestLibraryTargetRejectsEmptyTypes(t *testing.T) {
+	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[{"name":"core","export":".","entry":"src/index.ts","runtime":"dist/index.js","types":"","peers":[],"deps":[]}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	_, diags := LoadBytes("x.json", []byte(j))
+	found := false
+	for _, d := range diags {
+		if d.Code == "TSPACK_IR_INVALID_RELATIVE_PATH" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected TSPACK_IR_INVALID_RELATIVE_PATH, got %#v", diags)
+	}
+}
+
 func TestPackageRootAllowsDot(t *testing.T) {
 	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","root":".","kind":"library","dependencies":[],"targets":[{"name":"core","export":".","entry":"src/index.ts","runtime":"dist/index.js","types":"dist/index.d.ts","peers":[],"deps":[]}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
 	_, diags := LoadBytes("x.json", []byte(j))
