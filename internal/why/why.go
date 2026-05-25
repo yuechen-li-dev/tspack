@@ -111,12 +111,13 @@ func Analyze(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, opts Options) Resul
 					direct = true
 				}
 			}
+			dedupeLockEdges(&e)
 			e.DirectProject = &direct
 			out.Explanations = append(out.Explanations, e)
 		}
 	}
 	if len(out.Explanations) == 0 {
-		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_WHY_NOT_FOUND", Severity: diag.SeverityError, Message: "query did not match dependency, target, or lock package", Details: []string{q}})
+		out.Diagnostics = append(out.Diagnostics, buildWhyNotFoundDiagnostic(q, lf))
 	}
 	sort.SliceStable(out.Explanations, func(i, j int) bool {
 		a, b := out.Explanations[i], out.Explanations[j]
@@ -134,6 +135,44 @@ func Analyze(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, opts Options) Resul
 	diag.SortDiagnostics(out.Diagnostics)
 	return out
 }
+
+func buildWhyNotFoundDiagnostic(query string, lf *lockfile.Lockfile) diag.Diagnostic {
+	details := []string{
+		"no declared dependency key or target matched \"" + query + "\"",
+	}
+
+	matchingLockIDs := matchingLockPackageIDs(query, lf)
+	if len(matchingLockIDs) > 0 {
+		details = append(details, "matching lock packages exist:")
+		for _, id := range matchingLockIDs {
+			details = append(details, "  "+id)
+		}
+		details = append(details, "try:")
+		details = append(details, "  tspack why "+matchingLockIDs[0])
+	}
+
+	return diag.Diagnostic{
+		Code:     "TSPACK_WHY_NOT_FOUND",
+		Severity: diag.SeverityError,
+		Message:  "why query not found: " + query,
+		Details:  details,
+	}
+}
+
+func matchingLockPackageIDs(query string, lf *lockfile.Lockfile) []string {
+	if lf == nil {
+		return nil
+	}
+	matches := []string{}
+	for _, pkg := range lf.Packages {
+		if pkg.Name == query {
+			matches = append(matches, pkg.ID)
+		}
+	}
+	sort.Strings(matches)
+	return matches
+}
+
 func addLockDetails(e *Explanation, lf *lockfile.Lockfile, packageName string) {
 	if lf == nil || packageName == "" {
 		return
@@ -150,4 +189,25 @@ func addLockDetails(e *Explanation, lf *lockfile.Lockfile, packageName string) {
 			}
 		}
 	}
+	dedupeLockEdges(e)
+}
+
+func dedupeLockEdges(e *Explanation) {
+	if len(e.LockEdges) < 2 {
+		return
+	}
+	seen := map[string]bool{}
+	deduped := make([]LockEdgeRef, 0, len(e.LockEdges))
+	for _, edge := range e.LockEdges {
+		key := edge.From + "|" + edge.To + "|" + edge.Kind
+		if edge.Optional {
+			key += "|optional"
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		deduped = append(deduped, edge)
+	}
+	e.LockEdges = deduped
 }
