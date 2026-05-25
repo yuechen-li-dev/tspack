@@ -33,3 +33,8 @@ These commands do not install packages or run package-manager scripts.
 ## Relationship to `tspack check`
 
 `check` remains architecture/manifest/lock/type/boundary validation and does not include linting or formatting.
+
+## Sync compatibility expectation
+
+When Biome is declared as a direct tool dependency and materialized by `tspack sync`, TSPack generates `node_modules/.bin/biome` as part of strict compatibility materialization. `tspack format`/`tspack lint` can resolve that local backend without npm script execution.
+

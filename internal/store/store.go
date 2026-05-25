@@ -41,6 +41,7 @@ type PackageMetadata struct {
 	Dependencies         map[string]string     `json:"dependencies,omitempty"`
 	OptionalDependencies map[string]string     `json:"optionalDependencies,omitempty"`
 	PeerDependencies     map[string]string     `json:"peerDependencies,omitempty"`
+	Bin                  any                   `json:"bin,omitempty"`
 }
 
 type Artifact struct {
@@ -238,12 +239,20 @@ func extractTarGz(data []byte, dest string) []diag.Diagnostic {
 		}
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			_ = os.MkdirAll(out, 0o755)
+			mode := os.FileMode(hdr.Mode) & 0o777
+			if mode == 0 {
+				mode = 0o755
+			}
+			_ = os.MkdirAll(out, mode)
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 				return []diag.Diagnostic{errDiag("TSPACK_STORE_EXTRACT_FAILED", err.Error())}
 			}
-			f, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+			mode := os.FileMode(hdr.Mode) & 0o777
+			if mode == 0 {
+				mode = 0o644
+			}
+			f, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 			if err != nil {
 				return []diag.Diagnostic{errDiag("TSPACK_STORE_EXTRACT_FAILED", err.Error())}
 			}
@@ -252,6 +261,9 @@ func extractTarGz(data []byte, dest string) []diag.Diagnostic {
 				return []diag.Diagnostic{errDiag("TSPACK_STORE_EXTRACT_FAILED", err.Error())}
 			}
 			f.Close()
+			if chmodErr := os.Chmod(out, mode); chmodErr != nil {
+				return []diag.Diagnostic{errDiag("TSPACK_STORE_EXTRACT_FAILED", chmodErr.Error())}
+			}
 		}
 	}
 	_ = os.RemoveAll(dest)
@@ -333,7 +345,15 @@ func copyTree(root, dest string) []diag.Diagnostic {
 			if er := os.MkdirAll(filepath.Dir(out), 0o755); er != nil {
 				return er
 			}
-			return os.WriteFile(out, b, 0o644)
+			info, er := os.Stat(path)
+			if er != nil {
+				return er
+			}
+			mode := info.Mode().Perm()
+			if mode == 0 {
+				mode = 0o644
+			}
+			return os.WriteFile(out, b, mode)
 		}
 		return nil
 	})

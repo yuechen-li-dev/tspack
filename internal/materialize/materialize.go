@@ -2,10 +2,12 @@ package materialize
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -102,6 +104,7 @@ func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) R
 	}
 
 	rootEdges := collectRootEdges(req.Lock.Edges)
+	rootVisible := map[string]lockfile.Package{}
 	seen := map[string]struct{}{}
 	for _, e := range rootEdges {
 		pkg, ok := pkgs[e.To]
@@ -113,9 +116,16 @@ func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) R
 			out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_INVALID_PACKAGE_NAME", Severity: diag.SeverityError, Message: err.Error(), Details: []string{pkg.ID, pkg.Name}})
 			continue
 		}
+		rootVisible[pkg.ID] = pkg
 		materializePkg(req, &out, pkgs, edgesByFrom, pkg, nmRoot, seen)
 	}
+	materializeRootBins(req, &out, nmRoot, rootVisible)
 	return finalize(out)
+}
+
+type packageJSON struct {
+	Name string      `json:"name"`
+	Bin  interface{} `json:"bin"`
 }
 
 func collectRootEdges(edges []lockfile.Edge) []lockfile.Edge {
@@ -240,7 +250,11 @@ func copyTree(src, dest string) error {
 		}
 		out := filepath.Join(dest, rel)
 		if info.IsDir() {
-			return os.MkdirAll(out, 0o755)
+			mode := info.Mode().Perm()
+			if mode == 0 {
+				mode = 0o755
+			}
+			return os.MkdirAll(out, mode)
 		}
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 			return err
@@ -250,14 +264,123 @@ func copyTree(src, dest string) error {
 			return err
 		}
 		defer in.Close()
-		f, err := os.OpenFile(out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+		mode := info.Mode().Perm()
+		if mode == 0 {
+			mode = 0o644
+		}
+		f, err := os.OpenFile(out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
 		if err != nil {
 			return err
 		}
 		defer f.Close()
 		_, err = io.Copy(f, in)
-		return err
+		if err != nil {
+			return err
+		}
+		return os.Chmod(out, mode)
 	})
+}
+
+func materializeRootBins(req Request, out *Result, nmRoot string, pkgs map[string]lockfile.Package) {
+	binsRoot := filepath.Join(nmRoot, ".bin")
+	if err := os.RemoveAll(binsRoot); err != nil {
+		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_BIN_WRITE_FAILED", Severity: diag.SeverityError, File: binsRoot, Message: err.Error()})
+		return
+	}
+	if err := os.MkdirAll(binsRoot, 0o755); err != nil {
+		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_BIN_WRITE_FAILED", Severity: diag.SeverityError, File: binsRoot, Message: err.Error()})
+		return
+	}
+	type candidate struct{ pkgName, absPath, relPath string }
+	candidates := map[string]candidate{}
+	ids := make([]string, 0, len(pkgs))
+	for id := range pkgs { ids = append(ids, id) }
+	sort.Strings(ids)
+	for _, id := range ids {
+		pkg := pkgs[id]
+		pkgRoot, err := safePackagePath(nmRoot, pkg.Name)
+		if err != nil { continue }
+		defs, diags := parsePackageBins(pkgRoot)
+		if len(diags) > 0 {
+			out.Diagnostics = append(out.Diagnostics, diags...)
+			continue
+		}
+		sort.SliceStable(defs, func(i,j int) bool { return defs[i].name < defs[j].name })
+		for _, def := range defs {
+			target := filepath.Join(pkgRoot, filepath.FromSlash(def.relPath))
+			if _, err := os.Stat(target); err != nil {
+				out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_BIN_TARGET_MISSING", Severity: diag.SeverityError, File: filepath.Join(pkgRoot, "package.json"), Message: "bin target does not exist", Details: []string{def.name, def.relPath}})
+				continue
+			}
+			if prev, ok := candidates[def.name]; ok && prev.absPath != target {
+				out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_BIN_CONFLICT", Severity: diag.SeverityError, Message: "multiple packages expose the same bin", Details: []string{def.name, prev.pkgName, pkg.Name}})
+				continue
+			}
+			candidates[def.name] = candidate{pkgName: pkg.Name, absPath: target, relPath: def.relPath}
+		}
+	}
+	names := make([]string, 0, len(candidates))
+	for name := range candidates { names = append(names, name) }
+	sort.Strings(names)
+	for _, name := range names {
+		cand := candidates[name]
+		targetRel := filepath.ToSlash(filepath.Join("..", cand.pkgName, filepath.FromSlash(cand.relPath)))
+		binPath := filepath.Join(binsRoot, name)
+		if runtime.GOOS == "windows" {
+			content := "@ECHO off\r\nnode \"%~dp0\\" + strings.ReplaceAll(targetRel, "/", "\\") + "\" %*\r\n"
+			if err := os.WriteFile(binPath+".cmd", []byte(content), 0o644); err != nil {
+				out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_BIN_WRITE_FAILED", Severity: diag.SeverityError, File: binPath + ".cmd", Message: err.Error()})
+			}
+			continue
+		}
+		if err := os.Symlink(targetRel, binPath); err != nil {
+			content := "#!/usr/bin/env sh\nDIR=\"$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\"\nexec \"$DIR/" + targetRel + "\" \"$@\"\n"
+			if writeErr := os.WriteFile(binPath, []byte(content), 0o755); writeErr != nil {
+				out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_BIN_WRITE_FAILED", Severity: diag.SeverityError, File: binPath, Message: writeErr.Error()})
+			}
+		}
+		_ = os.Chmod(cand.absPath, 0o755)
+	}
+}
+
+type binDef struct { name, relPath string }
+
+func parsePackageBins(pkgRoot string) ([]binDef, []diag.Diagnostic) {
+	p := filepath.Join(pkgRoot, "package.json")
+	b, err := os.ReadFile(p)
+	if err != nil { return nil, nil }
+	var pkg packageJSON
+	if err := json.Unmarshal(b, &pkg); err != nil { return nil, nil }
+	switch v := pkg.Bin.(type) {
+	case string:
+		if pkg.Name == "" {
+			return nil, []diag.Diagnostic{{Code: "TSPACK_MATERIALIZE_BIN_INVALID", Severity: diag.SeverityError, File: p, Message: "package bin string requires package name"}}
+		}
+		if err := validateBinPath(v); err != nil { return nil, []diag.Diagnostic{{Code: "TSPACK_MATERIALIZE_BIN_INVALID", Severity: diag.SeverityError, File: p, Message: err.Error(), Details: []string{pkg.Name, v}}} }
+		return []binDef{{name: pkg.Name, relPath: v}}, nil
+	case map[string]interface{}:
+		out := []binDef{}
+		for name, raw := range v {
+			pathStr, ok := raw.(string)
+			if !ok { return nil, []diag.Diagnostic{{Code: "TSPACK_MATERIALIZE_BIN_INVALID", Severity: diag.SeverityError, File: p, Message: "bin map entry must be a string", Details: []string{name}}} }
+			if err := validateBinPath(pathStr); err != nil { return nil, []diag.Diagnostic{{Code: "TSPACK_MATERIALIZE_BIN_INVALID", Severity: diag.SeverityError, File: p, Message: err.Error(), Details: []string{name, pathStr}}} }
+			out = append(out, binDef{name: name, relPath: pathStr})
+		}
+		return out, nil
+	default:
+		return nil, nil
+	}
+}
+
+func validateBinPath(relPath string) error {
+	if relPath == "" || filepath.IsAbs(relPath) {
+		return fmt.Errorf("bin path must be relative")
+	}
+	clean := filepath.Clean(relPath)
+	if clean == "." || strings.HasPrefix(clean, "..") || strings.Contains(clean, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("bin path must stay inside package root")
+	}
+	return nil
 }
 
 func finalize(out Result) Result {
