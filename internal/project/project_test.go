@@ -103,6 +103,29 @@ func TestUpdateDeterministicAndNoNodeModules(t *testing.T) {
 	}
 }
 
+func TestUpdateDryRunExistingLockNoChangesLeavesBytesUntouched(t *testing.T) {
+	dir := t.TempDir()
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = writeIR(t, dir, simpleIR())
+	opts.ResolverClient = buildRegistry()
+	first := Update(opts)
+	if hasErrors(first.Diagnostics) {
+		t.Fatalf("initial update failed: %#v", first.Diagnostics)
+	}
+	before, _ := os.ReadFile(opts.LockfilePath)
+	dry := UpdateDryRun(opts)
+	if hasErrors(dry.Diagnostics) {
+		t.Fatalf("dry-run failed: %#v", dry.Diagnostics)
+	}
+	after, _ := os.ReadFile(opts.LockfilePath)
+	if !bytes.Equal(before, after) {
+		t.Fatalf("dry-run mutated lockfile")
+	}
+	if dry.LockDiff == nil || len(dry.LockDiff.PackagesAdded)+len(dry.LockDiff.PackagesRemoved)+len(dry.LockDiff.PackagesChanged) != 0 {
+		t.Fatalf("expected no diff for dry-run")
+	}
+}
+
 func TestSyncMutationGuardAndMaterialization(t *testing.T) {
 	dir := t.TempDir()
 	irPath := writeIR(t, dir, simpleIR())

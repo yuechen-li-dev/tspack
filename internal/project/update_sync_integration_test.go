@@ -114,6 +114,33 @@ func TestUpdatePathDependencyResolvesFromRootWhenCWDDiffers(t *testing.T) {
 	}
 }
 
+func TestUpdateDryRunNoLockfileReportsAddAndDoesNotMutate(t *testing.T) {
+	root := t.TempDir()
+	irPath := writeIR(t, root, map[string]any{"format": 1, "workspace": map[string]any{"name": "ws"}, "packages": []map[string]any{{"name": "app", "version": "1.0.0", "kind": "library", "dependencies": []map[string]any{{"key": "dep-a", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "dep-a", "range": "1.0.0"}}}, "targets": []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "src/index.ts", "types": "dist/index.d.ts", "deps": []string{"dep-a"}, "peers": []string{}}}, "tools": []string{}, "boundaries": []any{}, "publish": map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}}}}})
+	registry := newFakeRegistryServer(t)
+	defer registry.Close()
+
+	opts := DefaultOptions(root)
+	opts.ManifestIRPath = irPath
+	opts.ResolverClient = resolver.NewHTTPRegistryClient(registry.URL)
+	res := UpdateDryRun(opts)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("dry-run failed: %#v", res.Diagnostics)
+	}
+	if res.LockDiff == nil || len(res.LockDiff.PackagesAdded) == 0 {
+		t.Fatalf("expected dry-run added packages: %#v", res.LockDiff)
+	}
+	if _, err := os.Stat(opts.LockfilePath); !os.IsNotExist(err) {
+		t.Fatalf("dry-run should not create lockfile")
+	}
+	if _, err := os.Stat(opts.StoreRoot); !os.IsNotExist(err) {
+		t.Fatalf("dry-run should not create store root")
+	}
+	if _, err := os.Stat(filepath.Join(root, "node_modules")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run should not create node_modules")
+	}
+}
+
 func newFakeRegistryServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	depTar := fakeRegistryTarball(t, "dep-a", "1.0.0", map[string]string{"left-pad": "1.0.0"})
