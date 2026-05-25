@@ -297,3 +297,25 @@ If a unit otherwise completes successfully without meaningful action, it fails w
 - `assert.doom(...)` can validate doom results in harness tests.
 
 See also `docs/doom.md` for detailed Prophecy/Doom semantics and future-work limits.
+
+## M29 local import materialization
+
+Native runtime execution now materializes a local relative module closure into temporary `.mjs` files before importing the entry module.
+This is intentionally **not a bundler**.
+
+Supported during runtime execution (`*.xtest.tsx`, `*.valid.tsx`, `*.invalid.tsx`, `*.benchmark.tsx`, `*.prophecy.tsx`, standalone `Artifact`):
+- static relative `import` / `export ... from` specifiers
+- `.ts`, `.tsx`, `.js`, `.jsx`
+- extensionless resolution (`.ts`, `.tsx`, `.js`, `.jsx`, and `index.*` variants)
+- recursive local closure loading with cycle-safe seen-set
+- bare package imports are preserved and left to Node runtime resolution
+
+Unsupported:
+- path aliases / tsconfig paths
+- CSS or asset imports
+- dynamic non-literal imports
+- package import rewrites
+
+Safety: local relative imports must resolve inside run `rootDir`; outside-root resolution is rejected.
+
+Discovery/list mode remains static and non-executing.
