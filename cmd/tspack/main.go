@@ -454,6 +454,12 @@ func runTestCommand(args []string) {
 	result := testcmd.Run(opts)
 	for _, d := range result.Diagnostics {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", d.Code, d.Message)
+		for _, detail := range d.Details {
+			if detail == d.Message {
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "  %s\n", detail)
+		}
 	}
 	if result.ExitCode != 0 {
 		os.Exit(result.ExitCode)
@@ -542,6 +548,12 @@ func runCommand(args []string) {
 	}
 	for _, d := range result.Diagnostics {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", d.Code, d.Message)
+		for _, detail := range d.Details {
+			if detail == d.Message {
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "  %s\n", detail)
+		}
 	}
 	if result.LockDiff != nil {
 		fmt.Printf("lockfile diff: +%d -%d\n", len(result.LockDiff.PackagesAdded), len(result.LockDiff.PackagesRemoved))

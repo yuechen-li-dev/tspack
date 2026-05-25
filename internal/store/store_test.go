@@ -22,7 +22,7 @@ func TestPutTarballAndGetVerify(t *testing.T) {
 	if !s.Has(ref.Hash) {
 		t.Fatalf("expected has")
 	}
-	if _, err := os.Stat(filepath.Join(ref.ExtractedPath, "package", "package.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(ref.ExtractedPath, "package.json")); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.Verify(ref.Hash); len(got) > 0 {
@@ -88,7 +88,7 @@ func TestExecutableModePreserved(t *testing.T) {
 	if len(diags) > 0 {
 		t.Fatal(diags)
 	}
-	st, err := os.Stat(filepath.Join(ref.ExtractedPath, "package", "bin", "tool"))
+	st, err := os.Stat(filepath.Join(ref.ExtractedPath, "bin", "tool"))
 	if err != nil {
 		t.Fatal(err)
 	}

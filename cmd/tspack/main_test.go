@@ -1074,3 +1074,70 @@ func TestCLIHowCommand(t *testing.T) {
 		t.Fatalf("expected app types empty string note: %s", string(b))
 	}
 }
+
+func TestCLIDiagnosticDetailsPrintedAndJSONStructured(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	_ = os.MkdirAll(frontend, 0o755)
+	cliPath := filepath.Join(frontend, "cli.js")
+	stub := `#!/usr/bin/env node
+const out={ok:false,ir:null,diagnostics:[{code:"TSPACK_TEST_DETAIL",severity:"error",message:"manifest invalid",details:["package=dep-a@1.0.0","reason=broken"]}]};
+process.stdout.write(JSON.stringify(out));`
+	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(cliPath) })
+
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	bin := buildTspackBinary(t, repo)
+
+	cmd := exec.Command(bin, "check", "--root", root)
+	cmd.Dir = repo
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected check failure")
+	}
+	text := string(out)
+	if !strings.Contains(text, "TSPACK_TEST_DETAIL: manifest invalid") {
+		t.Fatalf("missing primary diagnostic: %s", text)
+	}
+	if !strings.Contains(text, "  package=dep-a@1.0.0") || !strings.Contains(text, "  reason=broken") {
+		t.Fatalf("missing indented details: %s", text)
+	}
+
+	jsonCmd := exec.Command(bin, "check", "--root", root, "--json")
+	jsonCmd.Dir = repo
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	jsonCmd.Stdout = stdout
+	jsonCmd.Stderr = stderr
+	jerr := jsonCmd.Run()
+	if jerr == nil {
+		t.Fatalf("expected json check failure")
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no human diagnostics on stderr in --json mode, got %q", stderr.String())
+	}
+	var report map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("decode json output: %v", err)
+	}
+	diagnostics, ok := report["diagnostics"].([]any)
+	if !ok || len(diagnostics) == 0 {
+		t.Fatalf("expected diagnostics in json output: %s", stdout.String())
+	}
+	var found map[string]any
+	for _, raw := range diagnostics {
+		m, _ := raw.(map[string]any)
+		if m["code"] == "TSPACK_TEST_DETAIL" {
+			found = m
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected TSPACK_TEST_DETAIL in json diagnostics: %#v", diagnostics)
+	}
+	details, ok := found["details"].([]any)
+	if !ok || len(details) != 2 {
+		t.Fatalf("expected structured details in json output: %#v", found)
+	}
+}

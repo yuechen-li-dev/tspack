@@ -45,8 +45,8 @@ func (r *resolverState) resolvePathDependency(dep *graph.DependencyNode, from, k
 		r.result.Diagnostics = append(r.result.Diagnostics, dErr("TSPACK_RESOLVE_PATH_OUTSIDE_WORKSPACE", "resolved path escapes workspace", dep.Source.Path, dep.Package.Name))
 		return
 	}
-	absRoot, _ := filepath.Abs(base)
-	absPath, _ := filepath.Abs(resolved)
+	absRoot := filepath.Clean(filepath.Join(r.opts.RootDir, base))
+	absPath := filepath.Clean(filepath.Join(r.opts.RootDir, resolved))
 	if !strings.HasPrefix(absPath, absRoot) {
 		r.result.Diagnostics = append(r.result.Diagnostics, dErr("TSPACK_RESOLVE_PATH_OUTSIDE_WORKSPACE", "resolved path escapes workspace", dep.Source.Path, dep.Package.Name))
 		return
@@ -60,7 +60,7 @@ func (r *resolverState) resolvePathDependency(dep *graph.DependencyNode, from, k
 		r.result.Diagnostics = append(r.result.Diagnostics, dErr("TSPACK_RESOLVE_PATH_NOT_FOUND", "path dependency not found", dep.Source.Path))
 		return
 	}
-	rel := filepath.ToSlash(resolved)
+	rel := filepath.ToSlash(filepath.Clean(resolved))
 	id := fmt.Sprintf("path:%s#%s", rel, hash)
 	r.addPackageAndEdge(lockfile.Package{ID: id, Name: pkg.Name, Version: pkg.Version, Source: "path", Path: rel, Hash: "sha256:" + hash, Capabilities: capability.FromPackageJSONScripts(pkg.Scripts)}, from, kind, dep.Optional)
 }
@@ -78,14 +78,14 @@ func (r *resolverState) resolveWorkspaceDependency(dep *graph.DependencyNode, fr
 		r.result.Diagnostics = append(r.result.Diagnostics, dErr("TSPACK_RESOLVE_WORKSPACE_PACKAGE_NOT_FOUND", "workspace package not found", name))
 		return
 	}
-	absRoot, _ := filepath.Abs(target.Root)
+	absRoot := filepath.Clean(filepath.Join(r.opts.RootDir, target.Root))
 	hash, ok := hashDirectory(absRoot)
 	if !ok {
 		r.result.Diagnostics = append(r.result.Diagnostics, dErr("TSPACK_RESOLVE_WORKSPACE_ROOT_INVALID", "workspace package root is invalid", name, target.Root))
 		return
 	}
 	id := fmt.Sprintf("workspace:%s#%s", target.Name, hash)
-	r.addPackageAndEdge(lockfile.Package{ID: id, Name: target.Name, Version: target.Version, Source: "workspace", Workspace: target.Name, Path: filepath.ToSlash(target.Root), Hash: "sha256:" + hash}, from, kind, dep.Optional)
+	r.addPackageAndEdge(lockfile.Package{ID: id, Name: target.Name, Version: target.Version, Source: "workspace", Workspace: target.Name, Path: filepath.ToSlash(filepath.Clean(target.Root)), Hash: "sha256:" + hash}, from, kind, dep.Optional)
 }
 
 func (r *resolverState) resolveGitDependency(ctx context.Context, dep *graph.DependencyNode, from, kind string) {

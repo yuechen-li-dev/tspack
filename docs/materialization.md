@@ -78,6 +78,8 @@ Unsupported modes return diagnostics.
 
 M11: `tspack sync` invokes the materializer. `node_modules` remains a compatibility output, not source-of-truth.
 
+Update/sync relationship: a successful `tspack update` now resolves dependencies and populates store artifacts required by the lockfile so `tspack sync` can materialize without manual store priming.
+
 ## CLI compatibility hardening (M28)
 
 M28 preserves package executable behavior and generates strict root `.bin` entries.

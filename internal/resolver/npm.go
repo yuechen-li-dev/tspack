@@ -39,6 +39,7 @@ type ResolverOptions struct {
 	RegistryURL string
 	Client      NPMRegistryClient
 	Mode        ResolveMode
+	RootDir     string
 }
 
 type ResolveRequest struct {
