@@ -26,6 +26,7 @@ Primary commands:
 - `tspack update`
 - `tspack sync`
 - `tspack why`
+- `tspack how`
 - `tspack pack`
 
 ## 2) Native Development Harness (stable)

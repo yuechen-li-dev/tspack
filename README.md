@@ -12,7 +12,8 @@ Core thesis: **Declare targets. Resolve sources. Enforce boundaries. Lock realit
 | Core package | `tspack check` | Validate manifest/frontend, graph, boundaries, and lock consistency. Supports `--json` for structured stdout diagnostics. | Does not mutate lock. |
 | Core package | `tspack update` | Resolve and write deterministic `ts-lock.toml`. | Mutates lock. |
 | Core package | `tspack sync` | Materialize compatibility `node_modules` from lock/store. | Does not mutate lock. |
-| Core package | `tspack why` | Explain dependency/target reachability and presence. | Does not mutate lock. |
+| Core package | `tspack why`
+- `tspack how` | Explain dependency/target reachability and presence. | Does not mutate lock. |
 | Core package | `tspack pack` | Build deterministic package archives. | Does not mutate lock. |
 | Native harness | `tspack test` | Run native xTest/Vitest command loop. | May write test outputs; no lock/manifest mutation. |
 | Native harness | `tspack artifact` | Run standalone suite-level native artifact units. | May write artifact output; no lock/manifest mutation. |
