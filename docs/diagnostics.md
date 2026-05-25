@@ -85,3 +85,11 @@ Page/analyzer:
 - `tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. See `docs/format-lint.md`.
 
 - `tspack doctor` adds non-mutating environment diagnostics. See `docs/doctor.md`.
+
+## Materializer bin diagnostics (M28)
+
+- `TSPACK_MATERIALIZE_BIN_INVALID`
+- `TSPACK_MATERIALIZE_BIN_TARGET_MISSING`
+- `TSPACK_MATERIALIZE_BIN_CONFLICT`
+- `TSPACK_MATERIALIZE_BIN_WRITE_FAILED`
+

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/tspack/tspack/internal/lockfile"
@@ -39,6 +40,36 @@ func TestMaterializeStrictLayout(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(ws, "node_modules", "left-pad", "package.json")); err == nil {
 		t.Fatal("phantom root dep should not exist")
 	}
+}
+
+func TestRootBinMaterializationAndStrictness(t *testing.T) {
+	ws := t.TempDir()
+	s, _ := store.Open(t.TempDir())
+	tool := putPkgWithPackageJSON(t, s, "npm:tool@1.0.0", "tool", `{"name":"tool","bin":{"tool":"bin/tool.js"}}`, []fileSpec{{path: "bin/tool.js", content: "#!/usr/bin/env node\nconsole.log('tool')\n", mode: 0o755}})
+	transitive := putPkgWithPackageJSON(t, s, "npm:transitive@1.0.0", "transitive", `{"name":"transitive","bin":{"hidden":"bin/hidden.js"}}`, []fileSpec{{path: "bin/hidden.js", content: "#!/usr/bin/env node\n", mode: 0o755}})
+	lf := &lockfile.Lockfile{Packages: []lockfile.Package{
+		{ID: "npm:tool@1.0.0", Name: "tool", Hash: tool},
+		{ID: "npm:transitive@1.0.0", Name: "transitive", Hash: transitive},
+	}, Edges: []lockfile.Edge{{From: "app:tool", To: "npm:tool@1.0.0", Kind: "tool"}, {From: "npm:tool@1.0.0", To: "npm:transitive@1.0.0", Kind: "runtime"}}}
+	res := NodeModulesMaterializer{}.Materialize(context.Background(), Request{WorkspaceRoot: ws, Lock: lf, Store: s, Options: Options{LinkMode: LinkModeCopy}})
+	if len(res.Diagnostics) > 0 { t.Fatalf("diags: %#v", res.Diagnostics) }
+	mustExist(t, filepath.Join(ws, "node_modules", ".bin", "tool"))
+	if _, err := os.Stat(filepath.Join(ws, "node_modules", ".bin", "hidden")); err == nil { t.Fatal("transitive-only bin should not be root-exposed") }
+	if runtime.GOOS != "windows" {
+		st, err := os.Stat(filepath.Join(ws, "node_modules", "tool", "bin", "tool.js"))
+		if err != nil { t.Fatal(err) }
+		if st.Mode().Perm()&0o111 == 0 { t.Fatalf("expected executable mode, got %o", st.Mode().Perm()) }
+	}
+}
+
+func TestBinConflictDiagnostic(t *testing.T) {
+	ws := t.TempDir()
+	s, _ := store.Open(t.TempDir())
+	a := putPkgWithPackageJSON(t, s, "npm:a@1.0.0", "a", `{"name":"a","bin":{"same":"bin/a.js"}}`, []fileSpec{{path: "bin/a.js", content: "", mode: 0o755}})
+	b := putPkgWithPackageJSON(t, s, "npm:b@1.0.0", "b", `{"name":"b","bin":{"same":"bin/b.js"}}`, []fileSpec{{path: "bin/b.js", content: "", mode: 0o755}})
+	lf := &lockfile.Lockfile{Packages: []lockfile.Package{{ID: "npm:a@1.0.0", Name: "a", Hash: a}, {ID: "npm:b@1.0.0", Name: "b", Hash: b}}, Edges: []lockfile.Edge{{From: "app:tool", To: "npm:a@1.0.0", Kind: "tool"}, {From: "app:tool", To: "npm:b@1.0.0", Kind: "tool"}}}
+	res := NodeModulesMaterializer{}.Materialize(context.Background(), Request{WorkspaceRoot: ws, Lock: lf, Store: s, Options: Options{LinkMode: LinkModeCopy}})
+	assertCode(t, res, "TSPACK_MATERIALIZE_BIN_CONFLICT")
 }
 
 func TestDiagnosticsAndCleanSafety(t *testing.T) {
@@ -118,4 +149,25 @@ func assertCode(t *testing.T, res Result, code string) {
 		}
 	}
 	t.Fatalf("missing diagnostic %s: %#v", code, res.Diagnostics)
+}
+
+type fileSpec struct {
+	path    string
+	content string
+	mode    os.FileMode
+}
+
+func putPkgWithPackageJSON(t *testing.T, s *store.Store, id, name, packageJSON string, files []fileSpec) string {
+	t.Helper()
+	d := t.TempDir()
+	if err := os.MkdirAll(d, 0o755); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(d, "package.json"), []byte(packageJSON), 0o644); err != nil { t.Fatal(err) }
+	for _, file := range files {
+		full := filepath.Join(d, file.path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil { t.Fatal(err) }
+		if err := os.WriteFile(full, []byte(file.content), file.mode); err != nil { t.Fatal(err) }
+	}
+	ref, diags := s.PutArtifact(store.Artifact{ID: id, Name: name, Kind: store.ArtifactPathTree, RootDir: d})
+	if len(diags) > 0 { t.Fatal(diags) }
+	return ref.Hash
 }

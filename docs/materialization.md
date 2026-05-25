@@ -77,3 +77,22 @@ Unsupported modes return diagnostics.
 
 
 M11: `tspack sync` invokes the materializer. `node_modules` remains a compatibility output, not source-of-truth.
+
+## CLI compatibility hardening (M28)
+
+M28 preserves package executable behavior and generates strict root `.bin` entries.
+
+- executable permission bits from package artifacts are preserved through store extraction and `node_modules` materialization on POSIX.
+- root `node_modules/.bin` is generated only from root-visible packages (same strict root visibility from `*:target:*` and `*:tool` edges).
+- transitive-only packages are not hoisted into root `.bin`.
+- `package.json` `bin` supports string and object shapes.
+- invalid `bin` paths, missing bin targets, bin name conflicts, and write failures emit `TSPACK_MATERIALIZE_BIN_*` diagnostics.
+- POSIX uses deterministic symlinks to package bin targets (with wrapper fallback).
+- Windows writes `.cmd` shims for root bins.
+
+Still not supported in materialization:
+
+- semantic hoisting
+- lifecycle script execution
+- npm install / npx behavior
+

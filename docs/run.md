@@ -56,3 +56,8 @@ M22 readiness is HTTP polling:
 - `manifest.tsx` / `package.manifest.tsx`
 - `ts-lock.toml`
 - dependencies / `node_modules`
+
+## Local tool-bin behavior
+
+For `node` runtime launches, local compatibility tool resolution depends on strict materialized `node_modules/.bin` entries generated from root-visible dependencies only. TSPack does not infer npm scripts and does not expose transitive-only bins at root.
+

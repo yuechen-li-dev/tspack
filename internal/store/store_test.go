@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -80,6 +81,22 @@ func TestTraversalRejected(t *testing.T) {
 	}
 }
 
+func TestExecutableModePreserved(t *testing.T) {
+	s, _ := Open(t.TempDir())
+	tgz := makeTarballWithMode(t, map[string]fileSpec{"package/bin/tool": {content: "#!/bin/sh\necho ok\n", mode: 0o755}})
+	ref, diags := s.PutArtifact(Artifact{Kind: ArtifactNPMTarball, Bytes: tgz})
+	if len(diags) > 0 {
+		t.Fatal(diags)
+	}
+	st, err := os.Stat(filepath.Join(ref.ExtractedPath, "package", "bin", "tool"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && st.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("expected executable bit, got %o", st.Mode().Perm())
+	}
+}
+
 func TestMetadataDeterministic(t *testing.T) {
 	s, _ := Open(t.TempDir())
 	tgz := makeTarball(t, map[string]string{"package/package.json": `{"name":"a","version":"1.0.0"}`})
@@ -102,6 +119,25 @@ func makeTarball(t *testing.T, files map[string]string) []byte {
 	for p, c := range files {
 		_ = tw.WriteHeader(&tar.Header{Name: p, Mode: 0o644, Size: int64(len(c))})
 		_, _ = tw.Write([]byte(c))
+	}
+	_ = tw.Close()
+	_ = gz.Close()
+	return buf.Bytes()
+}
+
+type fileSpec struct {
+	content string
+	mode    int64
+}
+
+func makeTarballWithMode(t *testing.T, files map[string]fileSpec) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for p, c := range files {
+		_ = tw.WriteHeader(&tar.Header{Name: p, Mode: c.mode, Size: int64(len(c.content))})
+		_, _ = tw.Write([]byte(c.content))
 	}
 	_ = tw.Close()
 	_ = gz.Close()
