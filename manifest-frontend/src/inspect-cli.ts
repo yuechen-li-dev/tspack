@@ -1,11 +1,12 @@
 import { inspectAndWrite, parsePoint, parseViewport } from './inspect/index.js';
+import type { InspectOptions } from './inspect/index.js';
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const cursor = args[0] === 'inspect' ? 1 : 0;
   let url: string | undefined;
-  const options = {
-    browser: 'auto' as const,
+  const options: Omit<InspectOptions, 'url'> = {
+    browser: 'auto',
     viewport: { width: 1440, height: 900 },
     selector: undefined as string | undefined,
     points: [] as Array<{ x: number; y: number }>,
