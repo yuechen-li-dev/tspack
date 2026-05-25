@@ -7,6 +7,8 @@
 - `tspack update`
 - `tspack sync`
 - `tspack why <dep>`
+- `tspack how --list`
+- `tspack how TSPACK_IR_INVALID_RELATIVE_PATH`
 - `tspack pack`
 - `tspack test`
 - `tspack artifact`

@@ -174,7 +174,7 @@ func TestCLIHelpAndUnsupportedCommands(t *testing.T) {
 		t.Fatalf("help failed: %v\n%s", err, string(b))
 	}
 	text := string(b)
-	for _, cmd := range []string{"check", "update", "sync", "pack", "why", "format", "lint", "run", "test", "artifact", "bench", "doom", "inspect", "--version", "help"} {
+	for _, cmd := range []string{"check", "update", "sync", "pack", "why", "how", "format", "lint", "run", "test", "artifact", "bench", "doom", "inspect", "--version", "help"} {
 		if !strings.Contains(text, cmd) {
 			t.Fatalf("help missing %s: %s", cmd, text)
 		}
@@ -1045,5 +1045,32 @@ func TestCLIBiomeMissingBackendAndInvalidFlags(t *testing.T) {
 	b, err = cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(b), "TSPACK_LINT_INVALID_FLAGS") {
 		t.Fatalf("lint invalid flags missing: %v\n%s", err, string(b))
+	}
+}
+
+func TestCLIHowCommand(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	cmd := exec.Command("go", "run", "./cmd/tspack", "how")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_HOW_CODE_REQUIRED") {
+		t.Fatalf("expected required code diagnostic: %v\n%s", err, string(b))
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "how", "NOPE")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_HOW_CODE_NOT_FOUND") || !strings.Contains(string(b), "tspack how --list") {
+		t.Fatalf("expected not found diagnostic: %v\n%s", err, string(b))
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "how", "TSPACK_IR_INVALID_RELATIVE_PATH")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("how known code failed: %v\n%s", err, string(b))
+	}
+	if !strings.Contains(string(b), "types: \"\"") {
+		t.Fatalf("expected app types empty string note: %s", string(b))
 	}
 }

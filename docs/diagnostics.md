@@ -35,6 +35,7 @@ This inventory groups primary diagnostic families by subsystem to keep command-s
 ### Structured check report
 
 - `tspack check --json` emits a structured diagnostics report on stdout.
+- `tspack how <code>` explains a diagnostic code from JSON/CI output, and `tspack how --list` lists curated help entries.
 - Each diagnostic includes stable `code`, `severity`, and `message` fields, with optional file/details/fixes when available.
 - Severity is preserved (`error`, `warning`, `info`), and warning diagnostics are included in the report summary.
 - `ok` is `false` when one or more `error` diagnostics exist, otherwise `true`.
