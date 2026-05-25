@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -10,6 +11,36 @@ import (
 	"strings"
 	"testing"
 )
+
+type checkJSONReport struct {
+	Command     string                `json:"command"`
+	OK          bool                  `json:"ok"`
+	Summary     checkJSONSummary      `json:"summary"`
+	Diagnostics []checkJSONDiagnostic `json:"diagnostics"`
+}
+
+type checkJSONSummary struct {
+	Errors   int `json:"errors"`
+	Warnings int `json:"warnings"`
+	Info     int `json:"info"`
+	Total    int `json:"total"`
+}
+
+type checkJSONDiagnostic struct {
+	Code     string `json:"code"`
+	Severity string `json:"severity"`
+}
+
+func buildTspackBinary(t *testing.T, repo string) string {
+	t.Helper()
+	binPath := filepath.Join(t.TempDir(), "tspack-test-bin")
+	buildCmd := exec.Command("go", "build", "-o", binPath, "./cmd/tspack")
+	buildCmd.Dir = repo
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("build tspack binary failed: %v\n%s", err, string(out))
+	}
+	return binPath
+}
 
 func reservePort(t *testing.T) int {
 	t.Helper()
@@ -240,6 +271,106 @@ func TestDocsCommandsInventoryIncludesCurrentSurface(t *testing.T) {
 		if !strings.Contains(text, phrase) {
 			t.Fatalf("commands doc missing grouping/stability phrase %q", phrase)
 		}
+	}
+}
+
+func TestCheckJSONWarningOnlyLockfileMissing(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	_ = os.MkdirAll(frontend, 0o755)
+	cliPath := filepath.Join(frontend, "cli.js")
+	stub := `#!/usr/bin/env node
+const out={ok:true,ir:{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"library",dependencies:[],targets:[{name:"core",export:".",entry:"src/index.ts",runtime:"dist/index.js",types:"dist/index.d.ts",deps:[],peers:[]}],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{types:{},boundaries:{}}}]},diagnostics:[]};
+process.stdout.write(JSON.stringify(out));`
+	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(cliPath) })
+	binPath := buildTspackBinary(t, repo)
+
+	root := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(root, "src"), 0o755)
+	_ = os.MkdirAll(filepath.Join(root, "dist"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "src", "index.ts"), []byte("export const x = 1\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "dist", "index.js"), []byte("export const x = 1\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "dist", "index.d.ts"), []byte("export declare const x: number\n"), 0o644)
+
+	cmd := exec.Command(binPath, "check", "--root", root, "--json")
+	cmd.Dir = repo
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("warnings-only check should exit zero: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stderr.String(), "TSPACK_CHECK_LOCKFILE_MISSING") {
+		t.Fatalf("expected no duplicated human diagnostics on stderr, got: %s", stderr.String())
+	}
+	if !strings.HasSuffix(stdout.String(), "\n") {
+		t.Fatalf("expected trailing newline on JSON output: %q", stdout.String())
+	}
+
+	var report checkJSONReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("stdout is not valid json: %v\n%s", err, stdout.String())
+	}
+	if report.Command != "check" || !report.OK {
+		t.Fatalf("expected command=check and ok=true, got %+v", report)
+	}
+	if report.Summary.Errors != 0 || report.Summary.Warnings == 0 || report.Summary.Total == 0 {
+		t.Fatalf("unexpected summary: %+v", report.Summary)
+	}
+	lockfileWarningFound := false
+	for _, diagnostic := range report.Diagnostics {
+		if diagnostic.Code == "TSPACK_CHECK_LOCKFILE_MISSING" {
+			lockfileWarningFound = true
+			if diagnostic.Severity != "warning" {
+				t.Fatalf("expected warning severity for lockfile missing, got %+v", diagnostic)
+			}
+		}
+	}
+	if !lockfileWarningFound {
+		t.Fatalf("expected TSPACK_CHECK_LOCKFILE_MISSING in diagnostics: %+v", report.Diagnostics)
+	}
+}
+
+func TestCheckJSONInvalidProjectIsNonZero(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	_ = os.MkdirAll(frontend, 0o755)
+	cliPath := filepath.Join(frontend, "cli.js")
+	stub := `#!/usr/bin/env node
+const out={ok:true,ir:{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"library",dependencies:[],targets:[{name:"core",export:".",entry:"src/index.ts",runtime:"dist/index.js",types:"dist/index.d.ts",deps:[],peers:[]}],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{types:{},boundaries:{}}}]},diagnostics:[]};
+process.stdout.write(JSON.stringify(out));`
+	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(cliPath) })
+	binPath := buildTspackBinary(t, repo)
+
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+
+	cmd := exec.Command(binPath, "check", "--root", root, "--json")
+	cmd.Dir = repo
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err == nil {
+		t.Fatalf("expected invalid project to exit nonzero")
+	}
+	if strings.Contains(stderr.String(), "TSPACK_") {
+		t.Fatalf("expected no duplicated human diagnostics on stderr, got: %s", stderr.String())
+	}
+	var report checkJSONReport
+	if unmarshalErr := json.Unmarshal(stdout.Bytes(), &report); unmarshalErr != nil {
+		t.Fatalf("stdout is not valid json: %v\n%s", unmarshalErr, stdout.String())
+	}
+	if report.OK {
+		t.Fatalf("expected ok=false for invalid project: %+v", report)
+	}
+	if report.Summary.Errors == 0 {
+		t.Fatalf("expected errors > 0 for invalid project: %+v", report.Summary)
 	}
 }
 

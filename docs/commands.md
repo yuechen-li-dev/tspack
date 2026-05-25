@@ -15,6 +15,15 @@
 | `tspack doom` | Run quarantined prophecy/doom units (`*.prophecy.tsx`). | No / No | Not a generic chaos platform. | `docs/doom.md` |
 | `tspack inspect <url\|target>` | Structural UI inspection and run-target inspection (experimental backends: platform-webview scaffold, CDP, host-path, Playwright Chromium). | No / No | Not screenshot diffing/visual testing; not auto-attach. | `docs/inspect.md` (**experimental**) |
 
+## `tspack check --json`
+
+- `tspack check --json` writes a machine-readable JSON report to **stdout**.
+- The JSON report includes command metadata, `ok`, summary counts (`errors`, `warnings`, `info`, `total`), and ordered diagnostics.
+- In JSON mode, human-readable diagnostics are not mixed into stdout.
+- Exit behavior is unchanged:
+  - exit `0` when there are no error diagnostics (warnings-only remains `0`);
+  - nonzero when one or more error diagnostics exist, or on fatal runtime/command failure.
+
 ## Stability
 
 - Stable core package surface: `check`, `update`, `sync`, `why`, `pack`.
