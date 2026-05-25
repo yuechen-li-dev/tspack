@@ -230,6 +230,14 @@ func extractTarGz(data []byte, dest string) []diag.Diagnostic {
 			return []diag.Diagnostic{errDiag("TSPACK_STORE_EXTRACT_FAILED", err.Error())}
 		}
 		clean := filepath.Clean(hdr.Name)
+		parts := strings.Split(clean, "/")
+		if len(parts) < 2 {
+			continue
+		}
+		clean = filepath.Clean(strings.Join(parts[1:], "/"))
+		if clean == "." || clean == "" {
+			continue
+		}
 		if filepath.IsAbs(clean) || strings.Contains(clean, "..") {
 			return []diag.Diagnostic{errDiag("TSPACK_STORE_TARBALL_PATH_TRAVERSAL", "tarball path traversal detected")}
 		}

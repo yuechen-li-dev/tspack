@@ -114,10 +114,44 @@ func Update(opts Options) Result {
 	}
 	client := opts.ResolverClient
 	if client == nil {
-		client = noopRegistryClient{}
+		client = resolver.NewHTTPRegistryClient("")
 	}
-	res := resolver.Resolve(context.Background(), resolver.ResolverOptions{Mode: resolver.ResolveModeUpdate, Client: client}, resolver.ResolveRequest{Graph: g, ExistingLock: old})
+	res := resolver.Resolve(context.Background(), resolver.ResolverOptions{Mode: resolver.ResolveModeUpdate, Client: client, RootDir: opts.RootDir}, resolver.ResolveRequest{Graph: g, ExistingLock: old})
 	out = append(out, res.Diagnostics...)
+	if hasErrors(out) {
+		return Result{Diagnostics: out}
+	}
+	st, err := store.Open(opts.StoreRoot)
+	if err != nil {
+		out = append(out, errDiag("TSPACK_UPDATE_STORE_OPEN_FAILED", "failed to open store", err.Error()))
+		return Result{Diagnostics: out}
+	}
+	for i := range res.Lock.Packages {
+		pkg := &res.Lock.Packages[i]
+		if pkg.Hash != "" && st.Has(pkg.Hash) {
+			continue
+		}
+		switch pkg.Source {
+		case "npm":
+			body, fetchErr := client.Tarball(context.Background(), findTarballURL(pkg, client))
+			if fetchErr != nil {
+				out = append(out, errDiag("TSPACK_RESOLVE_NPM_TARBALL_FETCH_FAILED", "failed to fetch npm tarball", pkg.ID, fetchErr.Error()))
+				continue
+			}
+			ref, diags := st.PutArtifact(store.Artifact{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, Hash: pkg.Hash, Integrity: pkg.Integrity, Kind: store.ArtifactNPMTarball, Bytes: body, Metadata: store.PackageMetadata{Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, PackageID: pkg.ID, Integrity: pkg.Integrity, Capabilities: pkg.Capabilities}})
+			out = append(out, diags...)
+			if len(diags) == 0 {
+				pkg.Hash = ref.Hash
+			}
+		case "path", "workspace":
+			abs := filepath.Join(opts.RootDir, filepath.FromSlash(pkg.Path))
+			ref, diags := st.PutArtifact(store.Artifact{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, Hash: pkg.Hash, Kind: store.ArtifactPathTree, RootDir: abs, Metadata: store.PackageMetadata{Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, PackageID: pkg.ID, Capabilities: pkg.Capabilities}})
+			out = append(out, diags...)
+			if len(diags) == 0 {
+				pkg.Hash = ref.Hash
+			}
+		}
+	}
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
 	}
@@ -282,13 +316,16 @@ func errDiag(code, msg string, details ...string) diag.Diagnostic {
 
 func FormatResult(r Result) string { return fmt.Sprintf("diagnostics=%d", len(r.Diagnostics)) }
 
-type noopRegistryClient struct{}
-
-func (noopRegistryClient) PackageMetadata(_ context.Context, name string) (*resolver.PackageMetadata, error) {
-	return nil, fmt.Errorf("npm registry client not configured for package %s", name)
-}
-func (noopRegistryClient) Tarball(_ context.Context, url string) ([]byte, error) {
-	return nil, fmt.Errorf("npm tarball fetch not configured: %s", url)
+func findTarballURL(pkg *lockfile.Package, client resolver.NPMRegistryClient) string {
+	meta, err := client.PackageMetadata(context.Background(), pkg.Name)
+	if err != nil {
+		return ""
+	}
+	pv, ok := meta.Versions[pkg.Version]
+	if !ok {
+		return ""
+	}
+	return pv.Dist.Tarball
 }
 
 func hasErrors(diags []diag.Diagnostic) bool {

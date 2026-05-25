@@ -19,7 +19,8 @@
 
 ## Mutation expectations
 
-- `update` mutates `ts-lock.toml`.
+- `update` mutates `ts-lock.toml` and populates required store artifacts.
+- Release smoke must pass `tspack update --root <fixture>` followed by `tspack sync --root <fixture>` using a local/fake registry fixture.
 - `check`, `sync`, `pack`, `why`, `run`, and `inspect` do not mutate `ts-lock.toml` unless explicitly documented.
 - `run` and `inspect --run` do not mutate manifest contract files.
 - `artifact`, `test`, `bench`, and `doom` may write harness outputs/artifacts but do not rewrite manifest/lock contract state.
