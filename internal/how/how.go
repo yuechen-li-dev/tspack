@@ -56,6 +56,20 @@ var entries = []DiagnosticHelp{
 		RelatedDocs: []string{"docs/boundaries.md", "docs/manifest.md"},
 	},
 	{
+		Code:    "TSPACK_BOUNDARY_TYPE_EXPLICIT_DENY",
+		Title:   "Explicit type boundary deny rule",
+		Summary: "A type-only external import or re-export matched denyTypeDeps.",
+		Why:     "Public and authoring type surfaces can couple consumers to packages that runtime boundaries intentionally hide.",
+		Fixes: []string{
+			"Move the type behind the correct public target.",
+			"Remove public type leakage from the denied package.",
+			"Split internal and public types so exported types do not reference internal dependencies.",
+			"Adjust denyTypeDeps deliberately if the type exposure is intentional.",
+			"Run tspack check --explain <file> to inspect type imports and matching type boundary rules.",
+		},
+		RelatedDocs: []string{"docs/boundaries.md", "docs/import-scanning.md"},
+	},
+	{
 		Code:    "TSPACK_BOUNDARY_EXPLICIT_DENY",
 		Title:   "Explicit runtime boundary deny rule",
 		Summary: "A runtime import matched a deny boundary policy.",

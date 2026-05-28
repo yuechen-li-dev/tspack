@@ -33,14 +33,15 @@ type Import struct {
 }
 
 var (
-	reImportFrom              = regexp.MustCompile(`(?m)\bimport\s+(type\s+)?[^;\n]*?\sfrom\s*["']([^"']+)["']`)
+	reImportFrom              = regexp.MustCompile(`(?m)\bimport\s+(type\s+)?([^;\n]*?)\sfrom\s*["']([^"']+)["']`)
 	reImportSide              = regexp.MustCompile(`(?m)\bimport\s*["']([^"']+)["']`)
-	reExportFrom              = regexp.MustCompile(`(?m)\bexport\s+(type\s+)?(?:\*|\{[^}]*\})\s*from\s*["']([^"']+)["']`)
+	reExportFrom              = regexp.MustCompile(`(?m)\bexport\s+(type\s+)?(\*|\{[^}]*\})\s*from\s*["']([^"']+)["']`)
 	reRequireLiteral          = regexp.MustCompile(`(?m)\brequire\s*\(\s*["']([^"']+)["']\s*\)`)
 	reRequireAny              = regexp.MustCompile(`(?m)\brequire\s*\(`)
 	reImportLiteral           = regexp.MustCompile(`(?m)\bimport\s*\(\s*["']([^"']+)["']\s*\)`)
 	reImportDynamicAny        = regexp.MustCompile(`(?m)\bimport\s*\(`)
 	reImportDynamicNonLiteral = regexp.MustCompile(`(?m)\bimport\s*\(\s*[^\s"'\)]`)
+	reNamedTypeSpecifier      = regexp.MustCompile(`(?:^|[,\{])\s*type\s+[A-Za-z_$]`)
 )
 
 func ScanFile(path string) ([]Import, []diag.Diagnostic) {
@@ -49,6 +50,7 @@ func ScanFile(path string) ([]Import, []diag.Diagnostic) {
 		return nil, []diag.Diagnostic{{Code: "TSPACK_IMPORT_PARSE_ERROR", Severity: diag.SeverityError, Message: "failed to read source file", File: path, Details: []string{err.Error()}}}
 	}
 	s := string(b)
+	declarationFile := isDeclarationFile(path)
 	out := []Import{}
 	diags := []diag.Diagnostic{}
 	seen := map[string]bool{}
@@ -62,27 +64,43 @@ func ScanFile(path string) ([]Import, []diag.Diagnostic) {
 		out = append(out, Import{Specifier: spec, Kind: kind, SpecifierKind: k, Package: pkg})
 	}
 	for _, m := range reImportFrom.FindAllStringSubmatch(s, -1) {
+		clause := m[2]
 		kind := ImportKindRuntime
-		if strings.TrimSpace(m[1]) != "" {
+		if declarationFile || strings.TrimSpace(m[1]) != "" || namedClauseIsTypeOnly(clause) {
 			kind = ImportKindTypeOnly
 		}
-		add(m[2], kind)
+		add(m[3], kind)
+		if kind == ImportKindRuntime && reNamedTypeSpecifier.MatchString(clause) {
+			add(m[3], ImportKindTypeOnly)
+		}
 	}
 	for _, m := range reImportSide.FindAllStringSubmatch(s, -1) {
-		add(m[1], ImportKindRuntime)
-	}
-	for _, m := range reExportFrom.FindAllStringSubmatch(s, -1) {
 		kind := ImportKindRuntime
-		if strings.TrimSpace(m[1]) != "" {
+		if declarationFile {
 			kind = ImportKindTypeOnly
 		}
-		add(m[2], kind)
+		add(m[1], kind)
+	}
+	for _, m := range reExportFrom.FindAllStringSubmatch(s, -1) {
+		clause := m[2]
+		kind := ImportKindRuntime
+		if declarationFile || strings.TrimSpace(m[1]) != "" || namedClauseIsTypeOnly(clause) {
+			kind = ImportKindTypeOnly
+		}
+		add(m[3], kind)
+		if kind == ImportKindRuntime && reNamedTypeSpecifier.MatchString(clause) {
+			add(m[3], ImportKindTypeOnly)
+		}
 	}
 	for _, m := range reRequireLiteral.FindAllStringSubmatch(s, -1) {
 		add(m[1], ImportKindRuntime)
 	}
 	for _, m := range reImportLiteral.FindAllStringSubmatch(s, -1) {
-		add(m[1], ImportKindRuntime)
+		kind := ImportKindRuntime
+		if declarationFile {
+			kind = ImportKindTypeOnly
+		}
+		add(m[1], kind)
 	}
 	if regexp.MustCompile(`(?m)\brequire\s*\(\s*[^\s"'\)]`).MatchString(s) {
 		diags = append(diags, diag.Diagnostic{Code: "TSPACK_IMPORT_UNSUPPORTED_DYNAMIC", Severity: diag.SeverityWarning, Message: "non-literal require is unsupported", File: path})
@@ -93,6 +111,32 @@ func ScanFile(path string) ([]Import, []diag.Diagnostic) {
 		out = append(out, Import{Kind: ImportKindUnknownDynamic, SpecifierKind: SpecifierUnknown})
 	}
 	return out, diags
+}
+
+func namedClauseIsTypeOnly(clause string) bool {
+	trimmed := strings.TrimSpace(clause)
+	if !strings.HasPrefix(trimmed, "{") || !strings.HasSuffix(trimmed, "}") {
+		return false
+	}
+	body := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "{"), "}"))
+	if body == "" {
+		return false
+	}
+	for _, part := range strings.Split(body, ",") {
+		name := strings.TrimSpace(part)
+		if name == "" {
+			continue
+		}
+		if !strings.HasPrefix(name, "type ") {
+			return false
+		}
+	}
+	return true
+}
+
+func isDeclarationFile(path string) bool {
+	base := filepath.Base(path)
+	return strings.HasSuffix(base, ".d.ts") || strings.HasSuffix(base, ".d.mts") || strings.HasSuffix(base, ".d.cts")
 }
 
 func classifySpecifier(spec string) (SpecifierKind, string) {

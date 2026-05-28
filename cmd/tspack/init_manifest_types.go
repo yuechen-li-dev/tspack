@@ -69,6 +69,7 @@ const initManifestTypesDTS = "" +
 	"    deny?: string[];\n" +
 	"    allowDeps?: string[];\n" +
 	"    denyDeps?: string[];\n" +
+	"    denyTypeDeps?: string[];\n" +
 	"    allowOnly?: string[];\n" +
 	"    [key: string]: Primitive | Primitive[] | undefined;\n" +
 	"  };\n" +

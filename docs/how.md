@@ -44,3 +44,7 @@ M31d intentionally ships curated diagnostic help entries, not full diagnostic co
 ## allowOnly boundary diagnostics
 
 `TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION` means a matching boundary row restricted external runtime imports to `allowOnly`, and the imported package was not in that row. Relative/internal imports are still allowed. `allowOnly` is not a dependency declaration, so listed packages must also be declared/allowed by the target dependency model. Tool-runtime and `denyDeps` diagnostics take precedence.
+
+## Type boundary diagnostics
+
+`TSPACK_BOUNDARY_TYPE_EXPLICIT_DENY` means a type-only external import or re-export matched `denyTypeDeps`. Move the type behind the correct public target, remove the public type leakage, split internal and public type definitions, or adjust the boundary row if the type exposure is intentional. Runtime-only remediation for `denyDeps` is not enough: `denyTypeDeps` is about the public/type surface and scanner-visible type edges.

@@ -35,3 +35,15 @@ Relative resolution:
 - TypeScript ESM `.jsx` specifiers are also resolved against same-stem `.tsx`, `.ts`, and `.js` source files when the exact `.jsx` file is absent.
 
 Non-goals in M4: no package resolution, no type-checking, no full type leakage analysis.
+
+## Type-only import and re-export detection
+
+The scanner classifies obvious type-level edges as `type-only`:
+
+- `import type { Foo } from "pkg"`
+- `export type { Foo } from "pkg"`
+- `export type * from "pkg"`
+- mixed named clauses such as `import { type Foo, value } from "pkg"`, which produce both a runtime edge and a type-only edge for the same specifier
+- named clauses containing only `type` specifiers, such as `export { type Foo } from "pkg"`, which produce only a type-only edge
+
+For `.d.ts`, `.d.mts`, and `.d.cts` files, scanner-visible imports and re-exports are treated as type-level edges by default, including `import("pkg")` type references. The scanner does not trace symbols through TypeScript's type checker; it only extracts module specifiers.

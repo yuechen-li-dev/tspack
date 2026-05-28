@@ -1074,6 +1074,9 @@ func printCheckExplain(explain *check.ExplainResult) {
 			if len(rule.DenyDeps) > 0 {
 				fmt.Printf("    denyDeps: %s\n", strings.Join(rule.DenyDeps, ", "))
 			}
+			if len(rule.DenyTypeDeps) > 0 {
+				fmt.Printf("    denyTypeDeps: %s\n", strings.Join(rule.DenyTypeDeps, ", "))
+			}
 			if rule.AllowOnly != nil {
 				fmt.Printf("    allowOnly: %s\n", strings.Join(rule.AllowOnly, ", "))
 			}
@@ -1083,7 +1086,7 @@ func printCheckExplain(explain *check.ExplainResult) {
 	fmt.Println("External imports:")
 	hasExternal := false
 	for _, imp := range explain.Imports {
-		if imp.Kind != "external" {
+		if imp.Kind != "external" || imp.TypeOnly {
 			continue
 		}
 		hasExternal = true
@@ -1097,6 +1100,26 @@ func printCheckExplain(explain *check.ExplainResult) {
 		}
 	}
 	if !hasExternal {
+		fmt.Println("  none")
+	}
+	fmt.Println()
+	fmt.Println("Type imports:")
+	hasTypeExternal := false
+	for _, imp := range explain.Imports {
+		if imp.Kind != "external" || !imp.TypeOnly {
+			continue
+		}
+		hasTypeExternal = true
+		fmt.Printf("  %s\n", imp.Specifier)
+		fmt.Printf("    decision: %s\n", imp.Decision)
+		for _, reason := range imp.Reasons {
+			fmt.Printf("    reason: %s\n", reason)
+		}
+		if imp.Diagnostic != "" {
+			fmt.Printf("    diagnostic: %s\n", imp.Diagnostic)
+		}
+	}
+	if !hasTypeExternal {
 		fmt.Println("  none")
 	}
 	fmt.Println()

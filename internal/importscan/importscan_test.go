@@ -129,3 +129,57 @@ func writeTestFile(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 }
+
+func TestScanTypeOnlyForms(t *testing.T) {
+	d := t.TempDir()
+	p := filepath.Join(d, "types.ts")
+	src := `import { type Foo, value } from "mixed";
+export { type Bar } from "export-mixed";
+export type * from "export-all";
+`
+	os.WriteFile(p, []byte(src), 0o644)
+	imps, diags := ScanFile(p)
+	if len(diags) > 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diags)
+	}
+	if !scanHas(imps, "mixed", ImportKindRuntime) || !scanHas(imps, "mixed", ImportKindTypeOnly) {
+		t.Fatalf("expected mixed import to produce runtime and type edges: %#v", imps)
+	}
+	if scanHas(imps, "export-mixed", ImportKindRuntime) || !scanHas(imps, "export-mixed", ImportKindTypeOnly) {
+		t.Fatalf("expected type-only export to produce only a type edge: %#v", imps)
+	}
+	if !scanHas(imps, "export-all", ImportKindTypeOnly) {
+		t.Fatalf("expected export type star to produce type edge: %#v", imps)
+	}
+}
+
+func TestScanDeclarationFileImportsAsTypeOnly(t *testing.T) {
+	d := t.TempDir()
+	p := filepath.Join(d, "index.d.ts")
+	src := `import { Foo } from "types";
+export { Bar } from "bar";
+type Lazy = import("lazy").Lazy;
+`
+	os.WriteFile(p, []byte(src), 0o644)
+	imps, diags := ScanFile(p)
+	if len(diags) > 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diags)
+	}
+	for _, spec := range []string{"types", "bar", "lazy"} {
+		if !scanHas(imps, spec, ImportKindTypeOnly) {
+			t.Fatalf("expected %s to be type-only in declaration file: %#v", spec, imps)
+		}
+		if scanHas(imps, spec, ImportKindRuntime) {
+			t.Fatalf("did not expect %s runtime edge in declaration file: %#v", spec, imps)
+		}
+	}
+}
+
+func scanHas(imps []Import, specifier string, kind ImportKind) bool {
+	for _, imp := range imps {
+		if imp.Specifier == specifier && imp.Kind == kind {
+			return true
+		}
+	}
+	return false
+}

@@ -30,8 +30,10 @@ func Check(opts Options) []diag.Diagnostic {
 	var out []diag.Diagnostic
 	for _, p := range opts.Graph.AllPackages() {
 		transitiveMatches := BuildTransitiveRuleMatches(opts.RootDir, p)
+		typeTransitiveMatches := BuildTransitiveTypeRuleMatches(opts.RootDir, p)
 		for _, t := range p.AllTargets() {
 			out = append(out, checkTarget(opts.RootDir, p, t, transitiveMatches)...)
+			out = append(out, checkTargetTypeBoundaries(opts.RootDir, p, t, typeTransitiveMatches)...)
 		}
 	}
 	diag.SortDiagnostics(out)
@@ -78,6 +80,51 @@ func checkTarget(root string, p *graph.PackageNode, t *graph.TargetNode, transit
 				out = append(out, validateExternal(root, t, p, cur, imp.Package, buildPath(parents, entry, cur, imp.Package), imp.Specifier, matches)...)
 			case importscan.SpecifierNodeBuiltin:
 				// M4 policy: classify and ignore builtin checks.
+			}
+		}
+	}
+	return out
+}
+
+func checkTargetTypeBoundaries(root string, p *graph.PackageNode, t *graph.TargetNode, transitiveMatches map[string][]TransitiveRuleMatch) []diag.Diagnostic {
+	pkgRoot := p.Root
+	if pkgRoot == "" {
+		pkgRoot = "."
+	}
+	entry := filepath.Clean(filepath.Join(root, pkgRoot, t.Entry))
+	q := []string{entry}
+	parents := map[string]string{}
+	seen := map[string]bool{}
+	var out []diag.Diagnostic
+	for len(q) > 0 {
+		cur := q[0]
+		q = q[1:]
+		if seen[cur] {
+			continue
+		}
+		seen[cur] = true
+		imps, _ := importscan.ScanFile(cur)
+		importscan.SortImports(imps)
+		for _, imp := range imps {
+			switch imp.SpecifierKind {
+			case importscan.SpecifierRelativeInternal:
+				if imp.Kind != importscan.ImportKindRuntime && imp.Kind != importscan.ImportKindTypeOnly {
+					continue
+				}
+				next, ok := importscan.ResolveRelative(cur, imp.Specifier)
+				if !ok {
+					continue
+				}
+				if _, ok := parents[next]; !ok {
+					parents[next] = cur
+				}
+				q = append(q, next)
+			case importscan.SpecifierExternalPackage:
+				if imp.Kind != importscan.ImportKindTypeOnly {
+					continue
+				}
+				matches := transitiveMatches[filepath.Clean(cur)]
+				out = append(out, validateTypeExternal(root, t, p, cur, imp.Package, buildPath(parents, entry, cur, imp.Package), imp.Specifier, matches)...)
 			}
 		}
 	}
@@ -143,6 +190,47 @@ func validateExternal(root string, t *graph.TargetNode, p *graph.PackageNode, fi
 		}
 	}
 	out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_PEER_SCOPE_VIOLATION", Severity: diag.SeverityError, Message: "target does not allow external package", File: file, Details: detail})
+	return out
+}
+
+func validateTypeExternal(root string, t *graph.TargetNode, p *graph.PackageNode, file, pkg string, path []string, spec string, transitiveMatches []TransitiveRuleMatch) []diag.Diagnostic {
+	var out []diag.Diagnostic
+	for _, rule := range p.Boundaries {
+		if rule.From == "" || !MatchFrom(rule.From, filepath.ToSlash(file)) {
+			continue
+		}
+		if !ruleDeniesTypePackage(rule, pkg) {
+			continue
+		}
+		detail := []string{
+			"target=" + t.Name,
+			"package=" + pkg,
+			"import=" + spec,
+			"boundary=from " + rule.From,
+			"from=" + rule.From,
+			"denyTypeDeps=" + strings.Join(dedupeStrings(rule.DenyTypeDeps), ","),
+			"path=" + strings.Join(path, " -> "),
+		}
+		out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_TYPE_EXPLICIT_DENY", Severity: diag.SeverityError, Message: "type import denied by explicit boundary", File: file, Details: detail})
+	}
+	for _, match := range transitiveMatches {
+		if !ruleDeniesTypePackage(match.Rule, pkg) {
+			continue
+		}
+		transitivePath := relPathList(root, match.Path)
+		transitivePath = append(transitivePath, pkg)
+		detail := []string{
+			"target=" + t.Name,
+			"package=" + pkg,
+			"import=" + spec,
+			"boundary=transitiveFrom " + match.Rule.TransitiveFrom,
+			"transitiveFrom=" + match.Rule.TransitiveFrom,
+			"seed=" + relPath(root, match.Seed),
+			"denyTypeDeps=" + strings.Join(dedupeStrings(match.Rule.DenyTypeDeps), ","),
+			"path=" + strings.Join(transitivePath, " -> "),
+		}
+		out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_TYPE_EXPLICIT_DENY", Severity: diag.SeverityError, Message: "type import denied by explicit transitive boundary", File: file, Details: detail})
+	}
 	return out
 }
 
@@ -291,6 +379,14 @@ func buildPath(parents map[string]string, entry, file, pkg string) []string {
 }
 
 func BuildTransitiveRuleMatches(root string, p *graph.PackageNode) map[string][]TransitiveRuleMatch {
+	return buildTransitiveRuleMatches(root, p, false)
+}
+
+func BuildTransitiveTypeRuleMatches(root string, p *graph.PackageNode) map[string][]TransitiveRuleMatch {
+	return buildTransitiveRuleMatches(root, p, true)
+}
+
+func buildTransitiveRuleMatches(root string, p *graph.PackageNode, includeTypeOnlyLocalImports bool) map[string][]TransitiveRuleMatch {
 	matches := map[string][]TransitiveRuleMatch{}
 	sourceFiles := packageSourceFiles(root, p)
 	for _, rule := range p.Boundaries {
@@ -299,7 +395,7 @@ func BuildTransitiveRuleMatches(root string, p *graph.PackageNode) map[string][]
 		}
 		seeds := matchingSeeds(root, rule.TransitiveFrom, sourceFiles)
 		for _, seed := range seeds {
-			paths := reachablePathsFromSeed(seed)
+			paths := reachablePathsFromSeed(seed, includeTypeOnlyLocalImports)
 			files := sortedMapKeys(paths)
 			for _, file := range files {
 				matches[file] = append(matches[file], TransitiveRuleMatch{Rule: rule, Seed: seed, Path: paths[file]})
@@ -370,7 +466,7 @@ func matchingSeeds(root string, pattern string, sourceFiles []string) []string {
 	return out
 }
 
-func reachablePathsFromSeed(seed string) map[string][]string {
+func reachablePathsFromSeed(seed string, includeTypeOnlyLocalImports bool) map[string][]string {
 	q := []string{seed}
 	parents := map[string]string{}
 	seen := map[string]bool{}
@@ -386,7 +482,10 @@ func reachablePathsFromSeed(seed string) map[string][]string {
 		imports, _ := importscan.ScanFile(cur)
 		importscan.SortImports(imports)
 		for _, imp := range imports {
-			if imp.Kind != importscan.ImportKindRuntime || imp.SpecifierKind != importscan.SpecifierRelativeInternal {
+			if imp.SpecifierKind != importscan.SpecifierRelativeInternal {
+				continue
+			}
+			if imp.Kind != importscan.ImportKindRuntime && (!includeTypeOnlyLocalImports || imp.Kind != importscan.ImportKindTypeOnly) {
 				continue
 			}
 			next, ok := importscan.ResolveRelative(cur, imp.Specifier)
@@ -443,8 +542,38 @@ func DeniedByTransitiveBoundary(matches []TransitiveRuleMatch, pkg string) bool 
 	return false
 }
 
+func DeniedByTypeBoundary(p *graph.PackageNode, file, pkg string) bool {
+	for _, b := range p.Boundaries {
+		if b.From == "" || !MatchFrom(b.From, filepath.ToSlash(file)) {
+			continue
+		}
+		if ruleDeniesTypePackage(b, pkg) {
+			return true
+		}
+	}
+	return false
+}
+
+func DeniedByTransitiveTypeBoundary(matches []TransitiveRuleMatch, pkg string) bool {
+	for _, match := range matches {
+		if ruleDeniesTypePackage(match.Rule, pkg) {
+			return true
+		}
+	}
+	return false
+}
+
 func ruleDeniesPackage(rule manifest.BoundaryRule, pkg string) bool {
 	for _, d := range rule.DenyDeps {
+		if d == pkg {
+			return true
+		}
+	}
+	return false
+}
+
+func ruleDeniesTypePackage(rule manifest.BoundaryRule, pkg string) bool {
+	for _, d := range rule.DenyTypeDeps {
 		if d == pkg {
 			return true
 		}

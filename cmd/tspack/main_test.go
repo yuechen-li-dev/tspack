@@ -1799,3 +1799,125 @@ process.stdout.write(JSON.stringify({ ok: true, ir: manifestIR, diagnostics: [] 
 		t.Fatalf("unsupported diagnostic not surfaced: err=%v output=%s", unsupportedErr, string(unsupportedOut))
 	}
 }
+
+func TestCheckTypeBoundaryJSONTextAndExplain(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	if err := os.MkdirAll(frontend, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cliPath := filepath.Join(frontend, "cli.js")
+	stub := `#!/usr/bin/env node
+const manifestIR = {
+  format: 1,
+  workspace: { name: "ws" },
+  packages: [{
+    name: "app",
+    version: "1.0.0",
+    kind: "library",
+    dependencies: [
+      { key: "react-dom", kind: "peer", source: { kind: "npm", package: "react-dom", range: "^19.0.0" } }
+    ],
+    targets: [{ name: "core", export: ".", entry: "src/index.ts", runtime: "dist/index.js", types: "dist/index.d.ts", deps: [], peers: ["react-dom"] }],
+    tools: [],
+    boundaries: [{ from: "src/index.ts", denyTypeDeps: ["react-dom"] }],
+    publish: { include: ["dist/**"], exclude: [] },
+    policies: { types: {}, boundaries: {} }
+  }]
+};
+process.stdout.write(JSON.stringify({ ok: true, ir: manifestIR, diagnostics: [] }));`
+	if err := os.WriteFile(cliPath, []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(cliPath) })
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {};\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "index.ts"), []byte("import type { Foo } from \"react-dom/client\";\nexport const ok = true;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	bin := buildTspackBinary(t, repo)
+	jsonCmd := exec.Command(bin, "check", "--root", root, "--json")
+	jsonCmd.Dir = repo
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	jsonCmd.Stdout = stdout
+	jsonCmd.Stderr = stderr
+	if err := jsonCmd.Run(); err == nil {
+		t.Fatalf("expected json check to fail")
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("json check wrote stderr: %s", stderr.String())
+	}
+	var report struct {
+		Diagnostics []struct {
+			Code    string   `json:"code"`
+			Details []string `json:"details"`
+		} `json:"diagnostics"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("json check was not parseable: %v\n%s", err, stdout.String())
+	}
+	found := false
+	for _, diagnostic := range report.Diagnostics {
+		if diagnostic.Code != "TSPACK_BOUNDARY_TYPE_EXPLICIT_DENY" {
+			continue
+		}
+		found = true
+		if !containsString(diagnostic.Details, "package=react-dom") || !containsString(diagnostic.Details, "import=react-dom/client") {
+			t.Fatalf("type diagnostic missing package/import details: %+v", diagnostic)
+		}
+	}
+	if !found {
+		t.Fatalf("expected type boundary diagnostic in json report: %+v", report.Diagnostics)
+	}
+
+	textCmd := exec.Command(bin, "check", "--root", root)
+	textCmd.Dir = repo
+	textOut, textErr := textCmd.CombinedOutput()
+	if textErr == nil {
+		t.Fatalf("expected text check to fail")
+	}
+	text := string(textOut)
+	if !strings.Contains(text, "TSPACK_BOUNDARY_TYPE_EXPLICIT_DENY: type import denied by explicit boundary") || !strings.Contains(text, "denyTypeDeps=react-dom") {
+		t.Fatalf("missing type boundary text details: %s", text)
+	}
+
+	explainCmd := exec.Command(bin, "check", "--root", root, "--explain", "src/index.ts")
+	explainCmd.Dir = repo
+	explainOut, explainErr := explainCmd.CombinedOutput()
+	if explainErr != nil {
+		t.Fatalf("explain failed: %v\n%s", explainErr, string(explainOut))
+	}
+	explainText := string(explainOut)
+	for _, want := range []string{"Type imports:", "react-dom/client", "TSPACK_BOUNDARY_TYPE_EXPLICIT_DENY", "denyTypeDeps: react-dom"} {
+		if !strings.Contains(explainText, want) {
+			t.Fatalf("explain output missing %q:\n%s", want, explainText)
+		}
+	}
+
+	explainJSONCmd := exec.Command(bin, "check", "--root", root, "--explain", "src/index.ts", "--json")
+	explainJSONCmd.Dir = repo
+	explainJSONOut, explainJSONErr := explainJSONCmd.CombinedOutput()
+	if explainJSONErr != nil {
+		t.Fatalf("json explain failed: %v\n%s", explainJSONErr, string(explainJSONOut))
+	}
+	if !strings.Contains(string(explainJSONOut), `"typeOnly": true`) || !strings.Contains(string(explainJSONOut), `"diagnostic": "TSPACK_BOUNDARY_TYPE_EXPLICIT_DENY"`) {
+		t.Fatalf("json explain missing type import decision: %s", string(explainJSONOut))
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}

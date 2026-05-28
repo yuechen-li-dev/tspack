@@ -266,3 +266,23 @@ func TestBoundaryTransitiveFromValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestBoundaryDenyTypeDepsValidation(t *testing.T) {
+	valid := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[{"name":"core","export":".","entry":"src/index.ts","runtime":"dist/index.js","types":"dist/index.d.ts","peers":[],"deps":[]}],"policies":{},"boundaries":[{"from":"src/index.ts","denyTypeDeps":["react-dom"]},{"from":"src/empty.ts","denyTypeDeps":[]}],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	if _, diags := LoadBytes("valid.json", []byte(valid)); len(diags) > 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diags)
+	}
+
+	invalid := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[{"name":"core","export":".","entry":"src/index.ts","runtime":"dist/index.js","types":"dist/index.d.ts","peers":[],"deps":[]}],"policies":{},"boundaries":[{"from":"src/index.ts","denyTypeDeps":[""]}],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	_, diags := LoadBytes("invalid.json", []byte(invalid))
+	found := false
+	for _, d := range diags {
+		if d.Code == "TSPACK_BOUNDARY_INVALID_DENY_TYPE_DEPS" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected TSPACK_BOUNDARY_INVALID_DENY_TYPE_DEPS, got %#v", diags)
+	}
+}
