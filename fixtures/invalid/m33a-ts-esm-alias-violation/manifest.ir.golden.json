@@ -1,0 +1,73 @@
+{
+    "format": 1,
+    "workspace": {
+        "name": "prisma-ui"
+    },
+    "packages": [
+        {
+            "name": "@prisma-ui/components",
+            "version": "0.1.0",
+            "root": "packages/components",
+            "kind": "library",
+            "policies": {},
+            "dependencies": [],
+            "targets": [
+                {
+                    "name": "core",
+                    "export": ".",
+                    "entry": "src/index.ts",
+                    "runtime": "dist/index.js",
+                    "types": "dist/index.d.ts",
+                    "deps": [],
+                    "peers": []
+                }
+            ],
+            "tools": [],
+            "boundaries": [],
+            "publish": {
+                "include": [
+                    "dist/**"
+                ],
+                "exclude": []
+            }
+        },
+        {
+            "name": "demo",
+            "version": "0.1.0",
+            "root": "packages/demo",
+            "kind": "app",
+            "policies": {},
+            "dependencies": [
+                {
+                    "key": "components",
+                    "kind": "workspace",
+                    "source": {
+                        "kind": "workspace",
+                        "name": "@prisma-ui/components"
+                    }
+                }
+            ],
+            "targets": [
+                {
+                    "name": "app",
+                    "export": ".",
+                    "entry": "src/index.ts",
+                    "runtime": "dist/index.js",
+                    "types": "dist/index.d.ts",
+                    "deps": [
+                        "components"
+                    ],
+                    "peers": []
+                }
+            ],
+            "tools": [],
+            "boundaries": [],
+            "publish": {
+                "include": [
+                    "dist/**"
+                ],
+                "exclude": []
+            }
+        }
+    ]
+}

@@ -239,3 +239,66 @@ func TestDepKindAllowedAsRuntimeDependency(t *testing.T) {
 		t.Fatal("dep should be runtime-equivalent for target deps")
 	}
 }
+
+func TestAllowsExternalPackageNameMatchesDeclaredDependencyIdentifiers(t *testing.T) {
+	packageNode := &PackageNode{Name: "demo"}
+	target := &TargetNode{
+		Name:    "core",
+		Package: packageNode,
+		RuntimeDeps: []*DependencyNode{
+			{
+				Key:  "components",
+				Kind: DependencyKindWorkspace,
+				Source: manifest.Source{
+					Kind: "workspace",
+					Name: "@prisma-ui/components",
+				},
+			},
+			{
+				Key:  "@prisma-ui/icons",
+				Kind: DependencyKindWorkspace,
+				Source: manifest.Source{
+					Kind: "workspace",
+					Name: "@prisma-ui/icons",
+				},
+			},
+			{
+				Key:  "local-utils",
+				Kind: DependencyKindRuntime,
+				Source: manifest.Source{
+					Kind: "path",
+					Name: "@prisma-ui/local-utils",
+					Path: "../local-utils",
+				},
+			},
+			{
+				Key:  "aliased-react",
+				Kind: DependencyKindRuntime,
+				Source: manifest.Source{
+					Kind:    "npm",
+					Package: "react",
+					Range:   "^19.0.0",
+				},
+			},
+		},
+	}
+
+	allowedPackages := []string{
+		"components",
+		"@prisma-ui/components",
+		"@prisma-ui/icons",
+		"local-utils",
+		"@prisma-ui/local-utils",
+		"aliased-react",
+		"react",
+	}
+	for _, packageName := range allowedPackages {
+		if !target.AllowsExternalPackageName(packageName) {
+			t.Fatalf("expected %s to be allowed", packageName)
+		}
+	}
+
+	if target.AllowsExternalPackageName("@prisma-ui/undeclared") {
+		t.Fatal("undeclared workspace package should not be allowed")
+	}
+}

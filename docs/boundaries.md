@@ -15,6 +15,11 @@ Boundary `from` matching supports:
 - exact path
 - prefix form ending in `/**`
 
+Dependency identity matching:
+- npm dependencies match the declared dependency key, source package, or source name when present.
+- workspace and path dependencies match only exact declared identifiers: dependency key, source name, or source package when present.
+- workspace/path matching does not allow arbitrary packages just because the source kind is `workspace` or `path`.
+
 Node builtin policy in M4:
 - builtins are classified by scanner
 - dependency boundary checks ignore builtins for now (TODO: environment/runtime policy)
