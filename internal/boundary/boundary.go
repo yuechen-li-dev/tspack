@@ -91,13 +91,16 @@ func validateExternal(root string, t *graph.TargetNode, p *graph.PackageNode, fi
 		out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_TOOL_RUNTIME_IMPORT", Severity: diag.SeverityError, Message: "tool dependency imported at runtime", File: file, Details: detail})
 		return out
 	}
+	deniedByExplicitRule := false
 	if DeniedByBoundary(p, file, pkg) {
+		deniedByExplicitRule = true
 		out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_EXPLICIT_DENY", Severity: diag.SeverityError, Message: "import denied by explicit boundary", File: file, Details: detail})
 	}
 	for _, match := range transitiveMatches {
 		if !ruleDeniesPackage(match.Rule, pkg) {
 			continue
 		}
+		deniedByExplicitRule = true
 		transitivePath := relPathList(root, match.Path)
 		transitivePath = append(transitivePath, pkg)
 		transitiveDetail := []string{
@@ -110,6 +113,9 @@ func validateExternal(root string, t *graph.TargetNode, p *graph.PackageNode, fi
 			"path=" + strings.Join(transitivePath, " -> "),
 		}
 		out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_EXPLICIT_DENY", Severity: diag.SeverityError, Message: "import denied by explicit transitive boundary", File: file, Details: transitiveDetail})
+	}
+	if !deniedByExplicitRule {
+		out = append(out, allowOnlyViolations(root, t, p, file, pkg, path, spec, transitiveMatches)...)
 	}
 	if AllowViolation(p, file, pkg, t.AllowsExternalPackageName(pkg)) || transitiveAllowViolation(transitiveMatches, pkg, t.AllowsExternalPackageName(pkg)) {
 		out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_EXPLICIT_ALLOW_VIOLATION", Severity: diag.SeverityError, Message: "import not present in explicit allow list", File: file, Details: detail})
@@ -137,6 +143,119 @@ func validateExternal(root string, t *graph.TargetNode, p *graph.PackageNode, fi
 		}
 	}
 	out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_PEER_SCOPE_VIOLATION", Severity: diag.SeverityError, Message: "target does not allow external package", File: file, Details: detail})
+	return out
+}
+
+func allowOnlyViolations(root string, t *graph.TargetNode, p *graph.PackageNode, file, pkg string, path []string, spec string, transitiveMatches []TransitiveRuleMatch) []diag.Diagnostic {
+	out := []diag.Diagnostic{}
+	for _, rule := range p.Boundaries {
+		if rule.From == "" || !ruleHasAllowOnly(rule) || !MatchFrom(rule.From, filepath.ToSlash(file)) {
+			continue
+		}
+		if ruleAllowsOnlyPackage(rule, pkg) {
+			continue
+		}
+		detail := []string{
+			"target=" + t.Name,
+			"package=" + pkg,
+			"import=" + spec,
+			"boundary=from " + rule.From,
+			"from=" + rule.From,
+			"allowOnly=" + strings.Join(dedupeStrings(rule.AllowOnly), ","),
+			"path=" + strings.Join(path, " -> "),
+		}
+		out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION", Severity: diag.SeverityError, Message: "import not listed in allowOnly boundary", File: file, Details: detail})
+	}
+	for _, match := range transitiveMatches {
+		if !ruleHasAllowOnly(match.Rule) || ruleAllowsOnlyPackage(match.Rule, pkg) {
+			continue
+		}
+		transitivePath := relPathList(root, match.Path)
+		transitivePath = append(transitivePath, pkg)
+		detail := []string{
+			"target=" + t.Name,
+			"package=" + pkg,
+			"import=" + spec,
+			"boundary=transitiveFrom " + match.Rule.TransitiveFrom,
+			"transitiveFrom=" + match.Rule.TransitiveFrom,
+			"seed=" + relPath(root, match.Seed),
+			"allowOnly=" + strings.Join(dedupeStrings(match.Rule.AllowOnly), ","),
+			"path=" + strings.Join(transitivePath, " -> "),
+		}
+		out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION", Severity: diag.SeverityError, Message: "import not listed in transitive allowOnly boundary", File: file, Details: detail})
+	}
+	return out
+}
+
+func AllowOnlyViolation(p *graph.PackageNode, file, pkg string) bool {
+	for _, rule := range p.Boundaries {
+		if rule.From == "" || !ruleHasAllowOnly(rule) || !MatchFrom(rule.From, filepath.ToSlash(file)) {
+			continue
+		}
+		if !ruleAllowsOnlyPackage(rule, pkg) {
+			return true
+		}
+	}
+	return false
+}
+
+func TransitiveAllowOnlyViolation(matches []TransitiveRuleMatch, pkg string) bool {
+	for _, match := range matches {
+		if !ruleHasAllowOnly(match.Rule) {
+			continue
+		}
+		if !ruleAllowsOnlyPackage(match.Rule, pkg) {
+			return true
+		}
+	}
+	return false
+}
+
+func AllowOnlyReason(p *graph.PackageNode, file, pkg string) string {
+	for _, rule := range p.Boundaries {
+		if rule.From == "" || !ruleHasAllowOnly(rule) || !MatchFrom(rule.From, filepath.ToSlash(file)) {
+			continue
+		}
+		if !ruleAllowsOnlyPackage(rule, pkg) {
+			return "not listed in allowOnly for boundary from " + rule.From
+		}
+	}
+	return "not listed in allowOnly boundary"
+}
+
+func TransitiveAllowOnlyReason(matches []TransitiveRuleMatch, pkg string) string {
+	for _, match := range matches {
+		if !ruleHasAllowOnly(match.Rule) || ruleAllowsOnlyPackage(match.Rule, pkg) {
+			continue
+		}
+		return "not listed in allowOnly for transitive boundary from " + match.Rule.TransitiveFrom
+	}
+	return "not listed in transitive allowOnly boundary"
+}
+
+func ruleHasAllowOnly(rule manifest.BoundaryRule) bool {
+	return rule.AllowOnlySpecified || rule.AllowOnly != nil
+}
+
+func ruleAllowsOnlyPackage(rule manifest.BoundaryRule, pkg string) bool {
+	for _, allowed := range rule.AllowOnly {
+		if allowed == pkg {
+			return true
+		}
+	}
+	return false
+}
+
+func dedupeStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, value := range values {
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
 	return out
 }
 

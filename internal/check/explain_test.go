@@ -168,3 +168,37 @@ func TestExplainTransitiveFromMatchedRuleAndDecision(t *testing.T) {
 		t.Fatalf("transitive deny reasons = %#v", imports["react-dom"].Reasons)
 	}
 }
+
+func TestM33EExplainAllowOnlyViolation(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "src", "index.ts"), `import "./button.js";`)
+	writeFile(t, filepath.Join(root, "src", "button.tsx"), `import "react-dom";`)
+	g := explainTestGraph(t, []manifest.BoundaryRule{{From: "src/**", AllowOnly: []string{"react"}}})
+
+	res := Explain(ExplainOptions{RootDir: root, Graph: g, File: "src/button.tsx"})
+	if len(res.MatchedRules) != 1 || !equalStrings(res.MatchedRules[0].AllowOnly, []string{"react"}) {
+		t.Fatalf("matched rules missing allowOnly: %#v", res.MatchedRules)
+	}
+	imports := importsBySpecifier(res.Imports)
+	assertDecision(t, imports["react-dom"], "denied", "TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION")
+	if len(imports["react-dom"].Reasons) == 0 || imports["react-dom"].Reasons[0] != "not listed in allowOnly for boundary from src/**" {
+		t.Fatalf("allowOnly reasons = %#v", imports["react-dom"].Reasons)
+	}
+}
+
+func TestM33EExplainTransitiveAllowOnlyViolation(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "src", "index.ts"), `import "./button.js";`)
+	writeFile(t, filepath.Join(root, "src", "button.tsx"), `import "react-dom";`)
+	g := explainTestGraph(t, []manifest.BoundaryRule{{TransitiveFrom: "src/index.ts", AllowOnly: []string{"react"}}})
+
+	res := Explain(ExplainOptions{RootDir: root, Graph: g, File: "src/button.tsx"})
+	if len(res.MatchedRules) != 1 || !equalStrings(res.MatchedRules[0].AllowOnly, []string{"react"}) {
+		t.Fatalf("matched transitive rules missing allowOnly: %#v", res.MatchedRules)
+	}
+	imports := importsBySpecifier(res.Imports)
+	assertDecision(t, imports["react-dom"], "denied", "TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION")
+	if len(imports["react-dom"].Reasons) == 0 || imports["react-dom"].Reasons[0] != "not listed in allowOnly for transitive boundary from src/index.ts" {
+		t.Fatalf("transitive allowOnly reasons = %#v", imports["react-dom"].Reasons)
+	}
+}

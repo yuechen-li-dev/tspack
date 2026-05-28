@@ -64,6 +64,9 @@ declare module 'tspack/manifest' {
     to?: string;
     allow?: string[];
     deny?: string[];
+    allowDeps?: string[];
+    denyDeps?: string[];
+    allowOnly?: string[];
     [key: string]: Primitive | Primitive[] | undefined;
   };
 

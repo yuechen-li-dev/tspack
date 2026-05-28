@@ -96,6 +96,8 @@ type BoundaryRule struct {
 	Deny                    []string `json:"deny,omitempty"`
 	AllowDeps               []string `json:"allowDeps,omitempty"`
 	DenyDeps                []string `json:"denyDeps,omitempty"`
+	AllowOnly               []string `json:"allowOnly,omitempty"`
+	AllowOnlySpecified      bool     `json:"-"`
 	AllowTargets            []string `json:"allowTargets,omitempty"`
 	DenyTargets             []string `json:"denyTargets,omitempty"`
 }
@@ -113,6 +115,7 @@ func (b *BoundaryRule) UnmarshalJSON(data []byte) error {
 	*b = BoundaryRule(alias)
 	_, b.FromSpecified = raw["from"]
 	_, b.TransitiveFromSpecified = raw["transitiveFrom"]
+	_, b.AllowOnlySpecified = raw["allowOnly"]
 	return nil
 }
 
@@ -295,6 +298,11 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 			}
 			if scopeSpecified(b.TransitiveFrom, b.TransitiveFromSpecified) && !isValidBoundaryScopePattern(b.TransitiveFrom) {
 				add("TSPACK_BOUNDARY_INVALID_TRANSITIVE_FROM", bp+".transitiveFrom is invalid")
+			}
+			for ai, allowed := range b.AllowOnly {
+				if strings.TrimSpace(allowed) == "" {
+					add("TSPACK_BOUNDARY_INVALID_ALLOW_ONLY", fmt.Sprintf("%s.allowOnly[%d] must be a non-empty string", bp, ai))
+				}
 			}
 		}
 		if p.Kind == "library" && len(p.Publish.Include) == 0 {

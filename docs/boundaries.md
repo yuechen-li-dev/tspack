@@ -138,3 +138,40 @@ M4 non-goals:
 - type-level boundary rules
 
 - `TSPACK_BOUNDARY_TYPE_ONLY_RUNTIME_IMPORT`: runtime import of a dependency declared with kind `type`.
+
+## `allowOnly` restricts external runtime imports
+
+`allowOnly` lets a boundary row say that matching files may only import the listed external package identifiers at runtime. Relative and internal imports are not denied by `allowOnly`.
+
+```js
+{
+  from: "src/core/**",
+  allowOnly: ["react"]
+}
+```
+
+With this row, files under `src/core/**` may import `react` and local files, but a runtime import of `react-dom` is denied with `TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION`.
+
+`allowOnly: []` is valid and forbids all external runtime imports in the matching scope while still allowing relative/internal imports.
+
+`allowOnly` also works with `transitiveFrom`:
+
+```js
+{
+  transitiveFrom: "src/index.ts",
+  allowOnly: ["react"]
+}
+```
+
+If `src/index.ts` reaches `src/button.tsx` through relative runtime imports, then an import of `react-dom` in `src/button.tsx` is denied. The diagnostic details include the `transitiveFrom` seed and a path such as `src/index.ts -> src/button.tsx -> react-dom`.
+
+Precedence is intentionally strict and deterministic:
+
+1. Tool dependencies are still denied for runtime imports even if listed in `allowOnly`.
+2. `denyDeps` still wins over `allowOnly`; an explicit deny diagnostic is enough.
+3. Any matching `allowOnly` row can deny an external package that is not listed in that row.
+4. `allowDeps` does not override a stricter matching `allowOnly` row.
+5. `allowOnly` is not a dependency declaration. The target dependency model still has to allow the package, so a package listed in `allowOnly` can still be denied as undeclared or target-scoped incorrectly.
+6. Multiple matching `allowOnly` rows compose strictly: a package must satisfy every matching `allowOnly` row.
+
+M33e is runtime-boundary-only. Type-only imports continue to follow the existing runtime scanner behavior; `allowOnly` does not add public type-surface or type-level boundary enforcement.

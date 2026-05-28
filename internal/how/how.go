@@ -42,6 +42,20 @@ var entries = []DiagnosticHelp{
 		RelatedDocs: []string{"docs/boundaries.md"},
 	},
 	{
+		Code:    "TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION",
+		Title:   "External runtime import is not listed in allowOnly",
+		Summary: "A runtime import matched an allowOnly boundary row, but the package was not listed.",
+		Why:     "allowOnly creates a strict external-package allowlist for a source scope while still allowing relative/internal imports.",
+		Fixes: []string{
+			"Remove or replace the external import from that source scope.",
+			"Move the importing code to a scope where the package is allowed.",
+			"Add the package to the matching allowOnly row only if the architecture intentionally permits it.",
+			"Declare the package on the target as well; allowOnly is not a dependency declaration.",
+			"Run tspack check --explain <file> to inspect matched allowOnly rows and the import decision.",
+		},
+		RelatedDocs: []string{"docs/boundaries.md", "docs/manifest.md"},
+	},
+	{
 		Code:    "TSPACK_BOUNDARY_EXPLICIT_DENY",
 		Title:   "Explicit runtime boundary deny rule",
 		Summary: "A runtime import matched a deny boundary policy.",

@@ -28,7 +28,7 @@
 
 ## Boundary notes
 
-For boundary diagnostics such as `TSPACK_BOUNDARY_EXPLICIT_DENY`, `from` matches the importing file where the import statement appears. It does not mean every file transitively reachable from an entry file. Use a file-set pattern such as `from: "src/**"` when the restriction should apply to imports written anywhere under `src/`. If violation details show `transitiveFrom`, the deny came from an explicit graph-reachable boundary; inspect the `seed` and `path` detail values to see how the importing file was reached.
+For boundary diagnostics such as `TSPACK_BOUNDARY_EXPLICIT_DENY` and `TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION`, `from` matches the importing file where the import statement appears. It does not mean every file transitively reachable from an entry file. Use a file-set pattern such as `from: "src/**"` when the restriction should apply to imports written anywhere under `src/`. If violation details show `transitiveFrom`, the deny came from an explicit graph-reachable boundary; inspect the `seed` and `path` detail values to see how the importing file was reached.
 
 ## Scope
 
@@ -39,3 +39,8 @@ M31d intentionally ships curated diagnostic help entries, not full diagnostic co
 - No automatic fixes
 - No online lookup
 - No editor/LSP integration
+
+
+## allowOnly boundary diagnostics
+
+`TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION` means a matching boundary row restricted external runtime imports to `allowOnly`, and the imported package was not in that row. Relative/internal imports are still allowed. `allowOnly` is not a dependency declaration, so listed packages must also be declared/allowed by the target dependency model. Tool-runtime and `denyDeps` diagnostics take precedence.
