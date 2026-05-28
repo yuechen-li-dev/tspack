@@ -37,6 +37,8 @@ This inventory groups primary diagnostic families by subsystem to keep command-s
 - `tspack check --json` emits a structured diagnostics report on stdout.
 - `tspack how <code>` explains a diagnostic code from JSON/CI output, and `tspack how --list` lists curated help entries.
 - Each diagnostic includes stable `code`, `severity`, and `message` fields, with optional file/details/fixes when available.
+- Boundary diagnostics may include reachable import-chain details in `details`, such as a path from the target entry through the importing file to the external package.
+- `tspack check --json` preserves diagnostic details structurally for tooling; human diagnostic text is not mixed into stdout in JSON mode.
 - Human CLI output prints diagnostic detail lines under `CODE: message` with indentation for easier resolver/store debugging.
 - Severity is preserved (`error`, `warning`, `info`), and warning diagnostics are included in the report summary.
 - `ok` is `false` when one or more `error` diagnostics exist, otherwise `true`.

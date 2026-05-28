@@ -146,6 +146,132 @@ func TestM33ATsEsmAliasTraceFindsTransitiveViolation(t *testing.T) {
 	t.Fatalf("missing undeclared import diagnostic: %#v", res.Diagnostics)
 }
 
+func buildM33BBoundaryGraph(t *testing.T, boundaryFrom string) *graph.WorkspaceGraph {
+	t.Helper()
+
+	ir := &manifest.ManifestIR{
+		Format: 1,
+		Workspace: manifest.Workspace{
+			Name: "ws",
+		},
+		Packages: []manifest.Package{
+			{
+				Name:    "app",
+				Version: "1.0.0",
+				Kind:    "library",
+				Dependencies: []manifest.DependencyIntent{
+					{
+						Key:  "react-dom",
+						Kind: "runtime",
+						Source: manifest.Source{
+							Kind:    "npm",
+							Package: "react-dom",
+							Range:   "^19.0.0",
+						},
+					},
+				},
+				Targets: []manifest.Target{
+					{
+						Name:    "core",
+						Export:  ".",
+						Entry:   "src/index.ts",
+						Runtime: "dist/index.js",
+						Types:   "dist/index.d.ts",
+						Deps:    []string{"react-dom"},
+					},
+				},
+				Boundaries: []manifest.BoundaryRule{
+					{
+						From:     boundaryFrom,
+						DenyDeps: []string{"react-dom"},
+					},
+				},
+			},
+		},
+	}
+
+	g, diags := graph.Build(ir)
+	if len(diags) != 0 {
+		t.Fatalf("graph diags=%#v", diags)
+	}
+	return g
+}
+
+func writeM33BTransitiveSourceGraph(t *testing.T, root string) {
+	t.Helper()
+
+	if err := os.MkdirAll(root+"/src", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(root+"/src/index.ts", []byte(`import "./button.js";
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(root+"/src/button.tsx", []byte(`import "react-dom";
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestM33BExactFileFromDoesNotApplyTransitively(t *testing.T) {
+	root := t.TempDir()
+	writeM33BTransitiveSourceGraph(t, root)
+
+	res := CheckRuntimeBoundaries(CheckOptions{RootDir: root, Graph: buildM33BBoundaryGraph(t, "src/index.ts")})
+	for _, d := range res.Diagnostics {
+		if d.Code == "TSPACK_BOUNDARY_EXPLICIT_DENY" {
+			t.Fatalf("exact-file from matched transitive import file unexpectedly: %#v", res.Diagnostics)
+		}
+	}
+	if len(res.Diagnostics) != 0 {
+		t.Fatalf("expected clean fixture apart from exact-file deny behavior, got %#v", res.Diagnostics)
+	}
+}
+
+func TestM33BGlobFromAppliesToPhysicalImportingFile(t *testing.T) {
+	root := t.TempDir()
+	writeM33BTransitiveSourceGraph(t, root)
+
+	res := CheckRuntimeBoundaries(CheckOptions{RootDir: root, Graph: buildM33BBoundaryGraph(t, "src/**")})
+	for _, d := range res.Diagnostics {
+		if d.Code != "TSPACK_BOUNDARY_EXPLICIT_DENY" {
+			continue
+		}
+
+		path := strings.Join(boundary.PathFromDetails(d), "|")
+		if !strings.Contains(path, "src/index.ts") {
+			t.Fatalf("path is missing entry file: %s", path)
+		}
+		if !strings.Contains(path, "src/button.tsx") {
+			t.Fatalf("path is missing physical importing file: %s", path)
+		}
+		if !strings.Contains(path, "react-dom") {
+			t.Fatalf("path is missing denied dependency: %s", path)
+		}
+		return
+	}
+	t.Fatalf("missing explicit deny diagnostic: %#v", res.Diagnostics)
+}
+
+func TestM33BExactFileFromMatchesDirectImport(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(root+"/src", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(root+"/src/index.ts", []byte(`import "react-dom";
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res := CheckRuntimeBoundaries(CheckOptions{RootDir: root, Graph: buildM33BBoundaryGraph(t, "src/index.ts")})
+	for _, d := range res.Diagnostics {
+		if d.Code == "TSPACK_BOUNDARY_EXPLICIT_DENY" {
+			return
+		}
+	}
+	t.Fatalf("missing exact-file explicit deny diagnostic: %#v", res.Diagnostics)
+}
+
 func TestM33AWorkspaceToolDependencyStillRejectedAtRuntime(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(root+"/src", 0o755); err != nil {

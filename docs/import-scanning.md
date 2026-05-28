@@ -22,6 +22,10 @@ Specifier classifications:
 - NodeBuiltin (`node:fs` and selected builtin names)
 - Unknown
 
+Import-chain traces:
+- Boundary diagnostics may include an import chain from the target entry to the external dependency.
+- These traces explain source reachability, but boundary `from` rows still match the physical importing file where the import statement appears.
+
 Relative resolution:
 - Exact existing files win before aliases.
 - Extensionless relative imports use the supported extension order and directory `index` fallback.
