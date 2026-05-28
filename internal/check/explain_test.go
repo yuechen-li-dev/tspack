@@ -143,3 +143,28 @@ func equalStrings(a []string, b []string) bool {
 	}
 	return true
 }
+
+func TestExplainTransitiveFromMatchedRuleAndDecision(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "src", "index.ts"), `import "./button.js";`)
+	writeFile(t, filepath.Join(root, "src", "button.tsx"), `import "react-dom";`)
+	g := explainTestGraph(t, []manifest.BoundaryRule{{TransitiveFrom: "src/index.ts", DenyDeps: []string{"react-dom"}}})
+
+	res := Explain(ExplainOptions{RootDir: root, Graph: g, File: "src/button.tsx"})
+	if len(res.MatchedRules) != 1 {
+		t.Fatalf("matched rules = %#v", res.MatchedRules)
+	}
+	rule := res.MatchedRules[0]
+	if rule.TransitiveFrom != "src/index.ts" || rule.Seed != "src/index.ts" {
+		t.Fatalf("matched transitive rule = %#v", rule)
+	}
+	if !equalStrings(rule.Path, []string{"src/index.ts", "src/button.tsx"}) {
+		t.Fatalf("matched transitive path = %#v", rule.Path)
+	}
+
+	imports := importsBySpecifier(res.Imports)
+	assertDecision(t, imports["react-dom"], "denied", "TSPACK_BOUNDARY_EXPLICIT_DENY")
+	if len(imports["react-dom"].Reasons) == 0 || imports["react-dom"].Reasons[0] != "denied by transitive boundary from src/index.ts" {
+		t.Fatalf("transitive deny reasons = %#v", imports["react-dom"].Reasons)
+	}
+}

@@ -11,9 +11,11 @@ Rules implemented:
 - explicit `denyDeps` fail
 - explicit `allowDeps` rows are conservative: if row matches and package not in `allowDeps`, produce allow violation when target would otherwise allow
 
-Boundary `from` matching supports:
-- exact path
-- prefix form ending in `/**`
+Boundary scope matching supports:
+- exact path, for example `src/index.ts`
+- prefix form ending in `/**`, for example `src/**`
+
+A boundary row may use `from` or `transitiveFrom`. Do not specify both in the same row.
 
 ## `from` matches the importing file
 
@@ -47,16 +49,35 @@ The `src/**` row checks imports physically located in files such as:
 - `src/button.tsx`
 - `src/nested/card.ts`
 
-Import-chain diagnostics may still show transitive reachability, for example:
+## `transitiveFrom` matches files reachable from seeds
+
+`transitiveFrom` is graph-reachable. It first finds seed files matching the same exact-path or `/**` pattern forms as `from`, then walks local relative runtime imports from each seed. The rule applies to imports physically written in every file in that reachable closure, including the seed file.
+
+Use `transitiveFrom` when the policy should follow the local import graph from an entry-like source file:
+
+```js
+// Imports written in src/index.ts and every local file reachable from it are checked.
+{
+  transitiveFrom: "src/index.ts",
+  denyDeps: ["react-dom"]
+}
+```
+
+Given this graph:
 
 ```text
 src/index.ts -> src/button.tsx -> react-dom
 ```
 
-That trace explains why a violating file was reachable from a checked target entry. It is related to boundary enforcement, but it is not the same concept as matching a boundary row. The boundary row match is based on the importing file where the external import occurs.
+The row above denies the `react-dom` import in `src/button.tsx`, and the diagnostic path includes the seed-to-import chain:
 
-If you want “everything reachable from this entry point” semantics, that is not what `from` means today. Use `from: "src/**"` for file-set restrictions. A future `transitiveFrom` rule may support graph-reachable restrictions.
+```text
+src/index.ts -> src/button.tsx -> react-dom
+```
 
+`transitiveFrom: "src/**"` is also valid. Every file under `src/` can act as a seed, so this can be broader and noisier than a single exact seed. Reporting is deterministic and uses the first deterministic local import path discovered for each seed.
+
+Import cycles are handled with a seen set. A cycle does not infinite-loop, and the rule still applies to reachable files in the cycle.
 
 ## Debugging one file with `check --explain`
 
@@ -78,22 +99,16 @@ Reachable from targets:
     path: src/index.ts -> src/button.tsx
 
 Matched boundary rules:
-  from: src/**
+  transitiveFrom: src/index.ts
+    seed: src/index.ts
+    path: src/index.ts -> src/button.tsx
     denyDeps: react-dom
 
 External imports:
-  react
-    decision: allowed
-    reason: declared dependency for target core
-
   react-dom
     decision: denied
-    reason: denied by boundary rule matching this file
+    reason: denied by transitive boundary from src/index.ts
     diagnostic: TSPACK_BOUNDARY_EXPLICIT_DENY
-
-Relative imports:
-  ./style-helper.js
-    resolved: src/style-helper.ts
 
 Notes:
   boundary `from` matches the file containing the import statement.
@@ -105,7 +120,7 @@ Add `--json` for tooling:
 tspack check --explain src/button.tsx --json
 ```
 
-The JSON payload includes `reachableFrom`, `matchedRules`, `imports`, and `diagnostics` fields. If the file is not reachable from any declared target entry, explain mode still reports matched rules and imports, and adds a note that target-scoped allowances could not be evaluated.
+The JSON payload includes `reachableFrom`, `matchedRules`, `imports`, and `diagnostics` fields. Transitive matches include `transitiveFrom`, `seed`, and the reachable `path`. If the file is not reachable from any declared target entry, explain mode still reports matched rules and imports, and adds a note that target-scoped allowances could not be evaluated.
 
 Dependency identity matching:
 - npm dependencies match the declared dependency key, source package, or source name when present.
@@ -120,6 +135,6 @@ M4 non-goals:
 - package fetching/resolution
 - lockfile/store/node_modules flows
 - build/test/dev/publish command implementation
-- transitive entry-point boundary rules such as `transitiveFrom`
+- type-level boundary rules
 
 - `TSPACK_BOUNDARY_TYPE_ONLY_RUNTIME_IMPORT`: runtime import of a dependency declared with kind `type`.

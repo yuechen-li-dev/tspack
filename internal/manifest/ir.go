@@ -88,13 +88,32 @@ type Target struct {
 }
 
 type BoundaryRule struct {
-	From         string   `json:"from"`
-	Allow        []string `json:"allow,omitempty"`
-	Deny         []string `json:"deny,omitempty"`
-	AllowDeps    []string `json:"allowDeps,omitempty"`
-	DenyDeps     []string `json:"denyDeps,omitempty"`
-	AllowTargets []string `json:"allowTargets,omitempty"`
-	DenyTargets  []string `json:"denyTargets,omitempty"`
+	From                    string   `json:"from,omitempty"`
+	TransitiveFrom          string   `json:"transitiveFrom,omitempty"`
+	FromSpecified           bool     `json:"-"`
+	TransitiveFromSpecified bool     `json:"-"`
+	Allow                   []string `json:"allow,omitempty"`
+	Deny                    []string `json:"deny,omitempty"`
+	AllowDeps               []string `json:"allowDeps,omitempty"`
+	DenyDeps                []string `json:"denyDeps,omitempty"`
+	AllowTargets            []string `json:"allowTargets,omitempty"`
+	DenyTargets             []string `json:"denyTargets,omitempty"`
+}
+
+func (b *BoundaryRule) UnmarshalJSON(data []byte) error {
+	type boundaryRuleAlias BoundaryRule
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	var alias boundaryRuleAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+	*b = BoundaryRule(alias)
+	_, b.FromSpecified = raw["from"]
+	_, b.TransitiveFromSpecified = raw["transitiveFrom"]
+	return nil
 }
 
 type PublishPolicy struct {
@@ -268,8 +287,14 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 		}
 		for bi, b := range p.Boundaries {
 			bp := fmt.Sprintf("%s.boundaries[%d]", pp, bi)
-			if !pathutil.IsSafePackageFilePath(b.From) {
+			if scopeSpecified(b.From, b.FromSpecified) && scopeSpecified(b.TransitiveFrom, b.TransitiveFromSpecified) {
+				add("TSPACK_BOUNDARY_INVALID_SCOPE", bp+" cannot specify both from and transitiveFrom")
+			}
+			if scopeSpecified(b.From, b.FromSpecified) && !isValidBoundaryScopePattern(b.From) {
 				add("TSPACK_IR_INVALID_BOUNDARY", bp+".from is invalid")
+			}
+			if scopeSpecified(b.TransitiveFrom, b.TransitiveFromSpecified) && !isValidBoundaryScopePattern(b.TransitiveFrom) {
+				add("TSPACK_BOUNDARY_INVALID_TRANSITIVE_FROM", bp+".transitiveFrom is invalid")
 			}
 		}
 		if p.Kind == "library" && len(p.Publish.Include) == 0 {
@@ -342,6 +367,14 @@ func validateDep(add func(string, string, ...string), pp string, i int, d Depend
 		}
 	}
 }
+func scopeSpecified(value string, specified bool) bool {
+	return specified || value != ""
+}
+
+func isValidBoundaryScopePattern(value string) bool {
+	return pathutil.IsSafePackageFilePath(value) || pathutil.IsSafeRelativeGlob(value)
+}
+
 func isValidTypePolicy(k, v string) bool {
 	allowed := map[string][]string{"declarations": {"required", "optional", "none"}, "missingTypes": {"error", "warn", "ignore"}, "publicTypeLeakage": {"error", "warn", "ignore"}, "typeOnlyRuntimeLeakage": {"error", "warn", "ignore"}}
 	vals, ok := allowed[k]

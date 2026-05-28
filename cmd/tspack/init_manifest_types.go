@@ -63,6 +63,7 @@ const initManifestTypesDTS = "" +
 	"\n" +
 	"  export type BoundaryRow = {\n" +
 	"    from?: string;\n" +
+	"    transitiveFrom?: string;\n" +
 	"    to?: string;\n" +
 	"    allow?: string[];\n" +
 	"    deny?: string[];\n" +

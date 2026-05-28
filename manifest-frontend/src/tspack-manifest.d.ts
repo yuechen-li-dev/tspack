@@ -60,6 +60,7 @@ declare module 'tspack/manifest' {
 
   export type BoundaryRow = {
     from?: string;
+    transitiveFrom?: string;
     to?: string;
     allow?: string[];
     deny?: string[];

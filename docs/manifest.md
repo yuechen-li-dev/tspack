@@ -67,6 +67,17 @@ Type output rules:
 - `app` targets may set `types: ""` to explicitly indicate there is no public type output for that target.
 
 
+## Boundary rows
+
+Use `<Boundaries rows={[...]}/>` inside a `Package` to declare runtime boundary rows. A row can scope by physical importing file with `from`, or by local import-graph reachability with `transitiveFrom`.
+
+Supported boundary scope fields:
+- `from?: string` — exact file or `/**` pattern matched against the file where the import statement is physically written.
+- `transitiveFrom?: string` — exact file or `/**` pattern used to find seed files; the row applies to the seed and every file reachable through local relative runtime imports.
+
+A boundary row cannot specify both `from` and `transitiveFrom`. Scope paths must be safe relative package paths or safe relative glob-like patterns such as `src/**`.
+
+
 ## RunTargets
 
 Use `<RunTargets rows={[{ name, runtime, command, url, ready }]} />` inside a `Package`.

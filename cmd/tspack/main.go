@@ -1059,7 +1059,15 @@ func printCheckExplain(explain *check.ExplainResult) {
 		fmt.Println("  none")
 	} else {
 		for _, rule := range explain.MatchedRules {
-			fmt.Printf("  from: %s\n", rule.From)
+			if rule.TransitiveFrom != "" {
+				fmt.Printf("  transitiveFrom: %s\n", rule.TransitiveFrom)
+				fmt.Printf("    seed: %s\n", rule.Seed)
+				if len(rule.Path) > 0 {
+					fmt.Printf("    path: %s\n", strings.Join(rule.Path, " -> "))
+				}
+			} else {
+				fmt.Printf("  from: %s\n", rule.From)
+			}
 			if len(rule.AllowDeps) > 0 {
 				fmt.Printf("    allowDeps: %s\n", strings.Join(rule.AllowDeps, ", "))
 			}

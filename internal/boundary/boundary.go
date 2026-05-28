@@ -1,6 +1,7 @@
 package boundary
 
 import (
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -8,11 +9,18 @@ import (
 	"github.com/tspack/tspack/internal/diag"
 	"github.com/tspack/tspack/internal/graph"
 	"github.com/tspack/tspack/internal/importscan"
+	"github.com/tspack/tspack/internal/manifest"
 )
 
 type Options struct {
 	RootDir string
 	Graph   *graph.WorkspaceGraph
+}
+
+type TransitiveRuleMatch struct {
+	Rule manifest.BoundaryRule
+	Seed string
+	Path []string
 }
 
 func Check(opts Options) []diag.Diagnostic {
@@ -21,15 +29,16 @@ func Check(opts Options) []diag.Diagnostic {
 	}
 	var out []diag.Diagnostic
 	for _, p := range opts.Graph.AllPackages() {
+		transitiveMatches := BuildTransitiveRuleMatches(opts.RootDir, p)
 		for _, t := range p.AllTargets() {
-			out = append(out, checkTarget(opts.RootDir, p, t)...)
+			out = append(out, checkTarget(opts.RootDir, p, t, transitiveMatches)...)
 		}
 	}
 	diag.SortDiagnostics(out)
 	return out
 }
 
-func checkTarget(root string, p *graph.PackageNode, t *graph.TargetNode) []diag.Diagnostic {
+func checkTarget(root string, p *graph.PackageNode, t *graph.TargetNode, transitiveMatches map[string][]TransitiveRuleMatch) []diag.Diagnostic {
 	pkgRoot := p.Root
 	if pkgRoot == "" {
 		pkgRoot = "."
@@ -48,6 +57,7 @@ func checkTarget(root string, p *graph.PackageNode, t *graph.TargetNode) []diag.
 		seen[cur] = true
 		imps, diags := importscan.ScanFile(cur)
 		out = append(out, diags...)
+		importscan.SortImports(imps)
 		for _, imp := range imps {
 			if imp.Kind != importscan.ImportKindRuntime {
 				continue
@@ -64,7 +74,8 @@ func checkTarget(root string, p *graph.PackageNode, t *graph.TargetNode) []diag.
 				}
 				q = append(q, next)
 			case importscan.SpecifierExternalPackage:
-				out = append(out, validateExternal(t, p, cur, imp.Package, buildPath(parents, entry, cur, imp.Package), imp.Specifier)...)
+				matches := transitiveMatches[filepath.Clean(cur)]
+				out = append(out, validateExternal(root, t, p, cur, imp.Package, buildPath(parents, entry, cur, imp.Package), imp.Specifier, matches)...)
 			case importscan.SpecifierNodeBuiltin:
 				// M4 policy: classify and ignore builtin checks.
 			}
@@ -73,7 +84,7 @@ func checkTarget(root string, p *graph.PackageNode, t *graph.TargetNode) []diag.
 	return out
 }
 
-func validateExternal(t *graph.TargetNode, p *graph.PackageNode, file, pkg string, path []string, spec string) []diag.Diagnostic {
+func validateExternal(root string, t *graph.TargetNode, p *graph.PackageNode, file, pkg string, path []string, spec string, transitiveMatches []TransitiveRuleMatch) []diag.Diagnostic {
 	var out []diag.Diagnostic
 	detail := []string{"target=" + t.Name, "package=" + pkg, "import=" + spec, "path=" + strings.Join(path, " -> ")}
 	if IsTool(p, pkg) {
@@ -83,7 +94,24 @@ func validateExternal(t *graph.TargetNode, p *graph.PackageNode, file, pkg strin
 	if DeniedByBoundary(p, file, pkg) {
 		out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_EXPLICIT_DENY", Severity: diag.SeverityError, Message: "import denied by explicit boundary", File: file, Details: detail})
 	}
-	if AllowViolation(p, file, pkg, t.AllowsExternalPackageName(pkg)) {
+	for _, match := range transitiveMatches {
+		if !ruleDeniesPackage(match.Rule, pkg) {
+			continue
+		}
+		transitivePath := relPathList(root, match.Path)
+		transitivePath = append(transitivePath, pkg)
+		transitiveDetail := []string{
+			"target=" + t.Name,
+			"package=" + pkg,
+			"import=" + spec,
+			"boundary=transitiveFrom " + match.Rule.TransitiveFrom,
+			"transitiveFrom=" + match.Rule.TransitiveFrom,
+			"seed=" + relPath(root, match.Seed),
+			"path=" + strings.Join(transitivePath, " -> "),
+		}
+		out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_EXPLICIT_DENY", Severity: diag.SeverityError, Message: "import denied by explicit transitive boundary", File: file, Details: transitiveDetail})
+	}
+	if AllowViolation(p, file, pkg, t.AllowsExternalPackageName(pkg)) || transitiveAllowViolation(transitiveMatches, pkg, t.AllowsExternalPackageName(pkg)) {
 		out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_EXPLICIT_ALLOW_VIOLATION", Severity: diag.SeverityError, Message: "import not present in explicit allow list", File: file, Details: detail})
 	}
 	if t.AllowsExternalPackageName(pkg) {
@@ -112,6 +140,20 @@ func validateExternal(t *graph.TargetNode, p *graph.PackageNode, file, pkg strin
 	return out
 }
 
+func buildFilePath(parents map[string]string, entry string, target string) []string {
+	out := []string{target}
+	cur := target
+	for cur != entry {
+		parent, ok := parents[cur]
+		if !ok {
+			break
+		}
+		out = append([]string{parent}, out...)
+		cur = parent
+	}
+	return out
+}
+
 func buildPath(parents map[string]string, entry, file, pkg string) []string {
 	p := []string{pkg}
 	cur := file
@@ -129,38 +171,175 @@ func buildPath(parents map[string]string, entry, file, pkg string) []string {
 	return p
 }
 
+func BuildTransitiveRuleMatches(root string, p *graph.PackageNode) map[string][]TransitiveRuleMatch {
+	matches := map[string][]TransitiveRuleMatch{}
+	sourceFiles := packageSourceFiles(root, p)
+	for _, rule := range p.Boundaries {
+		if rule.TransitiveFrom == "" {
+			continue
+		}
+		seeds := matchingSeeds(root, rule.TransitiveFrom, sourceFiles)
+		for _, seed := range seeds {
+			paths := reachablePathsFromSeed(seed)
+			files := sortedMapKeys(paths)
+			for _, file := range files {
+				matches[file] = append(matches[file], TransitiveRuleMatch{Rule: rule, Seed: seed, Path: paths[file]})
+			}
+		}
+	}
+	for file := range matches {
+		sort.SliceStable(matches[file], func(i, j int) bool {
+			left := matches[file][i]
+			right := matches[file][j]
+			if left.Rule.TransitiveFrom != right.Rule.TransitiveFrom {
+				return left.Rule.TransitiveFrom < right.Rule.TransitiveFrom
+			}
+			return left.Seed < right.Seed
+		})
+	}
+	return matches
+}
+
+func packageSourceFiles(root string, p *graph.PackageNode) []string {
+	pkgRoot := p.Root
+	if pkgRoot == "" {
+		pkgRoot = "."
+	}
+	absRoot := filepath.Clean(filepath.Join(root, pkgRoot))
+	out := []string{}
+	_ = filepath.WalkDir(absRoot, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if entry.IsDir() {
+			name := entry.Name()
+			if name == "node_modules" || name == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if isSourceFile(path) {
+			out = append(out, filepath.Clean(path))
+		}
+		return nil
+	})
+	sort.Strings(out)
+	return out
+}
+
+func isSourceFile(path string) bool {
+	switch filepath.Ext(path) {
+	case ".ts", ".tsx", ".js", ".jsx", ".mts", ".cts":
+		return true
+	default:
+		return false
+	}
+}
+
+func matchingSeeds(root string, pattern string, sourceFiles []string) []string {
+	out := []string{}
+	for _, file := range sourceFiles {
+		rel, err := filepath.Rel(root, file)
+		if err != nil {
+			continue
+		}
+		if MatchFrom(pattern, filepath.ToSlash(rel)) {
+			out = append(out, file)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func reachablePathsFromSeed(seed string) map[string][]string {
+	q := []string{seed}
+	parents := map[string]string{}
+	seen := map[string]bool{}
+	paths := map[string][]string{}
+	for len(q) > 0 {
+		cur := q[0]
+		q = q[1:]
+		if seen[cur] {
+			continue
+		}
+		seen[cur] = true
+		paths[cur] = buildFilePath(parents, seed, cur)
+		imports, _ := importscan.ScanFile(cur)
+		importscan.SortImports(imports)
+		for _, imp := range imports {
+			if imp.Kind != importscan.ImportKindRuntime || imp.SpecifierKind != importscan.SpecifierRelativeInternal {
+				continue
+			}
+			next, ok := importscan.ResolveRelative(cur, imp.Specifier)
+			if !ok {
+				continue
+			}
+			if _, exists := parents[next]; !exists && next != seed {
+				parents[next] = cur
+			}
+			q = append(q, next)
+		}
+	}
+	return paths
+}
+
+func sortedMapKeys(values map[string][]string) []string {
+	out := make([]string, 0, len(values))
+	for key := range values {
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func MatchFrom(pattern, file string) bool {
 	pattern = filepath.Clean(pattern)
 	file = filepath.ToSlash(file)
 	p := filepath.ToSlash(pattern)
 	if strings.HasSuffix(p, "/**") {
 		pref := strings.TrimSuffix(p, "/**")
-		return strings.Contains(file, pref)
+		return file == pref || strings.HasPrefix(file, pref+"/") || strings.Contains(file, "/"+pref+"/")
 	}
 	return file == p || strings.HasSuffix(file, "/"+p)
 }
+
 func DeniedByBoundary(p *graph.PackageNode, file, pkg string) bool {
 	for _, b := range p.Boundaries {
-		if !MatchFrom(b.From, filepath.ToSlash(file)) {
+		if b.From == "" || !MatchFrom(b.From, filepath.ToSlash(file)) {
 			continue
 		}
-		for _, d := range b.DenyDeps {
-			if d == pkg {
-				return true
-			}
+		if ruleDeniesPackage(b, pkg) {
+			return true
 		}
 	}
 	return false
 }
+
+func DeniedByTransitiveBoundary(matches []TransitiveRuleMatch, pkg string) bool {
+	for _, match := range matches {
+		if ruleDeniesPackage(match.Rule, pkg) {
+			return true
+		}
+	}
+	return false
+}
+
+func ruleDeniesPackage(rule manifest.BoundaryRule, pkg string) bool {
+	for _, d := range rule.DenyDeps {
+		if d == pkg {
+			return true
+		}
+	}
+	return false
+}
+
 func AllowViolation(p *graph.PackageNode, file, pkg string, targetAllows bool) bool {
 	for _, b := range p.Boundaries {
-		if !MatchFrom(b.From, filepath.ToSlash(file)) || len(b.AllowDeps) == 0 {
+		if b.From == "" || !MatchFrom(b.From, filepath.ToSlash(file)) || len(b.AllowDeps) == 0 {
 			continue
 		}
-		for _, a := range b.AllowDeps {
-			if a == pkg {
-				return false
-			}
+		if ruleAllowsPackage(b, pkg) {
+			return false
 		}
 		if targetAllows {
 			return true
@@ -168,6 +347,31 @@ func AllowViolation(p *graph.PackageNode, file, pkg string, targetAllows bool) b
 	}
 	return false
 }
+
+func transitiveAllowViolation(matches []TransitiveRuleMatch, pkg string, targetAllows bool) bool {
+	for _, match := range matches {
+		if len(match.Rule.AllowDeps) == 0 {
+			continue
+		}
+		if ruleAllowsPackage(match.Rule, pkg) {
+			return false
+		}
+		if targetAllows {
+			return true
+		}
+	}
+	return false
+}
+
+func ruleAllowsPackage(rule manifest.BoundaryRule, pkg string) bool {
+	for _, a := range rule.AllowDeps {
+		if a == pkg {
+			return true
+		}
+	}
+	return false
+}
+
 func IsTool(p *graph.PackageNode, pkg string) bool {
 	for _, d := range p.ToolDependencies() {
 		if d.MatchesExternalPackageName(pkg) {
@@ -175,6 +379,22 @@ func IsTool(p *graph.PackageNode, pkg string) bool {
 		}
 	}
 	return false
+}
+
+func relPathList(root string, paths []string) []string {
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		out = append(out, relPath(root, path))
+	}
+	return out
+}
+
+func relPath(root string, path string) string {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(rel)
 }
 
 func PathFromDetails(d diag.Diagnostic) []string { // tests helper

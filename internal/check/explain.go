@@ -43,9 +43,12 @@ type ExplainReachability struct {
 }
 
 type ExplainBoundaryRule struct {
-	From      string   `json:"from"`
-	AllowDeps []string `json:"allowDeps,omitempty"`
-	DenyDeps  []string `json:"denyDeps,omitempty"`
+	From           string   `json:"from,omitempty"`
+	TransitiveFrom string   `json:"transitiveFrom,omitempty"`
+	Seed           string   `json:"seed,omitempty"`
+	Path           []string `json:"path,omitempty"`
+	AllowDeps      []string `json:"allowDeps,omitempty"`
+	DenyDeps       []string `json:"denyDeps,omitempty"`
 }
 
 type ExplainImport struct {
@@ -76,8 +79,9 @@ func Explain(opts ExplainOptions) ExplainResult {
 	}
 	absFile := filepath.Clean(filepath.Join(opts.RootDir, opts.File))
 	res.ReachableFrom = findReachability(opts.RootDir, opts.Graph, absFile)
-	res.MatchedRules = findMatchedRules(opts.Graph, absFile)
-	res.Imports = explainImports(opts.RootDir, opts.Graph, absFile, res.ReachableFrom)
+	transitiveMatches := findTransitiveRuleMatches(opts.RootDir, opts.Graph, absFile)
+	res.MatchedRules = findMatchedRules(opts.RootDir, opts.Graph, absFile, transitiveMatches)
+	res.Imports = explainImports(opts.RootDir, opts.Graph, absFile, res.ReachableFrom, transitiveMatches)
 	_, scanDiags := importscan.ScanFile(absFile)
 	for _, scanDiag := range scanDiags {
 		res.Diagnostics = append(res.Diagnostics, explainDiagnostic(scanDiag))
@@ -158,20 +162,46 @@ func buildFilePath(parents map[string]string, entry string, target string) []str
 	return out
 }
 
-func findMatchedRules(g *graph.WorkspaceGraph, absFile string) []ExplainBoundaryRule {
+func findMatchedRules(root string, g *graph.WorkspaceGraph, absFile string, transitiveMatches []boundary.TransitiveRuleMatch) []ExplainBoundaryRule {
 	out := []ExplainBoundaryRule{}
 	for _, p := range g.AllPackages() {
 		for _, rule := range p.Boundaries {
-			if boundary.MatchFrom(rule.From, filepath.ToSlash(absFile)) {
+			if rule.From != "" && boundary.MatchFrom(rule.From, filepath.ToSlash(absFile)) {
 				out = append(out, ExplainBoundaryRule{From: rule.From, AllowDeps: append([]string(nil), rule.AllowDeps...), DenyDeps: append([]string(nil), rule.DenyDeps...)})
 			}
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].From < out[j].From })
+	for _, match := range transitiveMatches {
+		out = append(out, ExplainBoundaryRule{
+			TransitiveFrom: match.Rule.TransitiveFrom,
+			Seed:           relPath(root, match.Seed),
+			Path:           relPathList(root, match.Path),
+			AllowDeps:      append([]string(nil), match.Rule.AllowDeps...),
+			DenyDeps:       append([]string(nil), match.Rule.DenyDeps...),
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].From != out[j].From {
+			return out[i].From < out[j].From
+		}
+		if out[i].TransitiveFrom != out[j].TransitiveFrom {
+			return out[i].TransitiveFrom < out[j].TransitiveFrom
+		}
+		return out[i].Seed < out[j].Seed
+	})
 	return out
 }
 
-func explainImports(root string, g *graph.WorkspaceGraph, absFile string, reach []ExplainReachability) []ExplainImport {
+func findTransitiveRuleMatches(root string, g *graph.WorkspaceGraph, absFile string) []boundary.TransitiveRuleMatch {
+	out := []boundary.TransitiveRuleMatch{}
+	for _, p := range g.AllPackages() {
+		matchesByFile := boundary.BuildTransitiveRuleMatches(root, p)
+		out = append(out, matchesByFile[filepath.Clean(absFile)]...)
+	}
+	return out
+}
+
+func explainImports(root string, g *graph.WorkspaceGraph, absFile string, reach []ExplainReachability, transitiveMatches []boundary.TransitiveRuleMatch) []ExplainImport {
 	imports, diags := importscan.ScanFile(absFile)
 	_ = diags
 	importscan.SortImports(imports)
@@ -189,13 +219,13 @@ func explainImports(root string, g *graph.WorkspaceGraph, absFile string, reach 
 			}
 			out = append(out, item)
 		case importscan.SpecifierExternalPackage:
-			out = append(out, explainExternal(g, absFile, imp, reach))
+			out = append(out, explainExternal(g, absFile, imp, reach, transitiveMatches))
 		}
 	}
 	return out
 }
 
-func explainExternal(g *graph.WorkspaceGraph, absFile string, imp importscan.Import, reach []ExplainReachability) ExplainImport {
+func explainExternal(g *graph.WorkspaceGraph, absFile string, imp importscan.Import, reach []ExplainReachability, transitiveMatches []boundary.TransitiveRuleMatch) ExplainImport {
 	item := ExplainImport{Specifier: imp.Specifier, Package: imp.Package, Kind: "external", TypeOnly: imp.Kind == importscan.ImportKindTypeOnly}
 	if imp.Kind != importscan.ImportKindRuntime {
 		item.Decision = "unknown"
@@ -209,6 +239,12 @@ func explainExternal(g *graph.WorkspaceGraph, absFile string, imp importscan.Imp
 			item.Reasons = append(item.Reasons, "denied by boundary rule matching this file")
 			return item
 		}
+		if boundary.DeniedByTransitiveBoundary(transitiveMatches, imp.Package) {
+			item.Decision = "denied"
+			item.Diagnostic = "TSPACK_BOUNDARY_EXPLICIT_DENY"
+			item.Reasons = append(item.Reasons, transitiveDenyReason(transitiveMatches))
+			return item
+		}
 		item.Decision = "unknown"
 		item.Reasons = append(item.Reasons, "file is not reachable from any target, so target-scoped allowances could not be evaluated")
 		return item
@@ -219,7 +255,7 @@ func explainExternal(g *graph.WorkspaceGraph, absFile string, imp importscan.Imp
 		if p == nil || t == nil {
 			continue
 		}
-		td := decideForTarget(p, t, absFile, imp.Package)
+		td := decideForTarget(p, t, absFile, imp.Package, transitiveMatches)
 		item.Targets = append(item.Targets, td)
 		item.Reasons = append(item.Reasons, td.Reasons...)
 		if td.Decision == "denied" {
@@ -233,7 +269,7 @@ func explainExternal(g *graph.WorkspaceGraph, absFile string, imp importscan.Imp
 	return item
 }
 
-func decideForTarget(p *graph.PackageNode, t *graph.TargetNode, absFile string, pkg string) ExplainTargetDecision {
+func decideForTarget(p *graph.PackageNode, t *graph.TargetNode, absFile string, pkg string, transitiveMatches []boundary.TransitiveRuleMatch) ExplainTargetDecision {
 	res := ExplainTargetDecision{Target: t.Name, Decision: "allowed"}
 	if boundary.IsTool(p, pkg) {
 		res.Decision = "denied"
@@ -245,6 +281,12 @@ func decideForTarget(p *graph.PackageNode, t *graph.TargetNode, absFile string, 
 		res.Decision = "denied"
 		res.Diagnostic = "TSPACK_BOUNDARY_EXPLICIT_DENY"
 		res.Reasons = append(res.Reasons, "denied by boundary rule matching this file")
+		return res
+	}
+	if boundary.DeniedByTransitiveBoundary(transitiveMatches, pkg) {
+		res.Decision = "denied"
+		res.Diagnostic = "TSPACK_BOUNDARY_EXPLICIT_DENY"
+		res.Reasons = append(res.Reasons, transitiveDenyReason(transitiveMatches))
 		return res
 	}
 	if t.AllowsExternalPackageName(pkg) {
@@ -260,6 +302,13 @@ func decideForTarget(p *graph.PackageNode, t *graph.TargetNode, absFile string, 
 	res.Diagnostic = "TSPACK_BOUNDARY_PEER_SCOPE_VIOLATION"
 	res.Reasons = append(res.Reasons, "target "+t.Name+" does not allow this package")
 	return res
+}
+
+func transitiveDenyReason(matches []boundary.TransitiveRuleMatch) string {
+	if len(matches) == 0 {
+		return "denied by transitive boundary"
+	}
+	return "denied by transitive boundary from " + matches[0].Rule.TransitiveFrom
 }
 
 func ruleDeniesAny(g *graph.WorkspaceGraph, absFile string, pkg string) bool {
