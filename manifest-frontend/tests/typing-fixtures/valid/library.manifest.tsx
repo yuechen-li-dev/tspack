@@ -50,7 +50,7 @@ export default define(
         ]}
       />
       <Tools values={[deps.ts]} />
-      <Boundaries rows={[{ from: 'src', to: 'test', allow: ['@acme/*'] }]} />
+      <Boundaries rows={[{ from: 'src', to: 'test', allow: ['@acme/*'] }, { transitiveFrom: 'src/index.ts', deny: ['react-dom'] }]} />
       <Publish include={['dist/**']} exclude={['**/*.map']} />
     </Package>
   </Workspace>,

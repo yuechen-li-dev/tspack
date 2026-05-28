@@ -25,6 +25,8 @@ Specifier classifications:
 Import-chain traces:
 - Boundary diagnostics may include an import chain from the target entry to the external dependency.
 - These traces explain source reachability, but boundary `from` rows still match the physical importing file where the import statement appears.
+- Boundary `transitiveFrom` rows intentionally use scanner reachability: TSPack finds seed files, walks local relative runtime imports from those seeds, and applies the rule to every reachable file.
+- `transitiveFrom` traversal uses the same local relative resolver as normal import scanning, including TypeScript ESM `.js`/`.jsx` source aliasing. It does not resolve through `node_modules`.
 
 Relative resolution:
 - Exact existing files win before aliases.

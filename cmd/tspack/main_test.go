@@ -1277,7 +1277,7 @@ const manifestIR = {
       tools: ["vite"],
       boundaries: [
         {
-          from: "src/**",
+          transitiveFrom: "src/index.ts",
           denyDeps: ["react-dom"]
         }
       ],
@@ -1364,6 +1364,9 @@ import "vite";
 			if !strings.Contains(detailsText, "react-dom") {
 				t.Fatalf("explicit deny details missing react-dom: %+v", diagnostic)
 			}
+			if !strings.Contains(detailsText, "transitiveFrom=src/index.ts") || !strings.Contains(detailsText, "seed=src/index.ts") {
+				t.Fatalf("transitive explicit deny details missing scope: %+v", diagnostic)
+			}
 		}
 		if diagnostic.Code == "TSPACK_BOUNDARY_TOOL_RUNTIME_IMPORT" {
 			foundToolRuntime = true
@@ -1383,7 +1386,7 @@ import "vite";
 		t.Fatalf("expected text check to fail")
 	}
 	text := string(textOut)
-	if !strings.Contains(text, "TSPACK_BOUNDARY_EXPLICIT_DENY: import denied by explicit boundary") {
+	if !strings.Contains(text, "TSPACK_BOUNDARY_EXPLICIT_DENY: import denied by explicit transitive boundary") {
 		t.Fatalf("missing explicit deny human diagnostic: %s", text)
 	}
 	if !strings.Contains(text, "TSPACK_BOUNDARY_TOOL_RUNTIME_IMPORT: tool dependency imported at runtime") {

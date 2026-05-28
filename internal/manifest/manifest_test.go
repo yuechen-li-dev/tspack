@@ -208,3 +208,61 @@ func TestRunTargetValidationErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestBoundaryTransitiveFromValidation(t *testing.T) {
+	base := func(boundary string) string {
+		return `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"policies":{},"boundaries":[` + boundary + `],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	}
+
+	cases := []struct {
+		name     string
+		boundary string
+		code     string
+	}{
+		{
+			name:     "both scopes",
+			boundary: `{"from":"src/index.ts","transitiveFrom":"src/index.ts","denyDeps":["react-dom"]}`,
+			code:     "TSPACK_BOUNDARY_INVALID_SCOPE",
+		},
+		{
+			name:     "empty transitiveFrom",
+			boundary: `{"transitiveFrom":"","denyDeps":["react-dom"]}`,
+			code:     "TSPACK_BOUNDARY_INVALID_TRANSITIVE_FROM",
+		},
+		{
+			name:     "absolute transitiveFrom",
+			boundary: `{"transitiveFrom":"/src/index.ts","denyDeps":["react-dom"]}`,
+			code:     "TSPACK_BOUNDARY_INVALID_TRANSITIVE_FROM",
+		},
+		{
+			name:     "parent traversal transitiveFrom",
+			boundary: `{"transitiveFrom":"../src/index.ts","denyDeps":["react-dom"]}`,
+			code:     "TSPACK_BOUNDARY_INVALID_TRANSITIVE_FROM",
+		},
+		{
+			name:     "glob transitiveFrom",
+			boundary: `{"transitiveFrom":"src/**","denyDeps":["react-dom"]}`,
+			code:     "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, diags := LoadBytes("x.json", []byte(base(tc.boundary)))
+			if tc.code == "" {
+				if len(diags) != 0 {
+					t.Fatalf("unexpected diagnostics: %#v", diags)
+				}
+				return
+			}
+			found := false
+			for _, d := range diags {
+				if d.Code == tc.code {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("expected %s got %#v", tc.code, diags)
+			}
+		})
+	}
+}

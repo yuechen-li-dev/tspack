@@ -327,3 +327,181 @@ func TestM33AWorkspaceToolDependencyStillRejectedAtRuntime(t *testing.T) {
 	}
 	t.Fatalf("missing tool runtime diagnostic: %#v", res.Diagnostics)
 }
+
+func buildM33DTransitiveBoundaryGraph(t *testing.T, boundary manifest.BoundaryRule) *graph.WorkspaceGraph {
+	t.Helper()
+
+	ir := &manifest.ManifestIR{
+		Format:    1,
+		Workspace: manifest.Workspace{Name: "ws"},
+		Packages: []manifest.Package{
+			{
+				Name:    "app",
+				Version: "1.0.0",
+				Kind:    "library",
+				Dependencies: []manifest.DependencyIntent{
+					{
+						Key:  "react-dom",
+						Kind: "runtime",
+						Source: manifest.Source{
+							Kind:    "npm",
+							Package: "react-dom",
+							Range:   "^19.0.0",
+						},
+					},
+				},
+				Targets: []manifest.Target{
+					{
+						Name:    "core",
+						Export:  ".",
+						Entry:   "src/index.ts",
+						Runtime: "dist/index.js",
+						Types:   "dist/index.d.ts",
+						Deps:    []string{"react-dom"},
+					},
+				},
+				Boundaries: []manifest.BoundaryRule{boundary},
+			},
+		},
+	}
+
+	g, diags := graph.Build(ir)
+	if len(diags) != 0 {
+		t.Fatalf("graph diags=%#v", diags)
+	}
+	return g
+}
+
+func TestM33DTransitiveFromExactFileDeniesReachableImport(t *testing.T) {
+	root := t.TempDir()
+	writeM33BTransitiveSourceGraph(t, root)
+
+	res := CheckRuntimeBoundaries(CheckOptions{RootDir: root, Graph: buildM33DTransitiveBoundaryGraph(t, manifest.BoundaryRule{TransitiveFrom: "src/index.ts", DenyDeps: []string{"react-dom"}})})
+	for _, d := range res.Diagnostics {
+		if d.Code != "TSPACK_BOUNDARY_EXPLICIT_DENY" {
+			continue
+		}
+		details := strings.Join(d.Details, "|")
+		path := strings.Join(boundary.PathFromDetails(d), "|")
+		if !strings.Contains(details, "transitiveFrom=src/index.ts") {
+			t.Fatalf("details missing transitiveFrom: %#v", d.Details)
+		}
+		if !strings.Contains(details, "seed=") || !strings.Contains(details, "src/index.ts") {
+			t.Fatalf("details missing seed: %#v", d.Details)
+		}
+		if !strings.Contains(path, "src/index.ts") || !strings.Contains(path, "src/button.tsx") || !strings.Contains(path, "react-dom") {
+			t.Fatalf("path missing expected chain: %s", path)
+		}
+		return
+	}
+	t.Fatalf("missing transitive explicit deny diagnostic: %#v", res.Diagnostics)
+}
+
+func TestM33DTransitiveFromIncludesSeedFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(root+"/src", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(root+"/src/index.ts", []byte(`import "react-dom";
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res := CheckRuntimeBoundaries(CheckOptions{RootDir: root, Graph: buildM33DTransitiveBoundaryGraph(t, manifest.BoundaryRule{TransitiveFrom: "src/index.ts", DenyDeps: []string{"react-dom"}})})
+	for _, d := range res.Diagnostics {
+		if d.Code == "TSPACK_BOUNDARY_EXPLICIT_DENY" {
+			return
+		}
+	}
+	t.Fatalf("missing seed-file transitive deny: %#v", res.Diagnostics)
+}
+
+func TestM33DTransitiveFromReportsMultiHopPath(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(root+"/src", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"src/index.ts": `import "./a.js";
+`,
+		"src/a.ts": `import "./b.js";
+`,
+		"src/b.ts": `import "react-dom";
+`,
+	}
+	for name, content := range files {
+		if err := os.WriteFile(root+"/"+name, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	res := CheckRuntimeBoundaries(CheckOptions{RootDir: root, Graph: buildM33DTransitiveBoundaryGraph(t, manifest.BoundaryRule{TransitiveFrom: "src/index.ts", DenyDeps: []string{"react-dom"}})})
+	for _, d := range res.Diagnostics {
+		if d.Code != "TSPACK_BOUNDARY_EXPLICIT_DENY" {
+			continue
+		}
+		path := strings.Join(boundary.PathFromDetails(d), "|")
+		for _, want := range []string{"src/index.ts", "src/a.ts", "src/b.ts", "react-dom"} {
+			if !strings.Contains(path, want) {
+				t.Fatalf("path %q missing %s", path, want)
+			}
+		}
+		return
+	}
+	t.Fatalf("missing multi-hop transitive deny: %#v", res.Diagnostics)
+}
+
+func TestM33DTransitiveFromCycleSafe(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(root+"/src", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"src/index.ts": `import "./a.js";
+`,
+		"src/a.ts": `import "./b.js";
+`,
+		"src/b.ts": `import "./a.js";
+import "react-dom";
+`,
+	}
+	for name, content := range files {
+		if err := os.WriteFile(root+"/"+name, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	res := CheckRuntimeBoundaries(CheckOptions{RootDir: root, Graph: buildM33DTransitiveBoundaryGraph(t, manifest.BoundaryRule{TransitiveFrom: "src/a.ts", DenyDeps: []string{"react-dom"}})})
+	for _, d := range res.Diagnostics {
+		if d.Code == "TSPACK_BOUNDARY_EXPLICIT_DENY" {
+			return
+		}
+	}
+	t.Fatalf("missing cycle transitive deny: %#v", res.Diagnostics)
+}
+
+func TestM33DTransitiveFromGlobCanSeedNestedFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(root+"/src/nested", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"src/index.ts": `import "./nested/button.js";
+`,
+		"src/nested/button.ts": `import "react-dom";
+`,
+	}
+	for name, content := range files {
+		if err := os.WriteFile(root+"/"+name, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	res := CheckRuntimeBoundaries(CheckOptions{RootDir: root, Graph: buildM33DTransitiveBoundaryGraph(t, manifest.BoundaryRule{TransitiveFrom: "src/**", DenyDeps: []string{"react-dom"}})})
+	for _, d := range res.Diagnostics {
+		if d.Code == "TSPACK_BOUNDARY_EXPLICIT_DENY" {
+			return
+		}
+	}
+	t.Fatalf("missing glob transitive deny: %#v", res.Diagnostics)
+}

@@ -28,7 +28,7 @@
 
 ## Boundary notes
 
-For boundary diagnostics such as `TSPACK_BOUNDARY_EXPLICIT_DENY`, `from` matches the importing file where the import statement appears. It does not mean every file transitively reachable from an entry file. Use a file-set pattern such as `from: "src/**"` when the restriction should apply to imports written anywhere under `src/`.
+For boundary diagnostics such as `TSPACK_BOUNDARY_EXPLICIT_DENY`, `from` matches the importing file where the import statement appears. It does not mean every file transitively reachable from an entry file. Use a file-set pattern such as `from: "src/**"` when the restriction should apply to imports written anywhere under `src/`. If violation details show `transitiveFrom`, the deny came from an explicit graph-reachable boundary; inspect the `seed` and `path` detail values to see how the importing file was reached.
 
 ## Scope
 
