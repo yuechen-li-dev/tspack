@@ -1,4 +1,4 @@
-# Release gate (M32 Phase 2 command surface)
+# Release gate
 
 ## Smoke command checklist
 
@@ -42,6 +42,25 @@ Fixture/fake-registry smoke should include:
 - `tspack update <declared-dep> --root <fixture>` preserving non-selected locked roots when valid.
 - `tspack update <declared-dep> --root <fixture> --dry-run --json` with JSON-only stdout.
 - `tspack outdated --root <fixture> --json` using metadata-only registry access.
+
+### Claude-fooding Phase 3 boundary/import smoke
+
+The Phase 3 boundary/import smoke must cover the remediated boundary model and its debugging tools:
+
+- `tspack check --json` on a boundary fixture with structured diagnostics.
+- `tspack check --explain src/file.ts` on a source file covered by boundary rules.
+- `tspack how TSPACK_BOUNDARY_EXPLICIT_DENY`.
+- `tspack how TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION`.
+- `tspack how TSPACK_BOUNDARY_TYPE_EXPLICIT_DENY`.
+
+Boundary/import test coverage should include:
+
+- `.js` -> `.ts`/`.tsx` alias traversal.
+- Workspace/path dependency matching by exact declared identity.
+- `from` physical-file semantics versus `transitiveFrom` graph-reachable semantics.
+- Runtime `allowOnly` enforcement.
+- Type-level `denyTypeDeps` enforcement.
+- Multiple boundary diagnostic types reported in one run.
 
 ## Mutation expectations
 
