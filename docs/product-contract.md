@@ -91,6 +91,10 @@ update -> store -> sync
 
 `update` now prepares the content-addressed store required by the lockfile before `sync` materializes compatibility `node_modules`. See `docs/claude-fooding-phase2.md` for the remediation closeout.
 
+## Claude-fooding Phase 3 boundary model
+
+Claude-fooding Phase 3 closed out the boundary/import model with documented physical-file boundaries (`from`), graph-reachable boundaries (`transitiveFrom`), runtime allow/deny controls (`allowOnly` and `denyDeps`), type-level deny controls (`denyTypeDeps`), and explainability through `tspack check --explain <file>`. See `docs/claude-fooding-phase3.md` for the remediation closeout.
+
 ## Security guarantees
 
 - Fetch is not execute.

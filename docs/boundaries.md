@@ -79,6 +79,10 @@ src/index.ts -> src/button.tsx -> react-dom
 
 Import cycles are handled with a seen set. A cycle does not infinite-loop, and the rule still applies to reachable files in the cycle.
 
+## Debugging boundary rules
+
+Start with `tspack check --json` to capture the full structured diagnostic set, then use `tspack check --explain <file>` for a focused view of one source file. Use `tspack how <diagnostic-code>` for remediation guidance such as `TSPACK_BOUNDARY_EXPLICIT_DENY`, `TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION`, and `TSPACK_BOUNDARY_TYPE_EXPLICIT_DENY`. The Phase 3 closeout is summarized in `docs/claude-fooding-phase3.md`.
+
 ## Debugging one file with `check --explain`
 
 Use `tspack check --explain <file>` when a boundary diagnostic is surprising or when you want to inspect one source file without running normal human diagnostics output. The command is read-only and does not update the manifest, lockfile, store, or `node_modules`.

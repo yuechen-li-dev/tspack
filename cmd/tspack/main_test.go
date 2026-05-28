@@ -356,6 +356,30 @@ func TestDocsCommandsInventoryIncludesCurrentSurface(t *testing.T) {
 	}
 }
 
+func TestDocsReleaseGateIncludesPhase3BoundarySmoke(t *testing.T) {
+	phase3Doc := filepath.Join("..", "..", "docs", "claude-fooding-phase3.md")
+	if _, err := os.Stat(phase3Doc); err != nil {
+		t.Fatalf("phase 3 closeout doc missing: %v", err)
+	}
+
+	doc, err := os.ReadFile(filepath.Join("..", "..", "docs", "release-gate.md"))
+	if err != nil {
+		t.Fatalf("read release gate doc: %v", err)
+	}
+
+	text := string(doc)
+	for _, phrase := range []string{
+		"`tspack check --explain src/file.ts`",
+		"`tspack how TSPACK_BOUNDARY_EXPLICIT_DENY`",
+		"`tspack how TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION`",
+		"`tspack how TSPACK_BOUNDARY_TYPE_EXPLICIT_DENY`",
+	} {
+		if !strings.Contains(text, phrase) {
+			t.Fatalf("release gate doc missing phase 3 boundary smoke phrase %q", phrase)
+		}
+	}
+}
+
 func TestCheckJSONWarningOnlyLockfileMissing(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
