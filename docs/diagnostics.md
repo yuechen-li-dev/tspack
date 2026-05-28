@@ -150,3 +150,8 @@ Page/analyzer:
 
 - `TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION`: an external runtime import matched a boundary row with `allowOnly`, but the package was not listed in that row. Details include `package`, `import`, `boundary`, `allowOnly`, and `path`; transitive rows also include `transitiveFrom` and `seed`.
 - `TSPACK_BOUNDARY_INVALID_ALLOW_ONLY`: a manifest IR boundary row contained an invalid `allowOnly` value, such as an empty string entry.
+
+## M33f type boundary diagnostics
+
+- `TSPACK_BOUNDARY_TYPE_EXPLICIT_DENY`: a scanner-visible type-only external import or re-export matched a boundary row's `denyTypeDeps`. Details include `package`, `import`, `boundary`, `denyTypeDeps`, and `path`; transitive rows also include `transitiveFrom` and `seed`.
+- `TSPACK_BOUNDARY_INVALID_DENY_TYPE_DEPS`: a manifest IR boundary row contained an invalid `denyTypeDeps` value, such as an empty string entry.

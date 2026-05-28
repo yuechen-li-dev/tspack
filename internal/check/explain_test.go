@@ -202,3 +202,20 @@ func TestM33EExplainTransitiveAllowOnlyViolation(t *testing.T) {
 		t.Fatalf("transitive allowOnly reasons = %#v", imports["react-dom"].Reasons)
 	}
 }
+
+func TestExplainTypeBoundaryDecision(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "src", "index.ts"), `import type { Foo } from "react-dom/client";`)
+	g := explainTestGraph(t, []manifest.BoundaryRule{{From: "src/index.ts", DenyTypeDeps: []string{"react-dom"}}})
+
+	res := Explain(ExplainOptions{RootDir: root, Graph: g, File: "src/index.ts"})
+	if len(res.MatchedRules) != 1 || !equalStrings(res.MatchedRules[0].DenyTypeDeps, []string{"react-dom"}) {
+		t.Fatalf("matched rules = %#v", res.MatchedRules)
+	}
+	imports := importsBySpecifier(res.Imports)
+	imp := imports["react-dom/client"]
+	if !imp.TypeOnly || imp.Package != "react-dom" {
+		t.Fatalf("type import metadata = %#v", imp)
+	}
+	assertDecision(t, imp, "denied", "TSPACK_BOUNDARY_TYPE_EXPLICIT_DENY")
+}

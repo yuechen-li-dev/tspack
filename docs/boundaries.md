@@ -120,7 +120,7 @@ Add `--json` for tooling:
 tspack check --explain src/button.tsx --json
 ```
 
-The JSON payload includes `reachableFrom`, `matchedRules`, `imports`, and `diagnostics` fields. Transitive matches include `transitiveFrom`, `seed`, and the reachable `path`. If the file is not reachable from any declared target entry, explain mode still reports matched rules and imports, and adds a note that target-scoped allowances could not be evaluated.
+The JSON payload includes `reachableFrom`, `matchedRules`, `imports`, and `diagnostics` fields. Transitive matches include `transitiveFrom`, `seed`, and the reachable `path`. Type-only external imports include `typeOnly: true`, and type boundary decisions use `TSPACK_BOUNDARY_TYPE_EXPLICIT_DENY`. If the file is not reachable from any declared target entry, explain mode still reports matched rules and imports, and adds a note that target-scoped allowances could not be evaluated.
 
 Dependency identity matching:
 - npm dependencies match the declared dependency key, source package, or source name when present.
@@ -135,7 +135,7 @@ M4 non-goals:
 - package fetching/resolution
 - lockfile/store/node_modules flows
 - build/test/dev/publish command implementation
-- type-level boundary rules
+- full TypeScript symbol-graph boundary analysis
 
 - `TSPACK_BOUNDARY_TYPE_ONLY_RUNTIME_IMPORT`: runtime import of a dependency declared with kind `type`.
 
@@ -175,3 +175,37 @@ Precedence is intentionally strict and deterministic:
 6. Multiple matching `allowOnly` rows compose strictly: a package must satisfy every matching `allowOnly` row.
 
 M33e is runtime-boundary-only. Type-only imports continue to follow the existing runtime scanner behavior; `allowOnly` does not add public type-surface or type-level boundary enforcement.
+
+## Type-level external boundary rules (M33f)
+
+`denyTypeDeps` is the first-pass type-level companion to runtime `denyDeps`. It denies scanner-visible type-only external imports and re-exports, while leaving runtime imports to the existing runtime boundary fields.
+
+```js
+{
+  from: "src/index.ts",
+  denyTypeDeps: ["@internal/types"]
+}
+```
+
+The row above denies type edges physically written in `src/index.ts`, such as:
+
+```ts
+import type { InternalFoo } from "@internal/types";
+export type { InternalFoo } from "@internal/types";
+export type * from "@internal/types";
+```
+
+`denyTypeDeps` can also be scoped with `transitiveFrom`:
+
+```js
+{
+  transitiveFrom: "src/index.ts",
+  denyTypeDeps: ["react-dom"]
+}
+```
+
+For type boundary checks, `transitiveFrom` walks local relative imports/re-exports from the seed, including type-only local edges, and denies matching external type imports in the reachable closure. Runtime `denyDeps` and `allowOnly` continue to use runtime external imports and do not apply to type-only external imports.
+
+Package matching uses the same exact external package identity as runtime boundaries. For example, `react-dom/client` is classified as package `react-dom`, and `@scope/pkg/subpath` is classified as package `@scope/pkg`.
+
+M33f intentionally stays scanner-based. It does not perform TypeScript symbol tracing, declaration generation, automatic fixes, or node_modules-aware type resolution. Public declaration-output enforcement is deferred; this pass enforces source type imports/re-exports that the import scanner can see.

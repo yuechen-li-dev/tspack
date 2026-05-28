@@ -96,6 +96,7 @@ type BoundaryRule struct {
 	Deny                    []string `json:"deny,omitempty"`
 	AllowDeps               []string `json:"allowDeps,omitempty"`
 	DenyDeps                []string `json:"denyDeps,omitempty"`
+	DenyTypeDeps            []string `json:"denyTypeDeps,omitempty"`
 	AllowOnly               []string `json:"allowOnly,omitempty"`
 	AllowOnlySpecified      bool     `json:"-"`
 	AllowTargets            []string `json:"allowTargets,omitempty"`
@@ -302,6 +303,11 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 			for ai, allowed := range b.AllowOnly {
 				if strings.TrimSpace(allowed) == "" {
 					add("TSPACK_BOUNDARY_INVALID_ALLOW_ONLY", fmt.Sprintf("%s.allowOnly[%d] must be a non-empty string", bp, ai))
+				}
+			}
+			for di, denied := range b.DenyTypeDeps {
+				if strings.TrimSpace(denied) == "" {
+					add("TSPACK_BOUNDARY_INVALID_DENY_TYPE_DEPS", fmt.Sprintf("%s.denyTypeDeps[%d] must be a non-empty string", bp, di))
 				}
 			}
 		}

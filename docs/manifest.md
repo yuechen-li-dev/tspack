@@ -90,3 +90,9 @@ Use `<RunTargets rows={[{ name, runtime, command, url, ready }]} />` inside a `P
 ## Boundary row `allowOnly`
 
 Boundary rows may include `allowOnly?: string[]` with either `from` or `transitiveFrom`. The list contains exact external package identifiers permitted for matching runtime imports. An empty list is valid and means no external runtime packages are permitted in that scope. `allowOnly` does not declare dependencies; targets still need the normal `deps` or `peers` allowance for any listed package.
+
+## Boundary row `denyTypeDeps`
+
+Boundary rows may include `denyTypeDeps?: string[]` with either `from` or `transitiveFrom`. The list contains exact external package identifiers denied for scanner-visible type-only imports and re-exports. Empty arrays are valid and have no effect. Entries must be non-empty strings.
+
+`denyDeps` and `allowOnly` apply to runtime external imports. `denyTypeDeps` applies only to type-level external imports/re-exports and does not deny runtime imports by itself.
