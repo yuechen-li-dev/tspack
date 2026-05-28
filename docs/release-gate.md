@@ -20,8 +20,9 @@
 
 ## Mutation expectations
 
-- `update` mutates `ts-lock.toml` and populates required store artifacts.
-- `update --dry-run` must not mutate lock/store/node_modules while still producing a lock change plan.
+- `update` mutates `ts-lock.toml`, populates required store artifacts, and writes plain progress/status lines to stderr in text mode.
+- `update --dry-run` must not mutate lock/store/node_modules while still producing a lock change plan and text-mode progress on stderr.
+- `update --dry-run --json` must keep stdout as JSON only; progress is suppressed in JSON mode.
 - Release smoke must pass `tspack update --root <fixture>` followed by `tspack sync --root <fixture>` using a local/fake registry fixture.
 - `check`, `sync`, `pack`, `why`, `run`, and `inspect` do not mutate `ts-lock.toml` unless explicitly documented.
 - `run` and `inspect --run` do not mutate manifest contract files.

@@ -153,7 +153,7 @@ func printHelp() {
 	fmt.Println("  tspack help")
 	fmt.Println("  tspack --version")
 	fmt.Println("  tspack check [--root .]")
-	fmt.Println("  tspack update [--root .]")
+	fmt.Println("  tspack update [query] [--root .] [--dry-run] [--json] [--quiet]")
 	fmt.Println("  tspack sync [--root .] [--clean]")
 	fmt.Println("  tspack pack [--root .] [--out dir] [--package name] [--dry-run]")
 	fmt.Println("  tspack why <query> [--root .] [--package name]")
@@ -509,6 +509,7 @@ func runCommand(args []string) {
 	jsonOutput := false
 	clean := false
 	updateDryRun := false
+	updateQuiet := false
 	updateQuery := ""
 	packOpts := project.PackOptions{}
 	whyOpts := project.WhyOptions{}
@@ -543,6 +544,13 @@ func runCommand(args []string) {
 		case "--out":
 			i++
 			packOpts.OutputDir = args[i]
+		case "--quiet":
+			if cmd == "update" {
+				updateQuiet = true
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "unknown %s flag: --quiet\n", cmd)
+			os.Exit(1)
 		case "--dry-run":
 			if cmd == "pack" {
 				packOpts.DryRun = true
@@ -577,6 +585,9 @@ func runCommand(args []string) {
 	var result project.Result
 	if cmd == "why" && len(args) > 1 {
 		whyOpts.Query = args[1]
+	}
+	if cmd == "update" && !updateQuiet && !jsonOutput {
+		opts.Progress = project.Progress{Enabled: true, Writer: os.Stderr}
 	}
 	updateOptions := project.UpdateOptions{Query: updateQuery}
 	switch cmd {

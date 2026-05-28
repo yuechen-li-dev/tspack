@@ -1383,3 +1383,141 @@ process.stdout.write(JSON.stringify(out));`
 		t.Fatalf("expected selected target, got %#v", report["selected"])
 	}
 }
+
+func TestCLIUpdateProgressStderrAndQuiet(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	_ = os.MkdirAll(frontend, 0o755)
+	cliPath := filepath.Join(frontend, "cli.js")
+	stub := `#!/usr/bin/env node
+const out={ok:true,ir:{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"library",dependencies:[{key:"local-dep",kind:"dep",source:{kind:"path",path:"local-dep"}}],targets:[{name:"core",export:".",entry:"src/index.ts",runtime:"src/index.ts",types:"dist/index.d.ts",deps:["local-dep"],peers:[]}],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{types:{},boundaries:{}}}]},diagnostics:[]};
+process.stdout.write(JSON.stringify(out));`
+	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(cliPath) })
+	binPath := buildTspackBinary(t, repo)
+	root := writeCLIPathUpdateFixture(t)
+
+	cmd := exec.Command(binPath, "update", "--root", root)
+	cmd.Dir = repo
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("update failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	if stdout.String() != "lockfile diff: +1 -0\n" {
+		t.Fatalf("unexpected stdout: %q", stdout.String())
+	}
+	for _, want := range []string{"resolving packages...", "populating store...", "writing lockfile...", "update complete"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr progress missing %q:\n%s", want, stderr.String())
+		}
+	}
+
+	quietRoot := writeCLIPathUpdateFixture(t)
+	cmd = exec.Command(binPath, "update", "--root", quietRoot, "--quiet")
+	cmd.Dir = repo
+	stdout.Reset()
+	stderr.Reset()
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("quiet update failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stderr.String(), "resolving packages") || strings.Contains(stderr.String(), "update complete") {
+		t.Fatalf("--quiet should suppress progress, got stderr: %s", stderr.String())
+	}
+}
+
+func TestCLIUpdateDryRunProgressStderr(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	_ = os.MkdirAll(frontend, 0o755)
+	cliPath := filepath.Join(frontend, "cli.js")
+	stub := `#!/usr/bin/env node
+const out={ok:true,ir:{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"library",dependencies:[{key:"local-dep",kind:"dep",source:{kind:"path",path:"local-dep"}}],targets:[{name:"core",export:".",entry:"src/index.ts",runtime:"src/index.ts",types:"dist/index.d.ts",deps:["local-dep"],peers:[]}],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{types:{},boundaries:{}}}]},diagnostics:[]};
+process.stdout.write(JSON.stringify(out));`
+	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(cliPath) })
+	binPath := buildTspackBinary(t, repo)
+	root := writeCLIPathUpdateFixture(t)
+
+	cmd := exec.Command(binPath, "update", "--root", root, "--dry-run")
+	cmd.Dir = repo
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("dry-run failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"resolving packages...", "computing lockfile diff...", "dry run complete"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr progress missing %q:\n%s", want, stderr.String())
+		}
+	}
+	if strings.Contains(stdout.String(), "resolving packages") {
+		t.Fatalf("progress should not be written to stdout: %s", stdout.String())
+	}
+}
+
+func TestCLIUpdateTargetedProgressStderr(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	_ = os.MkdirAll(frontend, 0o755)
+	cliPath := filepath.Join(frontend, "cli.js")
+	stub := `#!/usr/bin/env node
+const out={ok:true,ir:{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"library",dependencies:[{key:"local-dep",kind:"dep",source:{kind:"path",path:"local-dep"}}],targets:[{name:"core",export:".",entry:"src/index.ts",runtime:"src/index.ts",types:"dist/index.d.ts",deps:["local-dep"],peers:[]}],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{types:{},boundaries:{}}}]},diagnostics:[]};
+process.stdout.write(JSON.stringify(out));`
+	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(cliPath) })
+	binPath := buildTspackBinary(t, repo)
+	root := writeCLIPathUpdateFixture(t)
+
+	cmd := exec.Command(binPath, "update", "local-dep", "--root", root)
+	cmd.Dir = repo
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err == nil {
+		t.Fatalf("path targeted update should fail before npm-only support expands")
+	}
+	if !strings.Contains(stderr.String(), "updating target dependency: local-dep") {
+		t.Fatalf("targeted progress missing query:\n%s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "TSPACK_UPDATE_TARGET_UNSUPPORTED_SOURCE") {
+		t.Fatalf("targeted diagnostic missing after progress:\n%s", stderr.String())
+	}
+
+	dryRoot := writeCLIPathUpdateFixture(t)
+	cmd = exec.Command(binPath, "update", "local-dep", "--root", dryRoot, "--dry-run")
+	cmd.Dir = repo
+	stdout.Reset()
+	stderr.Reset()
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err == nil {
+		t.Fatalf("path targeted dry-run should fail before npm-only support expands")
+	}
+	if !strings.Contains(stderr.String(), "planning targeted update: local-dep") {
+		t.Fatalf("targeted dry-run progress missing query:\n%s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "TSPACK_UPDATE_TARGET_UNSUPPORTED_SOURCE") {
+		t.Fatalf("targeted dry-run diagnostic missing after progress:\n%s", stderr.String())
+	}
+}
+
+func writeCLIPathUpdateFixture(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(root, "src"), 0o755)
+	_ = os.MkdirAll(filepath.Join(root, "dist"), 0o755)
+	_ = os.MkdirAll(filepath.Join(root, "local-dep"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "src", "index.ts"), []byte("export const x=1\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "dist", "index.d.ts"), []byte("export declare const x:number\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "local-dep", "package.json"), []byte(`{"name":"local-dep","version":"1.0.0"}`), 0o644)
+	return root
+}
