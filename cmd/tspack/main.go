@@ -161,7 +161,7 @@ func printHelp() {
 	fmt.Println("  tspack outdated [--root .] [--json]")
 	fmt.Println("  tspack how <diagnostic-code> [--json]")
 	fmt.Println("  tspack how --list [--json]")
-	fmt.Println("  tspack test [--root .] [-xtest] [-vitest] [--list] [--filter text] [--xtest-bridge path]")
+	fmt.Println("  tspack test [--root .] [-xtest] [-vitest] [--list] [--filter text] [--compact] [--xtest-bridge path]")
 	fmt.Println("  tspack artifact [--root .] [--out path] [--list] [--filter text] [--json]")
 	fmt.Println("  tspack bench [--root .] [--list] [--filter text] [--json]")
 	fmt.Println("  tspack doom [--root .] [--list] [--filter text] [--json] [--out path]")
@@ -491,6 +491,8 @@ func runTestCommand(args []string) {
 			opts.UseVitest = true
 		case "--list":
 			opts.List = true
+		case "--compact":
+			opts.Compact = true
 		case "--filter":
 			value, ok := nextTestFlagValue(args, &i, "--filter")
 			if !ok {

@@ -17,6 +17,7 @@ type Options struct {
 	UseVitest   bool
 	List        bool
 	Filter      string
+	Compact     bool
 	XTestBridge string
 }
 
@@ -119,6 +120,9 @@ func runXTest(opts Options, result *Result) {
 	}
 	if opts.Filter != "" {
 		args = append(args, "--filter", opts.Filter)
+	}
+	if opts.Compact && !opts.List {
+		args = append(args, "--compact")
 	}
 	cmd := exec.Command("node", args...)
 	cmd.Stdout = os.Stdout
@@ -242,6 +246,9 @@ func missingBridgeDiagnostic(resolution BridgeResolution) diag.Diagnostic {
 }
 
 func runVitest(opts Options, result *Result) {
+	if opts.Compact {
+		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_COMPACT_UNSUPPORTED_BACKEND", Severity: diag.SeverityWarning, Message: "compact output only applies to native xTest; Vitest output is unchanged"})
+	}
 	if opts.List {
 		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_BACKEND_LIST_UNSUPPORTED", Severity: diag.SeverityWarning, Message: "Vitest list mode is not supported in M18"})
 		return

@@ -47,31 +47,74 @@ export function createNativeArtifactReport(result: ArtifactRunResult): NativeArt
   return { summary, artifacts, diagnostics: [...result.diagnostics] };
 }
 
+function appendNativeTestFailureLines(lines: string[], failure: FailureInfo): void {
+  if (failure.code) {
+    lines.push(`  code: ${failure.code}`);
+  }
+  lines.push(`  message: ${failure.message}`);
+  if (failure.reason) {
+    lines.push(`  reason: ${failure.reason}`);
+  }
+  if (failure.assertion) {
+    lines.push(`  assertion: ${failure.assertion}`);
+  }
+  if (failure.expected !== undefined) {
+    lines.push(`  expected: ${JSON.stringify(failure.expected)}`);
+  }
+  if (failure.actual !== undefined) {
+    lines.push(`  actual: ${JSON.stringify(failure.actual)}`);
+  }
+  if (failure.details) {
+    for (const key of Object.keys(failure.details).sort()) {
+      lines.push(`  ${key}: ${JSON.stringify(failure.details[key])}`);
+    }
+  }
+}
+
+function appendNativeTestArtifactLines(lines: string[], test: ReportedTest): void {
+  if (!test.artifacts || test.artifacts.length === 0) {
+    return;
+  }
+  lines.push('  Artifacts:');
+  for (const artifact of test.artifacts) {
+    const hash = artifact.hash ? ` ${artifact.hash}` : '';
+    lines.push(`    ${artifact.name} -> ${artifact.outputPath}${hash}`);
+  }
+}
+
+function appendNativeTestDiagnosticLines(lines: string[], diagnostics: Diagnostic[]): void {
+  if (diagnostics.length === 0) {
+    return;
+  }
+  lines.push('Diagnostics:');
+  for (const diagnostic of diagnostics) {
+    const severity = diagnostic.severity ? ` ${diagnostic.severity}` : '';
+    lines.push(`${diagnostic.code}${severity}: ${diagnostic.message}`);
+    if (diagnostic.file) {
+      lines.push(`  file: ${diagnostic.file}`);
+    }
+    if (diagnostic.line !== undefined) {
+      lines.push(`  line: ${diagnostic.line}`);
+    }
+    if (diagnostic.column !== undefined) {
+      lines.push(`  column: ${diagnostic.column}`);
+    }
+  }
+  lines.push('');
+}
+
 export function formatNativeTestTextReport(report: NativeTestRunReport): string {
   const lines: string[] = ['Native xTest results', ''];
   for (const test of report.tests) {
     const prefix = test.status === 'passed' ? 'PASS' : test.status === 'failed' ? 'FAIL' : 'SKIP';
     lines.push(`${prefix} ${test.id}`);
     if (test.status === 'failed' && test.failure) {
-      if (test.failure.code) lines.push(`  code: ${test.failure.code}`);
-      lines.push(`  message: ${test.failure.message}`);
-      if (test.failure.reason) lines.push(`  reason: ${test.failure.reason}`);
-      if (test.failure.expected !== undefined) lines.push(`  expected: ${JSON.stringify(test.failure.expected)}`);
-      if (test.failure.actual !== undefined) lines.push(`  actual: ${JSON.stringify(test.failure.actual)}`);
-      if (test.failure.details) {
-        for (const key of Object.keys(test.failure.details).sort()) {
-          lines.push(`  ${key}: ${JSON.stringify(test.failure.details[key])}`);
-        }
-      }
+      appendNativeTestFailureLines(lines, test.failure);
     }
-    if (test.status === 'skipped' && test.skipReason) lines.push(`  reason: ${test.skipReason}`);
-    if (test.artifacts && test.artifacts.length > 0) {
-      lines.push('  Artifacts:');
-      for (const artifact of test.artifacts) {
-        const hash = artifact.hash ? ` ${artifact.hash}` : '';
-        lines.push(`    ${artifact.name} -> ${artifact.outputPath}${hash}`);
-      }
+    if (test.status === 'skipped' && test.skipReason) {
+      lines.push(`  reason: ${test.skipReason}`);
     }
+    appendNativeTestArtifactLines(lines, test);
     lines.push('');
   }
   lines.push('Summary:');
@@ -80,6 +123,33 @@ export function formatNativeTestTextReport(report: NativeTestRunReport): string 
   lines.push(`  failed: ${report.summary.failed}`);
   lines.push(`  skipped: ${report.summary.skipped}`);
   lines.push(`  diagnostics: ${report.summary.diagnostics}`);
+  return `${lines.join('\n')}\n`;
+}
+
+export function formatNativeTestCompactTextReport(report: NativeTestRunReport): string {
+  const lines: string[] = [];
+  for (const test of report.tests) {
+    if (test.status === 'passed') {
+      continue;
+    }
+
+    const prefix = test.status === 'failed' ? 'FAIL' : 'SKIP';
+    lines.push(`${prefix} ${test.id}`);
+    if (test.status === 'failed' && test.failure) {
+      appendNativeTestFailureLines(lines, test.failure);
+    }
+    if (test.status === 'skipped' && test.skipReason) {
+      lines.push(`  reason: ${test.skipReason}`);
+    }
+    appendNativeTestArtifactLines(lines, test);
+    lines.push('');
+  }
+
+  appendNativeTestDiagnosticLines(lines, report.diagnostics);
+  lines.push('Summary:');
+  lines.push(`  passed: ${report.summary.passed}`);
+  lines.push(`  failed: ${report.summary.failed}`);
+  lines.push(`  skipped: ${report.summary.skipped}`);
   return `${lines.join('\n')}\n`;
 }
 

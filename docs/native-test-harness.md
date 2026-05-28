@@ -151,10 +151,11 @@ Non-goals in M17c remain unchanged: no fixtures, no snapshots/golden assertions,
 - Test entries include status, optional skip reason, failure normalization, and artifacts.
 - Failure normalization surfaces code/message/reason/assertion/actual/expected plus near details when present.
 
-### Text and JSON reports
+### Text, compact text, and JSON reports
 
 - `formatNativeTestTextReport(report)` emits deterministic PASS/FAIL/SKIP lines, failure details, artifact lines, diagnostics, and summary counts.
-- `formatNativeTestJsonReport(report)` emits two-space indented JSON with trailing newline.
+- `formatNativeTestCompactTextReport(report)` emits compact native xTest run output: passed tests are hidden, failed tests keep full failure details, skipped tests keep their reason, diagnostics remain visible, and summary counts are always printed. It intentionally does not use dot-per-pass output, spinners, ANSI control, or terminal control sequences.
+- `formatNativeTestJsonReport(report)` emits two-space indented JSON with trailing newline. Compact formatting is text-only and does not change JSON structure.
 
 ### Exit code semantics
 

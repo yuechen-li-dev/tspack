@@ -6,6 +6,7 @@ import {
   createNativeTestReport,
   formatNativeTestJsonReport,
   formatNativeTestTextReport,
+  formatNativeTestCompactTextReport,
   listNativeTests,
   nativeTestExitCode,
   runNativeTestFiles,
@@ -232,6 +233,7 @@ describe("native test listing/filter/report", () => {
 
     const report = createNativeTestReport(result);
     const text = formatNativeTestTextReport(report);
+    const compactText = formatNativeTestCompactTextReport(report);
     const json1 = formatNativeTestJsonReport(report);
     const json2 = formatNativeTestJsonReport(report);
 
@@ -241,8 +243,117 @@ describe("native test listing/filter/report", () => {
     expect(text.includes("tolerance")).toBe(true);
     expect(text.includes("difference")).toBe(true);
     expect(text.includes("Artifacts:")).toBe(true);
+    expect(compactText.includes("PASS target.xtest.tsx::report/pass")).toBe(false);
+    expect(compactText.includes("SKIP target.xtest.tsx::report/skip")).toBe(true);
+    expect(compactText.includes("FAIL target.xtest.tsx::report/near fail")).toBe(true);
+    expect(compactText.includes("Summary:")).toBe(true);
     expect(JSON.parse(json1).summary.total).toBe(5);
     expect(json1).toBe(json2);
     expect(nativeTestExitCode(report)).toBe(1);
+  });
+});
+
+describe("native test compact reporting", () => {
+  it("hides passed tests and keeps an all-pass report summary-only", () => {
+    const report = createNativeTestReport({
+      results: [
+        { id: "alpha.xtest.tsx::suite/one", name: "one", status: "passed" },
+        { id: "alpha.xtest.tsx::suite/two", name: "two", status: "passed" },
+      ],
+      diagnostics: [],
+    });
+
+    const text = formatNativeTestCompactTextReport(report);
+
+    expect(text).toContain("Summary:");
+    expect(text).toContain("  passed: 2");
+    expect(text).toContain("  failed: 0");
+    expect(text).toContain("  skipped: 0");
+    expect(text).not.toContain("PASS");
+    expect(text).not.toContain("alpha.xtest.tsx::suite/one");
+    expect(text).not.toContain("alpha.xtest.tsx::suite/two");
+    expect(text).not.toContain(".");
+    expect(text).not.toContain("\n\n");
+  });
+
+  it("shows failed tests with full assertion details", () => {
+    const report = createNativeTestReport({
+      results: [
+        { id: "alpha.xtest.tsx::suite/pass", name: "pass", status: "passed" },
+        {
+          id: "alpha.xtest.tsx::suite/fail",
+          name: "fail",
+          status: "failed",
+          error: Object.assign(new Error("equal failed"), {
+            code: "TSPACK_ASSERT_EQUAL_FAILED",
+            reason: "values should match",
+            assertion: "equal",
+            expected: "only",
+            actual: "a",
+            tolerance: 0.5,
+          }),
+        },
+      ],
+      diagnostics: [],
+    });
+
+    const text = formatNativeTestCompactTextReport(report);
+
+    expect(text).toContain("FAIL alpha.xtest.tsx::suite/fail");
+    expect(text).toContain("code: TSPACK_ASSERT_EQUAL_FAILED");
+    expect(text).toContain("message: equal failed");
+    expect(text).toContain("reason: values should match");
+    expect(text).toContain('expected: "only"');
+    expect(text).toContain('actual: "a"');
+    expect(text).toContain("assertion: equal");
+    expect(text).toContain("tolerance: 0.5");
+    expect(text).not.toContain("alpha.xtest.tsx::suite/pass");
+    expect(text).not.toContain("PASS");
+  });
+
+  it("shows skipped tests with reasons", () => {
+    const report = createNativeTestReport({
+      results: [
+        { id: "env.xtest.tsx::env/pass", name: "pass", status: "passed" },
+        {
+          id: "env.xtest.tsx::env/browser only",
+          name: "browser only",
+          status: "skipped",
+          skipReason: "requires browser runtime",
+        },
+      ],
+      diagnostics: [],
+    });
+
+    const text = formatNativeTestCompactTextReport(report);
+
+    expect(text).toContain("SKIP env.xtest.tsx::env/browser only");
+    expect(text).toContain("reason: requires browser runtime");
+    expect(text).not.toContain("env.xtest.tsx::env/pass");
+  });
+
+  it("preserves discovery diagnostics and leaves JSON formatting unaffected", () => {
+    const report = createNativeTestReport({
+      results: [],
+      diagnostics: [
+        {
+          code: "TSPACK_TEST_THEORY_NO_CASES",
+          message: "Theory requires at least one Case child",
+          file: "invalid.xtest.tsx",
+          severity: "error",
+        },
+      ],
+    });
+
+    const text = formatNativeTestCompactTextReport(report);
+    const json = formatNativeTestJsonReport(report);
+
+    expect(text).toContain("Diagnostics:");
+    expect(text).toContain("TSPACK_TEST_THEORY_NO_CASES error");
+    expect(text).toContain("Theory requires at least one Case child");
+    expect(text).toContain("file: invalid.xtest.tsx");
+    expect(JSON.parse(json).diagnostics[0].code).toBe(
+      "TSPACK_TEST_THEORY_NO_CASES",
+    );
   });
 });
