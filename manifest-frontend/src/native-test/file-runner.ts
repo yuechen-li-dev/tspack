@@ -25,8 +25,9 @@ export async function runNativeTestFiles(options: RunFilesOptions): Promise<RunF
   const discovered = discoverNativeTestFiles({ rootDir: options.rootDir });
   const diagnostics: Diagnostic[] = [...discovered.diagnostics];
   const results: TestResult[] = [];
-  const selectedFiles = filterByFileSelection(discovered.files, options.rootDir, options.files);
-  const runnableFiles = filterByTestSelection(selectedFiles, options.filter, diagnostics, options.rootDir);
+  const rootDir = path.resolve(options.rootDir);
+  const selectedFiles = filterByFileSelection(discovered.files, rootDir, options.files);
+  const runnableFiles = filterByTestSelection(selectedFiles, options.filter, diagnostics, rootDir);
 
   if (options.listOnly) {
     for (const file of runnableFiles) {
@@ -41,11 +42,11 @@ export async function runNativeTestFiles(options: RunFilesOptions): Promise<RunF
 
   for (const file of runnableFiles) {
     try {
-      const root = await loadRuntimeSuiteForFile(file.filePath, { rootDir: options.rootDir });
-      const artifactRoot = options.artifactRoot ?? path.join(options.rootDir, '.tspack', 'test-artifacts');
+      const root = await loadRuntimeSuiteForFile(file.filePath, { rootDir });
+      const artifactRoot = options.artifactRoot ?? path.join(rootDir, '.tspack', 'test-artifacts');
       const runResults = await runSuite(root, { artifactRoot, defaultTimeoutSeconds: options.defaultTimeoutSeconds });
       for (const result of runResults) {
-        const fullId = `${path.relative(options.rootDir, file.filePath).split(path.sep).join('/')}::${result.id}`;
+        const fullId = `${normalizePublicTestPath(path.relative(rootDir, file.filePath))}::${result.id}`;
         if (matchesFilter(fullId, result.name, options.filter)) {
           results.push({ ...result, id: fullId });
         }
@@ -61,23 +62,25 @@ export async function runNativeTestFiles(options: RunFilesOptions): Promise<RunF
 export async function runNativeArtifacts(options: RunArtifactsOptions): Promise<ArtifactRunResult> {
   const discovered = discoverNativeTestFiles({ rootDir: options.rootDir });
   const diagnostics: Diagnostic[] = [...discovered.diagnostics];
-  const selectedFiles = filterByFileSelection(discovered.files, options.rootDir, options.files);
-  const selectedArtifacts = selectArtifacts(selectedFiles, options.filter, diagnostics, options.rootDir);
+  const rootDir = path.resolve(options.rootDir);
+  const selectedFiles = filterByFileSelection(discovered.files, rootDir, options.files);
+  const selectedArtifacts = selectArtifacts(selectedFiles, options.filter, diagnostics, rootDir);
 
   if (options.listOnly) {
     return { artifacts: selectedArtifacts.map((a) => ({ id: a.id, name: a.name, status: 'passed' })), diagnostics };
   }
 
-  const artifactRoot = path.resolve(options.artifactRoot ?? path.join(options.rootDir, '.tspack', 'artifacts'));
+  const artifactRoot = path.resolve(options.artifactRoot ?? path.join(rootDir, '.tspack', 'artifacts'));
   const artifacts: StandaloneArtifactResult[] = [];
 
   for (const file of selectedFiles) {
-    const fileArtifacts = selectedArtifacts.filter((entry) => entry.filePath === file.filePath);
+    const fileIdPrefix = normalizePublicTestPath(path.relative(rootDir, file.filePath));
+    const fileArtifacts = selectedArtifacts.filter((entry) => entry.filePath === fileIdPrefix);
     if (fileArtifacts.length === 0) {
       continue;
     }
     try {
-      const root = await loadRuntimeSuiteForFile(file.filePath, { rootDir: options.rootDir });
+      const root = await loadRuntimeSuiteForFile(file.filePath, { rootDir });
       for (const declared of fileArtifacts) {
         artifacts.push(await runStandaloneArtifact(root, declared.id, declared.name, declared.path, declared.format, artifactRoot, options.defaultTimeoutSeconds ?? 30));
       }
@@ -230,4 +233,12 @@ function sanitizeId(value: string): string {
 
 function isNode(value: unknown): value is RuntimeNode {
   return !!value && typeof value === 'object' && typeof (value as RuntimeNode).__tag === 'string' && Array.isArray((value as RuntimeNode).children);
+}
+
+function normalizePublicTestPath(filePath: string): string {
+  let normalized = filePath.replace(/\\/g, '/').split(path.sep).join('/');
+  while (normalized.startsWith('./')) {
+    normalized = normalized.slice(2);
+  }
+  return normalized;
 }

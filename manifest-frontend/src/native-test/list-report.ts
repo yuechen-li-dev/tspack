@@ -6,16 +6,17 @@ export function listDiscoveredTests(discovery: DiscoverFilesResult): ListedTest[
   const listed: ListedTest[] = [];
   for (const file of discovery.files) {
     const details = discoverNativeTestFile(file.filePath);
+    const relativeFilePath = normalizePath(path.relative(discovery.rootDir, file.filePath));
     for (const fact of details.facts) {
-      listed.push({ id: `${normalizePath(file.filePath)}::${fact.id}`, filePath: file.filePath, suiteName: details.suiteName ?? '', name: fact.name, kind: 'fact', artifacts: fact.artifacts });
+      listed.push({ id: `${relativeFilePath}::${fact.id}`, filePath: file.filePath, suiteName: details.suiteName ?? '', name: fact.name, kind: 'fact', artifacts: fact.artifacts });
     }
     for (const theory of details.theories) {
       for (const entry of theory.cases) {
-        listed.push({ id: `${normalizePath(file.filePath)}::${entry.id}`, filePath: file.filePath, suiteName: details.suiteName ?? '', name: theory.name, kind: 'theory-case', theoryName: theory.name, caseIndex: entry.index, caseData: entry.data, artifacts: theory.artifacts });
+        listed.push({ id: `${relativeFilePath}::${entry.id}`, filePath: file.filePath, suiteName: details.suiteName ?? '', name: theory.name, kind: 'theory-case', theoryName: theory.name, caseIndex: entry.index, caseData: entry.data, artifacts: theory.artifacts });
       }
     }
     for (const invariant of details.invariants) {
-      listed.push({ id: `${normalizePath(file.filePath)}::${invariant.id}`, filePath: file.filePath, suiteName: details.suiteName ?? '', name: invariant.name, kind: invariant.kind, artifacts: [] });
+      listed.push({ id: `${relativeFilePath}::${invariant.id}`, filePath: file.filePath, suiteName: details.suiteName ?? '', name: invariant.name, kind: invariant.kind, artifacts: [] });
     }
   }
   listed.sort((a, b) => a.id.localeCompare(b.id));
@@ -157,4 +158,10 @@ function normalizeFailure(error: Error & { code?: string; reason?: string; asser
   return { code: error.code, message: error.message, reason: error.reason, assertion: error.assertion, actual: error.actual, expected: error.expected, details: Object.keys(details).length === 0 ? undefined : details };
 }
 
-function normalizePath(filePath: string): string { return filePath.split(path.sep).join('/'); }
+function normalizePath(filePath: string): string {
+  let normalized = filePath.replace(/\\/g, '/').split(path.sep).join('/');
+  while (normalized.startsWith('./')) {
+    normalized = normalized.slice(2);
+  }
+  return normalized;
+}

@@ -161,7 +161,7 @@ func printHelp() {
 	fmt.Println("  tspack outdated [--root .] [--json]")
 	fmt.Println("  tspack how <diagnostic-code> [--json]")
 	fmt.Println("  tspack how --list [--json]")
-	fmt.Println("  tspack test [--root .] [-xtest] [-vitest] [--list] [--filter text]")
+	fmt.Println("  tspack test [--root .] [-xtest] [-vitest] [--list] [--filter text] [--xtest-bridge path]")
 	fmt.Println("  tspack artifact [--root .] [--out path] [--list] [--filter text] [--json]")
 	fmt.Println("  tspack bench [--root .] [--list] [--filter text] [--json]")
 	fmt.Println("  tspack doom [--root .] [--list] [--filter text] [--json] [--out path]")
@@ -465,13 +465,26 @@ func runArtifactCommand(args []string) {
 	}
 }
 
+func nextTestFlagValue(args []string, index *int, flag string) (string, bool) {
+	if *index+1 >= len(args) {
+		fmt.Fprintf(os.Stderr, "missing value for test flag: %s\n", flag)
+		os.Exit(1)
+		return "", false
+	}
+	*index = *index + 1
+	return args[*index], true
+}
+
 func runTestCommand(args []string) {
 	opts := testcmd.Options{RootDir: "."}
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
 		case "--root":
-			i++
-			opts.RootDir = args[i]
+			value, ok := nextTestFlagValue(args, &i, "--root")
+			if !ok {
+				return
+			}
+			opts.RootDir = value
 		case "-xtest", "--xtest":
 			opts.UseXTest = true
 		case "-vitest", "--vitest":
@@ -479,8 +492,17 @@ func runTestCommand(args []string) {
 		case "--list":
 			opts.List = true
 		case "--filter":
-			i++
-			opts.Filter = args[i]
+			value, ok := nextTestFlagValue(args, &i, "--filter")
+			if !ok {
+				return
+			}
+			opts.Filter = value
+		case "--xtest-bridge", "--bridge":
+			value, ok := nextTestFlagValue(args, &i, args[i])
+			if !ok {
+				return
+			}
+			opts.XTestBridge = value
 		default:
 			fmt.Fprintf(os.Stderr, "unknown test flag: %s\n", args[i])
 			os.Exit(1)
