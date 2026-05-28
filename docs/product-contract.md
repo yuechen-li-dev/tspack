@@ -1,4 +1,4 @@
-# TSPack Product Contract (M24)
+# TSPack Product Contract (M32)
 
 ## Product thesis
 
@@ -63,10 +63,12 @@ Primary commands:
 ## Command responsibility boundaries
 
 - **check** validates contract consistency (including suspicious lock graph conditions like duplicate locked versions); no lock mutation.
-- **update** resolves and writes lockfile.
-- **sync** materializes from lock; no lock mutation.
+- **update** resolves dependencies, populates required content-addressed store artifacts, and writes the lockfile.
+- **sync** materializes from lock/store state; no lock mutation.
 - **pack** creates package archives; no lock mutation.
 - **why** explains presence/reachability; no lock mutation.
+- **how** explains diagnostic remediation guidance; no mutation.
+- **outdated** reports dependency freshness from metadata only; no lock/store/node_modules mutation.
 - **test/artifact/bench/doom** execute harness workflows and may write harness outputs, but do not rewrite manifest/lock contract state.
 - **run** launches declared runtime targets only; not npm scripts.
 - **inspect** performs experimental structural inspection from explicit targets/URLs/CDP/host modes.
@@ -74,10 +76,20 @@ Primary commands:
 ## Mutation guarantees
 
 Unless explicitly documented otherwise:
-- `check`, `sync`, `pack`, `why`, `run`, and `inspect` must not mutate `ts-lock.toml`.
+- `check`, `sync`, `pack`, `why`, `how`, `outdated`, `run`, and `inspect` must not mutate `ts-lock.toml`.
 - `run` and `inspect --run` must not mutate manifest intent (`manifest.tsx` / `package.manifest.tsx`).
 - `update` is the lock mutation command.
 - Harness commands (`test`, `artifact`, `bench`, `doom`) may write harness outputs/artifacts, not lock/manifest contract state.
+
+## Claude-fooding Phase 2 validation
+
+Claude-fooding Phase 2 moved the package-manager critical path from prototype behavior to a validated loop:
+
+```text
+update -> store -> sync
+```
+
+`update` now prepares the content-addressed store required by the lockfile before `sync` materializes compatibility `node_modules`. See `docs/claude-fooding-phase2.md` for the remediation closeout.
 
 ## Security guarantees
 
@@ -91,7 +103,7 @@ Unless explicitly documented otherwise:
 
 ## Stability bands
 
-- **Stable core**: check/update/sync/why/pack, lock+graph+materialization semantics.
+- **Stable core**: check/update/sync/outdated/why/how/pack, lock+graph+materialization semantics.
 - **Stable native harness surface**: test/artifact/bench/doom command family.
 - **Experimental**: inspect backend/flag surface and backend refinement.
 
