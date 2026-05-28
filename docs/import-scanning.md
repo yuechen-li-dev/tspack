@@ -22,4 +22,10 @@ Specifier classifications:
 - NodeBuiltin (`node:fs` and selected builtin names)
 - Unknown
 
+Relative resolution:
+- Exact existing files win before aliases.
+- Extensionless relative imports use the supported extension order and directory `index` fallback.
+- TypeScript ESM `.js` specifiers are also resolved against same-stem `.ts`, `.tsx`, and `.jsx` source files when the exact `.js` file is absent.
+- TypeScript ESM `.jsx` specifiers are also resolved against same-stem `.tsx`, `.ts`, and `.js` source files when the exact `.jsx` file is absent.
+
 Non-goals in M4: no package resolution, no type-checking, no full type leakage analysis.

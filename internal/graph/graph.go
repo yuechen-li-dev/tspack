@@ -263,11 +263,40 @@ func (t *TargetNode) AllowsDependencyKey(key string) bool {
 }
 func (t *TargetNode) AllowsExternalPackageName(name string) bool {
 	for _, d := range append(t.RuntimeDeps, t.PeerDeps...) {
-		if d.Source.Package == name {
+		if d.MatchesExternalPackageName(name) {
 			return true
 		}
 	}
 	return false
+}
+
+func (d *DependencyNode) MatchesExternalPackageName(name string) bool {
+	for _, identifier := range d.ExternalPackageIdentifiers() {
+		if identifier == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (d *DependencyNode) ExternalPackageIdentifiers() []string {
+	identifiers := []string{}
+	seen := map[string]struct{}{}
+	add := func(identifier string) {
+		if identifier == "" {
+			return
+		}
+		if _, ok := seen[identifier]; ok {
+			return
+		}
+		seen[identifier] = struct{}{}
+		identifiers = append(identifiers, identifier)
+	}
+
+	add(d.Key)
+	add(d.Source.Name)
+	add(d.Source.Package)
+	return identifiers
 }
 
 func (p *PackageNode) TargetsAllowingDependencyKey(key string) []*TargetNode {

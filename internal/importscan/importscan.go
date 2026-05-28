@@ -33,13 +33,13 @@ type Import struct {
 }
 
 var (
-	reImportFrom      = regexp.MustCompile(`(?m)\bimport\s+(type\s+)?[^;\n]*?\sfrom\s*["']([^"']+)["']`)
-	reImportSide      = regexp.MustCompile(`(?m)\bimport\s*["']([^"']+)["']`)
-	reExportFrom      = regexp.MustCompile(`(?m)\bexport\s+(type\s+)?(?:\*|\{[^}]*\})\s*from\s*["']([^"']+)["']`)
-	reRequireLiteral  = regexp.MustCompile(`(?m)\brequire\s*\(\s*["']([^"']+)["']\s*\)`)
-	reRequireAny      = regexp.MustCompile(`(?m)\brequire\s*\(`)
-	reImportLiteral   = regexp.MustCompile(`(?m)\bimport\s*\(\s*["']([^"']+)["']\s*\)`)
-	reImportDynamicAny = regexp.MustCompile(`(?m)\bimport\s*\(`)
+	reImportFrom              = regexp.MustCompile(`(?m)\bimport\s+(type\s+)?[^;\n]*?\sfrom\s*["']([^"']+)["']`)
+	reImportSide              = regexp.MustCompile(`(?m)\bimport\s*["']([^"']+)["']`)
+	reExportFrom              = regexp.MustCompile(`(?m)\bexport\s+(type\s+)?(?:\*|\{[^}]*\})\s*from\s*["']([^"']+)["']`)
+	reRequireLiteral          = regexp.MustCompile(`(?m)\brequire\s*\(\s*["']([^"']+)["']\s*\)`)
+	reRequireAny              = regexp.MustCompile(`(?m)\brequire\s*\(`)
+	reImportLiteral           = regexp.MustCompile(`(?m)\bimport\s*\(\s*["']([^"']+)["']\s*\)`)
+	reImportDynamicAny        = regexp.MustCompile(`(?m)\bimport\s*\(`)
 	reImportDynamicNonLiteral = regexp.MustCompile(`(?m)\bimport\s*\(\s*[^\s"'\)]`)
 )
 
@@ -134,25 +134,47 @@ func ExternalPackageName(specifier string) (string, bool) {
 
 func ResolveRelative(baseFile, spec string) (string, bool) {
 	base := filepath.Dir(baseFile)
-	cand := filepath.Clean(filepath.Join(base, spec))
-	exts := []string{".ts", ".tsx", ".js", ".jsx", ".mts", ".cts"}
-	tries := []string{}
-	if filepath.Ext(cand) != "" {
-		tries = append(tries, cand)
-	} else {
-		for _, e := range exts {
-			tries = append(tries, cand+e)
-		}
-		for _, e := range exts {
-			tries = append(tries, filepath.Join(cand, "index"+e))
-		}
-	}
-	for _, p := range tries {
-		if st, err := os.Stat(p); err == nil && !st.IsDir() {
-			return filepath.Clean(p), true
+	candidate := filepath.Clean(filepath.Join(base, spec))
+	tries := relativeResolutionCandidates(candidate)
+	for _, path := range tries {
+		if st, err := os.Stat(path); err == nil && !st.IsDir() {
+			return filepath.Clean(path), true
 		}
 	}
 	return "", false
+}
+
+func relativeResolutionCandidates(candidate string) []string {
+	exts := []string{".ts", ".tsx", ".js", ".jsx", ".mts", ".cts"}
+	ext := filepath.Ext(candidate)
+	if ext == ".js" {
+		return []string{
+			candidate,
+			strings.TrimSuffix(candidate, ext) + ".ts",
+			strings.TrimSuffix(candidate, ext) + ".tsx",
+			strings.TrimSuffix(candidate, ext) + ".jsx",
+		}
+	}
+	if ext == ".jsx" {
+		return []string{
+			candidate,
+			strings.TrimSuffix(candidate, ext) + ".tsx",
+			strings.TrimSuffix(candidate, ext) + ".ts",
+			strings.TrimSuffix(candidate, ext) + ".js",
+		}
+	}
+	if ext != "" {
+		return []string{candidate}
+	}
+
+	tries := []string{}
+	for _, candidateExt := range exts {
+		tries = append(tries, candidate+candidateExt)
+	}
+	for _, candidateExt := range exts {
+		tries = append(tries, filepath.Join(candidate, "index"+candidateExt))
+	}
+	return tries
 }
 
 func SortImports(imps []Import) {

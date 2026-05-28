@@ -42,7 +42,9 @@ func checkTarget(root string, p *graph.PackageNode, t *graph.TargetNode) []diag.
 	for len(q) > 0 {
 		cur := q[0]
 		q = q[1:]
-		if seen[cur] { continue }
+		if seen[cur] {
+			continue
+		}
 		seen[cur] = true
 		imps, diags := importscan.ScanFile(cur)
 		out = append(out, diags...)
@@ -57,7 +59,9 @@ func checkTarget(root string, p *graph.PackageNode, t *graph.TargetNode) []diag.
 					out = append(out, diag.Diagnostic{Code: "TSPACK_IMPORT_UNRESOLVED_RELATIVE", Severity: diag.SeverityError, Message: "relative import could not be resolved", File: cur, Details: []string{t.Name, imp.Specifier}})
 					continue
 				}
-				if _, ok := parents[next]; !ok { parents[next] = cur }
+				if _, ok := parents[next]; !ok {
+					parents[next] = cur
+				}
 				q = append(q, next)
 			case importscan.SpecifierExternalPackage:
 				out = append(out, validateExternal(t, p, cur, imp.Package, buildPath(parents, entry, cur, imp.Package), imp.Specifier)...)
@@ -84,7 +88,7 @@ func validateExternal(t *graph.TargetNode, p *graph.PackageNode, file, pkg strin
 	}
 	if t.AllowsExternalPackageName(pkg) {
 		for _, d := range t.RuntimeDeps {
-			if d.Source.Package == pkg && d.Kind == graph.DependencyKindType {
+			if d.MatchesExternalPackageName(pkg) && d.Kind == graph.DependencyKindType {
 				out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_TYPE_ONLY_RUNTIME_IMPORT", Severity: diag.SeverityError, Message: "type-only dependency imported at runtime", File: file, Details: detail})
 				return out
 			}
@@ -98,7 +102,7 @@ func validateExternal(t *graph.TargetNode, p *graph.PackageNode, file, pkg strin
 	}
 	for _, o := range others {
 		for _, d := range o.OptionalPeerDeps {
-			if d.Source.Package == pkg {
+			if d.MatchesExternalPackageName(pkg) {
 				out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_OPTIONAL_PEER_LEAK", Severity: diag.SeverityError, Message: "optional peer leaked across target boundary", File: file, Details: detail})
 				return out
 			}
@@ -113,8 +117,13 @@ func buildPath(parents map[string]string, entry, file, pkg string) []string {
 	cur := file
 	for {
 		p = append([]string{cur}, p...)
-		if cur == entry { break }
-		n, ok := parents[cur]; if !ok { break }
+		if cur == entry {
+			break
+		}
+		n, ok := parents[cur]
+		if !ok {
+			break
+		}
 		cur = n
 	}
 	return p
@@ -132,21 +141,39 @@ func matchFrom(pattern, file string) bool {
 }
 func deniedByBoundary(p *graph.PackageNode, file, pkg string) bool {
 	for _, b := range p.Boundaries {
-		if !matchFrom(b.From, filepath.ToSlash(file)) { continue }
-		for _, d := range b.DenyDeps { if d == pkg { return true } }
+		if !matchFrom(b.From, filepath.ToSlash(file)) {
+			continue
+		}
+		for _, d := range b.DenyDeps {
+			if d == pkg {
+				return true
+			}
+		}
 	}
 	return false
 }
 func allowViolation(p *graph.PackageNode, file, pkg string, targetAllows bool) bool {
 	for _, b := range p.Boundaries {
-		if !matchFrom(b.From, filepath.ToSlash(file)) || len(b.AllowDeps)==0 { continue }
-		for _, a := range b.AllowDeps { if a == pkg { return false } }
-		if targetAllows { return true }
+		if !matchFrom(b.From, filepath.ToSlash(file)) || len(b.AllowDeps) == 0 {
+			continue
+		}
+		for _, a := range b.AllowDeps {
+			if a == pkg {
+				return false
+			}
+		}
+		if targetAllows {
+			return true
+		}
 	}
 	return false
 }
 func isTool(p *graph.PackageNode, pkg string) bool {
-	for _, d := range p.ToolDependencies() { if d.Source.Package == pkg { return true } }
+	for _, d := range p.ToolDependencies() {
+		if d.MatchesExternalPackageName(pkg) {
+			return true
+		}
+	}
 	return false
 }
 
