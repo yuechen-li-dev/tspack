@@ -1235,6 +1235,165 @@ process.stdout.write(JSON.stringify(out));`
 	}
 }
 
+func TestCheckJSONBoundaryDiagnosticsAndTextOutput(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	if err := os.MkdirAll(frontend, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cliPath := filepath.Join(frontend, "cli.js")
+	stub := `#!/usr/bin/env node
+const manifestIR = {
+  format: 1,
+  workspace: { name: "ws" },
+  packages: [
+    {
+      name: "app",
+      version: "1.0.0",
+      kind: "library",
+      dependencies: [
+        {
+          key: "react-dom",
+          kind: "runtime",
+          source: { kind: "npm", package: "react-dom", range: "^19.0.0" }
+        },
+        {
+          key: "vite",
+          kind: "tool",
+          source: { kind: "npm", package: "vite", range: "^6.0.0" }
+        }
+      ],
+      targets: [
+        {
+          name: "core",
+          export: ".",
+          entry: "src/index.ts",
+          runtime: "dist/index.js",
+          types: "dist/index.d.ts",
+          deps: ["react-dom"],
+          peers: []
+        }
+      ],
+      tools: ["vite"],
+      boundaries: [
+        {
+          from: "src/**",
+          denyDeps: ["react-dom"]
+        }
+      ],
+      publish: { include: ["dist/**"], exclude: [] },
+      policies: { types: {}, boundaries: {} }
+    }
+  ]
+};
+
+const out = { ok: true, ir: manifestIR, diagnostics: [] };
+process.stdout.write(JSON.stringify(out));`
+	if err := os.WriteFile(cliPath, []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(cliPath) })
+
+	binPath := buildTspackBinary(t, repo)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	indexSource := `import "react-dom";
+import "vite";
+`
+	if err := os.WriteFile(filepath.Join(root, "src", "index.ts"), []byte(indexSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "dist", "index.js"), []byte("export const x = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "dist", "index.d.ts"), []byte("export declare const x: number\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	jsonCmd := exec.Command(binPath, "check", "--root", root, "--json")
+	jsonCmd.Dir = repo
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	jsonCmd.Stdout = stdout
+	jsonCmd.Stderr = stderr
+	err := jsonCmd.Run()
+	if err == nil {
+		t.Fatalf("expected boundary violations to exit nonzero")
+	}
+	if strings.Contains(stdout.String(), "TSPACK_BOUNDARY_EXPLICIT_DENY:") || strings.Contains(stdout.String(), "TSPACK_BOUNDARY_TOOL_RUNTIME_IMPORT:") {
+		t.Fatalf("expected stdout to contain JSON only, got human diagnostics: %s", stdout.String())
+	}
+	if strings.Contains(stderr.String(), "TSPACK_BOUNDARY_") {
+		t.Fatalf("expected no duplicated human boundary diagnostics on stderr, got: %s", stderr.String())
+	}
+
+	var report checkJSONReport
+	if unmarshalErr := json.Unmarshal(stdout.Bytes(), &report); unmarshalErr != nil {
+		t.Fatalf("stdout is not valid json: %v\n%s", unmarshalErr, stdout.String())
+	}
+	if report.OK {
+		t.Fatalf("expected ok=false for boundary violations: %+v", report)
+	}
+	if report.Summary.Errors == 0 {
+		t.Fatalf("expected summary.errors > 0: %+v", report.Summary)
+	}
+
+	foundExplicitDeny := false
+	foundToolRuntime := false
+	for _, diagnostic := range report.Diagnostics {
+		if diagnostic.Code != "TSPACK_BOUNDARY_EXPLICIT_DENY" && diagnostic.Code != "TSPACK_BOUNDARY_TOOL_RUNTIME_IMPORT" {
+			continue
+		}
+		if diagnostic.Severity != "error" {
+			t.Fatalf("expected boundary diagnostic severity to be error, got %+v", diagnostic)
+		}
+		detailsText := strings.Join(diagnostic.Details, "\n")
+		if !strings.Contains(detailsText, "path=") || !strings.Contains(detailsText, "src/index.ts") {
+			t.Fatalf("expected structured import-chain details, got %+v", diagnostic)
+		}
+		if diagnostic.Code == "TSPACK_BOUNDARY_EXPLICIT_DENY" {
+			foundExplicitDeny = true
+			if !strings.Contains(detailsText, "react-dom") {
+				t.Fatalf("explicit deny details missing react-dom: %+v", diagnostic)
+			}
+		}
+		if diagnostic.Code == "TSPACK_BOUNDARY_TOOL_RUNTIME_IMPORT" {
+			foundToolRuntime = true
+			if !strings.Contains(detailsText, "vite") {
+				t.Fatalf("tool runtime details missing vite: %+v", diagnostic)
+			}
+		}
+	}
+	if !foundExplicitDeny || !foundToolRuntime {
+		t.Fatalf("expected both boundary diagnostics in one JSON report: %+v", report.Diagnostics)
+	}
+
+	textCmd := exec.Command(binPath, "check", "--root", root)
+	textCmd.Dir = repo
+	textOut, textErr := textCmd.CombinedOutput()
+	if textErr == nil {
+		t.Fatalf("expected text check to fail")
+	}
+	text := string(textOut)
+	if !strings.Contains(text, "TSPACK_BOUNDARY_EXPLICIT_DENY: import denied by explicit boundary") {
+		t.Fatalf("missing explicit deny human diagnostic: %s", text)
+	}
+	if !strings.Contains(text, "TSPACK_BOUNDARY_TOOL_RUNTIME_IMPORT: tool dependency imported at runtime") {
+		t.Fatalf("missing tool runtime human diagnostic: %s", text)
+	}
+	if !strings.Contains(text, "  path=") || !strings.Contains(text, "src/index.ts") {
+		t.Fatalf("missing human-readable boundary detail lines: %s", text)
+	}
+}
+
 func TestCheckVersionConflictTextAndLockfileImmutable(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
