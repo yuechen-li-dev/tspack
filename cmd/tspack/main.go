@@ -1074,6 +1074,9 @@ func printCheckExplain(explain *check.ExplainResult) {
 			if len(rule.DenyDeps) > 0 {
 				fmt.Printf("    denyDeps: %s\n", strings.Join(rule.DenyDeps, ", "))
 			}
+			if rule.AllowOnly != nil {
+				fmt.Printf("    allowOnly: %s\n", strings.Join(rule.AllowOnly, ", "))
+			}
 		}
 	}
 	fmt.Println()

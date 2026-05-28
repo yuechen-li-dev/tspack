@@ -68,6 +68,35 @@ export default define(
     }
   });
 
+  it('accepts allowOnly boundary rows', () => {
+    const tmpDir = fs.mkdtempSync(path.join(root, 'fixtures', 'tmp-allow-only-'));
+    const manifestPath = path.join(tmpDir, 'manifest.tsx');
+    fs.writeFileSync(
+      manifestPath,
+      `import { define } from "tspack/manifest";
+export default define(
+  <Workspace name="ws">
+    <Package name="app" version="1.0.0" kind="library">
+      <Targets rows={[{ name: "core", export: ".", entry: "src/index.ts", runtime: "dist/index.js", types: "dist/index.d.ts" }]} />
+      <Boundaries rows={[{ from: "src/**", allowOnly: ["react"] }, { transitiveFrom: "src/index.ts", allowOnly: [] }]} />
+      <Publish include={["dist/**"]} />
+    </Package>
+  </Workspace>
+);
+`,
+      'utf8',
+    );
+    try {
+      const result = parseManifestFile(manifestPath);
+      expect(result.ok).toBe(true);
+      const boundaries = result.ir.packages[0].boundaries as Array<Record<string, unknown>>;
+      expect(boundaries[0].allowOnly).toEqual(['react']);
+      expect(boundaries[1].allowOnly).toEqual([]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('run targets parse deterministically', () => {
     const a = JSON.stringify(parseManifestFile(fixture('valid', 'm22-run-target')).ir);
     const b = JSON.stringify(parseManifestFile(fixture('valid', 'm22-run-target')).ir);

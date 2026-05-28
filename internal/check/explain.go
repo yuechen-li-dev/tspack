@@ -49,6 +49,7 @@ type ExplainBoundaryRule struct {
 	Path           []string `json:"path,omitempty"`
 	AllowDeps      []string `json:"allowDeps,omitempty"`
 	DenyDeps       []string `json:"denyDeps,omitempty"`
+	AllowOnly      []string `json:"allowOnly,omitempty"`
 }
 
 type ExplainImport struct {
@@ -167,7 +168,7 @@ func findMatchedRules(root string, g *graph.WorkspaceGraph, absFile string, tran
 	for _, p := range g.AllPackages() {
 		for _, rule := range p.Boundaries {
 			if rule.From != "" && boundary.MatchFrom(rule.From, filepath.ToSlash(absFile)) {
-				out = append(out, ExplainBoundaryRule{From: rule.From, AllowDeps: append([]string(nil), rule.AllowDeps...), DenyDeps: append([]string(nil), rule.DenyDeps...)})
+				out = append(out, ExplainBoundaryRule{From: rule.From, AllowDeps: append([]string(nil), rule.AllowDeps...), DenyDeps: append([]string(nil), rule.DenyDeps...), AllowOnly: copyStringSlice(rule.AllowOnly)})
 			}
 		}
 	}
@@ -178,6 +179,7 @@ func findMatchedRules(root string, g *graph.WorkspaceGraph, absFile string, tran
 			Path:           relPathList(root, match.Path),
 			AllowDeps:      append([]string(nil), match.Rule.AllowDeps...),
 			DenyDeps:       append([]string(nil), match.Rule.DenyDeps...),
+			AllowOnly:      copyStringSlice(match.Rule.AllowOnly),
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -245,6 +247,18 @@ func explainExternal(g *graph.WorkspaceGraph, absFile string, imp importscan.Imp
 			item.Reasons = append(item.Reasons, transitiveDenyReason(transitiveMatches))
 			return item
 		}
+		if ruleAllowOnlyViolationAny(g, absFile, imp.Package) {
+			item.Decision = "denied"
+			item.Diagnostic = "TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION"
+			item.Reasons = append(item.Reasons, ruleAllowOnlyReasonAny(g, absFile, imp.Package))
+			return item
+		}
+		if boundary.TransitiveAllowOnlyViolation(transitiveMatches, imp.Package) {
+			item.Decision = "denied"
+			item.Diagnostic = "TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION"
+			item.Reasons = append(item.Reasons, boundary.TransitiveAllowOnlyReason(transitiveMatches, imp.Package))
+			return item
+		}
 		item.Decision = "unknown"
 		item.Reasons = append(item.Reasons, "file is not reachable from any target, so target-scoped allowances could not be evaluated")
 		return item
@@ -289,6 +303,18 @@ func decideForTarget(p *graph.PackageNode, t *graph.TargetNode, absFile string, 
 		res.Reasons = append(res.Reasons, transitiveDenyReason(transitiveMatches))
 		return res
 	}
+	if boundary.AllowOnlyViolation(p, absFile, pkg) {
+		res.Decision = "denied"
+		res.Diagnostic = "TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION"
+		res.Reasons = append(res.Reasons, boundary.AllowOnlyReason(p, absFile, pkg))
+		return res
+	}
+	if boundary.TransitiveAllowOnlyViolation(transitiveMatches, pkg) {
+		res.Decision = "denied"
+		res.Diagnostic = "TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION"
+		res.Reasons = append(res.Reasons, boundary.TransitiveAllowOnlyReason(transitiveMatches, pkg))
+		return res
+	}
 	if t.AllowsExternalPackageName(pkg) {
 		res.Reasons = append(res.Reasons, "declared dependency for target "+t.Name)
 		return res
@@ -320,6 +346,24 @@ func ruleDeniesAny(g *graph.WorkspaceGraph, absFile string, pkg string) bool {
 	return false
 }
 
+func ruleAllowOnlyViolationAny(g *graph.WorkspaceGraph, absFile string, pkg string) bool {
+	for _, p := range g.AllPackages() {
+		if boundary.AllowOnlyViolation(p, absFile, pkg) {
+			return true
+		}
+	}
+	return false
+}
+
+func ruleAllowOnlyReasonAny(g *graph.WorkspaceGraph, absFile string, pkg string) string {
+	for _, p := range g.AllPackages() {
+		if boundary.AllowOnlyViolation(p, absFile, pkg) {
+			return boundary.AllowOnlyReason(p, absFile, pkg)
+		}
+	}
+	return "not listed in allowOnly boundary"
+}
+
 func targetByName(g *graph.WorkspaceGraph, name string) (*graph.PackageNode, *graph.TargetNode) {
 	for _, p := range g.AllPackages() {
 		if t, ok := p.Target(name); ok {
@@ -343,6 +387,13 @@ func relPath(root string, path string) string {
 		return filepath.ToSlash(path)
 	}
 	return filepath.ToSlash(rel)
+}
+
+func copyStringSlice(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	return append([]string{}, values...)
 }
 
 func dedupeStrings(in []string) []string {

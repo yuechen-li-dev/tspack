@@ -85,3 +85,8 @@ Use `<RunTargets rows={[{ name, runtime, command, url, ready }]} />` inside a `P
 - `command`: argv array; no shell string execution.
 - `url`: required HTTP/HTTPS URL.
 - `ready`: optional `{ kind: "http", path: "/" }`.
+
+
+## Boundary row `allowOnly`
+
+Boundary rows may include `allowOnly?: string[]` with either `from` or `transitiveFrom`. The list contains exact external package identifiers permitted for matching runtime imports. An empty list is valid and means no external runtime packages are permitted in that scope. `allowOnly` does not declare dependencies; targets still need the normal `deps` or `peers` allowance for any listed package.

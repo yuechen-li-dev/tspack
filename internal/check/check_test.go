@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tspack/tspack/internal/boundary"
+	"github.com/tspack/tspack/internal/diag"
 	"github.com/tspack/tspack/internal/graph"
 	"github.com/tspack/tspack/internal/manifest"
 )
@@ -504,4 +505,259 @@ func TestM33DTransitiveFromGlobCanSeedNestedFile(t *testing.T) {
 		}
 	}
 	t.Fatalf("missing glob transitive deny: %#v", res.Diagnostics)
+}
+
+func buildM33EAllowOnlyGraph(t *testing.T, boundaryRules []manifest.BoundaryRule, targetDeps []string) *graph.WorkspaceGraph {
+	t.Helper()
+
+	ir := &manifest.ManifestIR{
+		Format:    1,
+		Workspace: manifest.Workspace{Name: "ws"},
+		Packages: []manifest.Package{
+			{
+				Name:    "app",
+				Version: "1.0.0",
+				Kind:    "library",
+				Dependencies: []manifest.DependencyIntent{
+					{
+						Key:  "react",
+						Kind: "runtime",
+						Source: manifest.Source{
+							Kind:    "npm",
+							Package: "react",
+							Range:   "^19.0.0",
+						},
+					},
+					{
+						Key:  "react-dom",
+						Kind: "runtime",
+						Source: manifest.Source{
+							Kind:    "npm",
+							Package: "react-dom",
+							Range:   "^19.0.0",
+						},
+					},
+					{
+						Key:  "typescript",
+						Kind: "tool",
+						Source: manifest.Source{
+							Kind:    "npm",
+							Package: "typescript",
+							Range:   "^5.9.0",
+						},
+					},
+				},
+				Targets: []manifest.Target{
+					{
+						Name:    "core",
+						Export:  ".",
+						Entry:   "src/index.ts",
+						Runtime: "dist/index.js",
+						Types:   "dist/index.d.ts",
+						Deps:    targetDeps,
+					},
+				},
+				Tools:      []string{"typescript"},
+				Boundaries: boundaryRules,
+			},
+		},
+	}
+	g, diags := graph.Build(ir)
+	if len(diags) != 0 {
+		t.Fatalf("graph diags=%#v", diags)
+	}
+	return g
+}
+
+func writeM33EFiles(t *testing.T, root string, files map[string]string) {
+	t.Helper()
+	for name, content := range files {
+		fullPath := root + "/" + name
+		if err := os.MkdirAll(fullPath[:strings.LastIndex(fullPath, "/")], 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func findDiagnosticByCode(diags []diag.Diagnostic, code string) (diag.Diagnostic, bool) {
+	for _, d := range diags {
+		if d.Code == code {
+			return d, true
+		}
+	}
+	return diag.Diagnostic{}, false
+}
+
+func TestM33EFromAllowOnlyAllowsListedExternalAndRelativeImports(t *testing.T) {
+	root := t.TempDir()
+	writeM33EFiles(t, root, map[string]string{
+		"src/index.ts": `import "react";
+import "./local.js";
+`,
+		"src/local.ts": `export const local = true;
+`,
+	})
+
+	graph := buildM33EAllowOnlyGraph(t, []manifest.BoundaryRule{{From: "src/**", AllowOnly: []string{"react"}}}, []string{"react", "react-dom"})
+	res := CheckRuntimeBoundaries(CheckOptions{RootDir: root, Graph: graph})
+	if len(res.Diagnostics) != 0 {
+		t.Fatalf("allowOnly produced unexpected diagnostics: %#v", res.Diagnostics)
+	}
+}
+
+func TestM33EFromAllowOnlyDeniesUnlistedExternal(t *testing.T) {
+	root := t.TempDir()
+	writeM33EFiles(t, root, map[string]string{
+		"src/index.ts": `import "react-dom";
+`,
+	})
+
+	graph := buildM33EAllowOnlyGraph(t, []manifest.BoundaryRule{{From: "src/**", AllowOnly: []string{"react"}}}, []string{"react", "react-dom"})
+	res := CheckRuntimeBoundaries(CheckOptions{RootDir: root, Graph: graph})
+	diagnostic, ok := findDiagnosticByCode(res.Diagnostics, "TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION")
+	if !ok {
+		t.Fatalf("missing allowOnly violation: %#v", res.Diagnostics)
+	}
+	details := strings.Join(diagnostic.Details, "|")
+	for _, want := range []string{"from=src/**", "allowOnly=react", "react-dom"} {
+		if !strings.Contains(details, want) {
+			t.Fatalf("details %q missing %s", details, want)
+		}
+	}
+}
+
+func TestM33EFromEmptyAllowOnlyDeniesExternalButAllowsRelative(t *testing.T) {
+	root := t.TempDir()
+	writeM33EFiles(t, root, map[string]string{
+		"src/index.ts": `import "./local.js";
+import "react";
+`,
+		"src/local.ts": `export const local = true;
+`,
+	})
+
+	graph := buildM33EAllowOnlyGraph(t, []manifest.BoundaryRule{{From: "src/**", AllowOnly: []string{}}}, []string{"react"})
+	res := CheckRuntimeBoundaries(CheckOptions{RootDir: root, Graph: graph})
+	if _, ok := findDiagnosticByCode(res.Diagnostics, "TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION"); !ok {
+		t.Fatalf("missing empty allowOnly violation: %#v", res.Diagnostics)
+	}
+	for _, diagnostic := range res.Diagnostics {
+		if strings.Contains(strings.Join(diagnostic.Details, "|"), "./local.js") {
+			t.Fatalf("relative import should not be denied by allowOnly: %#v", res.Diagnostics)
+		}
+	}
+}
+
+func TestM33ETransitiveFromAllowOnlyDeniesReachableImport(t *testing.T) {
+	root := t.TempDir()
+	writeM33EFiles(t, root, map[string]string{
+		"src/index.ts": `import "./button.js";
+`,
+		"src/button.tsx": `import "react-dom";
+`,
+	})
+
+	graph := buildM33EAllowOnlyGraph(t, []manifest.BoundaryRule{{TransitiveFrom: "src/index.ts", AllowOnly: []string{"react"}}}, []string{"react", "react-dom"})
+	res := CheckRuntimeBoundaries(CheckOptions{RootDir: root, Graph: graph})
+	diagnostic, ok := findDiagnosticByCode(res.Diagnostics, "TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION")
+	if !ok {
+		t.Fatalf("missing transitive allowOnly violation: %#v", res.Diagnostics)
+	}
+	details := strings.Join(diagnostic.Details, "|")
+	for _, want := range []string{"transitiveFrom=src/index.ts", "seed=src/index.ts", "allowOnly=react"} {
+		if !strings.Contains(details, want) {
+			t.Fatalf("details %q missing %s", details, want)
+		}
+	}
+	path := strings.Join(boundary.PathFromDetails(diagnostic), "|")
+	for _, want := range []string{"src/index.ts", "src/button.tsx", "react-dom"} {
+		if !strings.Contains(path, want) {
+			t.Fatalf("path %q missing %s", path, want)
+		}
+	}
+}
+
+func TestM33ETransitiveFromAllowOnlyDeniesSeedImport(t *testing.T) {
+	root := t.TempDir()
+	writeM33EFiles(t, root, map[string]string{
+		"src/index.ts": `import "react-dom";
+`,
+	})
+
+	graph := buildM33EAllowOnlyGraph(t, []manifest.BoundaryRule{{TransitiveFrom: "src/index.ts", AllowOnly: []string{"react"}}}, []string{"react", "react-dom"})
+	res := CheckRuntimeBoundaries(CheckOptions{RootDir: root, Graph: graph})
+	if _, ok := findDiagnosticByCode(res.Diagnostics, "TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION"); !ok {
+		t.Fatalf("missing seed allowOnly violation: %#v", res.Diagnostics)
+	}
+}
+
+func TestM33EExplicitDenyWinsOverAllowOnly(t *testing.T) {
+	root := t.TempDir()
+	writeM33EFiles(t, root, map[string]string{
+		"src/index.ts": `import "react-dom";
+`,
+	})
+
+	graph := buildM33EAllowOnlyGraph(t, []manifest.BoundaryRule{{From: "src/**", DenyDeps: []string{"react-dom"}, AllowOnly: []string{"react-dom"}}}, []string{"react-dom"})
+	res := CheckRuntimeBoundaries(CheckOptions{RootDir: root, Graph: graph})
+	if _, ok := findDiagnosticByCode(res.Diagnostics, "TSPACK_BOUNDARY_EXPLICIT_DENY"); !ok {
+		t.Fatalf("missing explicit deny diagnostic: %#v", res.Diagnostics)
+	}
+	if _, ok := findDiagnosticByCode(res.Diagnostics, "TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION"); ok {
+		t.Fatalf("explicit deny should be enough without allowOnly violation: %#v", res.Diagnostics)
+	}
+}
+
+func TestM33EAllowOnlyDoesNotDeclareDependency(t *testing.T) {
+	root := t.TempDir()
+	writeM33EFiles(t, root, map[string]string{
+		"src/index.ts": `import "react";
+`,
+	})
+
+	graph := buildM33EAllowOnlyGraph(t, []manifest.BoundaryRule{{From: "src/**", AllowOnly: []string{"react"}}}, []string{})
+	res := CheckRuntimeBoundaries(CheckOptions{RootDir: root, Graph: graph})
+	if _, ok := findDiagnosticByCode(res.Diagnostics, "TSPACK_BOUNDARY_UNDECLARED_IMPORT"); !ok {
+		t.Fatalf("missing undeclared import diagnostic: %#v", res.Diagnostics)
+	}
+	if _, ok := findDiagnosticByCode(res.Diagnostics, "TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION"); ok {
+		t.Fatalf("react is listed in allowOnly and should not get allowOnly violation: %#v", res.Diagnostics)
+	}
+}
+
+func TestM33EMultipleAllowOnlyRulesAreStrict(t *testing.T) {
+	root := t.TempDir()
+	writeM33EFiles(t, root, map[string]string{
+		"src/index.ts": `import "react-dom";
+`,
+	})
+
+	graph := buildM33EAllowOnlyGraph(t, []manifest.BoundaryRule{
+		{From: "src/**", AllowOnly: []string{"react"}},
+		{From: "src/index.ts", AllowOnly: []string{"react-dom"}},
+	}, []string{"react", "react-dom"})
+	res := CheckRuntimeBoundaries(CheckOptions{RootDir: root, Graph: graph})
+	if _, ok := findDiagnosticByCode(res.Diagnostics, "TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION"); !ok {
+		t.Fatalf("missing stricter allowOnly violation: %#v", res.Diagnostics)
+	}
+}
+
+func TestM33EToolRuntimeWinsOverAllowOnly(t *testing.T) {
+	root := t.TempDir()
+	writeM33EFiles(t, root, map[string]string{
+		"src/index.ts": `import "typescript";
+`,
+	})
+
+	graph := buildM33EAllowOnlyGraph(t, []manifest.BoundaryRule{{From: "src/**", AllowOnly: []string{"typescript"}}}, []string{})
+	res := CheckRuntimeBoundaries(CheckOptions{RootDir: root, Graph: graph})
+	if _, ok := findDiagnosticByCode(res.Diagnostics, "TSPACK_BOUNDARY_TOOL_RUNTIME_IMPORT"); !ok {
+		t.Fatalf("missing tool runtime diagnostic: %#v", res.Diagnostics)
+	}
+	if _, ok := findDiagnosticByCode(res.Diagnostics, "TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION"); ok {
+		t.Fatalf("tool runtime should return before allowOnly: %#v", res.Diagnostics)
+	}
 }

@@ -145,3 +145,8 @@ Page/analyzer:
 - `TSPACK_CHECK_EXPLAIN_FILE_OUTSIDE_ROOT`: the requested explain path resolves outside the project root.
 - `TSPACK_CHECK_EXPLAIN_UNSUPPORTED_FILE`: the requested explain path is not a supported `.ts`, `.tsx`, `.js`, or `.jsx` source file.
 - `TSPACK_CHECK_EXPLAIN_FAILED`: explain mode failed before it could produce a stable explanation.
+
+## M33e allowOnly boundary diagnostics
+
+- `TSPACK_BOUNDARY_ALLOW_ONLY_VIOLATION`: an external runtime import matched a boundary row with `allowOnly`, but the package was not listed in that row. Details include `package`, `import`, `boundary`, `allowOnly`, and `path`; transitive rows also include `transitiveFrom` and `seed`.
+- `TSPACK_BOUNDARY_INVALID_ALLOW_ONLY`: a manifest IR boundary row contained an invalid `allowOnly` value, such as an empty string entry.
