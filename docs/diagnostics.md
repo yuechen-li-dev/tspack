@@ -53,6 +53,10 @@ This inventory groups primary diagnostic families by subsystem to keep command-s
 ## Harness diagnostics
 
 - `TSPACK_TEST_*`
+  - `TSPACK_TEST_THEORY_NO_CASES`: a `<Theory>` has a callback body but no direct `<Case />` children. Add at least one direct `<Case />` child.
+  - `TSPACK_TEST_THEORY_MISSING_BODY`: a `<Theory>` has cases but no callback body. Add exactly one callback body directly under the theory.
+  - `TSPACK_TEST_THEORY_DUPLICATE_BODY`: a `<Theory>` declares more than one callback body. Keep exactly one callback body.
+  - `TSPACK_TEST_INVALID_THEORY_STRUCTURE`: a `<Theory>` contains an unsupported direct child or non-callback expression.
 - `TSPACK_ARTIFACT_*`
 - `TSPACK_BENCH_*`
 - `TSPACK_DOOM_*`

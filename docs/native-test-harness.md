@@ -31,6 +31,31 @@ Discovery is static and deterministic:
 - spread syntax is rejected
 - dynamic test generation is not supported
 
+## Theory structure
+
+A valid `<Theory>` has exactly one callback body and one or more direct `<Case />` children.
+The callback body may appear before the cases, after the cases, or between cases:
+
+```tsx
+<Theory name="lengths">
+  {({ input, expected }) => {
+    assert.equal(input.length, expected, 'length matches the case');
+  }}
+  <Case input="a" expected={1} />
+  <Case input="abc" expected={3} />
+</Theory>
+```
+
+Case suffixes are assigned from direct `<Case />` order, not callback position, so the example above lists and runs as `lengths[0]` and `lengths[1]`.
+List/discovery mode remains static: it reads the TSX structure, lists valid theory cases, and does not execute the callback.
+
+Invalid theory structures are diagnostics rather than vacuous passes:
+
+- `TSPACK_TEST_THEORY_NO_CASES` for a callback with no direct `<Case />` children.
+- `TSPACK_TEST_THEORY_MISSING_BODY` for cases with no callback body.
+- `TSPACK_TEST_THEORY_DUPLICATE_BODY` for more than one callback body.
+- `TSPACK_TEST_INVALID_THEORY_STRUCTURE` for unsupported direct children or non-callback expressions.
+
 ## Result IDs
 
 Example IDs:
