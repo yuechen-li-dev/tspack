@@ -51,6 +51,7 @@ var entries = []DiagnosticHelp{
 			"Refactor shared logic into a package allowed by policy.",
 			"Use a file-set pattern such as from: \"src/**\" when the restriction should apply across a source tree.",
 			"Update boundary policy deliberately if architecture changed.",
+			"Run tspack check --explain <file> to see matched boundary rules, target reachability, and import decisions for the importing file.",
 			"Remember that boundary from matches the importing file, not the transitive entry graph.",
 		},
 		RelatedDocs: []string{"docs/boundaries.md"},
