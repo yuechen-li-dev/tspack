@@ -57,6 +57,9 @@ This inventory groups primary diagnostic families by subsystem to keep command-s
   - `TSPACK_TEST_THEORY_MISSING_BODY`: a `<Theory>` has cases but no callback body. Add exactly one callback body directly under the theory.
   - `TSPACK_TEST_THEORY_DUPLICATE_BODY`: a `<Theory>` declares more than one callback body. Keep exactly one callback body.
   - `TSPACK_TEST_INVALID_THEORY_STRUCTURE`: a `<Theory>` contains an unsupported direct child or non-callback expression.
+  - `TSPACK_TEST_WATCH_UNSUPPORTED_BACKEND`: `tspack test --watch` was requested for a backend other than native xTest, such as Vitest. Native watch mode does not proxy Vitest watch behavior.
+  - `TSPACK_TEST_WATCH_INVALID_MODE`: watch mode was combined with a static or automation-oriented mode such as `--list` or `--json`. Run those modes without `--watch`.
+  - `TSPACK_TEST_WATCH_FAILED`: watch mode could not scan or poll the project root. Details include the filesystem error.
 - `TSPACK_ARTIFACT_*`
 - `TSPACK_BENCH_*`
 - `TSPACK_DOOM_*`

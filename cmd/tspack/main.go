@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/tspack/tspack/internal/check"
@@ -161,7 +164,7 @@ func printHelp() {
 	fmt.Println("  tspack outdated [--root .] [--json]")
 	fmt.Println("  tspack how <diagnostic-code> [--json]")
 	fmt.Println("  tspack how --list [--json]")
-	fmt.Println("  tspack test [--root .] [-xtest] [-vitest] [--list] [--filter text] [--compact] [--xtest-bridge path]")
+	fmt.Println("  tspack test [--root .] [-xtest] [-vitest] [--list] [--filter text] [--compact] [--watch] [--xtest-bridge path]")
 	fmt.Println("  tspack artifact [--root .] [--out path] [--list] [--filter text] [--json]")
 	fmt.Println("  tspack bench [--root .] [--list] [--filter text] [--json]")
 	fmt.Println("  tspack doom [--root .] [--list] [--filter text] [--json] [--out path]")
@@ -493,6 +496,10 @@ func runTestCommand(args []string) {
 			opts.List = true
 		case "--compact":
 			opts.Compact = true
+		case "--watch":
+			opts.Watch = true
+		case "--json":
+			opts.JSON = true
 		case "--filter":
 			value, ok := nextTestFlagValue(args, &i, "--filter")
 			if !ok {
@@ -510,7 +517,10 @@ func runTestCommand(args []string) {
 			os.Exit(1)
 		}
 	}
-	result := testcmd.Run(opts)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	result := testcmd.RunContext(ctx, opts)
 	for _, d := range result.Diagnostics {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", d.Code, d.Message)
 		for _, detail := range d.Details {
