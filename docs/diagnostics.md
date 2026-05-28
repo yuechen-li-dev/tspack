@@ -132,3 +132,11 @@ Page/analyzer:
 - `TSPACK_UPDATE_TARGET_UNSUPPORTED_SOURCE`: query selected a non-npm declared dependency kind.
 - `TSPACK_UPDATE_TARGET_LOCK_MISSING`: non-selected root dependency had no prior lock pin and may refresh.
 - `TSPACK_UPDATE_TARGET_RESOLUTION_FAILED`: targeted resolution failed.
+
+## Check explain diagnostics
+
+- `TSPACK_CHECK_EXPLAIN_FILE_REQUIRED`: `--explain` was supplied without exactly one file path.
+- `TSPACK_CHECK_EXPLAIN_FILE_NOT_FOUND`: the requested explain file does not exist.
+- `TSPACK_CHECK_EXPLAIN_FILE_OUTSIDE_ROOT`: the requested explain path resolves outside the project root.
+- `TSPACK_CHECK_EXPLAIN_UNSUPPORTED_FILE`: the requested explain path is not a supported `.ts`, `.tsx`, `.js`, or `.jsx` source file.
+- `TSPACK_CHECK_EXPLAIN_FAILED`: explain mode failed before it could produce a stable explanation.

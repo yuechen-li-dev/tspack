@@ -76,14 +76,14 @@ func checkTarget(root string, p *graph.PackageNode, t *graph.TargetNode) []diag.
 func validateExternal(t *graph.TargetNode, p *graph.PackageNode, file, pkg string, path []string, spec string) []diag.Diagnostic {
 	var out []diag.Diagnostic
 	detail := []string{"target=" + t.Name, "package=" + pkg, "import=" + spec, "path=" + strings.Join(path, " -> ")}
-	if isTool(p, pkg) {
+	if IsTool(p, pkg) {
 		out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_TOOL_RUNTIME_IMPORT", Severity: diag.SeverityError, Message: "tool dependency imported at runtime", File: file, Details: detail})
 		return out
 	}
-	if deniedByBoundary(p, file, pkg) {
+	if DeniedByBoundary(p, file, pkg) {
 		out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_EXPLICIT_DENY", Severity: diag.SeverityError, Message: "import denied by explicit boundary", File: file, Details: detail})
 	}
-	if allowViolation(p, file, pkg, t.AllowsExternalPackageName(pkg)) {
+	if AllowViolation(p, file, pkg, t.AllowsExternalPackageName(pkg)) {
 		out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_EXPLICIT_ALLOW_VIOLATION", Severity: diag.SeverityError, Message: "import not present in explicit allow list", File: file, Details: detail})
 	}
 	if t.AllowsExternalPackageName(pkg) {
@@ -129,7 +129,7 @@ func buildPath(parents map[string]string, entry, file, pkg string) []string {
 	return p
 }
 
-func matchFrom(pattern, file string) bool {
+func MatchFrom(pattern, file string) bool {
 	pattern = filepath.Clean(pattern)
 	file = filepath.ToSlash(file)
 	p := filepath.ToSlash(pattern)
@@ -139,9 +139,9 @@ func matchFrom(pattern, file string) bool {
 	}
 	return file == p || strings.HasSuffix(file, "/"+p)
 }
-func deniedByBoundary(p *graph.PackageNode, file, pkg string) bool {
+func DeniedByBoundary(p *graph.PackageNode, file, pkg string) bool {
 	for _, b := range p.Boundaries {
-		if !matchFrom(b.From, filepath.ToSlash(file)) {
+		if !MatchFrom(b.From, filepath.ToSlash(file)) {
 			continue
 		}
 		for _, d := range b.DenyDeps {
@@ -152,9 +152,9 @@ func deniedByBoundary(p *graph.PackageNode, file, pkg string) bool {
 	}
 	return false
 }
-func allowViolation(p *graph.PackageNode, file, pkg string, targetAllows bool) bool {
+func AllowViolation(p *graph.PackageNode, file, pkg string, targetAllows bool) bool {
 	for _, b := range p.Boundaries {
-		if !matchFrom(b.From, filepath.ToSlash(file)) || len(b.AllowDeps) == 0 {
+		if !MatchFrom(b.From, filepath.ToSlash(file)) || len(b.AllowDeps) == 0 {
 			continue
 		}
 		for _, a := range b.AllowDeps {
@@ -168,7 +168,7 @@ func allowViolation(p *graph.PackageNode, file, pkg string, targetAllows bool) b
 	}
 	return false
 }
-func isTool(p *graph.PackageNode, pkg string) bool {
+func IsTool(p *graph.PackageNode, pkg string) bool {
 	for _, d := range p.ToolDependencies() {
 		if d.MatchesExternalPackageName(pkg) {
 			return true

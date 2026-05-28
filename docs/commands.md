@@ -3,7 +3,7 @@
 | Command | Purpose | Mutates manifest/lock? | Notable non-goals | Details |
 |---|---|---|---|---|
 | `tspack init` | Scaffold a starter manifest and entry source for `library` or `app`. | **Yes (files)** / No | Does not install, update lock, sync, or build outputs. | `docs/init.md` |
-| `tspack check` | Validate manifest/frontend, graph, boundaries, type surfaces, and lock consistency when lock exists. | No / No | Does not resolve or install packages. | `docs/contract.md` |
+| `tspack check` | Validate manifest/frontend, graph, boundaries, type surfaces, and lock consistency when lock exists. Supports `--explain <file>` for boundary debugging. | No / No | Does not resolve, install packages, or mutate project state in explain mode. | `docs/contract.md`, `docs/boundaries.md` |
 | `tspack update` | Resolve sources, fetch required package artifacts into the content-addressed store, and then write deterministic `ts-lock.toml`. Supports `--dry-run` plan mode and `--quiet` progress suppression. | No / **Yes (lock)** | Does not execute lifecycle scripts or run npm/npx; prepares lock+store for sync. | `docs/lockfile.md`, `docs/source-resolvers.md` |
 | `tspack sync` | Materialize compatibility `node_modules` from lock/store artifacts prepared by `tspack update`. | No / No | Does not re-resolve versions or mutate the lockfile. | `docs/materialization.md` |
 | `tspack why` | Explain why a dependency, target, or lock package is present, with deduplicated lock edges and lock-ID guidance for transitive matches. | No / No | Not a resolver/editor command. | `docs/why.md` |
@@ -23,6 +23,15 @@
 - It does not materialize `node_modules`; `tspack sync` consumes the lock/store state after update.
 - Text-mode progress is written to **stderr** so stdout remains reserved for human diff output or JSON payloads, depending on mode.
 - `tspack update --quiet` suppresses progress/status lines while leaving diagnostics and errors on stderr.
+
+
+## `tspack check --explain <file>`
+
+- `tspack check --explain <file>` explains how check-time boundary analysis sees one source file.
+- Explain mode is read-only: it reads the manifest and source files, scans imports, and prints an explanation without mutating the manifest, lockfile, store, or `node_modules`.
+- The output lists target reachability paths, boundary rules whose `from` pattern matches the physical source file, relative imports with resolved paths when available, and external import allow/deny decisions.
+- `--explain` requires exactly one file path under the project root and supports `.ts`, `.tsx`, `.js`, and `.jsx` files.
+- `tspack check --explain <file> --json` writes only the explain JSON payload to stdout using two-space indentation.
 
 ## `tspack check --json`
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tspack/tspack/internal/check"
 	"github.com/tspack/tspack/internal/diag"
 	"github.com/tspack/tspack/internal/how"
 	"github.com/tspack/tspack/internal/manifest"
@@ -152,7 +153,7 @@ func printHelp() {
 	fmt.Println("Usage:")
 	fmt.Println("  tspack help")
 	fmt.Println("  tspack --version")
-	fmt.Println("  tspack check [--root .]")
+	fmt.Println("  tspack check [--root .] [--json] [--explain <file>]")
 	fmt.Println("  tspack update [query] [--root .] [--dry-run] [--json] [--quiet]")
 	fmt.Println("  tspack sync [--root .] [--clean]")
 	fmt.Println("  tspack pack [--root .] [--out dir] [--package name] [--dry-run]")
@@ -507,6 +508,9 @@ func runCommand(args []string) {
 	lockfileExplicit := false
 	storeExplicit := false
 	jsonOutput := false
+	explainFile := ""
+	explainSet := false
+	checkPositionals := []string{}
 	clean := false
 	updateDryRun := false
 	updateQuiet := false
@@ -568,10 +572,29 @@ func runCommand(args []string) {
 			whyOpts.PackageName = args[i]
 		case "--json":
 			jsonOutput = true
+		case "--explain":
+			if cmd != "check" {
+				fmt.Fprintf(os.Stderr, "unknown %s flag: --explain\n", cmd)
+				os.Exit(1)
+			}
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				fmt.Fprintln(os.Stderr, "TSPACK_CHECK_EXPLAIN_FILE_REQUIRED: --explain requires exactly one file path")
+				os.Exit(1)
+			}
+			i++
+			if explainSet {
+				fmt.Fprintln(os.Stderr, "TSPACK_CHECK_EXPLAIN_FILE_REQUIRED: --explain requires exactly one file path")
+				os.Exit(1)
+			}
+			explainSet = true
+			explainFile = args[i]
 		default:
 			if strings.HasPrefix(args[i], "-") {
 				fmt.Fprintf(os.Stderr, "unknown %s flag: %s\n", cmd, args[i])
 				os.Exit(1)
+			}
+			if cmd == "check" {
+				checkPositionals = append(checkPositionals, args[i])
 			}
 			if cmd == "update" {
 				if updateQuery != "" {
@@ -585,6 +608,36 @@ func runCommand(args []string) {
 	var result project.Result
 	if cmd == "why" && len(args) > 1 {
 		whyOpts.Query = args[1]
+	}
+	if cmd == "check" && explainSet && len(checkPositionals) > 0 {
+		fmt.Fprintln(os.Stderr, "TSPACK_CHECK_EXPLAIN_FILE_REQUIRED: --explain requires exactly one file path")
+		os.Exit(1)
+	}
+	if cmd == "check" && explainSet {
+		result = project.CheckExplain(opts, explainFile)
+		if jsonOutput && result.Explain != nil {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(result.Explain); err != nil {
+				fmt.Fprintf(os.Stderr, "TSPACK_CHECK_EXPLAIN_FAILED: %v\n", err)
+				os.Exit(1)
+			}
+			if hasErrors(result.Diagnostics) {
+				os.Exit(1)
+			}
+			return
+		}
+		if result.Explain != nil {
+			printCheckExplain(result.Explain)
+			if hasErrors(result.Diagnostics) {
+				os.Exit(1)
+			}
+			return
+		}
+		for _, d := range result.Diagnostics {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", d.Code, d.Message)
+		}
+		os.Exit(1)
 	}
 	if cmd == "update" && !updateQuiet && !jsonOutput {
 		opts.Progress = project.Progress{Enabled: true, Writer: os.Stderr}
@@ -985,6 +1038,79 @@ func runHowCommand(args []string) {
 		fmt.Println("Good examples:")
 		for _, e := range entry.GoodExamples {
 			fmt.Printf("  %s:\n%s\n", e.Label, e.Text)
+		}
+	}
+}
+
+func printCheckExplain(explain *check.ExplainResult) {
+	fmt.Printf("Boundary explanation for %s\n\n", explain.File)
+	fmt.Println("Reachable from targets:")
+	if len(explain.ReachableFrom) == 0 {
+		fmt.Println("  none")
+	} else {
+		for _, r := range explain.ReachableFrom {
+			fmt.Printf("  %s\n", r.Target)
+			fmt.Printf("    path: %s\n", strings.Join(r.Path, " -> "))
+		}
+	}
+	fmt.Println()
+	fmt.Println("Matched boundary rules:")
+	if len(explain.MatchedRules) == 0 {
+		fmt.Println("  none")
+	} else {
+		for _, rule := range explain.MatchedRules {
+			fmt.Printf("  from: %s\n", rule.From)
+			if len(rule.AllowDeps) > 0 {
+				fmt.Printf("    allowDeps: %s\n", strings.Join(rule.AllowDeps, ", "))
+			}
+			if len(rule.DenyDeps) > 0 {
+				fmt.Printf("    denyDeps: %s\n", strings.Join(rule.DenyDeps, ", "))
+			}
+		}
+	}
+	fmt.Println()
+	fmt.Println("External imports:")
+	hasExternal := false
+	for _, imp := range explain.Imports {
+		if imp.Kind != "external" {
+			continue
+		}
+		hasExternal = true
+		fmt.Printf("  %s\n", imp.Specifier)
+		fmt.Printf("    decision: %s\n", imp.Decision)
+		for _, reason := range imp.Reasons {
+			fmt.Printf("    reason: %s\n", reason)
+		}
+		if imp.Diagnostic != "" {
+			fmt.Printf("    diagnostic: %s\n", imp.Diagnostic)
+		}
+	}
+	if !hasExternal {
+		fmt.Println("  none")
+	}
+	fmt.Println()
+	fmt.Println("Relative imports:")
+	hasRelative := false
+	for _, imp := range explain.Imports {
+		if imp.Kind != "relative" {
+			continue
+		}
+		hasRelative = true
+		fmt.Printf("  %s\n", imp.Specifier)
+		if imp.Resolved != "" {
+			fmt.Printf("    resolved: %s\n", imp.Resolved)
+		} else {
+			fmt.Println("    resolved: unresolved")
+		}
+	}
+	if !hasRelative {
+		fmt.Println("  none")
+	}
+	if len(explain.Notes) > 0 {
+		fmt.Println()
+		fmt.Println("Notes:")
+		for _, note := range explain.Notes {
+			fmt.Printf("  %s\n", note)
 		}
 	}
 }

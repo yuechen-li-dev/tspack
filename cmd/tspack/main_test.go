@@ -1680,3 +1680,119 @@ func writeCLIPathUpdateFixture(t *testing.T) string {
 	_ = os.WriteFile(filepath.Join(root, "local-dep", "package.json"), []byte(`{"name":"local-dep","version":"1.0.0"}`), 0o644)
 	return root
 }
+
+func TestCheckExplainTextJSONAndValidation(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	if err := os.MkdirAll(frontend, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cliPath := filepath.Join(frontend, "cli.js")
+	stub := `#!/usr/bin/env node
+const manifestIR = {
+  format: 1,
+  workspace: { name: "ws" },
+  packages: [
+    {
+      name: "app",
+      version: "1.0.0",
+      kind: "library",
+      dependencies: [
+        { key: "react", kind: "peer", source: { kind: "npm", package: "react", range: "^19.0.0" } },
+        { key: "react-dom", kind: "peer", source: { kind: "npm", package: "react-dom", range: "^19.0.0" } },
+        { key: "typescript", kind: "tool", source: { kind: "npm", package: "typescript", range: "^5.0.0" } }
+      ],
+      targets: [
+        { name: "core", export: ".", entry: "src/index.ts", runtime: "dist/index.js", types: "dist/index.d.ts", deps: [], peers: ["react"] }
+      ],
+      tools: ["typescript"],
+      boundaries: [{ from: "src/**", denyDeps: ["react-dom"] }],
+      publish: { include: ["dist/**"], exclude: [] },
+      policies: { types: {}, boundaries: {} }
+    }
+  ]
+};
+process.stdout.write(JSON.stringify({ ok: true, ir: manifestIR, diagnostics: [] }));`
+	if err := os.WriteFile(cliPath, []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(cliPath) })
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"manifest.tsx":        "export default {};\n",
+		"src/index.ts":        "import \"./button.js\";\n",
+		"src/button.tsx":      "import React from \"react\";\nimport \"react-dom\";\nimport ts from \"typescript\";\nimport \"./style-helper.js\";\n",
+		"src/style-helper.ts": "export const style = true;\n",
+		"README.md":           "# demo\n",
+	}
+	for name, body := range files {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	bin := buildTspackBinary(t, repo)
+	cmd := exec.Command(bin, "check", "--root", root, "--explain", "src/button.tsx")
+	cmd.Dir = repo
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("explain failed: %v\n%s", err, string(out))
+	}
+	text := string(out)
+	for _, want := range []string{"Reachable from targets:", "core", "src/index.ts -> src/button.tsx", "from: src/**", "denyDeps: react-dom", "react-dom", "TSPACK_BOUNDARY_EXPLICIT_DENY", "typescript", "TSPACK_BOUNDARY_TOOL_RUNTIME_IMPORT", "./style-helper.js", "resolved: src/style-helper.ts", "matches the file"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("explain text missing %q:\n%s", want, text)
+		}
+	}
+
+	jsonCmd := exec.Command(bin, "check", "--root", root, "--explain", "src/button.tsx", "--json")
+	jsonCmd.Dir = repo
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	jsonCmd.Stdout = stdout
+	jsonCmd.Stderr = stderr
+	if err := jsonCmd.Run(); err != nil {
+		t.Fatalf("json explain failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("json explain wrote stderr: %s", stderr.String())
+	}
+	var report map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("json explain was not parseable: %v\n%s", err, stdout.String())
+	}
+	if report["mode"] != "explain" || report["command"] != "check" {
+		t.Fatalf("unexpected json report: %#v", report)
+	}
+	if _, ok := report["reachableFrom"].([]any); !ok {
+		t.Fatalf("missing reachableFrom: %#v", report)
+	}
+	if _, ok := report["matchedRules"].([]any); !ok {
+		t.Fatalf("missing matchedRules: %#v", report)
+	}
+	if _, ok := report["imports"].([]any); !ok {
+		t.Fatalf("missing imports: %#v", report)
+	}
+
+	missing := exec.Command(bin, "check", "--root", root, "--explain", "src/missing.ts")
+	missing.Dir = repo
+	missingOut, missingErr := missing.CombinedOutput()
+	if missingErr == nil || !strings.Contains(string(missingOut), "TSPACK_CHECK_EXPLAIN_FILE_NOT_FOUND") {
+		t.Fatalf("missing file diagnostic not surfaced: err=%v output=%s", missingErr, string(missingOut))
+	}
+
+	unsupported := exec.Command(bin, "check", "--root", root, "--explain", "README.md")
+	unsupported.Dir = repo
+	unsupportedOut, unsupportedErr := unsupported.CombinedOutput()
+	if unsupportedErr == nil || !strings.Contains(string(unsupportedOut), "TSPACK_CHECK_EXPLAIN_UNSUPPORTED_FILE") {
+		t.Fatalf("unsupported diagnostic not surfaced: err=%v output=%s", unsupportedErr, string(unsupportedOut))
+	}
+}
