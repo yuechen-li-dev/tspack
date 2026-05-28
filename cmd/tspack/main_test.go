@@ -2020,12 +2020,35 @@ process.exit(1);
 		t.Fatalf("case suffix filter failed: %v\n%s", err, string(b))
 	}
 
+	cmd = exec.Command("go", "run", "./cmd/tspack", "test", "--root", root, "--filter", listedID, "--compact", "--xtest-bridge", bridge)
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "PASS "+listedID) {
+		t.Fatalf("compact bridge smoke failed: %v\n%s", err, string(b))
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "test", "--root", root, "--list", "--compact", "--xtest-bridge", bridge)
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "PASS "+listedID) {
+		t.Fatalf("compact list bridge smoke failed: %v\n%s", err, string(b))
+	}
+
 	recorded, err := os.ReadFile(recordPath)
 	if err != nil {
 		t.Fatalf("read recorded args: %v", err)
 	}
-	if !strings.Contains(string(recorded), "--root\t"+root) || !strings.Contains(string(recorded), "--filter\t"+listedID) {
-		t.Fatalf("bridge did not receive expected args:\n%s", string(recorded))
+	recordedText := string(recorded)
+	if !strings.Contains(recordedText, "--root\t"+root) || !strings.Contains(recordedText, "--filter\t"+listedID) {
+		t.Fatalf("bridge did not receive expected args:\n%s", recordedText)
+	}
+	if !strings.Contains(recordedText, "--filter\t"+listedID+"\t--compact") {
+		t.Fatalf("bridge did not receive compact for run output:\n%s", recordedText)
+	}
+	for _, line := range strings.Split(recordedText, "\n") {
+		if strings.Contains(line, "--list") && strings.Contains(line, "--compact") {
+			t.Fatalf("compact should not be forwarded to list mode:\n%s", recordedText)
+		}
 	}
 }
 

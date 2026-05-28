@@ -6,7 +6,7 @@ export { runSuite } from './runner.js';
 export { runNativeTestFiles, runNativeArtifacts } from './file-runner.js';
 export { listNativeBenchmarks, runNativeBenchmarks } from './benchmark.js';
 export { listNativeProphecies, runNativeProphecies, createNativeDoomReport, formatNativeDoomTextReport, formatNativeDoomJsonReport, nativeDoomExitCode } from './doom.js';
-export { listDiscoveredTests, listStandaloneArtifacts, listNativeTests, listNativeArtifacts, createNativeTestReport, createNativeArtifactReport, createNativeBenchmarkReport, formatNativeTestTextReport, formatNativeArtifactTextReport, formatNativeBenchmarkTextReport, formatNativeTestJsonReport, formatNativeArtifactJsonReport, formatNativeBenchmarkJsonReport, nativeTestExitCode, nativeArtifactExitCode, nativeBenchmarkExitCode } from './list-report.js';
+export { listDiscoveredTests, listStandaloneArtifacts, listNativeTests, listNativeArtifacts, createNativeTestReport, createNativeArtifactReport, createNativeBenchmarkReport, formatNativeTestTextReport, formatNativeTestCompactTextReport, formatNativeArtifactTextReport, formatNativeBenchmarkTextReport, formatNativeTestJsonReport, formatNativeArtifactJsonReport, formatNativeBenchmarkJsonReport, nativeTestExitCode, nativeArtifactExitCode, nativeBenchmarkExitCode } from './list-report.js';
 export type { TestResult, DiscoveryResult, Diagnostic } from './types.js';
 
 type NodeShape = {

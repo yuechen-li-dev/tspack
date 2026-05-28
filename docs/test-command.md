@@ -19,7 +19,16 @@
 - `--root <path>` defaults to `.`
 - `--list` lists xTest cases without executing callbacks.
 - `--filter <text>` applies backend filter where supported. Native xTest filters continue to match ID substrings and test-name substrings.
+- `--compact` enables compact native xTest text reporting for run output: passing tests are hidden, failed and skipped tests remain visible, and the summary is always printed. Compact mode does not emit dots, spinners, ANSI control, or other terminal-control output.
 - `--xtest-bridge <path>` overrides the native xTest JavaScript bridge path for local development, installed layouts, or CI. `--bridge <path>` is accepted as a compatibility alias.
+
+## Native xTest compact output
+
+- `tspack test --compact` is output-only and does not change discovery, filtering, or test execution.
+- Compact output applies to native xTest run reports. It hides individual `PASS` entries, prints every `FAIL` with the same assertion detail as normal text output, prints every `SKIP` with its reason, prints diagnostics, and always prints summary counts.
+- `tspack test --list --compact` leaves list output unchanged because list mode is discovery output, not run reporting.
+- The native bridge JSON report ignores compact formatting when `--json --compact` are supplied directly to the bridge, so JSON consumers keep the same structure.
+- Vitest output is not reformatted. If the Vitest backend is selected with `--compact`, TSPack emits `TSPACK_TEST_COMPACT_UNSUPPORTED_BACKEND` as a warning and runs Vitest unchanged.
 
 ## Native xTest IDs and bridge resolution
 
@@ -44,6 +53,7 @@
 - `TSPACK_TEST_VITEST_FAILED_TO_START`
 - `TSPACK_TEST_BACKEND_LIST_UNSUPPORTED`
 - `TSPACK_TEST_BACKEND_FILTER_UNSUPPORTED`
+- `TSPACK_TEST_COMPACT_UNSUPPORTED_BACKEND`
 
 - `--list -xtest` includes Fact, Theory case, Valid, and Invalid entries.
 - `tspack artifact` continues to use standalone suite-level `<Artifact>` declarations and does not list/run Valid/Invalid entries.
