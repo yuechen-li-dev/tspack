@@ -1,6 +1,7 @@
 package testcmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,6 +20,8 @@ type Options struct {
 	Filter      string
 	Compact     bool
 	XTestBridge string
+	Watch       bool
+	JSON        bool
 }
 
 type Result struct {
@@ -34,6 +37,14 @@ type BridgeResolution struct {
 }
 
 func Run(opts Options) Result {
+	return RunContext(context.Background(), opts)
+}
+
+func RunContext(ctx context.Context, opts Options) Result {
+	if opts.Watch {
+		return runWatch(ctx, opts, os.Stderr)
+	}
+
 	selected := selectedBackends(opts)
 	if len(selected) == 0 {
 		selected = autoDetectBackends(opts.RootDir)
@@ -46,7 +57,7 @@ func Run(opts Options) Result {
 	for _, backend := range selected {
 		switch backend {
 		case "xtest":
-			runXTest(opts, &result)
+			runXTestContext(ctx, opts, &result)
 		case "vitest":
 			runVitest(opts, &result)
 		}
@@ -107,6 +118,10 @@ func vitestAvailable(root string) bool {
 }
 
 func runXTest(opts Options, result *Result) {
+	runXTestContext(context.Background(), opts, result)
+}
+
+func runXTestContext(ctx context.Context, opts Options, result *Result) {
 	resolution := ResolveXTestBridge(opts.XTestBridge)
 	if resolution.Path == "" {
 		result.Diagnostics = append(result.Diagnostics, missingBridgeDiagnostic(resolution))
@@ -118,13 +133,16 @@ func runXTest(opts Options, result *Result) {
 	if opts.List {
 		args = append(args, "--list")
 	}
+	if opts.JSON {
+		args = append(args, "--json")
+	}
 	if opts.Filter != "" {
 		args = append(args, "--filter", opts.Filter)
 	}
 	if opts.Compact && !opts.List {
 		args = append(args, "--compact")
 	}
-	cmd := exec.Command("node", args...)
+	cmd := exec.CommandContext(ctx, "node", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

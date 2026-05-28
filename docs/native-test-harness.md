@@ -156,6 +156,7 @@ Non-goals in M17c remain unchanged: no fixtures, no snapshots/golden assertions,
 - `formatNativeTestTextReport(report)` emits deterministic PASS/FAIL/SKIP lines, failure details, artifact lines, diagnostics, and summary counts.
 - `formatNativeTestCompactTextReport(report)` emits compact native xTest run output: passed tests are hidden, failed tests keep full failure details, skipped tests keep their reason, diagnostics remain visible, and summary counts are always printed. It intentionally does not use dot-per-pass output, spinners, ANSI control, or terminal control sequences.
 - `formatNativeTestJsonReport(report)` emits two-space indented JSON with trailing newline. Compact formatting is text-only and does not change JSON structure.
+- `tspack test --watch` reuses the native xTest single-run executor from the Go CLI. The JavaScript bridge remains a single-run runner; the Go CLI handles polling, debounce, rerun orchestration, Ctrl+C/SIGTERM cancellation, and stderr watch progress messages. Watch mode supports `--filter` and `--compact`, rejects list/JSON modes, and does not implement affected-test graph selection or an interactive UI.
 
 ### Exit code semantics
 

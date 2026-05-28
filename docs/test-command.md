@@ -20,7 +20,19 @@
 - `--list` lists xTest cases without executing callbacks.
 - `--filter <text>` applies backend filter where supported. Native xTest filters continue to match ID substrings and test-name substrings.
 - `--compact` enables compact native xTest text reporting for run output: passing tests are hidden, failed and skipped tests remain visible, and the summary is always printed. Compact mode does not emit dots, spinners, ANSI control, or other terminal-control output.
+- `--watch` enables native xTest watch mode: TSPack runs the selected tests once immediately, watches relevant project source files, debounces changes, and reruns the same selected command until Ctrl+C or SIGTERM.
 - `--xtest-bridge <path>` overrides the native xTest JavaScript bridge path for local development, installed layouts, or CI. `--bridge <path>` is accepted as a compatibility alias.
+
+## Native xTest watch mode
+
+- `tspack test --watch` is supported for the native xTest backend only. Use `--xtest` when a project also has Vitest installed and you want native watch mode.
+- Watch mode runs the selected native xTest command once immediately, then polls the project root for `.ts`, `.tsx`, `.js`, and `.jsx` file changes. It ignores generated/vendor directories including `node_modules`, `.git`, `.tspack`, `dist`, `build`, `coverage`, `tspack-artifacts`, `tmp`, and `temp`.
+- Each rerun uses the same selection and output flags as the initial run. `--filter`, `--compact`, `--root`, and `--xtest-bridge` compose with `--watch`.
+- Watch progress messages are written to stderr. Test output stays on the existing backend output path. Watch mode does not clear the screen, use ANSI control, show spinners, or provide interactive keyboard commands.
+- Changes are debounced, and TSPack never starts overlapping native xTest runs. If files change while a run is in flight, the next poll observes the dirty files and schedules one follow-up rerun.
+- `tspack test --watch --list` and `tspack test --watch --json` are rejected with `TSPACK_TEST_WATCH_INVALID_MODE` because list mode is static discovery and repeated JSON documents are not a stable automation protocol.
+- Selecting Vitest with `--watch` is rejected with `TSPACK_TEST_WATCH_UNSUPPORTED_BACKEND`; M34d does not proxy Vitest's own watch mode.
+- Watch mode is dirty-key tracking only. It does not implement affected-test graph selection, HMR, rerun-failed-only behavior, snapshots, parallel execution, or an interactive terminal UI.
 
 ## Native xTest compact output
 
@@ -41,7 +53,7 @@
 ## Current M18 limitations
 
 - Vitest `--list` is not supported (`TSPACK_TEST_BACKEND_LIST_UNSUPPORTED`).
-- No coverage, watch mode, fixture helpers, command helpers, filesystem helpers, or structured Vitest reporting.
+- No coverage, fixture helpers, command helpers, filesystem helpers, structured Vitest reporting, affected-test watch selection, or interactive watch UI.
 
 ## Diagnostics
 
@@ -54,6 +66,9 @@
 - `TSPACK_TEST_BACKEND_LIST_UNSUPPORTED`
 - `TSPACK_TEST_BACKEND_FILTER_UNSUPPORTED`
 - `TSPACK_TEST_COMPACT_UNSUPPORTED_BACKEND`
+- `TSPACK_TEST_WATCH_UNSUPPORTED_BACKEND`
+- `TSPACK_TEST_WATCH_INVALID_MODE`
+- `TSPACK_TEST_WATCH_FAILED`
 
 - `--list -xtest` includes Fact, Theory case, Valid, and Invalid entries.
 - `tspack artifact` continues to use standalone suite-level `<Artifact>` declarations and does not list/run Valid/Invalid entries.
