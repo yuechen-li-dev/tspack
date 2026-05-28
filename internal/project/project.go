@@ -28,6 +28,7 @@ type Options struct {
 	ManifestIRPath                                 string
 	FrontendCLIPath                                string
 	ResolverClient                                 resolver.NPMRegistryClient
+	Progress                                       Progress
 }
 type Result struct {
 	Diagnostics  []diag.Diagnostic
@@ -143,6 +144,14 @@ func UpdateDryRunWithOptions(opts Options, updateOpts UpdateOptions) Result {
 }
 
 func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result {
+	progress := opts.Progress
+	if updateOpts.Query != "" {
+		if dryRun {
+			progress.Step("planning targeted update: %s", updateOpts.Query)
+		} else {
+			progress.Step("updating target dependency: %s", updateOpts.Query)
+		}
+	}
 	_, g, out := loadManifestAndGraph(opts)
 	out = append(out, check.CheckPackage(check.CheckOptions{RootDir: opts.RootDir, Graph: g}).Diagnostics...)
 	if hasErrors(out) {
@@ -178,10 +187,15 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 	if client == nil {
 		client = resolver.NewHTTPRegistryClient("")
 	}
+	progress.Step("resolving packages...")
+	progress.Step("fetching metadata...")
 	res := resolver.Resolve(context.Background(), resolver.ResolverOptions{Mode: resolver.ResolveModeUpdate, Client: client, RootDir: opts.RootDir}, resolver.ResolveRequest{Graph: g, ExistingLock: old})
 	out = append(out, res.Diagnostics...)
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
+	}
+	if dryRun {
+		progress.Step("computing lockfile diff...")
 	}
 	d := lockfile.DiffLockfiles(old, res.Lock)
 	if dryRun {
@@ -194,20 +208,27 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 		if summary.Unchanged < 0 {
 			summary.Unchanged = 0
 		}
+		progress.Step("dry run complete")
 		return Result{Diagnostics: out, LockDiff: &d, DryRun: &UpdateDryRunResult{Changed: summary.Added > 0 || summary.Removed > 0 || summary.Changed > 0, Summary: summary}, UpdateTarget: targetResult}
 	}
+	progress.Step("populating store...")
 	st, err := store.Open(opts.StoreRoot)
 	if err != nil {
 		out = append(out, errDiag("TSPACK_UPDATE_STORE_OPEN_FAILED", "failed to open store", err.Error()))
 		return Result{Diagnostics: out, UpdateTarget: targetResult}
 	}
+	packagesToPopulate := packagesNeedingStorePopulation(st, res.Lock.Packages)
+	populateIndex := 0
+	populateTotal := len(packagesToPopulate)
 	for i := range res.Lock.Packages {
 		pkg := &res.Lock.Packages[i]
 		if pkg.Hash != "" && st.Has(pkg.Hash) {
 			continue
 		}
+		populateIndex++
 		switch pkg.Source {
 		case "npm":
+			progress.Step("fetching [%d/%d] %s", populateIndex, populateTotal, pkg.ID)
 			body, fetchErr := client.Tarball(context.Background(), findTarballURL(pkg, client))
 			if fetchErr != nil {
 				out = append(out, errDiag("TSPACK_RESOLVE_NPM_TARBALL_FETCH_FAILED", "failed to fetch npm tarball", pkg.ID, fetchErr.Error()))
@@ -219,6 +240,7 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 				pkg.Hash = ref.Hash
 			}
 		case "path", "workspace":
+			progress.Step("populating [%d/%d] %s", populateIndex, populateTotal, pkg.ID)
 			abs := filepath.Join(opts.RootDir, filepath.FromSlash(pkg.Path))
 			ref, diags := st.PutArtifact(store.Artifact{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, Hash: pkg.Hash, Kind: store.ArtifactPathTree, RootDir: abs, Metadata: store.PackageMetadata{Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, PackageID: pkg.ID, Capabilities: pkg.Capabilities}})
 			out = append(out, diags...)
@@ -230,6 +252,7 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 	if hasErrors(out) {
 		return Result{Diagnostics: out, UpdateTarget: targetResult}
 	}
+	progress.Step("writing lockfile...")
 	b, e := lockfile.Marshal(res.Lock)
 	if e != nil {
 		out = append(out, errDiag("TSPACK_UPDATE_WRITE_FAILED", "failed to encode lockfile", e.Error()))
@@ -242,7 +265,21 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 	if e = os.WriteFile(opts.LockfilePath, b, 0o644); e != nil {
 		out = append(out, errDiag("TSPACK_UPDATE_WRITE_FAILED", "failed to write lockfile", e.Error()))
 	}
+	if !hasErrors(out) {
+		progress.Step("update complete")
+	}
 	return Result{Diagnostics: out, LockDiff: &d, UpdateTarget: targetResult}
+}
+
+func packagesNeedingStorePopulation(st *store.Store, packages []lockfile.Package) []lockfile.Package {
+	out := make([]lockfile.Package, 0)
+	for _, pkg := range packages {
+		if pkg.Hash != "" && st.Has(pkg.Hash) {
+			continue
+		}
+		out = append(out, pkg)
+	}
+	return out
 }
 
 func selectUpdateTargets(g *graph.WorkspaceGraph, query string) ([]UpdateSelectedTarget, []diag.Diagnostic) {

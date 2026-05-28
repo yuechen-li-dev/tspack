@@ -4,7 +4,7 @@
 |---|---|---|---|---|
 | `tspack init` | Scaffold a starter manifest and entry source for `library` or `app`. | **Yes (files)** / No | Does not install, update lock, sync, or build outputs. | `docs/init.md` |
 | `tspack check` | Validate manifest/frontend, graph, boundaries, type surfaces, and lock consistency when lock exists. | No / No | Does not resolve or install packages. | `docs/contract.md` |
-| `tspack update` | Resolve sources, fetch required package artifacts into the content-addressed store, and then write deterministic `ts-lock.toml`. Supports `--dry-run` plan mode. | No / **Yes (lock)** | Does not execute lifecycle scripts or run npm/npx; prepares lock+store for sync. | `docs/lockfile.md`, `docs/source-resolvers.md` |
+| `tspack update` | Resolve sources, fetch required package artifacts into the content-addressed store, and then write deterministic `ts-lock.toml`. Supports `--dry-run` plan mode and `--quiet` progress suppression. | No / **Yes (lock)** | Does not execute lifecycle scripts or run npm/npx; prepares lock+store for sync. | `docs/lockfile.md`, `docs/source-resolvers.md` |
 | `tspack sync` | Materialize compatibility `node_modules` from lock/store. | No / No | Does not re-resolve versions. | `docs/materialization.md` |
 | `tspack why`
 - `tspack how` | Explain why dependency/target/lock package is present. | No / No | Not a resolver/editor command. | `docs/why.md` |
@@ -27,9 +27,20 @@
   - exit `0` when there are no error diagnostics (warnings-only remains `0`);
   - nonzero when one or more error diagnostics exist, or on fatal runtime/command failure.
 
+## `tspack update` progress
+
+- Text-mode `tspack update` writes simple status lines to **stderr** for resolve, store population/fetch, lockfile write, and completion phases.
+- Progress is deliberately plain text: no spinner, progress bar, ANSI control sequence, terminal-width logic, or interactive UI.
+- Normal human stdout remains the existing lockfile diff output; progress is not written to stdout.
+- `tspack update <query>` starts with targeted context such as `updating target dependency: react` before the shared update phases.
+- `tspack update --quiet` suppresses progress/status lines while leaving diagnostics and errors on stderr.
+
 ## `tspack update --dry-run`
 
 - `tspack update --dry-run` resolves the would-be lockfile state and prints a deterministic package-level diff.
+- Text-mode dry runs write progress to **stderr** for resolve, lockfile-diff computation, and dry-run completion.
+- `tspack update <query> --dry-run` starts with targeted planning context such as `planning targeted update: react`.
+- `tspack update --dry-run --json` keeps stdout as structured JSON only and suppresses progress by default.
 - It may fetch registry metadata to resolve versions, but does **not** write `ts-lock.toml`, does **not** populate store artifacts, and does **not** materialize `node_modules`.
 - It exits `0` on successful planning regardless of whether changes are present; resolver/runtime errors remain non-zero.
 
