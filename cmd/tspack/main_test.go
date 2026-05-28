@@ -2029,6 +2029,49 @@ process.exit(1);
 	}
 }
 
+func TestCLITestXTestTheoryStructureSmoke(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	bridge := filepath.Join(root, "native-test-cli.js")
+	stub := `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const filterIndex = args.indexOf('--filter');
+const filter = filterIndex >= 0 ? args[filterIndex + 1] : '';
+if (filter === 'zero') {
+  console.error('TSPACK_TEST_THEORY_NO_CASES: Theory requires at least one Case child');
+  process.exit(1);
+}
+console.log('Native xTest results');
+console.log('');
+console.log('PASS src/theory.xtest.tsx::suite/callback before[0]');
+console.log('PASS src/theory.xtest.tsx::suite/callback before[1]');
+process.exit(0);
+`
+	if err := os.WriteFile(bridge, []byte(stub), 0o755); err != nil {
+		t.Fatalf("write bridge: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "theory.xtest.tsx"), []byte("export default null\n"), 0o644); err != nil {
+		t.Fatalf("write xtest: %v", err)
+	}
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "test", "--root", root, "--xtest-bridge", bridge)
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "PASS src/theory.xtest.tsx::suite/callback before[1]") {
+		t.Fatalf("callback-before-cases bridge smoke failed: %v\n%s", err, string(b))
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "test", "--root", root, "--filter", "zero", "--xtest-bridge", bridge)
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_TEST_THEORY_NO_CASES") {
+		t.Fatalf("zero-case theory diagnostic smoke failed: %v\n%s", err, string(b))
+	}
+}
+
 func TestCLITestXTestBridgeMissingDiagnostic(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	root := t.TempDir()
