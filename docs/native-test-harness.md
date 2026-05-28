@@ -107,14 +107,15 @@ Non-goals in M17c remain unchanged: no fixtures, no snapshots/golden assertions,
 - `listDiscoveredTests(discovery)` expands static discovery into deterministic `ListedTest[]` entries.
 - `listNativeTests(options)` performs file discovery and returns `{ tests, diagnostics }`.
 - Listing is static-only and does not import test modules or execute callbacks.
-- Listed IDs keep the `file.xtest.tsx::suite/test` prefix shape.
+- Listed IDs keep the `file.xtest.tsx::suite/test` prefix shape, are root-relative, normalize path separators to `/`, and are the same IDs used by run reports and filters.
 - Listed metadata includes Fact and Theory cases plus declared artifacts.
 
 ### Filter semantics
 
-- `runNativeTestFiles({ filter })` uses plain substring matching against full test IDs.
+- `runNativeTestFiles({ filter })` uses plain substring matching against full root-relative test IDs.
 - Theory-name matches include all theory cases because case IDs include the theory name.
 - Case suffix filtering (for example `[1]`) works because suffix appears in final IDs.
+- A full ID copied from `tspack test --list` can be passed to `--filter` to select that test.
 - Filtering is applied before module import; files with no matching discovered IDs are not imported.
 - No-match filter emits `TSPACK_TEST_FILTER_NO_MATCH` and returns no test results.
 

@@ -30,6 +30,7 @@
 - No port scanning.
 - No auto-attachment to running apps.
 - No package-manager mutation.
+- No xTest bridge generation; use `tspack test --xtest-bridge <path>` when an explicit native bridge path is needed.
 
 Scoped exit behavior:
 - `tspack doctor format` exits nonzero when format-critical checks have errors.

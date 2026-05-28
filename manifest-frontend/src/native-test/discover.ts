@@ -204,16 +204,21 @@ export function discoverNativeTestFiles(options: DiscoverOptions): DiscoverFiles
   for (const filePath of filePaths) {
     try {
       const discovered = discoverNativeTestFile(filePath);
-      const relativeFilePath = path.relative(rootDir, filePath).split(path.sep).join('/');
+      const relativeFilePath = normalizePublicTestPath(path.relative(rootDir, filePath));
       const tests = [
         ...discovered.facts.map((fact) => ({ id: `${relativeFilePath}::${fact.id}`, name: fact.name, kind: 'fact' as const, filePath })),
         ...discovered.theories.flatMap((theory) => theory.cases.map((c) => ({ id: `${relativeFilePath}::${c.id}`, name: theory.name, kind: 'theory' as const, filePath }))),
         ...discovered.invariants.map((entry) => ({ id: `${relativeFilePath}::${entry.id}`, name: entry.name, kind: entry.kind, filePath })),
         ...discovered.tests.filter((id) => id.includes('/benchmark/')).map((id) => ({ id: `${relativeFilePath}::${id}`, name: id.split('/').at(-1) ?? id, kind: 'fact' as const, filePath })),
       ];
+      const standaloneArtifacts = discovered.standaloneArtifacts.map((entry) => ({
+        ...entry,
+        id: `${relativeFilePath}::${entry.id.split('::').pop() ?? entry.id}`,
+        filePath: relativeFilePath,
+      }));
       const benchmarks = discovered.benchmarks.map((entry) => ({ ...entry, id: `${relativeFilePath}::${entry.id.split('::').pop() ?? entry.id}`, filePath: relativeFilePath }));
       const prophecies = discovered.prophecies.map((entry) => ({ ...entry, id: `${relativeFilePath}::${entry.id.split('::').pop() ?? entry.id}`, filePath: relativeFilePath }));
-      files.push({ filePath, suiteName: discovered.suiteName ?? '', tests, standaloneArtifacts: discovered.standaloneArtifacts, benchmarks, prophecies, diagnostics: discovered.diagnostics });
+      files.push({ filePath, suiteName: discovered.suiteName ?? '', tests, standaloneArtifacts, benchmarks, prophecies, diagnostics: discovered.diagnostics });
       diagnostics.push(...discovered.diagnostics);
     } catch (error) {
       diagnostics.push({ code: 'TSPACK_TEST_DISCOVERY_FAILED', message: `failed to discover native test file: ${(error as Error).message}`, file: filePath });
@@ -222,7 +227,7 @@ export function discoverNativeTestFiles(options: DiscoverOptions): DiscoverFiles
 
   files.sort((a, b) => a.filePath.localeCompare(b.filePath));
   diagnostics.sort((a, b) => `${a.file}:${a.line ?? 0}:${a.column ?? 0}:${a.code}:${a.message}`.localeCompare(`${b.file}:${b.line ?? 0}:${b.column ?? 0}:${b.code}:${b.message}`));
-  return { files, diagnostics };
+  return { rootDir, files, diagnostics };
 }
 
 function collectNativeFiles(rootDir: string, ignore: string[]): string[] {
@@ -459,4 +464,12 @@ function collectBenchmarkCount(node: ts.JsxElement | ts.JsxSelfClosingElement, t
   }
   addDiag(target, tag === 'Iterations' ? 'TSPACK_BENCHMARK_INVALID_ITERATIONS' : 'TSPACK_BENCHMARK_INVALID_WARMUP', `${tag} count is required`);
   return fallback;
+}
+
+function normalizePublicTestPath(filePath: string): string {
+  let normalized = filePath.replace(/\\/g, '/').split(path.sep).join('/');
+  while (normalized.startsWith('./')) {
+    normalized = normalized.slice(2);
+  }
+  return normalized;
 }

@@ -18,7 +18,16 @@
 
 - `--root <path>` defaults to `.`
 - `--list` lists xTest cases without executing callbacks.
-- `--filter <text>` applies backend filter where supported.
+- `--filter <text>` applies backend filter where supported. Native xTest filters continue to match ID substrings and test-name substrings.
+- `--xtest-bridge <path>` overrides the native xTest JavaScript bridge path for local development, installed layouts, or CI. `--bridge <path>` is accepted as a compatibility alias.
+
+## Native xTest IDs and bridge resolution
+
+- Native xTest public IDs are root-relative, use `/` path separators, and never intentionally include absolute project paths.
+- `tspack test --list --root <project>` prints the same IDs that normal runs and reports use. A listed ID can be copied into `tspack test --filter <listed-id>`.
+- Theory case suffixes remain part of the ID, so filters such as `--filter "[2]"` still select matching cases.
+- The xTest bridge is resolved in this order: `--xtest-bridge`, `TSPACK_XTEST_BRIDGE`, installed/executable-relative candidates, repository development layout, then the existing current-working-directory fallback.
+- Missing bridge diagnostics use `TSPACK_TEST_XTEST_BRIDGE_MISSING` and include searched paths, current working directory, and executable path when available.
 
 ## Current M18 limitations
 

@@ -130,6 +130,7 @@ export type DiscoverOptions = {
 };
 
 export type DiscoverFilesResult = {
+  rootDir: string;
   files: DiscoveredFile[];
   diagnostics: Diagnostic[];
 };

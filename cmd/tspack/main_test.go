@@ -1945,3 +1945,148 @@ func containsString(values []string, want string) bool {
 	}
 	return false
 }
+
+func TestCLITestXTestBridgeOverrideAndCopiedListFilter(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	recordPath := filepath.Join(root, "bridge-args.txt")
+	bridge := filepath.Join(root, "native-test-cli.js")
+	stub := fmt.Sprintf(`#!/usr/bin/env node
+import fs from 'node:fs';
+const args = process.argv.slice(2);
+fs.appendFileSync(%q, args.join('\t') + '\n');
+const filterIndex = args.indexOf('--filter');
+const filter = filterIndex >= 0 ? args[filterIndex + 1] : '';
+const id = 'src/cx.xtest.tsx::suite/fact/joins';
+const caseId = 'src/cx.xtest.tsx::suite/theory/name[2]';
+if (args.includes('--list')) {
+  console.log('Native xTest results');
+  console.log('');
+  console.log('PASS ' + id);
+  console.log('PASS ' + caseId);
+  process.exit(0);
+}
+if (filter === id) {
+  console.log('Native xTest results');
+  console.log('');
+  console.log('PASS ' + id);
+  process.exit(0);
+}
+if (filter === '[2]') {
+  console.log('Native xTest results');
+  console.log('');
+  console.log('PASS ' + caseId);
+  process.exit(0);
+}
+console.error('unexpected filter: ' + filter);
+process.exit(1);
+`, recordPath)
+	if err := os.WriteFile(bridge, []byte(stub), 0o755); err != nil {
+		t.Fatalf("write bridge: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "cx.xtest.tsx"), []byte("export default null\n"), 0o644); err != nil {
+		t.Fatalf("write xtest: %v", err)
+	}
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "test", "--root", root, "--list", "--xtest-bridge", bridge)
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("list failed: %v\n%s", err, string(b))
+	}
+	text := string(b)
+	if !strings.Contains(text, "PASS src/cx.xtest.tsx::suite/fact/joins") {
+		t.Fatalf("missing root-relative listed ID: %s", text)
+	}
+	if strings.Contains(text, root) {
+		t.Fatalf("list output leaked absolute root %q: %s", root, text)
+	}
+
+	listedID := "src/cx.xtest.tsx::suite/fact/joins"
+	cmd = exec.Command("go", "run", "./cmd/tspack", "test", "--root", root, "--filter", listedID, "--xtest-bridge", bridge)
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "PASS "+listedID) {
+		t.Fatalf("copied ID filter failed: %v\n%s", err, string(b))
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "test", "--root", root, "--filter", "[2]", "--xtest-bridge", bridge)
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "PASS src/cx.xtest.tsx::suite/theory/name[2]") {
+		t.Fatalf("case suffix filter failed: %v\n%s", err, string(b))
+	}
+
+	recorded, err := os.ReadFile(recordPath)
+	if err != nil {
+		t.Fatalf("read recorded args: %v", err)
+	}
+	if !strings.Contains(string(recorded), "--root\t"+root) || !strings.Contains(string(recorded), "--filter\t"+listedID) {
+		t.Fatalf("bridge did not receive expected args:\n%s", string(recorded))
+	}
+}
+
+func TestCLITestXTestBridgeMissingDiagnostic(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "sample.xtest.tsx"), []byte("export default null\n"), 0o644); err != nil {
+		t.Fatalf("write xtest: %v", err)
+	}
+	missing := filepath.Join(root, "missing-bridge.js")
+	cmd := exec.Command("go", "run", "./cmd/tspack", "test", "--root", root, "--xtest-bridge", missing)
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected missing bridge failure")
+	}
+	text := string(b)
+	if !strings.Contains(text, "TSPACK_TEST_XTEST_BRIDGE_MISSING") || !strings.Contains(text, missing) || !strings.Contains(text, "searched paths:") {
+		t.Fatalf("missing bridge diagnostic details: %s", text)
+	}
+}
+
+func TestCLITestDefaultBridgeResolutionFromUnrelatedCWD(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	bridge := filepath.Join(repo, "manifest-frontend", "dist", "src", "native-test-cli.js")
+	backup := bridge + ".m34a-bak"
+	if err := os.MkdirAll(filepath.Dir(bridge), 0o755); err != nil {
+		t.Fatalf("mkdir bridge dir: %v", err)
+	}
+	if _, err := os.Stat(bridge); err == nil {
+		if renameErr := os.Rename(bridge, backup); renameErr != nil {
+			t.Fatalf("backup bridge: %v", renameErr)
+		}
+		defer func() { _ = os.Rename(backup, bridge) }()
+	} else {
+		defer func() { _ = os.Remove(bridge) }()
+	}
+	stub := `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] !== 'test') process.exit(2);
+console.log('Native xTest results');
+console.log('');
+console.log('PASS src/cwd.xtest.tsx::cwd/pass');
+`
+	if err := os.WriteFile(bridge, []byte(stub), 0o755); err != nil {
+		t.Fatalf("write default bridge stub: %v", err)
+	}
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "cwd.xtest.tsx"), []byte("export default null\n"), 0o644); err != nil {
+		t.Fatalf("write xtest: %v", err)
+	}
+
+	bin := buildTspackBinary(t, repo)
+	cmd := exec.Command(bin, "test", "--root", root, "--list")
+	cmd.Dir = t.TempDir()
+	b, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "PASS src/cwd.xtest.tsx::cwd/pass") {
+		t.Fatalf("default bridge from unrelated cwd failed: %v\n%s", err, string(b))
+	}
+}

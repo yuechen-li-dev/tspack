@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/tspack/tspack/internal/diag"
@@ -22,6 +23,13 @@ type Options struct {
 type Result struct {
 	Diagnostics []diag.Diagnostic
 	ExitCode    int
+}
+
+type BridgeResolution struct {
+	Path          string
+	SearchedPaths []string
+	CWD           string
+	Executable    string
 }
 
 func Run(opts Options) Result {
@@ -98,17 +106,14 @@ func vitestAvailable(root string) bool {
 }
 
 func runXTest(opts Options, result *Result) {
-	bridge := opts.XTestBridge
-	if bridge == "" {
-		bridge = filepath.Join("manifest-frontend", "dist", "src", "native-test-cli.js")
-	}
-	if _, err := os.Stat(bridge); err != nil {
-		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_XTEST_BRIDGE_MISSING", Severity: diag.SeverityError, Message: "native xTest bridge not found", Details: []string{bridge}})
+	resolution := ResolveXTestBridge(opts.XTestBridge)
+	if resolution.Path == "" {
+		result.Diagnostics = append(result.Diagnostics, missingBridgeDiagnostic(resolution))
 		result.ExitCode = 1
 		return
 	}
 
-	args := []string{bridge, "test", "--root", opts.RootDir}
+	args := []string{resolution.Path, "test", "--root", opts.RootDir}
 	if opts.List {
 		args = append(args, "--list")
 	}
@@ -126,6 +131,114 @@ func runXTest(opts Options, result *Result) {
 		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_XTEST_FAILED", Severity: diag.SeverityError, Message: "xTest backend failed", Details: []string{err.Error()}})
 		result.ExitCode = 1
 	}
+}
+
+func ResolveXTestBridge(explicitPath string) BridgeResolution {
+	cwd, _ := os.Getwd()
+	executable, _ := os.Executable()
+	resolution := BridgeResolution{CWD: cwd, Executable: executable}
+
+	if explicitPath != "" {
+		resolution.SearchedPaths = append(resolution.SearchedPaths, explicitPath)
+		if fileExists(explicitPath) {
+			resolution.Path = explicitPath
+		}
+		return resolution
+	}
+
+	if envPath := os.Getenv("TSPACK_XTEST_BRIDGE"); envPath != "" {
+		resolution.SearchedPaths = append(resolution.SearchedPaths, envPath)
+		if fileExists(envPath) {
+			resolution.Path = envPath
+			return resolution
+		}
+	}
+
+	for _, candidate := range defaultBridgeCandidates(cwd, executable) {
+		if candidate == "" || containsString(resolution.SearchedPaths, candidate) {
+			continue
+		}
+		resolution.SearchedPaths = append(resolution.SearchedPaths, candidate)
+		if fileExists(candidate) {
+			resolution.Path = candidate
+			return resolution
+		}
+	}
+
+	return resolution
+}
+
+func defaultBridgeCandidates(cwd string, executable string) []string {
+	var candidates []string
+	if executable != "" {
+		execDir := filepath.Dir(executable)
+		candidates = append(candidates,
+			filepath.Join(execDir, "manifest-frontend", "dist", "src", "native-test-cli.js"),
+			filepath.Join(execDir, "..", "manifest-frontend", "dist", "src", "native-test-cli.js"),
+			filepath.Join(execDir, "..", "share", "tspack", "manifest-frontend", "dist", "src", "native-test-cli.js"),
+		)
+	}
+	if sourceRepo := sourceRepositoryRoot(); sourceRepo != "" {
+		candidates = append(candidates, filepath.Join(sourceRepo, "manifest-frontend", "dist", "src", "native-test-cli.js"))
+	}
+	if cwd != "" {
+		candidates = append(candidates, filepath.Join(cwd, "manifest-frontend", "dist", "src", "native-test-cli.js"))
+	}
+	return candidates
+}
+
+func sourceRepositoryRoot() string {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		return ""
+	}
+	dir := filepath.Dir(file)
+	for {
+		if fileExists(filepath.Join(dir, "go.mod")) && dirContainsManifestFrontend(dir) {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+func dirContainsManifestFrontend(dir string) bool {
+	info, err := os.Stat(filepath.Join(dir, "manifest-frontend"))
+	return err == nil && info.IsDir()
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func missingBridgeDiagnostic(resolution BridgeResolution) diag.Diagnostic {
+	details := []string{}
+	if len(resolution.SearchedPaths) > 0 {
+		details = append(details, "searched paths:")
+		for _, searched := range resolution.SearchedPaths {
+			details = append(details, "  "+searched)
+		}
+	}
+	if resolution.CWD != "" {
+		details = append(details, "cwd: "+resolution.CWD)
+	}
+	if resolution.Executable != "" {
+		details = append(details, "executable: "+resolution.Executable)
+	}
+	return diag.Diagnostic{Code: "TSPACK_TEST_XTEST_BRIDGE_MISSING", Severity: diag.SeverityError, Message: "native xTest bridge not found", Details: details}
 }
 
 func runVitest(opts Options, result *Result) {

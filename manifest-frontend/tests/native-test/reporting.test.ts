@@ -23,6 +23,46 @@ describe('native test listing/filter/report', () => {
     expect(listed.tests.some((test) => test.kind === 'theory-case')).toBe(true);
   });
 
+
+
+  it('uses the same root-relative IDs for list, run, and filters', async () => {
+    const root = makeDir();
+    const importPath = path.resolve(process.cwd(), 'src/native-test/index.ts').replace(/\\/g, '/');
+    const nested = path.join(root, 'src');
+    fs.mkdirSync(nested, { recursive: true });
+    fs.writeFileSync(path.join(nested, 'ids.xtest.tsx'), `
+      import { Suite, Fact, Theory, Case, assert } from '${importPath}';
+      export default (
+        <Suite name="ids">
+          <Fact name="copy me">{() => { assert.true(true, 'copy'); }}</Fact>
+          <Theory name="case filter">
+            <Case value={0} />
+            <Case value={1} />
+            <Case value={2} />
+            {() => { assert.true(true, 'case'); }}
+          </Theory>
+        </Suite>
+      );
+    `);
+
+    const listed = await listNativeTests({ rootDir: root });
+    const listedIds = listed.tests.map((test) => test.id).sort();
+    expect(listedIds).toContain('src/ids.xtest.tsx::ids/copy me');
+    expect(listedIds).toContain('src/ids.xtest.tsx::ids/case filter[2]');
+    expect(listedIds.every((id) => !path.isAbsolute(id.split('::')[0]))).toBe(true);
+
+    const run = await runNativeTestFiles({ rootDir: root });
+    const runIds = run.results.map((test) => test.id).sort();
+    expect(runIds).toEqual(listedIds);
+
+    const copiedId = 'src/ids.xtest.tsx::ids/copy me';
+    const copiedFilter = await runNativeTestFiles({ rootDir: root, filter: copiedId });
+    expect(copiedFilter.results.map((test) => test.id)).toEqual([copiedId]);
+
+    const caseFilter = await runNativeTestFiles({ rootDir: root, filter: '[2]' });
+    expect(caseFilter.results.map((test) => test.id)).toEqual(['src/ids.xtest.tsx::ids/case filter[2]']);
+  });
+
   it('filter no match is diagnostic and exit code 1', async () => {
     const root = path.resolve(process.cwd(), 'tests/native-test/fixtures');
     const result = await runNativeTestFiles({ rootDir: root, filter: 'no-such-test' });
