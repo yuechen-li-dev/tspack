@@ -393,6 +393,11 @@ func TestAcknowledgedCapabilityValidation(t *testing.T) {
 		{"invalid kind", `{"package":"npm:dep-a@1.0.0","kind":"network","script":"postinstall","command":"node install.js","reason":"x"}`, "TSPACK_SECURITY_INVALID_ACKNOWLEDGED_CAPABILITY"},
 		{"invalid script", `{"package":"npm:dep-a@1.0.0","kind":"lifecycleScript","script":"prebad","command":"node install.js","reason":"x"}`, "TSPACK_SECURITY_INVALID_ACKNOWLEDGED_CAPABILITY"},
 		{"empty command", `{"package":"npm:dep-a@1.0.0","kind":"lifecycleScript","script":"postinstall","command":"","reason":"x"}`, "TSPACK_SECURITY_INVALID_ACKNOWLEDGED_CAPABILITY"},
+		{"absolute fixture", `{"package":"npm:dep-a@1.0.0","kind":"lifecycleScript","script":"postinstall","command":"node install.js","reason":"x","behaviorFixture":"/tmp/probe.xtest.tsx"}`, "TSPACK_SECURITY_INVALID_BEHAVIOR_FIXTURE"},
+		{"traversing fixture", `{"package":"npm:dep-a@1.0.0","kind":"lifecycleScript","script":"postinstall","command":"node install.js","reason":"x","behaviorFixture":"../probe.xtest.tsx"}`, "TSPACK_SECURITY_INVALID_BEHAVIOR_FIXTURE"},
+		{"wrong fixture extension", `{"package":"npm:dep-a@1.0.0","kind":"lifecycleScript","script":"postinstall","command":"node install.js","reason":"x","behaviorFixture":"security/probe.tsx"}`, "TSPACK_SECURITY_INVALID_BEHAVIOR_FIXTURE"},
+		{"traversing report", `{"package":"npm:dep-a@1.0.0","kind":"lifecycleScript","script":"postinstall","command":"node install.js","reason":"x","behaviorReport":"../probe.json"}`, "TSPACK_SECURITY_INVALID_BEHAVIOR_REPORT"},
+		{"wrong report extension", `{"package":"npm:dep-a@1.0.0","kind":"lifecycleScript","script":"postinstall","command":"node install.js","reason":"x","behaviorReport":"security/probe.txt"}`, "TSPACK_SECURITY_INVALID_BEHAVIOR_REPORT"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

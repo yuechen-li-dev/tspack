@@ -29,11 +29,13 @@ type Security struct {
 }
 
 type AcknowledgedCapability struct {
-	Package string `json:"package"`
-	Kind    string `json:"kind"`
-	Script  string `json:"script"`
-	Command string `json:"command"`
-	Reason  string `json:"reason"`
+	Package         string `json:"package"`
+	Kind            string `json:"kind"`
+	Script          string `json:"script"`
+	Command         string `json:"command"`
+	Reason          string `json:"reason"`
+	BehaviorFixture string `json:"behaviorFixture,omitempty"`
+	BehaviorReport  string `json:"behaviorReport,omitempty"`
 }
 
 func (a AcknowledgedCapability) Key() string {
@@ -186,6 +188,27 @@ func isSupportedLifecycleScript(scriptName string) bool {
 	}
 }
 
+func isValidBehaviorFixturePath(filePath string) bool {
+	if !isNormalizedSafeProjectPath(filePath) {
+		return false
+	}
+	return strings.HasSuffix(filePath, ".xtest.ts") || strings.HasSuffix(filePath, ".xtest.tsx")
+}
+
+func isValidBehaviorReportPath(filePath string) bool {
+	if !isNormalizedSafeProjectPath(filePath) {
+		return false
+	}
+	return strings.HasSuffix(filePath, ".json")
+}
+
+func isNormalizedSafeProjectPath(filePath string) bool {
+	if !pathutil.IsSafePackageFilePath(filePath) {
+		return false
+	}
+	return path.Clean(filePath) == filePath
+}
+
 func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 	var out []diag.Diagnostic
 	add := func(code, msg string, details ...string) {
@@ -220,6 +243,16 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 		}
 		if strings.TrimSpace(acknowledged.Reason) == "" {
 			add("TSPACK_SECURITY_INVALID_ACKNOWLEDGED_CAPABILITY", prefix+".reason is required")
+		}
+		if acknowledged.BehaviorFixture != "" {
+			if !isValidBehaviorFixturePath(acknowledged.BehaviorFixture) {
+				add("TSPACK_SECURITY_INVALID_BEHAVIOR_FIXTURE", prefix+".behaviorFixture must be a safe relative .xtest.ts or .xtest.tsx path")
+			}
+		}
+		if acknowledged.BehaviorReport != "" {
+			if !isValidBehaviorReportPath(acknowledged.BehaviorReport) {
+				add("TSPACK_SECURITY_INVALID_BEHAVIOR_REPORT", prefix+".behaviorReport must be a safe relative .json path")
+			}
 		}
 		key := acknowledged.Key()
 		if _, ok := seenAcknowledgedCapabilities[key]; ok {

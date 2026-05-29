@@ -215,3 +215,8 @@ When multiple lock versions match, suggestions are sorted by lock ID and every m
 ## Package capabilities
 
 When a matching lock package declares lifecycle capabilities, `tspack why` prints them under `capabilities` with `execution: blocked by default`. JSON output includes a `capabilities` array on lock package objects with `{ kind, script, command, execution, acknowledged, acknowledgementReason }`. Human output prints `acknowledged: true` with the manifest reason when a lifecycle capability matches project policy, or `acknowledged: false` otherwise. Reverse why keeps the same reachability semantics and includes acknowledgement metadata for the matched lock package.
+
+
+## Lifecycle behavior evidence
+
+When a lock package capability is acknowledged with `behaviorFixture` or `behaviorReport`, `tspack why`, `tspack why --json`, and `tspack why --reverse` include those evidence paths and statuses (`none`, `present`, `missing`, or `invalid` for reports). Why is still an investigation view only: it does not run fixtures, execute lifecycle scripts, generate reports, or turn an acknowledgment into execution permission.

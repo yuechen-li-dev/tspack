@@ -141,14 +141,32 @@ TSPack records npm lifecycle scripts as package capabilities and blocks lifecycl
 
 Acknowledgment is not execution permission. It does not cause TSPack to run package scripts, does not approve rebuilds, and does not enable npm-install compatibility behavior. The package ID, script name, and raw command must match the lockfile capability exactly. If the package changes the command, `tspack check` reports command drift with `TSPACK_SECURITY_ACKNOWLEDGED_CAPABILITY_STALE` and still reports the actual unacknowledged lifecycle capability. If an acknowledgment no longer matches any lockfile capability, `tspack check` reports `TSPACK_SECURITY_ACKNOWLEDGED_CAPABILITY_UNUSED`.
 
-Behavior fixtures and jailed execution policies are separate future work. M37c only quiets known capability warnings while preserving audit visibility in `why` and the lockfile.
+Acknowledgments may also link to behavior evidence metadata:
+
+```tsx
+<Security
+  acknowledgedCapabilities={[
+    {
+      package: "npm:esbuild@0.24.0",
+      kind: "lifecycleScript",
+      script: "postinstall",
+      command: "node install.js",
+      reason: "Known lifecycle capability; execution remains blocked by TSPack.",
+      behaviorFixture: "security/esbuild-postinstall.valid.xtest.tsx",
+      behaviorReport: "security/esbuild-postinstall.report.json",
+    },
+  ]}
+/>
+```
+
+`behaviorFixture` points to a source-controlled xTest behavior fixture, and `behaviorReport` points to an optional JSON report captured from a previous explicit behavior probe. They are evidence references only: `check`, `doctor security`, `why`, `update`, `sync`, and materialization do not execute fixtures or lifecycle scripts and do not generate or update reports. Paths must be safe project-relative paths; fixture paths must end in `.xtest.ts` or `.xtest.tsx`, and report paths must end in `.json`. Missing fixture/report references are warnings, invalid report JSON is a warning, and omitted evidence remains allowed. Future policy may require evidence, but M37e does not.
 
 
 ## Lifecycle security audit view (M37d)
 
 `tspack doctor security` is the read-only audit summary for lifecycle capabilities and policy status. It does not execute lifecycle scripts, run lifecycle probes, mutate the manifest or lockfile, generate policy, contact registries, run `npm audit`, scan malware databases, approve rebuilds, or create jailed builds.
 
-The security doctor view summarizes lifecycle capabilities recorded in `ts-lock.toml`, including total, acknowledged, unacknowledged, stale, unused, and package counts. Per-capability rows show the lock package ID, script, command, `execution: blocked`, acknowledgment status and reason, and pulled-by paths when the lock graph has enough edge information. Exact acknowledgments are `ok`; unacknowledged capabilities, stale command drift, and unused acknowledgments are warnings. Warning-only security doctor output exits `0`; error-level findings exit nonzero for the scoped command.
+The security doctor view summarizes lifecycle capabilities recorded in `ts-lock.toml`, including total, acknowledged, unacknowledged, stale, unused, package, and behavior-evidence counts. Per-capability rows show the lock package ID, script, command, `execution: blocked`, acknowledgment status and reason, behavior fixture/report paths and statuses when present, and pulled-by paths when the lock graph has enough edge information. Exact acknowledgments are `ok`; unacknowledged capabilities, stale command drift, and unused acknowledgments are warnings. Warning-only security doctor output exits `0`; error-level findings exit nonzero for the scoped command.
 
 A missing lockfile is reported as a warning because doctor cannot audit locked lifecycle capabilities until `tspack update` records package metadata. In that state, manifest acknowledgments are not treated as unused because there is no lock graph to evaluate. When the lockfile exists and no lifecycle capabilities are recorded, the summary is `ok` with zero counts.
 

@@ -92,6 +92,8 @@ const initManifestTypesDTS = "" +
 	"    script: LifecycleScriptName;\n" +
 	"    command: string;\n" +
 	"    reason: string;\n" +
+	"    behaviorFixture?: string;\n" +
+	"    behaviorReport?: string;\n" +
 	"  };\n" +
 	"\n" +
 	"  export type BoundaryPolicy = {\n" +

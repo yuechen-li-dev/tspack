@@ -130,6 +130,10 @@ type WhyJSONCapability struct {
 	Execution             string `json:"execution,omitempty"`
 	Acknowledged          bool   `json:"acknowledged"`
 	AcknowledgementReason string `json:"acknowledgementReason,omitempty"`
+	BehaviorFixture       string `json:"behaviorFixture,omitempty"`
+	BehaviorFixtureStatus string `json:"behaviorFixtureStatus,omitempty"`
+	BehaviorReport        string `json:"behaviorReport,omitempty"`
+	BehaviorReportStatus  string `json:"behaviorReportStatus,omitempty"`
 }
 
 type WhyJSONLockEdge struct {
@@ -1037,6 +1041,12 @@ func printWhyCapabilities(lockPackages []why.LockPackageRef) {
 				if capability.AcknowledgementReason != "" {
 					fmt.Printf("    reason: %s\n", capability.AcknowledgementReason)
 				}
+				if capability.BehaviorFixture != "" {
+					fmt.Printf("    behaviorFixture: %s (%s)\n", capability.BehaviorFixture, capability.BehaviorFixtureStatus)
+				}
+				if capability.BehaviorReport != "" {
+					fmt.Printf("    behaviorReport: %s (%s)\n", capability.BehaviorReport, capability.BehaviorReportStatus)
+				}
 			} else {
 				fmt.Println("    acknowledged: false")
 			}
@@ -1292,6 +1302,10 @@ func buildWhyJSONLockPackage(lockPackage why.LockPackageRef) WhyJSONLockPackage 
 			Execution:             capability.Execution,
 			Acknowledged:          capability.Acknowledged,
 			AcknowledgementReason: capability.AcknowledgementReason,
+			BehaviorFixture:       capability.BehaviorFixture,
+			BehaviorFixtureStatus: capability.BehaviorFixtureStatus,
+			BehaviorReport:        capability.BehaviorReport,
+			BehaviorReportStatus:  capability.BehaviorReportStatus,
 		})
 	}
 	return jsonPackage

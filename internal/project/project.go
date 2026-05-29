@@ -20,6 +20,7 @@ import (
 	"github.com/tspack/tspack/internal/materialize"
 	"github.com/tspack/tspack/internal/pack"
 	"github.com/tspack/tspack/internal/resolver"
+	"github.com/tspack/tspack/internal/securityevidence"
 	"github.com/tspack/tspack/internal/store"
 	"github.com/tspack/tspack/internal/why"
 )
@@ -107,6 +108,9 @@ func DefaultOptions(root string) Options {
 
 func Check(opts Options) Result {
 	ir, g, out := loadManifestAndGraph(opts)
+	if ir != nil {
+		out = append(out, securityevidence.Diagnostics(opts.RootDir, ir.Security.AcknowledgedCapabilities)...)
+	}
 	out = append(out, check.CheckPackage(check.CheckOptions{RootDir: opts.RootDir, Graph: g}).Diagnostics...)
 	if _, err := os.Stat(opts.LockfilePath); err == nil {
 		lf, d, e := lockfile.LoadFile(opts.LockfilePath)
@@ -517,7 +521,7 @@ func Why(opts Options, whyOpts WhyOptions) Result {
 	if whyOpts.Reverse && lockfileMissing {
 		wr = why.Result{}
 	} else {
-		wr = why.Analyze(g, lf, why.Options{Query: whyOpts.Query, PackageName: whyOpts.PackageName, Reverse: whyOpts.Reverse, AcknowledgedCapabilities: ir.Security.AcknowledgedCapabilities})
+		wr = why.Analyze(g, lf, why.Options{Query: whyOpts.Query, PackageName: whyOpts.PackageName, Reverse: whyOpts.Reverse, RootDir: opts.RootDir, AcknowledgedCapabilities: ir.Security.AcknowledgedCapabilities})
 		out = append(out, wr.Diagnostics...)
 	}
 	diag.SortDiagnostics(out)

@@ -141,6 +141,8 @@ export default define(
       script: "postinstall",
       command: "node install.js",
       reason: "Known lifecycle capability; execution remains blocked by TSPack.",
+      behaviorFixture: "security/dep-a-postinstall.valid.xtest.tsx",
+      behaviorReport: "security/dep-a-postinstall.report.json",
     }]} />
     <Package name="app" version="1.0.0" kind="library">
       <Targets rows={[{ name: "core", export: ".", entry: "src/index.ts", runtime: "dist/index.js", types: "dist/index.d.ts" }]} />
@@ -161,6 +163,8 @@ export default define(
           script: 'postinstall',
           command: 'node install.js',
           reason: 'Known lifecycle capability; execution remains blocked by TSPack.',
+          behaviorFixture: 'security/dep-a-postinstall.valid.xtest.tsx',
+          behaviorReport: 'security/dep-a-postinstall.report.json',
         },
       ]);
     } finally {

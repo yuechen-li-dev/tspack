@@ -16,6 +16,7 @@ import (
 	"github.com/tspack/tspack/internal/diag"
 	"github.com/tspack/tspack/internal/lockfile"
 	"github.com/tspack/tspack/internal/manifest"
+	"github.com/tspack/tspack/internal/securityevidence"
 )
 
 type doctorScope string
@@ -536,20 +537,21 @@ func doctorSecurity(root string) doctorBuilder {
 
 	lockfilePath := filepath.Join(root, "ts-lock.toml")
 	lf, lockChecks, lockfileAvailable := loadDoctorSecurityLockfile(lockfilePath)
-	if !lockfileAvailable && ir != nil && len(ir.Security.AcknowledgedCapabilities) > 0 {
-		annotateMissingLockfileAcknowledgements(lockChecks, len(ir.Security.AcknowledgedCapabilities))
+	acks := []manifest.AcknowledgedCapability(nil)
+	if ir != nil {
+		acks = append(acks, ir.Security.AcknowledgedCapabilities...)
+	}
+	if !lockfileAvailable && len(acks) > 0 {
+		annotateMissingLockfileAcknowledgements(lockChecks, len(acks))
 	}
 	d.checks = append(d.checks, lockChecks...)
+	d.checks = append(d.checks, doctorBehaviorEvidenceChecks(root, acks)...)
 	if !lockfileAvailable {
 		d.checks = append(d.checks, doctorSecurityPostureCheck())
 		return d
 	}
 
-	acks := []manifest.AcknowledgedCapability(nil)
-	if ir != nil {
-		acks = append(acks, ir.Security.AcknowledgedCapabilities...)
-	}
-	d.checks = append(d.checks, doctorLifecycleSecurityChecks(lf, acks)...)
+	d.checks = append(d.checks, doctorLifecycleSecurityChecks(root, lf, acks)...)
 	d.checks = append(d.checks, doctorSecurityPostureCheck())
 	return d
 }
@@ -658,7 +660,7 @@ func loadDoctorSecurityLockfile(lockfilePath string) (*lockfile.Lockfile, []Doct
 	return lf, nil, true
 }
 
-func doctorLifecycleSecurityChecks(lf *lockfile.Lockfile, acknowledgements []manifest.AcknowledgedCapability) []DoctorCheck {
+func doctorLifecycleSecurityChecks(root string, lf *lockfile.Lockfile, acknowledgements []manifest.AcknowledgedCapability) []DoctorCheck {
 	capabilities := collectDoctorLifecycleCapabilities(lf)
 	ackByExactKey := doctorAcknowledgementsByExactKey(acknowledgements)
 	usedAcknowledgements := map[string]bool{}
@@ -728,7 +730,7 @@ func doctorLifecycleSecurityChecks(lf *lockfile.Lockfile, acknowledgements []man
 	})
 
 	for _, lifecycleCapability := range capabilities {
-		check := doctorLifecycleCapabilityCheck(lifecycleCapability, ackByExactKey, staleByCapabilityKey, pathsByPackage)
+		check := doctorLifecycleCapabilityCheck(root, lifecycleCapability, ackByExactKey, staleByCapabilityKey, pathsByPackage)
 		checks = append(checks, check)
 	}
 	for _, staleAck := range staleAcknowledgementsSorted(staleByCapabilityKey) {
@@ -801,7 +803,7 @@ func collectDoctorLifecycleCapabilities(lf *lockfile.Lockfile) []doctorLifecycle
 	return capabilities
 }
 
-func doctorLifecycleCapabilityCheck(lifecycleCapability doctorLifecycleCapability, ackByExactKey map[string]manifest.AcknowledgedCapability, staleByCapabilityKey map[string]manifest.AcknowledgedCapability, pathsByPackage map[string][]string) DoctorCheck {
+func doctorLifecycleCapabilityCheck(root string, lifecycleCapability doctorLifecycleCapability, ackByExactKey map[string]manifest.AcknowledgedCapability, staleByCapabilityKey map[string]manifest.AcknowledgedCapability, pathsByPackage map[string][]string) DoctorCheck {
 	exactKey := doctorLifecycleAcknowledgementKey(lifecycleCapability.PackageID, lifecycleCapability.Script, lifecycleCapability.Command)
 	acknowledgement, acknowledged := ackByExactKey[exactKey]
 	staleKey := doctorLifecycleStaleAcknowledgementKey(lifecycleCapability.PackageID, lifecycleCapability.Script)
@@ -820,6 +822,7 @@ func doctorLifecycleCapabilityCheck(lifecycleCapability doctorLifecycleCapabilit
 		status = "ok"
 		message = "acknowledged lifecycle script capability; execution remains blocked"
 		details["reason"] = acknowledgement.Reason
+		addDoctorEvidenceDetails(root, details, acknowledgement)
 	}
 	if stale {
 		details["stale"] = true
@@ -939,6 +942,97 @@ func doctorLifecyclePulledByPathLines(lf *lockfile.Lockfile) map[string][]string
 		sort.Strings(pathsByPackage[packageID])
 	}
 	return pathsByPackage
+}
+
+func doctorBehaviorEvidenceChecks(root string, acknowledgements []manifest.AcknowledgedCapability) []DoctorCheck {
+	if len(acknowledgements) == 0 {
+		return nil
+	}
+	presentFixtures := 0
+	missingFixtures := 0
+	presentReports := 0
+	missingReports := 0
+	invalidReports := 0
+	checks := []DoctorCheck{}
+	for _, acknowledgement := range acknowledgements {
+		evidence := securityevidence.Evaluate(root, acknowledgement)
+		if evidence.BehaviorFixtureStatus == securityevidence.StatusPresent {
+			presentFixtures++
+		}
+		if evidence.BehaviorFixtureStatus == securityevidence.StatusMissing {
+			missingFixtures++
+			checks = append(checks, DoctorCheck{
+				Name:    "behavior fixture missing " + acknowledgement.Package + " " + acknowledgement.Script,
+				Status:  "warning",
+				Message: "acknowledged lifecycle behavior fixture is missing",
+				Details: doctorEvidenceDetails(root, acknowledgement),
+			})
+		}
+		if evidence.BehaviorReportStatus == securityevidence.StatusPresent {
+			presentReports++
+		}
+		if evidence.BehaviorReportStatus == securityevidence.StatusMissing {
+			missingReports++
+			checks = append(checks, DoctorCheck{
+				Name:    "behavior report missing " + acknowledgement.Package + " " + acknowledgement.Script,
+				Status:  "warning",
+				Message: "acknowledged lifecycle behavior report is missing",
+				Details: doctorEvidenceDetails(root, acknowledgement),
+			})
+		}
+		if evidence.BehaviorReportStatus == securityevidence.StatusInvalid {
+			invalidReports++
+			checks = append(checks, DoctorCheck{
+				Name:    "behavior report invalid " + acknowledgement.Package + " " + acknowledgement.Script,
+				Status:  "warning",
+				Message: "acknowledged lifecycle behavior report is not valid JSON",
+				Details: doctorEvidenceDetails(root, acknowledgement),
+			})
+		}
+	}
+	status := "ok"
+	if missingFixtures > 0 || missingReports > 0 || invalidReports > 0 {
+		status = "warning"
+	}
+	checks = append([]DoctorCheck{{
+		Name:    "behavior evidence summary",
+		Status:  status,
+		Message: "behavior evidence references are validated without running fixtures",
+		Details: map[string]any{
+			"behaviorFixturesPresent": presentFixtures,
+			"behaviorFixturesMissing": missingFixtures,
+			"behaviorReportsPresent":  presentReports,
+			"behaviorReportsMissing":  missingReports,
+			"behaviorReportsInvalid":  invalidReports,
+			"execution":               "not run by doctor security",
+		},
+	}}, checks...)
+	return checks
+}
+
+func addDoctorEvidenceDetails(root string, details map[string]any, acknowledgement manifest.AcknowledgedCapability) {
+	for key, value := range doctorEvidenceDetails(root, acknowledgement) {
+		details[key] = value
+	}
+}
+
+func doctorEvidenceDetails(root string, acknowledgement manifest.AcknowledgedCapability) map[string]any {
+	evidence := securityevidence.Evaluate(root, acknowledgement)
+	details := map[string]any{
+		"package": acknowledgement.Package,
+		"script":  acknowledgement.Script,
+		"command": acknowledgement.Command,
+		"reason":  acknowledgement.Reason,
+	}
+	if evidence.BehaviorFixture != "" {
+		details["behaviorFixture"] = evidence.BehaviorFixture
+		details["behaviorFixtureStatus"] = evidence.BehaviorFixtureStatus
+	}
+	if evidence.BehaviorReport != "" {
+		details["behaviorReport"] = evidence.BehaviorReport
+		details["behaviorReportStatus"] = evidence.BehaviorReportStatus
+	}
+	return details
 }
 
 func doctorSecurityPostureCheck() DoctorCheck {

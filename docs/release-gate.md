@@ -225,7 +225,9 @@ The release gate should keep a dedicated lifecycle behavior smoke separate from 
 - Create or use a package with a `postinstall` lifecycle script and verify unacknowledged `tspack check` reports `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT`.
 - Add a matching `<Security acknowledgedCapabilities={[...]}/>` row and verify `tspack check` no longer reports the default lifecycle warning for that exact package/script/command.
 - Change the lockfile command without changing the manifest acknowledgment and verify `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT` and `TSPACK_SECURITY_ACKNOWLEDGED_CAPABILITY_STALE` are reported.
-- Verify `tspack update`, `tspack sync`, and materialization still do not execute the acknowledged script or create marker files.
+- Add `behaviorFixture` and `behaviorReport` to a matching acknowledgment, verify present evidence does not warn, and verify a missing fixture reports `TSPACK_SECURITY_BEHAVIOR_FIXTURE_MISSING`.
+- Verify `tspack why`, `tspack why --json`, and `tspack why --reverse` show behavior evidence metadata for the acknowledged capability.
+- Verify `tspack update`, `tspack sync`, materialization, `tspack check`, `tspack doctor security`, and `tspack why` still do not execute the acknowledged script or create marker files.
 
 
 ### Phase 7 doctor security smoke
