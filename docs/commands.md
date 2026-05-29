@@ -10,7 +10,7 @@
 | `tspack how` | Explain diagnostic codes and remediation guidance. | No / No | Does not mutate project state or resolve packages. | `docs/how.md` |
 | `tspack outdated` | Report declared dependencies with current/wanted/latest npm freshness data (`--json` supported). | No / No | Read-only query; no lock/store/node_modules mutation. | `docs/outdated.md` |
 | `tspack pack` | Create deterministic package archives. | No / No | Not a build pipeline or publish command. | `docs/pack.md` |
-| `tspack run [target]` | Start declared manifest `RunTargets` and wait for readiness; supports `--manifest <path>` and keeps status on stderr. | No / No | Not `npm run`; no package.json script inference; no package-relative cwd change in M35a. | `docs/run.md` |
+| `tspack run [target]` | Start declared manifest `RunTargets`, list them with `--list [--json]`, and scope selection with `--package <name>`; status stays on stderr. | No / No | Not `npm run`; no package.json script inference; no package-relative cwd change in M35b. | `docs/run.md` |
 | `tspack test` | Run test backends (native xTest and/or Vitest); supports `--list`, `--filter <text>`, `--json`, native `--compact`, native `--watch`, native `--batch`, native `--update-snapshots`, and `--xtest-bridge <path>` for explicit native bridge resolution. | No / No | Not a generic task runner, affected-test engine, HMR server, or interactive watch UI. | `docs/test-command.md`, `docs/native-test-harness.md` |
 | `tspack artifact` | Run standalone native suite artifacts. | No / No | Not package artifact packing. | `docs/artifacts.md` |
 | `tspack bench` | Run native benchmark units (`*.benchmark.tsx`). | No / No | Not a general profiling framework. | `docs/benchmarks.md` |

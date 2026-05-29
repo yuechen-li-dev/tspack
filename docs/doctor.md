@@ -15,7 +15,7 @@
 
 - Project basics: root, `manifest.tsx`, `ts-lock.toml`, `node_modules`.
 - Format/lint readiness: Biome backend resolution and config presence.
-- Run readiness: runtime executables and declared run targets. The `system` runtime is built in and means “execute declared argv directly,” so it is available even though there is no `system` executable. `bun` and `deno` are reserved/future runtime backends and are reported as not applicable rather than warnings until implemented.
+- Run readiness: runtime executables and declared run targets. Declared targets are reported with package-qualified IDs such as `runTarget:@scope/pkg:dev`. The `system` runtime is built in and means “execute declared argv directly,” so it is available even though there is no `system` executable. `bun` and `deno` are reserved/future runtime backends and are reported as not applicable rather than warnings until implemented.
 - Inspect readiness (**experimental**): environment suitability and explicit-backend requirements.
   - platform-webview candidate and session env checks (`DISPLAY`, `WAYLAND_DISPLAY`, `DBUS_SESSION_BUS_ADDRESS`).
   - CDP explicit endpoint policy readiness (`TSPACK_INSPECT_CDP_ENDPOINT` if set).

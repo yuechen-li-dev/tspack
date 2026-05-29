@@ -70,7 +70,7 @@ This inventory groups primary diagnostic families by subsystem to keep command-s
 
 ## Run diagnostics
 
-- `TSPACK_RUN_*` (target resolution, launch, readiness, timeout, process lifecycle)
+- `TSPACK_RUN_*` (target resolution, package scoping, listing argument validation, launch, readiness, timeout, process lifecycle)
 
 ## Inspect diagnostics (experimental)
 
@@ -177,3 +177,11 @@ Page/analyzer:
 - `TSPACK_SNAPSHOT_TEXT_VALUE_INVALID`: `expect.snapshotText` received a non-string value.
 - `TSPACK_SNAPSHOT_JSON_UNSUPPORTED`: `expect.snapshotJson` received an unsupported value such as `undefined`, a function, bigint, non-finite number, circular reference, or non-plain object.
 - `TSPACK_SNAPSHOT_UNSUPPORTED_BACKEND`: `--update-snapshots` was requested for a backend other than native xTest.
+
+
+## Run target diagnostics
+
+- `TSPACK_RUN_PACKAGE_NOT_FOUND`: `--package <name>` did not match a package in the loaded manifest; output includes known packages.
+- `TSPACK_RUN_TARGET_AMBIGUOUS`: the requested target name or default selection matched multiple package-qualified run targets; output includes candidates such as `@prisma-ui/demo:dev` and hints to use `--package <name>`.
+- `TSPACK_RUN_TARGET_NOT_FOUND`: the requested run target does not exist. With `--package`, output includes the selected package and its known targets.
+- `TSPACK_RUN_INVALID_ARGS`: run flags were combined in a contradictory or incomplete way, such as `--list dev`, `--list --once`, or `--package` without a value.

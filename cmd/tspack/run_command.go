@@ -19,6 +19,46 @@ import (
 	"github.com/tspack/tspack/internal/manifest"
 )
 
+type runTargetRef struct {
+	PackageName string
+	Target      manifest.RunTarget
+}
+
+func (r runTargetRef) ID() string {
+	return r.PackageName + ":" + r.Target.Name
+}
+
+type runCommandOptions struct {
+	Root             string
+	ManifestPath     string
+	ManifestExplicit bool
+	TimeoutSeconds   int
+	Once             bool
+	List             bool
+	JSON             bool
+	PackageName      string
+	TargetArg        string
+}
+
+type runListOutput struct {
+	Command     string              `json:"command"`
+	Mode        string              `json:"mode"`
+	Root        string              `json:"root"`
+	Package     *string             `json:"package"`
+	Targets     []runListTargetJSON `json:"targets"`
+	Diagnostics []any               `json:"diagnostics"`
+}
+
+type runListTargetJSON struct {
+	ID      string                  `json:"id"`
+	Package string                  `json:"package"`
+	Name    string                  `json:"name"`
+	Runtime string                  `json:"runtime"`
+	Command []string                `json:"command"`
+	URL     string                  `json:"url"`
+	Ready   *manifest.RunReadyCheck `json:"ready,omitempty"`
+}
+
 type RunTargetSession struct {
 	Target   manifest.RunTarget
 	Cmd      *exec.Cmd
@@ -66,31 +106,59 @@ func startRunTarget(root string, target manifest.RunTarget, timeout time.Duratio
 }
 
 func runRunCommand(args []string) {
-	root := "."
-	manifestPath := ""
-	manifestExplicit := false
-	timeoutSeconds := 30
-	once := false
-	targetArg := ""
+	opts := parseRunCommandOptions(args)
+	if opts.ManifestPath == "" {
+		opts.ManifestPath = filepath.Join(opts.Root, "manifest.tsx")
+	}
+	ir := loadManifestPathForRun(opts.Root, opts.ManifestPath)
+	if opts.List {
+		renderRunTargetList(opts.Root, ir, opts.PackageName, opts.JSON)
+		return
+	}
+	selected := selectRunTarget(ir, opts.PackageName, opts.TargetArg)
+	rt := selected.Target
+	fmt.Fprintf(os.Stderr, "Starting run target %q\n", selected.ID())
+	fmt.Fprintf(os.Stderr, "Package: %s\n", selected.PackageName)
+	fmt.Fprintf(os.Stderr, "Runtime: %s\n", rt.Runtime)
+	fmt.Fprintf(os.Stderr, "Command: %s\n", bytes.Join(stringSliceBytes(rt.Command), []byte(" ")))
+	readyURL := readinessURL(rt)
+	fmt.Fprintf(os.Stderr, "Waiting for: %s\n", readyURL)
+	session, readyErr := startRunTarget(opts.Root, rt, time.Duration(opts.TimeoutSeconds)*time.Second, os.Stdout, os.Stderr)
+	if readyErr != nil {
+		failRun(readyErr.code, readyErr.msg)
+	}
+	fmt.Fprintf(os.Stderr, "Ready: %s\n", session.URL)
+	if opts.Once {
+		_ = session.Stop()
+		return
+	}
+	sig := make(chan os.Signal, 2)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	go func() { <-sig; _ = session.Stop() }()
+	<-session.waitCh
+}
+
+func parseRunCommandOptions(args []string) runCommandOptions {
+	opts := runCommandOptions{Root: ".", TimeoutSeconds: 30}
 	for i := 1; i < len(args); i++ {
 		a := args[i]
 		switch a {
 		case "--root":
 			if i+1 >= len(args) {
-				failRun("TSPACK_RUN_INVALID_TARGET", "--root requires a value")
+				failRun("TSPACK_RUN_INVALID_ARGS", "--root requires a value")
 			}
 			i++
-			root = args[i]
-			if !manifestExplicit {
-				manifestPath = filepath.Join(root, "manifest.tsx")
+			opts.Root = args[i]
+			if !opts.ManifestExplicit {
+				opts.ManifestPath = filepath.Join(opts.Root, "manifest.tsx")
 			}
 		case "--manifest":
 			if i+1 >= len(args) {
-				failRun("TSPACK_RUN_INVALID_TARGET", "--manifest requires a value")
+				failRun("TSPACK_RUN_INVALID_ARGS", "--manifest requires a value")
 			}
 			i++
-			manifestPath = args[i]
-			manifestExplicit = true
+			opts.ManifestPath = args[i]
+			opts.ManifestExplicit = true
 		case "--ready-timeout":
 			if i+1 >= len(args) {
 				failRun("TSPACK_RUN_INVALID_TIMEOUT", "--ready-timeout requires a value")
@@ -100,42 +168,36 @@ func runRunCommand(args []string) {
 			if err != nil || n <= 0 {
 				failRun("TSPACK_RUN_INVALID_TIMEOUT", "ready-timeout must be positive seconds")
 			}
-			timeoutSeconds = n
+			opts.TimeoutSeconds = n
 		case "--once":
-			once = true
+			opts.Once = true
+		case "--list":
+			opts.List = true
+		case "--json":
+			opts.JSON = true
+		case "--package":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				failRun("TSPACK_RUN_INVALID_ARGS", "--package requires a value")
+			}
+			i++
+			opts.PackageName = args[i]
 		default:
 			if len(a) > 0 && a[0] == '-' {
-				failRun("TSPACK_RUN_INVALID_TARGET", "unknown flag: "+a)
+				failRun("TSPACK_RUN_INVALID_ARGS", "unknown flag: "+a)
 			}
-			if targetArg != "" {
-				failRun("TSPACK_RUN_INVALID_TARGET", "too many target arguments")
+			if opts.TargetArg != "" {
+				failRun("TSPACK_RUN_INVALID_ARGS", "too many target arguments")
 			}
-			targetArg = a
+			opts.TargetArg = a
 		}
 	}
-	if manifestPath == "" {
-		manifestPath = filepath.Join(root, "manifest.tsx")
+	if opts.List && opts.TargetArg != "" {
+		failRun("TSPACK_RUN_INVALID_ARGS", "--list cannot be combined with a target argument")
 	}
-	ir := loadManifestPathForRun(root, manifestPath)
-	rt := selectRunTarget(ir, targetArg)
-	fmt.Fprintf(os.Stderr, "Starting run target %q\n", rt.Name)
-	fmt.Fprintf(os.Stderr, "Runtime: %s\n", rt.Runtime)
-	fmt.Fprintf(os.Stderr, "Command: %s\n", bytes.Join(stringSliceBytes(rt.Command), []byte(" ")))
-	readyURL := readinessURL(rt)
-	fmt.Fprintf(os.Stderr, "Waiting for: %s\n", readyURL)
-	session, readyErr := startRunTarget(root, rt, time.Duration(timeoutSeconds)*time.Second, os.Stdout, os.Stderr)
-	if readyErr != nil {
-		failRun(readyErr.code, readyErr.msg)
+	if opts.List && opts.Once {
+		failRun("TSPACK_RUN_INVALID_ARGS", "--list cannot be combined with --once")
 	}
-	fmt.Fprintf(os.Stderr, "Ready: %s\n", session.URL)
-	if once {
-		_ = session.Stop()
-		return
-	}
-	sig := make(chan os.Signal, 2)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-	go func() { <-sig; _ = session.Stop() }()
-	<-session.waitCh
+	return opts
 }
 
 type runErr struct{ code, msg string }
@@ -213,32 +275,209 @@ func loadManifestPathForRun(root string, manifestPath string) *manifest.Manifest
 	return ir
 }
 
-func selectRunTarget(ir *manifest.ManifestIR, name string) manifest.RunTarget {
-	all := []manifest.RunTarget{}
-	for _, p := range ir.Packages {
-		all = append(all, p.RunTargets...)
+func selectRunTarget(ir *manifest.ManifestIR, packageName string, targetName string) runTargetRef {
+	if packageName != "" {
+		return selectRunTargetInPackage(ir, packageName, targetName)
 	}
+	all := collectRunTargets(ir, "")
 	if len(all) == 0 {
 		failRun("TSPACK_RUN_TARGET_MISSING", "no run targets declared")
 	}
-	if name != "" {
-		for _, t := range all {
-			if t.Name == name {
-				return t
-			}
+	if targetName != "" {
+		matches := matchingRunTargets(all, targetName)
+		if len(matches) == 1 {
+			return matches[0]
 		}
-		failRun("TSPACK_RUN_TARGET_NOT_FOUND", name)
+		if len(matches) > 1 {
+			failRun("TSPACK_RUN_TARGET_AMBIGUOUS", ambiguousTargetMessage(targetName, matches))
+		}
+		failRun("TSPACK_RUN_TARGET_NOT_FOUND", "target "+targetName+" not found; known targets: "+strings.Join(runTargetIDs(all), ", "))
 	}
-	for _, t := range all {
-		if t.Name == "dev" {
-			return t
-		}
+	devTargets := matchingRunTargets(all, "dev")
+	if len(devTargets) == 1 {
+		return devTargets[0]
+	}
+	if len(devTargets) > 1 {
+		failRun("TSPACK_RUN_TARGET_AMBIGUOUS", ambiguousTargetMessage("dev", devTargets))
 	}
 	if len(all) == 1 {
 		return all[0]
 	}
-	failRun("TSPACK_RUN_TARGET_AMBIGUOUS", "multiple run targets; pass target name")
-	return manifest.RunTarget{}
+	failRun("TSPACK_RUN_TARGET_AMBIGUOUS", "multiple run targets; pass target name or use --package <name>; candidates: "+strings.Join(runTargetIDs(all), ", "))
+	return runTargetRef{}
+}
+
+func selectRunTargetInPackage(ir *manifest.ManifestIR, packageName string, targetName string) runTargetRef {
+	pkg, ok := findRunPackage(ir, packageName)
+	if !ok {
+		failRun("TSPACK_RUN_PACKAGE_NOT_FOUND", "package "+packageName+" not found; known packages: "+strings.Join(knownRunPackages(ir), ", "))
+	}
+	refs := packageRunTargetRefs(pkg)
+	if len(refs) == 0 {
+		failRun("TSPACK_RUN_TARGET_MISSING", "package "+packageName+" declares no run targets")
+	}
+	if targetName != "" {
+		for _, ref := range refs {
+			if ref.Target.Name == targetName {
+				return ref
+			}
+		}
+		failRun("TSPACK_RUN_TARGET_NOT_FOUND", "target "+targetName+" not found in package "+packageName+"; known targets: "+strings.Join(runTargetNames(refs), ", "))
+	}
+	for _, ref := range refs {
+		if ref.Target.Name == "dev" {
+			return ref
+		}
+	}
+	if len(refs) == 1 {
+		return refs[0]
+	}
+	failRun("TSPACK_RUN_TARGET_AMBIGUOUS", "package "+packageName+" has multiple run targets; pass target name; known targets: "+strings.Join(runTargetNames(refs), ", "))
+	return runTargetRef{}
+}
+
+func renderRunTargetList(root string, ir *manifest.ManifestIR, packageName string, jsonOutput bool) {
+	refs := collectRunTargets(ir, packageName)
+	if packageName != "" {
+		if _, ok := findRunPackage(ir, packageName); !ok {
+			failRun("TSPACK_RUN_PACKAGE_NOT_FOUND", "package "+packageName+" not found; known packages: "+strings.Join(knownRunPackages(ir), ", "))
+		}
+	}
+	if jsonOutput {
+		renderRunTargetListJSON(root, packageName, refs)
+		return
+	}
+	renderRunTargetListText(refs)
+}
+
+func renderRunTargetListText(refs []runTargetRef) {
+	fmt.Fprintln(os.Stdout, "Run targets")
+	if len(refs) == 0 {
+		fmt.Fprintln(os.Stdout)
+		fmt.Fprintln(os.Stdout, "  (none)")
+		return
+	}
+	currentPackage := ""
+	for _, ref := range refs {
+		if ref.PackageName != currentPackage {
+			if currentPackage != "" {
+				fmt.Fprintln(os.Stdout)
+			}
+			currentPackage = ref.PackageName
+			fmt.Fprintln(os.Stdout)
+			fmt.Fprintf(os.Stdout, "  %s\n", ref.PackageName)
+		}
+		fmt.Fprintf(os.Stdout, "    %s\n", ref.Target.Name)
+		fmt.Fprintf(os.Stdout, "      runtime: %s\n", ref.Target.Runtime)
+		fmt.Fprintf(os.Stdout, "      command: %s\n", strings.Join(ref.Target.Command, " "))
+		fmt.Fprintf(os.Stdout, "      url: %s\n", ref.Target.URL)
+		if ref.Target.Ready != nil {
+			fmt.Fprintf(os.Stdout, "      ready: %s %s\n", ref.Target.Ready.Kind, ref.Target.Ready.Path)
+		} else {
+			fmt.Fprintln(os.Stdout, "      ready: url")
+		}
+	}
+}
+
+func renderRunTargetListJSON(root string, packageName string, refs []runTargetRef) {
+	var packageValue *string
+	if packageName != "" {
+		value := packageName
+		packageValue = &value
+	}
+	targets := make([]runListTargetJSON, 0, len(refs))
+	for _, ref := range refs {
+		targets = append(targets, runListTargetJSON{
+			ID:      ref.ID(),
+			Package: ref.PackageName,
+			Name:    ref.Target.Name,
+			Runtime: ref.Target.Runtime,
+			Command: ref.Target.Command,
+			URL:     ref.Target.URL,
+			Ready:   ref.Target.Ready,
+		})
+	}
+	payload := runListOutput{
+		Command:     "run",
+		Mode:        "list",
+		Root:        root,
+		Package:     packageValue,
+		Targets:     targets,
+		Diagnostics: []any{},
+	}
+	encoded, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		failRun("TSPACK_RUN_INVALID_ARGS", "failed to encode run target list")
+	}
+	fmt.Fprintln(os.Stdout, string(encoded))
+}
+
+func collectRunTargets(ir *manifest.ManifestIR, packageName string) []runTargetRef {
+	refs := []runTargetRef{}
+	for pi := range ir.Packages {
+		pkg := &ir.Packages[pi]
+		if packageName != "" && pkg.Name != packageName {
+			continue
+		}
+		refs = append(refs, packageRunTargetRefs(pkg)...)
+	}
+	return refs
+}
+
+func packageRunTargetRefs(pkg *manifest.Package) []runTargetRef {
+	refs := make([]runTargetRef, 0, len(pkg.RunTargets))
+	for _, target := range pkg.RunTargets {
+		refs = append(refs, runTargetRef{PackageName: pkg.Name, Target: target})
+	}
+	return refs
+}
+
+func findRunPackage(ir *manifest.ManifestIR, packageName string) (*manifest.Package, bool) {
+	for pi := range ir.Packages {
+		pkg := &ir.Packages[pi]
+		if pkg.Name == packageName {
+			return pkg, true
+		}
+	}
+	return nil, false
+}
+
+func matchingRunTargets(refs []runTargetRef, name string) []runTargetRef {
+	matches := []runTargetRef{}
+	for _, ref := range refs {
+		if ref.Target.Name == name {
+			matches = append(matches, ref)
+		}
+	}
+	return matches
+}
+
+func knownRunPackages(ir *manifest.ManifestIR) []string {
+	packages := make([]string, 0, len(ir.Packages))
+	for _, pkg := range ir.Packages {
+		packages = append(packages, pkg.Name)
+	}
+	return packages
+}
+
+func runTargetIDs(refs []runTargetRef) []string {
+	ids := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		ids = append(ids, ref.ID())
+	}
+	return ids
+}
+
+func runTargetNames(refs []runTargetRef) []string {
+	names := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		names = append(names, ref.Target.Name)
+	}
+	return names
+}
+
+func ambiguousTargetMessage(name string, refs []runTargetRef) string {
+	return "target " + name + " is ambiguous; candidates: " + strings.Join(runTargetIDs(refs), ", ") + "; hint: use --package <name> to select one"
 }
 
 func readinessURL(rt manifest.RunTarget) string {
