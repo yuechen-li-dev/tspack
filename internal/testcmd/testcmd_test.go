@@ -87,3 +87,52 @@ func TestVitestUpdateSnapshotsUnsupported(t *testing.T) {
 func quoteJS(value string) string {
 	return "`" + strings.ReplaceAll(value, "`", "\\`") + "`"
 }
+
+func TestRunXTestForwardsBatchOnlyForRunMode(t *testing.T) {
+	root := t.TempDir()
+	bridge := filepath.Join(root, "bridge.js")
+	recordPath := filepath.Join(root, "batch-args.txt")
+	script := "#!/usr/bin/env node\n" +
+		"import fs from 'node:fs';\n" +
+		"fs.appendFileSync(" + quoteJS(recordPath) + ", process.argv.slice(2).join('\\t') + '\\n');\n" +
+		"console.log('Native xTest results');\n" +
+		"console.log('');\n" +
+		"console.log('Summary:');\n" +
+		"console.log('  total: 0');\n" +
+		"console.log('  passed: 0');\n" +
+		"console.log('  failed: 0');\n" +
+		"console.log('  skipped: 0');\n"
+	if err := os.WriteFile(bridge, []byte(script), 0o755); err != nil {
+		t.Fatalf("write bridge: %v", err)
+	}
+
+	runXTest(Options{RootDir: root, XTestBridge: bridge, Batch: true, Filter: "cx", Compact: true, UpdateSnapshots: true}, &Result{})
+	runXTest(Options{RootDir: root, XTestBridge: bridge, Batch: true, List: true}, &Result{})
+
+	recorded, err := os.ReadFile(recordPath)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(recorded)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected two invocations, got %q", string(recorded))
+	}
+	for _, required := range []string{"--batch", "--filter\tcx", "--compact", "--update-snapshots"} {
+		if !strings.Contains(lines[0], required) {
+			t.Fatalf("run invocation missing %q: %q", required, lines[0])
+		}
+	}
+	if strings.Contains(lines[1], "--batch") {
+		t.Fatalf("list invocation should not include --batch: %q", lines[1])
+	}
+}
+
+func TestVitestBatchUnsupported(t *testing.T) {
+	result := Run(Options{RootDir: t.TempDir(), UseVitest: true, Batch: true})
+	if result.ExitCode == 0 {
+		t.Fatalf("expected unsupported backend failure")
+	}
+	if len(result.Diagnostics) == 0 || result.Diagnostics[0].Code != "TSPACK_TEST_BATCH_UNSUPPORTED_BACKEND" {
+		t.Fatalf("expected batch unsupported diagnostic, got %#v", result.Diagnostics)
+	}
+}

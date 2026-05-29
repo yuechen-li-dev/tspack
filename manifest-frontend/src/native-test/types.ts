@@ -6,7 +6,7 @@ export type Diagnostic = {
   file: string;
   line?: number;
   column?: number;
-  severity?: 'error' | 'warning' | 'info';
+  severity?: "error" | "warning" | "info";
 };
 
 export type DiscoveredCase = {
@@ -40,7 +40,7 @@ export type DiscoveredStandaloneArtifact = {
 };
 
 export type DiscoveredFact = {
-  kind: 'fact';
+  kind: "fact";
   name: string;
   id: string;
   artifacts: DiscoveredArtifact[];
@@ -48,7 +48,7 @@ export type DiscoveredFact = {
 };
 
 export type DiscoveredTheory = {
-  kind: 'theory';
+  kind: "theory";
   name: string;
   cases: DiscoveredCase[];
   artifacts: DiscoveredArtifact[];
@@ -57,7 +57,7 @@ export type DiscoveredTheory = {
 };
 
 export type DiscoveredInvariant = {
-  kind: 'valid' | 'invalid';
+  kind: "valid" | "invalid";
   name: string;
   id: string;
   project?: DiscoveredProjectFixture;
@@ -87,7 +87,7 @@ export type DiscoveryResult = {
 export type DiscoveredTest = {
   id: string;
   name: string;
-  kind: 'fact' | 'theory' | 'valid' | 'invalid';
+  kind: "fact" | "theory" | "valid" | "invalid";
   filePath: string;
 };
 
@@ -106,12 +106,12 @@ export type DoomEnvelope = {
   suiteName: string;
   name: string;
   foretell: { reason: string };
-  phase: 'before-doom';
+  phase: "before-doom";
 };
 export type DoomResult = {
   id: string;
   name: string;
-  status: 'passed' | 'failed' | 'skipped';
+  status: "passed" | "failed" | "skipped";
   exitCode?: number | null;
   signal?: string | null;
   stdout?: string;
@@ -120,8 +120,15 @@ export type DoomResult = {
   envelope?: DoomEnvelope;
   failure?: FailureInfo;
 };
-export type DoomRunResult = { prophecies: DoomResult[]; diagnostics: Diagnostic[] };
-export type NativeDoomRunReport = { summary: NativeTestSummary; prophecies: DoomResult[]; diagnostics: Diagnostic[] };
+export type DoomRunResult = {
+  prophecies: DoomResult[];
+  diagnostics: Diagnostic[];
+};
+export type NativeDoomRunReport = {
+  summary: NativeTestSummary;
+  prophecies: DoomResult[];
+  diagnostics: Diagnostic[];
+};
 
 export type DiscoverOptions = {
   rootDir: string;
@@ -140,7 +147,7 @@ export type ListedTest = {
   filePath: string;
   suiteName: string;
   name: string;
-  kind: 'fact' | 'theory-case' | 'valid' | 'invalid';
+  kind: "fact" | "theory-case" | "valid" | "invalid";
   theoryName?: string;
   caseIndex?: number;
   caseData?: Record<string, unknown>;
@@ -157,6 +164,7 @@ export type RunFilesOptions = {
   artifactRoot?: string;
   defaultTimeoutSeconds?: number;
   updateSnapshots?: boolean;
+  batch?: boolean;
 };
 
 export type RunArtifactsOptions = {
@@ -205,7 +213,7 @@ export type ProjectResultInfo = {
 export type TestResult = {
   id: string;
   name: string;
-  status: 'passed' | 'failed' | 'skipped';
+  status: "passed" | "failed" | "skipped";
   durationMs?: number;
   skipReason?: string;
   error?: AssertionFailure | Error;
@@ -217,7 +225,7 @@ export type TestResult = {
 export type StandaloneArtifactResult = {
   id: string;
   name: string;
-  status: 'passed' | 'failed' | 'skipped';
+  status: "passed" | "failed" | "skipped";
   artifact?: TestArtifact;
   failure?: FailureInfo;
   skipReason?: string;
@@ -250,7 +258,7 @@ export type ReportedTest = {
   id: string;
   name: string;
   filePath?: string;
-  status: 'passed' | 'failed' | 'skipped';
+  status: "passed" | "failed" | "skipped";
   durationMs?: number;
   failure?: FailureInfo;
   skipReason?: string;
@@ -293,7 +301,7 @@ export type RunBenchmarksOptions = {
 export type BenchmarkResult = {
   id: string;
   name: string;
-  status: 'passed' | 'failed' | 'skipped';
+  status: "passed" | "failed" | "skipped";
   iterations: number;
   warmup: number;
   totalMs?: number;

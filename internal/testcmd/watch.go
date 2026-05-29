@@ -146,6 +146,9 @@ func runWatch(ctx context.Context, opts Options, stderr io.Writer) Result {
 	selected := selectedBackends(opts)
 	if len(selected) == 0 {
 		selected = autoDetectBackends(opts.RootDir)
+		if opts.Batch && containsString(selected, "xtest") {
+			selected = []string{"xtest"}
+		}
 	}
 	if len(selected) == 0 {
 		return Result{Diagnostics: []diag.Diagnostic{{Code: "TSPACK_TEST_NO_BACKENDS", Severity: diag.SeverityError, Message: "no test backends discovered"}}, ExitCode: 1}

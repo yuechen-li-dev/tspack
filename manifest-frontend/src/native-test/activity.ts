@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 export type ActivityTracker = {
   markAssert: () => void;
   markExpect: () => void;
@@ -5,24 +7,30 @@ export type ActivityTracker = {
   markArtifactWrite: () => void;
 };
 
-let tracker: ActivityTracker | undefined;
+const activityStorage = new AsyncLocalStorage<ActivityTracker | undefined>();
+let fallbackTracker: ActivityTracker | undefined;
 
 export function setActivityTracker(next: ActivityTracker | undefined): void {
-  tracker = next;
+  fallbackTracker = next;
+  activityStorage.enterWith(next);
+}
+
+function currentTracker(): ActivityTracker | undefined {
+  return activityStorage.getStore() ?? fallbackTracker;
 }
 
 export function markAssertActivity(): void {
-  tracker?.markAssert();
+  currentTracker()?.markAssert();
 }
 
 export function markExpectationActivity(): void {
-  tracker?.markExpect();
+  currentTracker()?.markExpect();
 }
 
 export function markSkipActivity(): void {
-  tracker?.markSkip();
+  currentTracker()?.markSkip();
 }
 
 export function markArtifactWriteActivity(): void {
-  tracker?.markArtifactWrite();
+  currentTracker()?.markArtifactWrite();
 }
