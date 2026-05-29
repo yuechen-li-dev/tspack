@@ -73,6 +73,7 @@ This inventory groups primary diagnostic families by subsystem to keep command-s
 - `TSPACK_RUN_*` (target resolution, package scoping, cwd validation/root resolution, listing argument validation, launch, readiness, timeout, process lifecycle)
   - `TSPACK_RUN_INVALID_CWD`: a RunTarget `cwd` value was not `workspace` or `package`.
   - `TSPACK_RUN_PACKAGE_ROOT_UNKNOWN`: a RunTarget requested `cwd: "package"`, but the declaring package root could not be resolved.
+  - `TSPACK_RUN_INVALID_ENV`: `--env` was missing its `KEY=VALUE` value, omitted `=`, used an empty key, or used a key outside `[A-Za-z_][A-Za-z0-9_]*`.
 
 ## Inspect diagnostics (experimental)
 
@@ -186,7 +187,8 @@ Page/analyzer:
 - `TSPACK_RUN_PACKAGE_NOT_FOUND`: `--package <name>` did not match a package in the loaded manifest; output includes known packages.
 - `TSPACK_RUN_TARGET_AMBIGUOUS`: the requested target name or default selection matched multiple package-qualified run targets; output includes candidates such as `@prisma-ui/demo:dev` and hints to use `--package <name>`.
 - `TSPACK_RUN_TARGET_NOT_FOUND`: the requested run target does not exist. With `--package`, output includes the selected package and its known targets.
-- `TSPACK_RUN_INVALID_ARGS`: run flags were combined in a contradictory or incomplete way, such as `--list dev`, `--list --once`, or `--package` without a value.
+- `TSPACK_RUN_INVALID_ARGS`: run flags were combined in a contradictory or incomplete way, such as `--list dev`, `--list --once`, `--list --env KEY=VALUE`, or `--package` without a value.
+- `TSPACK_RUN_INVALID_ENV`: an explicit CLI environment overlay was malformed. `--env` accepts only `KEY=VALUE`; keys must be non-empty and match `[A-Za-z_][A-Za-z0-9_]*`, while values may be empty or contain `=`.
 - `TSPACK_RUN_INVALID_READY`: a RunTarget readiness policy has an invalid shape, such as an unknown `kind`, HTTP readiness without an absolute `path`, TCP readiness without a `1..65535` port, or stdout-match readiness without a non-empty literal `pattern` / with an invalid `stream`.
 - `TSPACK_RUN_READY_TIMEOUT`: the selected HTTP, TCP, or stdout-match readiness check did not succeed before `--ready-timeout`.
 - `TSPACK_RUN_PROCESS_EXITED_EARLY`: the child process exited before the selected readiness check succeeded.

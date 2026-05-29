@@ -42,6 +42,7 @@ type runCommandOptions struct {
 	JSON             bool
 	PackageName      string
 	TargetArg        string
+	Env              runEnvOverlay
 }
 
 type runListOutput struct {
@@ -87,10 +88,10 @@ func (s *RunTargetSession) Stop() error {
 }
 
 func startRunTarget(root string, target manifest.RunTarget, timeout time.Duration, stdout io.Writer, stderr io.Writer) (*RunTargetSession, *runErr) {
-	return startRunTargetInDir(root, root, target, timeout, stdout, stderr)
+	return startRunTargetInDir(root, root, target, timeout, stdout, stderr, runEnvOverlay{})
 }
 
-func startRunTargetInDir(root string, cwdPath string, target manifest.RunTarget, timeout time.Duration, stdout io.Writer, stderr io.Writer) (*RunTargetSession, *runErr) {
+func startRunTargetInDir(root string, cwdPath string, target manifest.RunTarget, timeout time.Duration, stdout io.Writer, stderr io.Writer, envOverlay runEnvOverlay) (*RunTargetSession, *runErr) {
 	resolved := target
 	if resolved.Runtime == "node" {
 		resolved.Command = resolveNodeLocalCommand(root, resolved.Command)
@@ -118,9 +119,7 @@ func startRunTargetInDir(root string, cwdPath string, target manifest.RunTarget,
 	} else {
 		cmd.Stderr = stderr
 	}
-	if resolved.Runtime == "node" {
-		prependNodeModulesBin(cmd, root)
-	}
+	cmd.Env = buildRunCommandEnv(resolved.Runtime, root, envOverlay)
 	if err := cmd.Start(); err != nil {
 		return nil, &runErr{code: "TSPACK_RUN_PROCESS_START_FAILED", msg: err.Error()}
 	}
@@ -166,9 +165,12 @@ func runRunCommand(args []string) {
 	fmt.Fprintf(os.Stderr, "Runtime: %s\n", rt.Runtime)
 	fmt.Fprintf(os.Stderr, "Command: %s\n", bytes.Join(stringSliceBytes(rt.Command), []byte(" ")))
 	fmt.Fprintf(os.Stderr, "Cwd: %s (%s)\n", cwdPolicy, cwdPath)
+	if len(opts.Env.Keys) > 0 {
+		fmt.Fprintf(os.Stderr, "Env: %s\n", strings.Join(opts.Env.Keys, ", "))
+	}
 	readyCheck := newReadyCheck(rt)
 	fmt.Fprintf(os.Stderr, "Waiting for: %s\n", readyCheck.waitingDescription())
-	session, readyErr := startRunTargetInDir(workspaceRoot, cwdPath, rt, time.Duration(opts.TimeoutSeconds)*time.Second, os.Stdout, os.Stderr)
+	session, readyErr := startRunTargetInDir(workspaceRoot, cwdPath, rt, time.Duration(opts.TimeoutSeconds)*time.Second, os.Stdout, os.Stderr, opts.Env)
 	if readyErr != nil {
 		failRun(readyErr.code, readyErr.msg)
 	}
@@ -229,6 +231,16 @@ func parseRunCommandOptions(args []string) runCommandOptions {
 			}
 			i++
 			opts.PackageName = args[i]
+		case "--env":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
+				failRun("TSPACK_RUN_INVALID_ENV", "--env requires KEY=VALUE")
+			}
+			i++
+			var envErr *runErr
+			opts.Env, envErr = opts.Env.WithAssignment(args[i])
+			if envErr != nil {
+				failRun(envErr.code, envErr.msg)
+			}
 		default:
 			if len(a) > 0 && a[0] == '-' {
 				failRun("TSPACK_RUN_INVALID_ARGS", "unknown flag: "+a)
@@ -244,6 +256,9 @@ func parseRunCommandOptions(args []string) runCommandOptions {
 	}
 	if opts.List && opts.Once {
 		failRun("TSPACK_RUN_INVALID_ARGS", "--list cannot be combined with --once")
+	}
+	if opts.List && len(opts.Env.Keys) > 0 {
+		failRun("TSPACK_RUN_INVALID_ARGS", "--list cannot be combined with --env")
 	}
 	return opts
 }
@@ -752,11 +767,82 @@ func readinessURL(rt manifest.RunTarget) string {
 	return u.String()
 }
 
-func prependNodeModulesBin(cmd *exec.Cmd, root string) {
+type runEnvOverlay struct {
+	Values map[string]string
+	Keys   []string
+}
+
+func (overlay runEnvOverlay) WithAssignment(assignment string) (runEnvOverlay, *runErr) {
+	key, value, ok := strings.Cut(assignment, "=")
+	if !ok {
+		return overlay, &runErr{code: "TSPACK_RUN_INVALID_ENV", msg: "--env must use KEY=VALUE"}
+	}
+	if !isValidRunEnvKey(key) {
+		return overlay, &runErr{code: "TSPACK_RUN_INVALID_ENV", msg: "invalid --env key: " + key}
+	}
+	if overlay.Values == nil {
+		overlay.Values = map[string]string{}
+	}
+	if _, exists := overlay.Values[key]; !exists {
+		overlay.Keys = append(overlay.Keys, key)
+	}
+	overlay.Values[key] = value
+	return overlay, nil
+}
+
+func isValidRunEnvKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	for index, r := range key {
+		if index == 0 {
+			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || r == '_' {
+				continue
+			}
+			return false
+		}
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func buildRunCommandEnv(runtime string, root string, overlay runEnvOverlay) []string {
+	env := os.Environ()
+	if runtime == "node" {
+		env = prependNodeModulesBinToEnv(env, root)
+	}
+	return overlayRunEnv(env, overlay)
+}
+
+func overlayRunEnv(env []string, overlay runEnvOverlay) []string {
+	if len(overlay.Values) == 0 {
+		result := make([]string, len(env))
+		copy(result, env)
+		return result
+	}
+	filtered := make([]string, 0, len(env)+len(overlay.Keys))
+	for _, entry := range env {
+		key, _, hasEquals := strings.Cut(entry, "=")
+		if hasEquals {
+			if _, overridden := overlay.Values[key]; overridden {
+				continue
+			}
+		}
+		filtered = append(filtered, entry)
+	}
+	for _, key := range overlay.Keys {
+		filtered = append(filtered, key+"="+overlay.Values[key])
+	}
+	return filtered
+}
+
+func prependNodeModulesBinToEnv(env []string, root string) []string {
 	bin := filepath.Join(root, "node_modules", ".bin")
 	pathValue := os.Getenv("PATH")
 	newPath := "PATH=" + bin + string(os.PathListSeparator) + pathValue
-	env := os.Environ()
 	filtered := make([]string, 0, len(env)+1)
 	for _, entry := range env {
 		if strings.HasPrefix(entry, "PATH=") {
@@ -765,7 +851,7 @@ func prependNodeModulesBin(cmd *exec.Cmd, root string) {
 		filtered = append(filtered, entry)
 	}
 	filtered = append(filtered, newPath)
-	cmd.Env = filtered
+	return filtered
 }
 
 func stringSliceBytes(values []string) [][]byte {

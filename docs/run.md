@@ -9,7 +9,7 @@
 - `tspack run --list`
 - `tspack run --list --json`
 - `tspack run --package <package-name> --list [--json]`
-- `tspack run [--package <package-name>] [target] --root <path> [--manifest <path>] --ready-timeout <seconds> [--once]`
+- `tspack run [--package <package-name>] [target] --root <path> [--manifest <path>] --ready-timeout <seconds> [--env KEY=VALUE]... [--once]`
 
 ## Listing targets
 
@@ -40,7 +40,7 @@
 }
 ```
 
-Use `--package <package-name>` with `--list` to show only one package's targets. `--list` rejects positional targets and `--once` because listing never starts a process.
+Use `--package <package-name>` with `--list` to show only one package's targets. `--list` rejects positional targets, `--once`, and `--env` because listing never starts a process and has no child execution environment.
 
 ## Target identity and selection
 
@@ -115,6 +115,32 @@ Status output includes the effective cwd, for example `Cwd: workspace (/repo)` o
 - Future reserved backends: `bun`, `deno` (not implemented yet and not launched by `tspack run`).
 
 Runtimes are process launch backends only. TSPack still owns manifest/lock/package/test lifecycle.
+
+## Environment overlays
+
+`tspack run` accepts repeatable explicit child-process environment overlays:
+
+```sh
+tspack run dev --env PORT=3001
+tspack run --package @acme/app dev --env PORT=3001 --env NODE_ENV=development
+tspack run dev --once --env PORT=3001
+```
+
+Each `--env` value must be `KEY=VALUE`. Keys must match `[A-Za-z_][A-Za-z0-9_]*`; empty keys, keys starting with a digit, and assignments without `=` are rejected with `TSPACK_RUN_INVALID_ENV`. Values may be empty (`--env FOO=`), and values may contain additional equals signs (`--env FOO=bar=baz`). Duplicate keys are deterministic: the later flag wins, and status output lists the key once.
+
+TSPack starts from `os.Environ()`, overlays the final `--env` key/value pairs for the child process, and passes that environment to the spawned command. It does not mutate the parent process environment, write values to the manifest/lock/store, load dotenv files, read env files, define manifest-level env declarations, expand variables, strip quotes, or perform shell interpolation. Values are literal after the user's shell has already produced argv. For example, TSPack does not expand `--env API_URL=$URL` or interpolate `--env PATH=$PATH:/x`; any expansion was done by the shell before TSPack received the argument.
+
+Status output prints only keys, never values:
+
+```text
+Env: PORT, NODE_ENV
+```
+
+If no overlays are provided, the `Env:` line is omitted. `tspack run --list` rejects `--env` because list mode does not execute a child process. `tspack doctor run` does not inspect CLI `--env` overlays.
+
+Readiness URLs and readiness configuration are not interpolated. If a server reads `PORT` from the child environment, the manifest `url` or TCP readiness port must already match the value supplied by `--env`; TSPack does not rewrite readiness URLs dynamically.
+
+`inspect --run` shares the RunTarget startup path and also accepts `--env KEY=VALUE` for the temporary child process while keeping inspect JSON on stdout clean.
 
 ## Streams
 

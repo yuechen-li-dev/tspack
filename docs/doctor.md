@@ -56,3 +56,7 @@ Text output includes stable detail lines when checks provide structured details.
 ## Run target cwd details
 
 `tspack doctor run` reports each RunTarget effective `cwd`, resolved `cwdPath`, `commandFirstToken`, and command/runtime availability. For `cwd: "package"`, doctor also reports `packageRoot` when it can be resolved.
+
+## Run environment overlays
+
+`tspack doctor run` inspects declared RunTargets and runtime availability only. It does not accept or evaluate CLI `--env` overlays, because those apply only when `tspack run` or `tspack inspect --run` starts a child process.

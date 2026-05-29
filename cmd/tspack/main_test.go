@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -2478,6 +2479,232 @@ func TestCLIRunListInvalidArgs(t *testing.T) {
 		if err == nil || !strings.Contains(string(b), "TSPACK_RUN_INVALID_ARGS") {
 			t.Fatalf("expected invalid args for %v: %v\n%s", args, err, string(b))
 		}
+	}
+}
+
+func TestRunEnvOverlayParsing(t *testing.T) {
+	tests := []struct {
+		name        string
+		assignments []string
+		wantKeys    []string
+		wantValues  map[string]string
+		wantErr     string
+	}{
+		{name: "single", assignments: []string{"KEY=VALUE"}, wantKeys: []string{"KEY"}, wantValues: map[string]string{"KEY": "VALUE"}},
+		{name: "duplicate last wins", assignments: []string{"KEY=first", "KEY=second"}, wantKeys: []string{"KEY"}, wantValues: map[string]string{"KEY": "second"}},
+		{name: "empty value", assignments: []string{"FOO="}, wantKeys: []string{"FOO"}, wantValues: map[string]string{"FOO": ""}},
+		{name: "value with equals", assignments: []string{"FOO=bar=baz"}, wantKeys: []string{"FOO"}, wantValues: map[string]string{"FOO": "bar=baz"}},
+		{name: "missing equals", assignments: []string{"FOO"}, wantErr: "TSPACK_RUN_INVALID_ENV"},
+		{name: "empty key", assignments: []string{"=bar"}, wantErr: "TSPACK_RUN_INVALID_ENV"},
+		{name: "digit key", assignments: []string{"1FOO=bar"}, wantErr: "TSPACK_RUN_INVALID_ENV"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			overlay := runEnvOverlay{}
+			var gotErr *runErr
+			for _, assignment := range tc.assignments {
+				overlay, gotErr = overlay.WithAssignment(assignment)
+				if gotErr != nil {
+					break
+				}
+			}
+			if tc.wantErr != "" {
+				if gotErr == nil || gotErr.code != tc.wantErr {
+					t.Fatalf("expected %s, got %#v", tc.wantErr, gotErr)
+				}
+				return
+			}
+			if gotErr != nil {
+				t.Fatalf("unexpected error: %#v", gotErr)
+			}
+			if !reflect.DeepEqual(overlay.Keys, tc.wantKeys) {
+				t.Fatalf("keys = %#v, want %#v", overlay.Keys, tc.wantKeys)
+			}
+			if !reflect.DeepEqual(overlay.Values, tc.wantValues) {
+				t.Fatalf("values = %#v, want %#v", overlay.Values, tc.wantValues)
+			}
+		})
+	}
+}
+
+func TestRunEnvOverlayExecutionStreamsAndParentEnv(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	script := `process.stdout.write('PORT=' + process.env.PORT + '\n');
+process.stdout.write('EMPTY=' + JSON.stringify(process.env.EMPTY_VALUE) + '\n');
+process.stdout.write('EQUALS=' + process.env.EQUALS_VALUE + '\n');
+process.stdout.write('INHERITED=' + process.env.TSPACK_PARENT_ENV + '\n');
+process.stderr.write('child stderr passthrough\n');
+process.stdout.write('READY\n');
+setInterval(() => {}, 1000);
+`
+	_ = os.WriteFile(filepath.Join(root, "env-ready.js"), []byte(script), 0o644)
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","env-ready.js"],ready:{kind:"stdout-match",pattern:"READY",stream:"stdout"}}]}]}`)
+
+	t.Setenv("TSPACK_PARENT_ENV", "from-parent")
+	if before := os.Getenv("PORT"); before != "" {
+		t.Setenv("PORT", before)
+	} else {
+		_ = os.Unsetenv("PORT")
+	}
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--ready-timeout", "3", "--once", "--env", "PORT=1111", "--env", "PORT=2222", "--env", "EMPTY_VALUE=", "--env", "EQUALS_VALUE=bar=baz", "--env", "SECRET_VALUE=top-secret")
+	cmd.Dir = repo
+	var stdout strings.Builder
+	var stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run --env failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	stdoutText := stdout.String()
+	stderrText := stderr.String()
+	for _, expected := range []string{"PORT=2222", "EMPTY=\"\"", "EQUALS=bar=baz", "INHERITED=from-parent", "READY"} {
+		if !strings.Contains(stdoutText, expected) {
+			t.Fatalf("stdout missing %q:\n%s", expected, stdoutText)
+		}
+	}
+	if !strings.Contains(stderrText, "child stderr passthrough") {
+		t.Fatalf("child stderr did not pass through:\n%s", stderrText)
+	}
+	if !strings.Contains(stderrText, "Env: PORT, EMPTY_VALUE, EQUALS_VALUE, SECRET_VALUE") {
+		t.Fatalf("stderr missing env keys:\n%s", stderrText)
+	}
+	for _, leaked := range []string{"Env: PORT=", "1111", "2222", "bar=baz", "top-secret"} {
+		if strings.Contains(stderrText, leaked) {
+			t.Fatalf("stderr leaked env value %q:\n%s", leaked, stderrText)
+		}
+	}
+	if os.Getenv("PORT") == "2222" || os.Getenv("SECRET_VALUE") == "top-secret" {
+		t.Fatalf("parent environment was mutated")
+	}
+	if strings.Contains(stdoutText, "Starting run target") || strings.Contains(stdoutText, "Env:") {
+		t.Fatalf("stdout contains TSPack status:\n%s", stdoutText)
+	}
+}
+
+func TestRunEnvOverlayInvalidCLIAndList(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js"],url:"http://127.0.0.1:5999"}]}]}`)
+
+	tests := []struct {
+		name string
+		args []string
+		code string
+	}{
+		{name: "no value", args: []string{"run", "--root", root, "--env"}, code: "TSPACK_RUN_INVALID_ENV"},
+		{name: "missing equals", args: []string{"run", "--root", root, "--env", "FOO"}, code: "TSPACK_RUN_INVALID_ENV"},
+		{name: "empty key", args: []string{"run", "--root", root, "--env", "=bar"}, code: "TSPACK_RUN_INVALID_ENV"},
+		{name: "digit key", args: []string{"run", "--root", root, "--env", "1FOO=bar"}, code: "TSPACK_RUN_INVALID_ENV"},
+		{name: "list env", args: []string{"run", "--root", root, "--list", "--env", "PORT=3001"}, code: "TSPACK_RUN_INVALID_ARGS"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command("go", append([]string{"run", "./cmd/tspack"}, tc.args...)...)
+			cmd.Dir = repo
+			b, err := cmd.CombinedOutput()
+			if err == nil || !strings.Contains(string(b), tc.code) {
+				t.Fatalf("expected %s for %v: %v\n%s", tc.code, tc.args, err, string(b))
+			}
+		})
+	}
+}
+
+func TestRunEnvOverlayHTTPReadinessPackageCwdAndManifest(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	packageDir := filepath.Join(root, "packages", "app")
+	if err := os.MkdirAll(packageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(root, "custom.manifest.tsx")
+	_ = os.WriteFile(manifestPath, []byte("export default {}\n"), 0o644)
+	markerPath := filepath.Join(root, "env-marker.txt")
+	port := reservePort(t)
+	script := `const fs = require('fs');
+const http = require('http');
+const port = Number(process.env.PORT);
+fs.writeFileSync(process.env.MARKER_PATH, process.env.PACKAGE_ENV + '|' + process.cwd());
+http.createServer((_, res) => { res.statusCode = 200; res.end('ok'); }).listen(port, '127.0.0.1');
+setInterval(() => {}, 1000);
+`
+	_ = os.WriteFile(filepath.Join(packageDir, "server.js"), []byte(script), 0o644)
+	stubIR := fmt.Sprintf(`{format:1,workspace:{name:"ws"},packages:[{name:"@acme/app",version:"1.0.0",root:"packages/app",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",cwd:"package",command:["node","server.js"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}}]}]}`, port)
+	writeRunFrontendStub(t, stubIR)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--manifest", manifestPath, "--package", "@acme/app", "dev", "--ready-timeout", "3", "--once", "--env", fmt.Sprintf("PORT=%d", port), "--env", "PACKAGE_ENV=ok", "--env", "MARKER_PATH="+markerPath)
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("package cwd manifest env run failed: %v\n%s", err, string(b))
+	}
+	marker, err := os.ReadFile(markerPath)
+	if err != nil {
+		t.Fatalf("missing marker: %v", err)
+	}
+	if string(marker) != "ok|"+packageDir {
+		t.Fatalf("marker = %q, want %q", string(marker), "ok|"+packageDir)
+	}
+	if !strings.Contains(string(b), "Env: PORT, PACKAGE_ENV, MARKER_PATH") || strings.Contains(string(b), "PACKAGE_ENV=ok") {
+		t.Fatalf("unexpected status output:\n%s", string(b))
+	}
+}
+
+func TestInspectRunEnvOverlay(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	port := reservePort(t)
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	script := `const http = require('http');
+const port = Number(process.env.PORT);
+http.createServer((_, res) => { res.statusCode = 200; res.end(process.env.INSPECT_ENV); }).listen(port, '127.0.0.1');
+setInterval(() => {}, 1000);
+`
+	_ = os.WriteFile(filepath.Join(root, "server.js"), []byte(script), 0o644)
+	writeRunFrontendStub(t, fmt.Sprintf(`{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}}]}]}`, port))
+
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	bridge := filepath.Join(frontend, "inspect-cli.js")
+	stub := `#!/usr/bin/env node
+import http from 'node:http';
+const args = process.argv.slice(2);
+http.get(args[1], (res) => {
+  let body = '';
+  res.on('data', (chunk) => body += chunk);
+  res.on('end', () => {
+    if (body !== 'inspect-value') {
+      console.error('missing inspect env: ' + body);
+      process.exit(2);
+    }
+    console.log('{"ok":true}');
+  });
+}).on('error', (error) => {
+  console.error(error.message);
+  process.exit(3);
+});
+`
+	_ = os.WriteFile(bridge, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(bridge) })
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "inspect", "--run", "dev", "--root", root, "--json", "--env", fmt.Sprintf("PORT=%d", port), "--env", "INSPECT_ENV=inspect-value")
+	cmd.Dir = repo
+	var stdout strings.Builder
+	var stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("inspect --run --env failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	if strings.TrimSpace(stdout.String()) != `{"ok":true}` {
+		t.Fatalf("inspect stdout not clean JSON: %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "Env: PORT, INSPECT_ENV") || strings.Contains(stderr.String(), "inspect-value") {
+		t.Fatalf("unexpected inspect stderr:\n%s", stderr.String())
 	}
 }
 

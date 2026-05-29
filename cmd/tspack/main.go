@@ -168,10 +168,10 @@ func printHelp() {
 	fmt.Println("  tspack artifact [--root .] [--out path] [--list] [--filter text] [--json]")
 	fmt.Println("  tspack bench [--root .] [--list] [--filter text] [--json]")
 	fmt.Println("  tspack doom [--root .] [--list] [--filter text] [--json] [--out path]")
-	fmt.Println("  tspack run [target] [--root .] [--manifest path] [--ready-timeout seconds] [--once]")
+	fmt.Println("  tspack run [target] [--root .] [--manifest path] [--ready-timeout seconds] [--env KEY=VALUE] [--once]")
 	fmt.Println("  tspack format [paths...] [--root .] [--check]")
 	fmt.Println("  tspack lint [paths...] [--root .] [--fix]")
-	fmt.Println("  tspack inspect <url> [experimental] [--url <url>] [--browser auto|vscode|playwright-chromium|chromium|browser-path|host-path|cdp] [--host-path path] [--browser-path path] [--cdp endpoint] [--list-targets] [--target index-or-id] [--target-url substring] [--viewport WxH] [--selector css] [--point x,y] [--json] [--out file] [--text file]")
+	fmt.Println("  tspack inspect <url> [experimental] [--run target] [--env KEY=VALUE] [--url <url>] [--browser auto|vscode|playwright-chromium|chromium|browser-path|host-path|cdp] [--host-path path] [--browser-path path] [--cdp endpoint] [--list-targets] [--target index-or-id] [--target-url substring] [--viewport WxH] [--selector css] [--point x,y] [--json] [--out file] [--text file]")
 	fmt.Println("  tspack doctor [format|run|inspect] [--root .] [--json]")
 	fmt.Println("  tspack init --kind <library|app> --name <package-name> [--version <version>] [--license <license>] [--force] [--dry-run]")
 }
@@ -180,6 +180,7 @@ func runInspectCommand(args []string) {
 	root := "."
 	runTarget := ""
 	runReadyTimeout := 30
+	runEnv := runEnvOverlay{}
 	positionalTarget := ""
 	bridgeArgs := []string{}
 	for i := 1; i < len(args); i++ {
@@ -212,6 +213,18 @@ func runInspectCommand(args []string) {
 				os.Exit(1)
 			}
 			runReadyTimeout = n
+		case "--env":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
+				fmt.Fprintln(os.Stderr, "TSPACK_RUN_INVALID_ENV: --env requires KEY=VALUE")
+				os.Exit(1)
+			}
+			i++
+			var envErr *runErr
+			runEnv, envErr = runEnv.WithAssignment(args[i])
+			if envErr != nil {
+				fmt.Fprintf(os.Stderr, "%s: %s\n", envErr.code, envErr.msg)
+				os.Exit(1)
+			}
 		default:
 			if !strings.HasPrefix(a, "-") && positionalTarget == "" {
 				positionalTarget = a
@@ -226,6 +239,10 @@ func runInspectCommand(args []string) {
 	if runTarget == "" && positionalTarget != "" && !strings.HasPrefix(positionalTarget, "http://") && !strings.HasPrefix(positionalTarget, "https://") {
 		runTarget = positionalTarget
 		bridgeArgs = append([]string{}, bridgeArgs[1:]...)
+	}
+	if runTarget == "" && len(runEnv.Keys) > 0 {
+		fmt.Fprintln(os.Stderr, "TSPACK_INSPECT_INVALID_TARGET_OPTIONS: --env requires --run or a run target name")
+		os.Exit(1)
 	}
 
 	bridge := filepath.Join("manifest-frontend", "dist", "src", "inspect-cli.js")
@@ -253,7 +270,10 @@ func runInspectCommand(args []string) {
 		rt := ref.Target
 		fmt.Fprintf(os.Stderr, "Starting run target %q...\n", runTarget)
 		fmt.Fprintf(os.Stderr, "Cwd: %s (%s)\n", effectiveRunTargetCwd(rt), cwdPath)
-		session, readyErr := startRunTargetInDir(workspaceRoot, cwdPath, rt, time.Duration(runReadyTimeout)*time.Second, os.Stderr, os.Stderr)
+		if len(runEnv.Keys) > 0 {
+			fmt.Fprintf(os.Stderr, "Env: %s\n", strings.Join(runEnv.Keys, ", "))
+		}
+		session, readyErr := startRunTargetInDir(workspaceRoot, cwdPath, rt, time.Duration(runReadyTimeout)*time.Second, os.Stderr, os.Stderr, runEnv)
 		if readyErr != nil {
 			code := "TSPACK_INSPECT_RUN_START_FAILED"
 			switch readyErr.code {

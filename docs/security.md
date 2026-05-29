@@ -67,3 +67,11 @@ Capabilities are sorted/deduplicated deterministically and round-trip through lo
 - script execution
 
 - `tspack outdated` fetches registry metadata only; it does not fetch tarballs or execute scripts.
+
+## Run environment overlays
+
+`tspack run --env KEY=VALUE` passes explicit values to the child process environment after inheriting the parent environment. These values are process inputs, not secret-manager entries: TSPack does not redact child output, store secrets, load dotenv files, or provide approval semantics for environment variables.
+
+TSPack status output prints only environment keys, such as `Env: PORT, NODE_ENV`, and never prints overlay values itself. The child process can still print any environment value to stdout or stderr, and those streams pass through unchanged.
+
+TSPack does not perform shell expansion, variable interpolation, or quote stripping for `--env`; the value is whatever argv contains after the user's shell has run.
