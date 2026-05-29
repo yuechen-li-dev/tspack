@@ -1720,6 +1720,58 @@ func TestCLIBiomeProjectConfigSuppressesDefaultSignal(t *testing.T) {
 	}
 }
 
+func TestCLIBiomeLintUnsafeArgForwarding(t *testing.T) {
+	repo := filepath.Join("..", "..")
+
+	cases := []struct {
+		name            string
+		args            []string
+		wantBackendArgv []string
+		wantOmittedArgv []string
+	}{
+		{
+			name:            "lint fix unsafe default path",
+			args:            []string{"lint", "--fix", "--unsafe"},
+			wantBackendArgv: []string{"lint", "--write", "--unsafe", "."},
+		},
+		{
+			name:            "lint fix unsafe preserves path",
+			args:            []string{"lint", "src", "--fix", "--unsafe"},
+			wantBackendArgv: []string{"lint", "--write", "--unsafe", "src"},
+		},
+		{
+			name:            "lint fix omits unsafe",
+			args:            []string{"lint", "--fix"},
+			wantBackendArgv: []string{"lint", "--write", "."},
+			wantOmittedArgv: []string{"--unsafe"},
+		},
+		{
+			name:            "lint check omits unsafe",
+			args:            []string{"lint"},
+			wantBackendArgv: []string{"lint", "."},
+			wantOmittedArgv: []string{"--write", "--unsafe"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			capture := filepath.Join(root, "capture.json")
+			localBiome := filepath.Join(root, "node_modules", ".bin", "biome")
+			writeBiomeExitBackend(t, localBiome, capture, 0, "BIOME_OK", "")
+
+			output, err := runTSPackForBiome(t, repo, root, append(tc.args, "--root", root), "")
+			if err != nil {
+				t.Fatalf("expected command to succeed: %v\n%s", err, output)
+			}
+
+			got := readCapturedBiomeArgv(t, capture)
+			assertBiomeArgsIncludeInOrder(t, got, tc.wantBackendArgv...)
+			assertBiomeArgsOmit(t, got, tc.wantOmittedArgv...)
+		})
+	}
+}
+
 func TestCLIBiomeFormatAndLintFailureDiagnostics(t *testing.T) {
 	repo := filepath.Join("..", "..")
 
@@ -1784,6 +1836,20 @@ func TestCLIBiomeFormatAndLintFailureDiagnostics(t *testing.T) {
 			},
 			wantBackendArgv: []string{"lint", "--write", "src"},
 		},
+		{
+			name:            "lint unsafe fix incomplete",
+			args:            []string{"lint", "src", "--fix", "--unsafe"},
+			backendExitCode: 1,
+			wantCode:        "TSPACK_LINT_FIX_INCOMPLETE",
+			wantText: []string{
+				"lint fix incomplete",
+				"Biome may have applied safe and unsafe fixes, but violations remain.",
+				"Unsafe fixes were enabled for this run.",
+				"Review the remaining diagnostics.",
+			},
+			wantOmittedCode: "TSPACK_BIOME_COMMAND_FAILED",
+			wantBackendArgv: []string{"lint", "--write", "--unsafe", "src"},
+		},
 	}
 
 	for _, tc := range cases {
@@ -1832,6 +1898,7 @@ func TestCLIBiomeSuccessPathsDoNotEmitFailureDiagnostics(t *testing.T) {
 		{name: "format check", args: []string{"format", "src", "--check"}},
 		{name: "lint check", args: []string{"lint", "src"}},
 		{name: "lint fix", args: []string{"lint", "src", "--fix"}},
+		{name: "lint unsafe fix", args: []string{"lint", "src", "--fix", "--unsafe"}},
 	}
 
 	for _, tc := range cases {
@@ -2070,6 +2137,23 @@ func assertBiomeArgsInclude(t *testing.T, got []string, want ...string) {
 	}
 }
 
+func assertBiomeArgsIncludeInOrder(t *testing.T, got []string, want ...string) {
+	t.Helper()
+	joined := strings.Join(got, " ")
+	nextIndex := 0
+	for _, arg := range got {
+		if nextIndex >= len(want) {
+			break
+		}
+		if arg == want[nextIndex] {
+			nextIndex++
+		}
+	}
+	if nextIndex != len(want) {
+		t.Fatalf("expected argv to include %q in order in %s", strings.Join(want, " "), joined)
+	}
+}
+
 func assertBiomeArgsOmit(t *testing.T, got []string, unwanted ...string) {
 	t.Helper()
 	joined := strings.Join(got, " ")
@@ -2131,6 +2215,27 @@ func TestCLIBiomeMissingBackendAndInvalidFlags(t *testing.T) {
 	b, err = cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(b), "TSPACK_LINT_INVALID_FLAGS") {
 		t.Fatalf("lint invalid flags missing: %v\n%s", err, string(b))
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "lint", "--unsafe", "--root", root)
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_LINT_INVALID_FLAGS") || !strings.Contains(string(b), "--unsafe requires --fix") {
+		t.Fatalf("lint unsafe invalid flags missing: %v\n%s", err, string(b))
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "format", "--unsafe", "--root", root)
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_FORMAT_INVALID_FLAGS") {
+		t.Fatalf("format unsafe invalid flags missing: %v\n%s", err, string(b))
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "format", "--check", "--unsafe", "--root", root)
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_FORMAT_INVALID_FLAGS") {
+		t.Fatalf("format check unsafe invalid flags missing: %v\n%s", err, string(b))
 	}
 }
 

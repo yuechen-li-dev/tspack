@@ -22,6 +22,7 @@ func runBiomeCommand(command string, args []string) {
 	paths := []string{}
 	useCheck := false
 	useFix := false
+	useUnsafe := false
 
 	for i := 1; i < len(args); i++ {
 		arg := args[i]
@@ -42,6 +43,11 @@ func runBiomeCommand(command string, args []string) {
 				emitBiomeInvalidFlags(command, "--fix is only valid for lint")
 			}
 			useFix = true
+		case "--unsafe":
+			if command == "format" {
+				emitBiomeInvalidFlags(command, "--unsafe is only valid for lint --fix")
+			}
+			useUnsafe = true
 		default:
 			if strings.HasPrefix(arg, "-") {
 				emitBiomeInvalidFlags(command, "unknown flag: "+arg)
@@ -50,13 +56,17 @@ func runBiomeCommand(command string, args []string) {
 		}
 	}
 
+	if useUnsafe && !useFix {
+		emitBiomeInvalidFlags(command, "--unsafe requires --fix")
+	}
+
 	biomePath := resolveBiomeBackend(root)
 	if biomePath == "" {
 		fmt.Fprintln(os.Stderr, "TSPACK_BIOME_BACKEND_NOT_FOUND: Biome backend was not found. Add @biomejs/biome as a tool dependency and run tspack sync, or install biome on PATH.")
 		os.Exit(1)
 	}
 
-	backendArgs, configPath, err := buildBiomeArgs(command, root, useCheck, useFix, paths)
+	backendArgs, configPath, err := buildBiomeArgs(command, root, useCheck, useFix, useUnsafe, paths)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "TSPACK_BIOME_CONFIG_FAILED: %v\n", err)
 		os.Exit(1)
@@ -74,7 +84,7 @@ func runBiomeCommand(command string, args []string) {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode := exitErr.ExitCode()
 			if exitCode >= 0 {
-				emitBiomeExitDiagnostic(command, useCheck, useFix, exitCode)
+				emitBiomeExitDiagnostic(command, useCheck, useFix, useUnsafe, exitCode)
 				os.Exit(exitCode)
 			}
 		}
@@ -84,7 +94,7 @@ func runBiomeCommand(command string, args []string) {
 	}
 }
 
-func emitBiomeExitDiagnostic(command string, useCheck bool, useFix bool, exitCode int) {
+func emitBiomeExitDiagnostic(command string, useCheck bool, useFix bool, useUnsafe bool, exitCode int) {
 	switch {
 	case command == "format" && useCheck:
 		fmt.Fprintf(os.Stderr, "TSPACK_FORMAT_CHECK_FAILED: format check failed\n")
@@ -95,9 +105,14 @@ func emitBiomeExitDiagnostic(command string, useCheck bool, useFix bool, exitCod
 		fmt.Fprintf(os.Stderr, "Biome format exited with code %d while applying formatting.\n", exitCode)
 	case command == "lint" && useFix:
 		fmt.Fprintf(os.Stderr, "TSPACK_LINT_FIX_INCOMPLETE: lint fix incomplete\n")
-		fmt.Fprintln(os.Stderr, "Biome may have applied safe fixes, but violations remain.")
+		if useUnsafe {
+			fmt.Fprintln(os.Stderr, "Biome may have applied safe and unsafe fixes, but violations remain.")
+			fmt.Fprintln(os.Stderr, "Unsafe fixes were enabled for this run.")
+		} else {
+			fmt.Fprintln(os.Stderr, "Biome may have applied safe fixes, but violations remain.")
+			fmt.Fprintln(os.Stderr, "Unsafe fixes are not applied by default.")
+		}
 		fmt.Fprintln(os.Stderr, "Review the remaining diagnostics.")
-		fmt.Fprintln(os.Stderr, "Unsafe fixes are not applied by default.")
 	case command == "lint":
 		fmt.Fprintf(os.Stderr, "TSPACK_LINT_CHECK_FAILED: lint check failed\n")
 		fmt.Fprintln(os.Stderr, "Biome reported lint violations.")
@@ -120,13 +135,16 @@ const defaultBiomeConfigStatusLine = "Using TSPack default Biome config: tabs, 1
 
 const defaultBiomeStyleSummary = "tabs, 100 columns, double quotes, organizeImports, recommended rules"
 
-func buildBiomeArgs(command, root string, useCheck, useFix bool, paths []string) ([]string, string, error) {
+func buildBiomeArgs(command, root string, useCheck, useFix, useUnsafe bool, paths []string) ([]string, string, error) {
 	args := []string{command}
 	if command == "format" && !useCheck {
 		args = append(args, "--write")
 	}
 	if command == "lint" && useFix {
 		args = append(args, "--write")
+		if useUnsafe {
+			args = append(args, "--unsafe")
+		}
 	}
 
 	configPath := ""
