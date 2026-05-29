@@ -83,3 +83,7 @@ With `tspack check --format --json`, Biome stdout/stderr is captured instead of 
 ## Sync compatibility expectation
 
 When Biome is declared as a direct tool dependency and materialized by `tspack sync`, TSPack generates `node_modules/.bin/biome` as part of strict compatibility materialization and preserves the executable package binary at `node_modules/@biomejs/biome/bin/biome` on POSIX. `tspack format`/`tspack lint` can resolve either local backend without npm script execution.
+
+## Related docs
+
+- `docs/claude-fooding-phase8.md` records the Phase 8 remediation closeout and release-gate expectations.

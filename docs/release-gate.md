@@ -173,6 +173,45 @@ RunTarget smoke coverage should verify:
 - `--env` status output lists keys only and never prints values.
 - `--env` values are literal after shell parsing; TSPack performs no shell interpolation.
 
+
+### Claude-fooding Phase 8 format/lint smoke
+
+The Phase 8 format/lint smoke must cover the closeout state documented in `docs/claude-fooding-phase8.md`:
+
+- `tspack format --check`
+- `tspack format`
+- `tspack lint`
+- `tspack lint --fix`
+- `tspack lint --fix --unsafe`
+- `tspack check --format`
+- `tspack check --format --json`
+- `tspack doctor format` format/lint backend and config reporting.
+- `tspack how TSPACK_FORMAT_CHECK_FAILED`.
+- `tspack how TSPACK_LINT_FIX_INCOMPLETE`.
+
+Backend and config smoke should include:
+
+- backend resolution through `node_modules/.bin/biome`;
+- backend resolution through `node_modules/@biomejs/biome/bin/biome`;
+- backend resolution through `biome` on `PATH`;
+- no `biome.json` or `biome.jsonc` emits the temporary default-config stderr message;
+- project `biome.json` suppresses the temporary default-config stderr message;
+- project `biome.jsonc` suppresses the temporary default-config stderr message;
+- executable-bit and root `.bin` materialization regression coverage.
+
+Phase 8 expected behavior coverage should verify:
+
+- `format --check` does not pass Biome `--check`;
+- `lint` is read-only unless `--fix` is present;
+- unsafe fixes require `--fix`;
+- format rejects `--unsafe`;
+- `check --format` does not write files;
+- `check --format --json` keeps stdout clean, parseable JSON;
+- project config suppresses the temporary default-config signal;
+- format failures use `TSPACK_FORMAT_CHECK_FAILED` or `TSPACK_FORMAT_WRITE_FAILED` as appropriate;
+- lint failures use `TSPACK_LINT_CHECK_FAILED` or `TSPACK_LINT_FIX_INCOMPLETE` as appropriate;
+- invalid unsafe flag behavior is covered.
+
 ## Mutation expectations
 
 - `outdated`: no lock/store/node_modules mutation.
