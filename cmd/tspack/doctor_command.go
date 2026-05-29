@@ -157,25 +157,27 @@ func doctorProject(root string) doctorBuilder {
 
 func doctorFormat(root string) doctorBuilder {
 	d := doctorBuilder{}
-	localBiome := filepath.Join(root, "node_modules", ".bin", "biome")
+	localBinBiome := filepath.Join(root, "node_modules", ".bin", "biome")
+	directPackageBiome := filepath.Join(root, "node_modules", "@biomejs", "biome", "bin", "biome")
 	pathBiome, pathErr := exec.LookPath("biome")
 	selected := resolveBiomeBackend(root)
 	if selected != "" {
 		details := map[string]any{
-			"selectedPath": selected,
-			"source":       "path",
-			"localPath":    localBiome,
-			"pathPath":     pathBiome,
-		}
-		if localBiome != "" && selected == localBiome {
-			details["source"] = "local"
+			"selectedPath":      selected,
+			"source":            biomeBackendSource(root, selected),
+			"localPath":         localBinBiome,
+			"directPackagePath": directPackageBiome,
+			"pathPath":          pathBiome,
 		}
 		if version := commandVersion(selected, "--version"); version != "" {
 			details["version"] = version
 		}
 		d.checks = append(d.checks, DoctorCheck{Name: "biome", Status: "ok", Message: "biome backend found", Details: details})
 	} else {
-		details := map[string]any{"localPath": localBiome}
+		details := map[string]any{
+			"localPath":         localBinBiome,
+			"directPackagePath": directPackageBiome,
+		}
 		if pathErr == nil {
 			details["pathPath"] = pathBiome
 		}
@@ -189,6 +191,19 @@ func doctorFormat(root string) doctorBuilder {
 		d.checks = append(d.checks, DoctorCheck{Name: "config", Status: "warning", Message: "biome config not found; TSPack defaults will be used"})
 	}
 	return d
+}
+
+func biomeBackendSource(root string, selected string) string {
+	for _, candidate := range localBiomeCandidates(root) {
+		if selected != candidate {
+			continue
+		}
+		if strings.Contains(candidate, filepath.Join("node_modules", ".bin")) {
+			return "local"
+		}
+		return "direct-package"
+	}
+	return "path"
 }
 
 func doctorRun(root string) doctorBuilder {

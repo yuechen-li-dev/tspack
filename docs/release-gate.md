@@ -24,6 +24,7 @@
 - `tspack run`
 - `tspack inspect <target>` (**experimental**)
 - `tspack format`
+- `tspack format --check`
 - `tspack lint`
 - `tspack doctor`
 - `tspack doctor security`
@@ -181,7 +182,7 @@ RunTarget smoke coverage should verify:
 - `pack`: may write package archives; must not mutate manifest/lock contract state.
 - `run` and `inspect --run`: do not mutate manifest contract files and must not infer `package.json` scripts when no declared `RunTargets` exist.
 - `artifact`, `test`, `bench`, and `doom`: may write harness outputs/artifacts but do not rewrite manifest/lock contract state.
-- `format` and `lint`: are Biome-backed lifecycle UX commands; see `docs/format-lint.md` for file-writing behavior.
+- `format` and `lint`: are Biome-backed lifecycle UX commands; see `docs/format-lint.md` for file-writing behavior and backend resolution order (`node_modules/.bin/biome`, `node_modules/@biomejs/biome/bin/biome`, then `PATH`).
 - `doctor`: is a non-mutating environment diagnostic command; see `docs/doctor.md`.
 
 ## Output expectations

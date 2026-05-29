@@ -92,6 +92,44 @@ func TestDoctorFormatMissingBiomeExitsNonzero(t *testing.T) {
 	}
 }
 
+func TestDoctorFormatReportsDirectPackageBiomeBackend(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	backend := filepath.Join(root, "node_modules", "@biomejs", "biome", "bin", "biome")
+	if err := os.MkdirAll(filepath.Dir(backend), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backend, []byte("#!/bin/sh\necho 1.0.0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "format", "--root", root, "--json")
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "PATH="+t.TempDir())
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("doctor format json failed: %v\n%s", err, string(b))
+	}
+	var report DoctorReport
+	if err := json.Unmarshal(b, &report); err != nil {
+		t.Fatalf("invalid doctor json: %v\n%s", err, string(b))
+	}
+	checks := flattenDoctorChecks(report)
+	biome := checks["biome"]
+	if biome.Details["selectedPath"] != backend {
+		t.Fatalf("expected selected direct package backend: %#v", biome.Details)
+	}
+	if biome.Details["source"] != "direct-package" {
+		t.Fatalf("expected direct-package source: %#v", biome.Details)
+	}
+	if biome.Details["directPackagePath"] != backend {
+		t.Fatalf("expected direct package path detail: %#v", biome.Details)
+	}
+}
+
 func TestDoctorRunSystemRuntimeAndReservedRuntimeSignal(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	writeManifestStubWithIR(t, repo, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",cwd:"package",url:"http://127.0.0.1:5173",command:["node","server.js"],ready:{kind:"http",path:"/"}}]}]}`)

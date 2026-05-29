@@ -52,13 +52,81 @@ func TestRootBinMaterializationAndStrictness(t *testing.T) {
 		{ID: "npm:transitive@1.0.0", Name: "transitive", Hash: transitive},
 	}, Edges: []lockfile.Edge{{From: "app:tool", To: "npm:tool@1.0.0", Kind: "tool"}, {From: "npm:tool@1.0.0", To: "npm:transitive@1.0.0", Kind: "runtime"}}}
 	res := NodeModulesMaterializer{}.Materialize(context.Background(), Request{WorkspaceRoot: ws, Lock: lf, Store: s, Options: Options{LinkMode: LinkModeCopy}})
-	if len(res.Diagnostics) > 0 { t.Fatalf("diags: %#v", res.Diagnostics) }
+	if len(res.Diagnostics) > 0 {
+		t.Fatalf("diags: %#v", res.Diagnostics)
+	}
 	mustExist(t, filepath.Join(ws, "node_modules", ".bin", "tool"))
-	if _, err := os.Stat(filepath.Join(ws, "node_modules", ".bin", "hidden")); err == nil { t.Fatal("transitive-only bin should not be root-exposed") }
+	if _, err := os.Stat(filepath.Join(ws, "node_modules", ".bin", "hidden")); err == nil {
+		t.Fatal("transitive-only bin should not be root-exposed")
+	}
 	if runtime.GOOS != "windows" {
 		st, err := os.Stat(filepath.Join(ws, "node_modules", "tool", "bin", "tool.js"))
-		if err != nil { t.Fatal(err) }
-		if st.Mode().Perm()&0o111 == 0 { t.Fatalf("expected executable mode, got %o", st.Mode().Perm()) }
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Mode().Perm()&0o111 == 0 {
+			t.Fatalf("expected executable mode, got %o", st.Mode().Perm())
+		}
+	}
+}
+
+func TestBiomeStyleBinMaterializationAndStrictness(t *testing.T) {
+	ws := t.TempDir()
+	s, _ := store.Open(t.TempDir())
+	biomePackageJSON := `{"name":"@biomejs/biome","bin":{"biome":"bin/biome"}}`
+	hiddenPackageJSON := `{"name":"@example/hidden-biome","bin":{"biome":"bin/biome"}}`
+	biome := putPkgWithPackageJSON(
+		t,
+		s,
+		"npm:@biomejs/biome@1.9.4",
+		"@biomejs/biome",
+		biomePackageJSON,
+		[]fileSpec{{path: "bin/biome", content: "#!/bin/sh\necho biome\n", mode: 0o755}},
+	)
+	hidden := putPkgWithPackageJSON(
+		t,
+		s,
+		"npm:@example/hidden-biome@1.0.0",
+		"@example/hidden-biome",
+		hiddenPackageJSON,
+		[]fileSpec{{path: "bin/biome", content: "#!/bin/sh\necho hidden\n", mode: 0o755}},
+	)
+	lf := &lockfile.Lockfile{
+		Packages: []lockfile.Package{
+			{ID: "npm:@biomejs/biome@1.9.4", Name: "@biomejs/biome", Hash: biome},
+			{ID: "npm:@example/hidden-biome@1.0.0", Name: "@example/hidden-biome", Hash: hidden},
+		},
+		Edges: []lockfile.Edge{
+			{From: "app:tool", To: "npm:@biomejs/biome@1.9.4", Kind: "tool"},
+			{From: "npm:@biomejs/biome@1.9.4", To: "npm:@example/hidden-biome@1.0.0", Kind: "runtime"},
+		},
+	}
+
+	res := NodeModulesMaterializer{}.Materialize(context.Background(), Request{WorkspaceRoot: ws, Lock: lf, Store: s, Options: Options{LinkMode: LinkModeCopy}})
+	if len(res.Diagnostics) > 0 {
+		t.Fatalf("diags: %#v", res.Diagnostics)
+	}
+
+	directBin := filepath.Join(ws, "node_modules", "@biomejs", "biome", "bin", "biome")
+	mustExist(t, directBin)
+	if runtime.GOOS != "windows" {
+		st, err := os.Stat(directBin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Mode().Perm()&0o111 == 0 {
+			t.Fatalf("expected Biome direct bin to be executable, got %o", st.Mode().Perm())
+		}
+	}
+	rootBin := filepath.Join(ws, "node_modules", ".bin", "biome")
+	mustExist(t, rootBin)
+	if target, err := filepath.EvalSymlinks(rootBin); err == nil && target != directBin {
+		t.Fatalf("expected root Biome bin to resolve to direct package bin %q, got %q", directBin, target)
+	}
+	transitiveBin := filepath.Join(ws, "node_modules", "@biomejs", "biome", "node_modules", "@example", "hidden-biome", "bin", "biome")
+	mustExist(t, transitiveBin)
+	if target, err := filepath.EvalSymlinks(rootBin); err == nil && target == transitiveBin {
+		t.Fatal("root Biome bin should not resolve to transitive Biome-like bin")
 	}
 }
 
@@ -160,14 +228,24 @@ type fileSpec struct {
 func putPkgWithPackageJSON(t *testing.T, s *store.Store, id, name, packageJSON string, files []fileSpec) string {
 	t.Helper()
 	d := t.TempDir()
-	if err := os.MkdirAll(d, 0o755); err != nil { t.Fatal(err) }
-	if err := os.WriteFile(filepath.Join(d, "package.json"), []byte(packageJSON), 0o644); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(d, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d, "package.json"), []byte(packageJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	for _, file := range files {
 		full := filepath.Join(d, file.path)
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil { t.Fatal(err) }
-		if err := os.WriteFile(full, []byte(file.content), file.mode); err != nil { t.Fatal(err) }
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(file.content), file.mode); err != nil {
+			t.Fatal(err)
+		}
 	}
 	ref, diags := s.PutArtifact(store.Artifact{ID: id, Name: name, Kind: store.ArtifactPathTree, RootDir: d})
-	if len(diags) > 0 { t.Fatal(diags) }
+	if len(diags) > 0 {
+		t.Fatal(diags)
+	}
 	return ref.Hash
 }
