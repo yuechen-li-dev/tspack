@@ -314,3 +314,17 @@ Expected behavior coverage:
 - No package-name trust model or trust-by-popularity whitelist.
 - OS jail support remains deferred; any future lifecycle execution must use a swappable backend seam and fail closed.
 - Acknowledgments and behavior evidence remain metadata, not execution permission.
+
+### M39b inspect extension and runtime-grounded IDE smoke
+
+The M39b release gate should cover the VS Code extension proof of concept without requiring a live VS Code or Electron CDP target in automated tests:
+
+- Fixture inspect JSON converts into extension tree nodes.
+- Tree labels prefer role plus accessible name, then fall back to tag/text.
+- Tree descriptions include compact `x,y,width,height` bounds and visible/focusable flags when available.
+- Selected-node JSON copy serializes the exact inspect node payload.
+- CLI command construction uses `tspack inspect --cdp <endpoint> --list-targets --json` for target discovery.
+- CLI command construction uses `tspack inspect --cdp <endpoint> --target <index> --json` for target inspection.
+- Missing `tspack` binary, unavailable CDP endpoint, no targets, diagnostics, and invalid JSON map to user-facing extension messages or output-channel debug details.
+- `docs/runtime-grounded-ide.md` exists and is linked from `docs/inspect.md`.
+- The proof of concept remains observation-only: no visual editing, source mutation, source mapping, LLM integration, screenshot/OCR/machine vision, framework adapters, Storybook integration, browser extension, xTest helper additions, or Code-OSS fork behavior.

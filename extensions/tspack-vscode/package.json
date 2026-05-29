@@ -1,0 +1,110 @@
+{
+  "name": "tspack-vscode",
+  "displayName": "TSPack Inspect",
+  "description": "Proof-of-concept VS Code view for TSPack runtime UI inspect data.",
+  "version": "0.0.1",
+  "private": true,
+  "publisher": "tspack",
+  "engines": {
+    "vscode": "^1.92.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:tspack.inspect.targets",
+    "onCommand:tspack.inspect.refresh",
+    "onCommand:tspack.inspect.copyNodeJson",
+    "onCommand:tspack.inspect.setCdpEndpoint",
+    "onView:tspackInspectTree"
+  ],
+  "main": "./dist/src/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "TSPack Inspect",
+      "properties": {
+        "tspack.inspect.cdpEndpoint": {
+          "type": "string",
+          "default": "http://127.0.0.1:9229",
+          "description": "CDP HTTP endpoint used by tspack inspect. Start VS Code or Chromium with --remote-debugging-port=9229."
+        },
+        "tspack.inspect.tspackPath": {
+          "type": "string",
+          "default": "tspack",
+          "description": "Path to the TSPack CLI binary."
+        },
+        "tspack.inspect.targetIndex": {
+          "type": "number",
+          "default": 0,
+          "description": "Default CDP target index used when refreshing the inspect tree."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "tspack.inspect.targets",
+        "title": "TSPack: Inspect CDP Targets"
+      },
+      {
+        "command": "tspack.inspect.refresh",
+        "title": "TSPack: Refresh Inspect Tree"
+      },
+      {
+        "command": "tspack.inspect.copyNodeJson",
+        "title": "TSPack: Copy Selected Inspect Node JSON"
+      },
+      {
+        "command": "tspack.inspect.setCdpEndpoint",
+        "title": "TSPack: Set CDP Endpoint"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "tspackInspect",
+          "title": "TSPack",
+          "icon": "resources/tspack.svg"
+        }
+      ]
+    },
+    "views": {
+      "tspackInspect": [
+        {
+          "id": "tspackInspectTree",
+          "name": "TSPack Inspect"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "tspack.inspect.targets",
+          "when": "view == tspackInspectTree",
+          "group": "navigation"
+        },
+        {
+          "command": "tspack.inspect.refresh",
+          "when": "view == tspackInspectTree",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "tspack.inspect.copyNodeJson",
+          "when": "view == tspackInspectTree && viewItem == inspectNode",
+          "group": "inline"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/vscode": "^1.92.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.3"
+  }
+}
