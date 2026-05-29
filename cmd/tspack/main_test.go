@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -1614,6 +1615,201 @@ func TestCLIBiomePathBackendFallback(t *testing.T) {
 	assertBiomeArgsOmit(t, got, "--check")
 }
 
+func TestCLIBiomeFormatAndLintFailureDiagnostics(t *testing.T) {
+	repo := filepath.Join("..", "..")
+
+	cases := []struct {
+		name            string
+		args            []string
+		backendExitCode int
+		wantCode        string
+		wantText        []string
+		wantOmittedCode string
+		wantBackendArgv []string
+		wantOmittedArgv []string
+	}{
+		{
+			name:            "format check",
+			args:            []string{"format", "src", "--check"},
+			backendExitCode: 1,
+			wantCode:        "TSPACK_FORMAT_CHECK_FAILED",
+			wantText: []string{
+				"format check failed",
+				"Biome format found files that would change.",
+				"Run `tspack format` to apply formatting.",
+			},
+			wantOmittedCode: "TSPACK_BIOME_COMMAND_FAILED",
+			wantBackendArgv: []string{"format", "src"},
+			wantOmittedArgv: []string{"--write", "--check"},
+		},
+		{
+			name:            "format write",
+			args:            []string{"format", "src"},
+			backendExitCode: 1,
+			wantCode:        "TSPACK_FORMAT_WRITE_FAILED",
+			wantText: []string{
+				"format failed",
+				"Biome format exited with code 1 while applying formatting.",
+			},
+			wantBackendArgv: []string{"format", "--write", "src"},
+		},
+		{
+			name:            "lint check",
+			args:            []string{"lint", "src"},
+			backendExitCode: 1,
+			wantCode:        "TSPACK_LINT_CHECK_FAILED",
+			wantText: []string{
+				"lint check failed",
+				"Biome reported lint violations.",
+				"Run `tspack lint --fix` to apply safe fixes where possible.",
+			},
+			wantBackendArgv: []string{"lint", "src"},
+			wantOmittedArgv: []string{"--write"},
+		},
+		{
+			name:            "lint fix incomplete",
+			args:            []string{"lint", "src", "--fix"},
+			backendExitCode: 1,
+			wantCode:        "TSPACK_LINT_FIX_INCOMPLETE",
+			wantText: []string{
+				"lint fix incomplete",
+				"Biome may have applied safe fixes, but violations remain.",
+				"Review the remaining diagnostics.",
+				"Unsafe fixes are not applied by default.",
+			},
+			wantBackendArgv: []string{"lint", "--write", "src"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			capture := filepath.Join(root, "capture.json")
+			localBiome := filepath.Join(root, "node_modules", ".bin", "biome")
+			writeBiomeExitBackend(t, localBiome, capture, tc.backendExitCode, "BIOME_STDOUT", "BIOME_STDERR")
+
+			output, err := runTSPackForBiome(t, repo, root, append(tc.args, "--root", root), "")
+			if err == nil {
+				t.Fatalf("expected command to fail, output:\n%s", output)
+			}
+			if !strings.Contains(output, tc.wantCode) {
+				t.Fatalf("expected diagnostic %s in output:\n%s", tc.wantCode, output)
+			}
+			if tc.wantOmittedCode != "" && strings.Contains(output, tc.wantOmittedCode) {
+				t.Fatalf("did not expect diagnostic %s in output:\n%s", tc.wantOmittedCode, output)
+			}
+			for _, want := range tc.wantText {
+				if !strings.Contains(output, want) {
+					t.Fatalf("expected %q in output:\n%s", want, output)
+				}
+			}
+			if !strings.Contains(output, "BIOME_STDOUT") {
+				t.Fatalf("expected Biome stdout to be preserved:\n%s", output)
+			}
+			if !strings.Contains(output, "BIOME_STDERR") {
+				t.Fatalf("expected Biome stderr to be preserved:\n%s", output)
+			}
+
+			got := readCapturedBiomeArgv(t, capture)
+			assertBiomeArgsInclude(t, got, tc.wantBackendArgv...)
+			assertBiomeArgsOmit(t, got, tc.wantOmittedArgv...)
+		})
+	}
+}
+
+func TestCLIBiomeSuccessPathsDoNotEmitFailureDiagnostics(t *testing.T) {
+	repo := filepath.Join("..", "..")
+
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{name: "format check", args: []string{"format", "src", "--check"}},
+		{name: "lint check", args: []string{"lint", "src"}},
+		{name: "lint fix", args: []string{"lint", "src", "--fix"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			capture := filepath.Join(root, "capture.json")
+			localBiome := filepath.Join(root, "node_modules", ".bin", "biome")
+			writeBiomeExitBackend(t, localBiome, capture, 0, "BIOME_OK", "")
+
+			output, err := runTSPackForBiome(t, repo, root, append(tc.args, "--root", root), "")
+			if err != nil {
+				t.Fatalf("expected command to succeed: %v\n%s", err, output)
+			}
+			failureCodes := []string{
+				"TSPACK_FORMAT_CHECK_FAILED",
+				"TSPACK_FORMAT_WRITE_FAILED",
+				"TSPACK_LINT_CHECK_FAILED",
+				"TSPACK_LINT_FIX_INCOMPLETE",
+				"TSPACK_BIOME_COMMAND_FAILED",
+			}
+			for _, code := range failureCodes {
+				if strings.Contains(output, code) {
+					t.Fatalf("did not expect failure diagnostic %s in output:\n%s", code, output)
+				}
+			}
+			if !strings.Contains(output, "BIOME_OK") {
+				t.Fatalf("expected Biome stdout to be preserved:\n%s", output)
+			}
+		})
+	}
+}
+
+func TestCLIBiomeBackendSignalStaysGeneric(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("signal termination test uses a POSIX shell")
+	}
+
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	localBiome := filepath.Join(root, "node_modules", ".bin", "biome")
+	if err := os.MkdirAll(filepath.Dir(localBiome), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	backend := "#!/bin/sh\nkill -TERM $$\n"
+	if err := os.WriteFile(localBiome, []byte(backend), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	output, err := runTSPackForBiome(t, repo, root, []string{"lint", "--root", root}, "")
+	if err == nil {
+		t.Fatalf("expected command to fail, output:\n%s", output)
+	}
+	if !strings.Contains(output, "TSPACK_BIOME_COMMAND_FAILED") {
+		t.Fatalf("expected generic backend failure for signal termination:\n%s", output)
+	}
+	if strings.Contains(output, "TSPACK_LINT_CHECK_FAILED") {
+		t.Fatalf("signal termination should not be reported as lint findings:\n%s", output)
+	}
+}
+
+func TestCLIBiomeBackendStartFailureStaysGeneric(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	localBiome := filepath.Join(root, "node_modules", ".bin", "biome")
+	if err := os.MkdirAll(filepath.Dir(localBiome), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(localBiome, []byte("not executable\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	output, err := runTSPackForBiome(t, repo, root, []string{"format", "--check", "--root", root}, "")
+	if err == nil {
+		t.Fatalf("expected command to fail, output:\n%s", output)
+	}
+	if !strings.Contains(output, "TSPACK_BIOME_COMMAND_FAILED") {
+		t.Fatalf("expected generic backend failure for start failure:\n%s", output)
+	}
+	if strings.Contains(output, "TSPACK_FORMAT_CHECK_FAILED") {
+		t.Fatalf("start failure should not be reported as format check failure:\n%s", output)
+	}
+}
+
 func writeBiomeCaptureBackend(t *testing.T, path string, marker string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -1641,6 +1837,40 @@ func runTSPackWithBiomeCapture(t *testing.T, repo string, root string, args []st
 		t.Fatalf("tspack failed: %v\n%s", err, string(b))
 	}
 	return string(b)
+}
+
+func writeBiomeExitBackend(t *testing.T, path string, capture string, exitCode int, stdoutText string, stderrText string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	backend := fmt.Sprintf(`#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync(%q, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }));
+if (%q) {
+  process.stdout.write(%q + '\n');
+}
+if (%q) {
+  process.stderr.write(%q + '\n');
+}
+process.exit(%d);
+`, capture, stdoutText, stdoutText, stderrText, stderrText, exitCode)
+	if err := os.WriteFile(path, []byte(backend), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func runTSPackForBiome(t *testing.T, repo string, root string, args []string, pathDir string) (string, error) {
+	t.Helper()
+	cmd := exec.Command("go", append([]string{"run", "./cmd/tspack"}, args...)...)
+	cmd.Dir = repo
+	pathValue := os.Getenv("PATH")
+	if pathDir != "" {
+		pathValue = pathDir + string(os.PathListSeparator) + pathValue
+	}
+	cmd.Env = append(os.Environ(), "PATH="+pathValue)
+	output, err := cmd.CombinedOutput()
+	return string(output), err
 }
 
 func readCapturedBiomeArgv(t *testing.T, capture string) []string {

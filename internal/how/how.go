@@ -237,6 +237,47 @@ var entries = []DiagnosticHelp{
 	{Code: "TSPACK_RUN_PACKAGE_ROOT_UNKNOWN", Title: "Run target package root is unknown", Summary: "A RunTarget requested cwd package, but tspack could not determine the declaring package root.", Why: "Package-relative commands need a concrete package directory before the child process can start.", Fixes: []string{"Declare package roots in split workspace package rows.", "Use a package-local package.manifest.tsx or a single/root package manifest shape.", "Use cwd: \"workspace\" when the command is intentionally workspace-root-relative."}},
 	{Code: "TSPACK_INIT_FILE_EXISTS", Title: "Init refused to overwrite existing file", Summary: "tspack init detected an existing file it would overwrite.", Why: "Init is conservative to avoid destroying existing project files unintentionally.", Fixes: []string{"Re-run with --force if overwrite is intentional.", "Use an empty directory for first-time initialization."}},
 	{Code: "TSPACK_BIOME_BACKEND_NOT_FOUND", Title: "Biome backend not found", Summary: "The Biome backend is not installed or not discoverable.", Why: "Formatting and linting require a working Biome backend for consistent workspace checks.", Fixes: []string{"Add @biomejs/biome as a tool dependency.", "Run tspack sync to materialize dependencies."}},
+	{
+		Code:    "TSPACK_FORMAT_CHECK_FAILED",
+		Title:   "Format check failed",
+		Summary: "Biome format found files that would change.",
+		Why:     "format --check is a read-only CI gate and exits nonzero when formatting differences are present.",
+		Fixes: []string{
+			"Run tspack format to apply formatting.",
+			"Review and commit the resulting formatting changes.",
+		},
+	},
+	{
+		Code:    "TSPACK_FORMAT_WRITE_FAILED",
+		Title:   "Format write failed",
+		Summary: "Biome failed while applying formatting changes.",
+		Why:     "format writes through Biome --write, so a nonzero backend exit means formatting did not complete successfully.",
+		Fixes: []string{
+			"Review Biome's output above the TSPack diagnostic.",
+			"Fix any reported file, configuration, or parser errors and rerun tspack format.",
+		},
+	},
+	{
+		Code:    "TSPACK_LINT_CHECK_FAILED",
+		Title:   "Lint check failed",
+		Summary: "Biome reported lint violations.",
+		Why:     "lint is read-only unless --fix is provided and exits nonzero when violations are present.",
+		Fixes: []string{
+			"Run tspack lint --fix to apply safe fixes where possible.",
+			"Review remaining diagnostics and fix them manually.",
+		},
+	},
+	{
+		Code:    "TSPACK_LINT_FIX_INCOMPLETE",
+		Title:   "Lint fix incomplete",
+		Summary: "Biome may have applied safe fixes, but violations remain.",
+		Why:     "lint --fix applies safe fixes only; it stays nonzero when the fix attempt leaves violations behind.",
+		Fixes: []string{
+			"Review the remaining Biome diagnostics.",
+			"Fix remaining violations manually.",
+			"Remember that unsafe fixes are not applied by default.",
+		},
+	},
 	{Code: "TSPACK_TEST_MODULE_LOAD_FAILED", Title: "Test module failed to load", Summary: "The test backend could not load a test module.", Why: "Tests must load successfully before assertions can run, otherwise failures are not trustworthy.", Fixes: []string{"Inspect backend error details and fix module initialization issues."}},
 	{
 		Code:    "TSPACK_SNAPSHOT_MISSING",

@@ -127,7 +127,18 @@ Page/analyzer:
 - `TSPACK_INSPECT_INVALID_POINT`
 
 
-- `tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. See `docs/format-lint.md`.
+## Format and lint diagnostics
+
+`tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. See `docs/format-lint.md`.
+
+- `TSPACK_BIOME_BACKEND_NOT_FOUND`: TSPack could not find a Biome backend in the local `.bin`, direct `@biomejs/biome` package binary, or `PATH`.
+- `TSPACK_BIOME_COMMAND_FAILED`: the Biome backend failed to start, was terminated by signal, or failed in an unmapped infrastructure path.
+- `TSPACK_FORMAT_INVALID_FLAGS`: `tspack format` received unsupported or malformed flags.
+- `TSPACK_FORMAT_CHECK_FAILED`: `tspack format --check` found files that would change. Run `tspack format` to apply formatting.
+- `TSPACK_FORMAT_WRITE_FAILED`: `tspack format` failed while asking Biome to write formatting changes.
+- `TSPACK_LINT_INVALID_FLAGS`: `tspack lint` received unsupported or malformed flags.
+- `TSPACK_LINT_CHECK_FAILED`: `tspack lint` reported lint violations. Run `tspack lint --fix` to apply safe fixes where possible.
+- `TSPACK_LINT_FIX_INCOMPLETE`: `tspack lint --fix` may have applied safe fixes, but violations remain. Unsafe fixes are not applied by default.
 
 - `tspack doctor` adds non-mutating environment diagnostics. See `docs/doctor.md`.
 
