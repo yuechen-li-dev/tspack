@@ -667,10 +667,15 @@ func TestPackMutationGuaranteesAndGeneratedPackageJSON(t *testing.T) {
 	ir := simpleIR()
 	pkg := ir["packages"].([]map[string]any)[0]
 	pkg["license"] = "MIT"
-	pkg["targets"] = []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "dist/index.js", "types": "dist/index.d.ts", "deps": []string{}, "peers": []string{}}}
+	pkg["dependencies"] = []map[string]any{
+		{"key": "react-dom", "kind": "peer", "source": map[string]any{"kind": "npm", "package": "react-dom", "range": ">=18 <20"}},
+		{"key": "react", "kind": "peer", "source": map[string]any{"kind": "npm", "package": "react", "range": ">=18 <20"}},
+	}
+	pkg["targets"] = []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "dist/index.js", "types": "dist/index.d.ts", "deps": []string{}, "peers": []string{"react-dom", "react"}}}
 	pkg["publish"] = map[string]any{"include": []string{"dist/**", "README.md"}, "exclude": []string{}}
 	irPath := writeIR(t, dir, ir)
 	_ = os.WriteFile(filepath.Join(dir, "dist", "index.js"), []byte("export const x = 1\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "dist", "index.d.ts"), []byte("export declare const x: number;\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "README.md"), []byte("readme\n"), 0o644)
 	lockPath := filepath.Join(dir, "ts-lock.toml")
 	lf := &lockfile.Lockfile{
@@ -723,6 +728,13 @@ func TestPackMutationGuaranteesAndGeneratedPackageJSON(t *testing.T) {
 	_ = json.Unmarshal(packageJSON, &parsed)
 	if parsed["name"] != "app" || parsed["version"] != "1.0.0" {
 		t.Fatalf("missing name/version: %s", string(packageJSON))
+	}
+	if parsed["license"] != "MIT" || parsed["main"] != "./dist/index.js" || parsed["types"] != "./dist/index.d.ts" {
+		t.Fatalf("missing generated package metadata: %s", string(packageJSON))
+	}
+	peers := parsed["peerDependencies"].(map[string]any)
+	if peers["react"] != ">=18 <20" || peers["react-dom"] != ">=18 <20" {
+		t.Fatalf("missing generated package peers: %s", string(packageJSON))
 	}
 	exports, ok := parsed["exports"].(map[string]any)
 	if !ok || exports["."] == nil {

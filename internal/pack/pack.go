@@ -90,6 +90,7 @@ func Pack(root string, pkg *graph.PackageNode, opts Options) Result {
 		if _, err := os.Stat(filepath.Join(pkgRoot, t.Types)); err != nil {
 			out.Diagnostics = append(out.Diagnostics, dErr("TSPACK_PACK_MISSING_TYPE_OUTPUT", "missing type output", t.Types))
 		}
+		out.Diagnostics = append(out.Diagnostics, unpublishablePeerDiagnostics(pkg, t)...)
 	}
 	if hasErrors(out.Diagnostics) {
 		diag.SortDiagnostics(out.Diagnostics)
@@ -208,17 +209,111 @@ func resolvePattern(root, pattern string) ([]matchedFile, []diag.Diagnostic) {
 	return out, nil
 }
 func generatedPackageJSON(pkg *graph.PackageNode) []byte {
-	pj := map[string]any{"name": pkg.Name, "version": pkg.Version}
-	if pkg.Policies.Types != nil {
+	pj := map[string]any{
+		"name":    pkg.Name,
+		"version": pkg.Version,
 	}
-	exp := map[string]any{}
+
+	if strings.TrimSpace(pkg.License) != "" {
+		pj["license"] = pkg.License
+	}
+
+	if rootTarget := rootExportTarget(pkg); rootTarget != nil {
+		pj["main"] = packageJSONPath(rootTarget.Runtime)
+		if strings.TrimSpace(rootTarget.Types) != "" {
+			pj["types"] = packageJSONPath(rootTarget.Types)
+		}
+	}
+
+	peerDependencies, optionalPeers := packageJSONPeerDependencies(pkg)
+	if len(peerDependencies) > 0 {
+		pj["peerDependencies"] = peerDependencies
+	}
+	if len(optionalPeers) > 0 {
+		peerDependenciesMeta := map[string]any{}
+		for _, peerName := range optionalPeers {
+			peerDependenciesMeta[peerName] = map[string]bool{"optional": true}
+		}
+		pj["peerDependenciesMeta"] = peerDependenciesMeta
+	}
+
+	exports := map[string]any{}
 	for _, t := range pkg.Targets {
-		ent := map[string]string{"default": "./" + filepath.ToSlash(t.Runtime), "types": "./" + filepath.ToSlash(t.Types)}
-		exp[t.Export] = ent
+		entry := map[string]string{
+			"default": packageJSONPath(t.Runtime),
+			"types":   packageJSONPath(t.Types),
+		}
+		exports[t.Export] = entry
 	}
-	pj["exports"] = exp
-	b, _ := json.MarshalIndent(pj, "", "  ")
-	return append(b, '\n')
+	pj["exports"] = exports
+
+	buf := bytes.NewBuffer(nil)
+	encoder := json.NewEncoder(buf)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	_ = encoder.Encode(pj)
+	return buf.Bytes()
+}
+
+func unpublishablePeerDiagnostics(pkg *graph.PackageNode, target *graph.TargetNode) []diag.Diagnostic {
+	var diagnostics []diag.Diagnostic
+	for _, dep := range target.PeerDeps {
+		if dep.Source.Kind == "npm" {
+			continue
+		}
+		diagnostics = append(diagnostics, dErr(
+			"TSPACK_PACK_UNPUBLISHABLE_PEER_DEPENDENCY",
+			"peer dependency cannot be represented in npm package.json",
+			pkg.Name,
+			target.Name,
+			dep.Key,
+			dep.Source.Kind,
+		))
+	}
+	return diagnostics
+}
+
+func rootExportTarget(pkg *graph.PackageNode) *graph.TargetNode {
+	for _, target := range pkg.Targets {
+		if target.Export == "." {
+			return target
+		}
+	}
+	return nil
+}
+
+func packageJSONPath(value string) string {
+	normalized := filepath.ToSlash(strings.TrimSpace(value))
+	normalized = strings.TrimPrefix(normalized, "./")
+	return "./" + normalized
+}
+
+func packageJSONPeerDependencies(pkg *graph.PackageNode) (map[string]string, []string) {
+	peerDependencies := map[string]string{}
+	optionalPeerNames := map[string]bool{}
+
+	for _, target := range pkg.Targets {
+		for _, dep := range target.PeerDeps {
+			if dep.Source.Kind != "npm" {
+				continue
+			}
+			if dep.Source.Package == "" || dep.Source.Range == "" {
+				continue
+			}
+			peerDependencies[dep.Source.Package] = dep.Source.Range
+			if dep.Optional {
+				optionalPeerNames[dep.Source.Package] = true
+			}
+		}
+	}
+
+	optionalPeers := make([]string, 0, len(optionalPeerNames))
+	for peerName := range optionalPeerNames {
+		optionalPeers = append(optionalPeers, peerName)
+	}
+	sort.Strings(optionalPeers)
+
+	return peerDependencies, optionalPeers
 }
 func badPath(p string) bool {
 	return strings.TrimSpace(p) == "" || filepath.IsAbs(p) || strings.Contains(p, "..") || strings.Contains(p, "\\")
