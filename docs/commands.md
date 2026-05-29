@@ -94,3 +94,7 @@ Native xTest snapshot update mode writes missing golden files and replaces misma
 ### `tspack test --batch`
 
 Native xTest batch mode runs test files concurrently with an automatic worker count, preserves deterministic report order, and keeps tests inside each file sequential. It composes with native `--filter`, `--compact`, `--update-snapshots`, `--json`, `--root`, `--watch`, and `--xtest-bridge`; `--list --batch` remains static discovery, and Vitest rejects batch with `TSPACK_TEST_BATCH_UNSUPPORTED_BACKEND`.
+
+### Lifecycle script visibility
+
+`update` records supported npm lifecycle scripts (`preinstall`, `install`, `postinstall`, `prepare`, and related pack/publish hooks) as lockfile package capabilities without executing them. `check` warns with `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT` for each recorded lifecycle script, and `why`/`why --json` include package capabilities in explanations. `sync` materializes packages without running lifecycle commands.

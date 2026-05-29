@@ -61,3 +61,7 @@ M31d intentionally ships curated diagnostic help entries, not full diagnostic co
 `TSPACK_TYPE_ASSERTION_REASON_REQUIRED` means an `assert.type` call omitted its reason or used an empty literal. Add a concise non-empty reason that explains why the type proposition matters.
 
 `TSPACK_TEST_TYPECHECK_FAILED` means the native xTest typecheck lane could not construct the source program for static assertions. Check that the native test file and local relative imports exist and can be parsed by TypeScript without relying on unsupported M34g features such as tsconfig path aliases.
+
+## TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT
+
+A package in the lockfile declares install-time executable code. TSPack records the script as a capability and blocks lifecycle execution by default during update, sync, and materialization. Investigate with `tspack why <package>`, `tspack why --reverse <package>`, and by inspecting the package capability metadata in `ts-lock.toml`. Remove or replace unexpected dependencies; keep expected ones only with an understanding that execution remains blocked unless future explicit policy support is added.

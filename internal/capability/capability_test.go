@@ -20,10 +20,10 @@ func TestFromPackageJSONScriptsLifecycleOnlySorted(t *testing.T) {
 
 	got := FromPackageJSONScripts(scripts)
 	want := []lockfile.Capability{
-		{Kind: "lifecycle-script", Detail: "install"},
-		{Kind: "lifecycle-script", Detail: "postinstall"},
-		{Kind: "lifecycle-script", Detail: "prepack"},
-		{Kind: "lifecycle-script", Detail: "prepare"},
+		{Kind: "lifecycleScript", Script: "install", Command: "node install.js"},
+		{Kind: "lifecycleScript", Script: "postinstall", Command: "node postinstall.js"},
+		{Kind: "lifecycleScript", Script: "prepack", Command: "node prepack.js"},
+		{Kind: "lifecycleScript", Script: "prepare", Command: "node prepare.js"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected capabilities: got=%#v want=%#v", got, want)
@@ -32,16 +32,18 @@ func TestFromPackageJSONScriptsLifecycleOnlySorted(t *testing.T) {
 
 func TestFromPackageJSONScriptsAllLifecycleScripts(t *testing.T) {
 	scripts := map[string]string{
-		"preinstall":  "x",
-		"install":     "x",
-		"postinstall": "x",
-		"prepublish":  "x",
-		"prepare":     "x",
-		"prepack":     "x",
-		"postpack":    "x",
+		"preinstall":     "x",
+		"install":        "x",
+		"postinstall":    "x",
+		"prepublish":     "x",
+		"prepare":        "x",
+		"prepack":        "x",
+		"postpack":       "x",
+		"prepublishOnly": "x",
+		"postpublish":    "x",
 	}
 	got := FromPackageJSONScripts(scripts)
-	if len(got) != 7 {
-		t.Fatalf("expected 7 lifecycle capabilities, got %d", len(got))
+	if len(got) != 9 {
+		t.Fatalf("expected 9 lifecycle capabilities, got %d", len(got))
 	}
 }

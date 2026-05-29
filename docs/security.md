@@ -80,3 +80,22 @@ TSPack does not perform shell expansion, variable interpolation, or quote stripp
 ## Pack artifact verification
 
 `tspack pack --verify` is a non-executing structural check of the produced npm tarball. It opens the generated archive, parses `package/package.json`, validates metadata and referenced file paths, and checks peer dependency metadata without running package code, lifecycle hooks, package scripts, `npm install`, publish flows, or network registry checks.
+
+## Lifecycle script capabilities (M37a)
+
+TSPack detects npm lifecycle scripts as package capabilities. Supported lifecycle names are `preinstall`, `install`, `postinstall`, `prepack`, `prepare`, `postpack`, `prepublish`, `prepublishOnly`, and `postpublish`. Commands are copied as raw strings from `package.json`; TSPack does not parse or execute them.
+
+A capability is recorded on the lockfile package entry, for example:
+
+```toml
+[[package.capability]]
+kind = "lifecycleScript"
+script = "postinstall"
+command = "node install.js"
+```
+
+`update` refreshes capability metadata while resolving packages. `sync` and materialization read this metadata but never execute lifecycle scripts and must not mutate the lockfile just to add missing metadata. `check` warns with `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT`, and `why` shows lifecycle capabilities next to the matching lock package.
+
+This is a supply-chain visibility feature: in traditional npm installs, lifecycle scripts can run during installation and may access CI, cloud, npm, or environment credentials. TSPack keeps fetching and syncing separate from execution. Future lifecycle testing, approval policy, and jailed execution are deferred.
+
+`update --dry-run` includes lifecycle capability changes as ordinary package changes when lock metadata differs. A dedicated lifecycle capability diff view is deferred.

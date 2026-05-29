@@ -31,7 +31,7 @@ M7 resolves `source.kind == "npm"` dependency intents from the workspace graph i
 
 - Resolver may fetch metadata/tarballs and inspect archive contents.
 - Resolver never executes lifecycle scripts (`preinstall`, `install`, `postinstall`, `prepare`, etc.).
-- Lifecycle scripts are recorded as package capabilities: `kind=lifecycle-script`, `detail=<script-name>`.
+- Lifecycle scripts are recorded as package capabilities: `kind=lifecycleScript`, `script=<script-name>`, `command=<raw-command>`.
 
 ## Current M7 limitations
 

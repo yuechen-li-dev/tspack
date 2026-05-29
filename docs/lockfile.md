@@ -18,3 +18,22 @@ Non-goals: resolver, npm/git fetching, update/sync CLI flows, store, `node_modul
 - `[[package]]` entries for source-pinned packages.
 - `[[edge]]` entries connecting source graph nodes to resolved package ids.
 - `[[target]]` entries for target outputs.
+
+## Package capabilities
+
+Package entries may contain nested capability records. M37a records npm lifecycle scripts as explicit capabilities:
+
+```toml
+[[package]]
+id = "npm:esbuild@0.24.0"
+name = "esbuild"
+version = "0.24.0"
+source = "npm"
+
+  [[package.capability]]
+  kind = "lifecycleScript"
+  script = "postinstall"
+  command = "node install.js"
+```
+
+Capabilities are sorted deterministically by package ID and then by capability kind, script, and command. Old lockfiles without capability metadata still parse as packages with no capabilities. `update` writes refreshed capability metadata; `check` and `sync` do not rewrite a lockfile solely to add missing capabilities.

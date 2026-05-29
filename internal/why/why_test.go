@@ -87,6 +87,28 @@ func TestWhyMatrix(t *testing.T) {
 		}
 	})
 
+	t.Run("lock package capabilities are exposed", func(t *testing.T) {
+		capLock := buildLock()
+		for index := range capLock.Packages {
+			if capLock.Packages[index].ID == "npm:react@19.1.0" {
+				capLock.Packages[index].Capabilities = []lockfile.Capability{{
+					Kind:    "lifecycleScript",
+					Script:  "postinstall",
+					Command: "node install.js",
+				}}
+			}
+		}
+		r := Analyze(g, capLock, Options{Query: "npm:react@19.1.0"})
+		e := mustFindExplanation(t, r, "lock-package", "", "", "")
+		if len(e.LockPackages) != 1 || len(e.LockPackages[0].Capabilities) != 1 {
+			t.Fatalf("expected one capability on lock package, got %#v", e.LockPackages)
+		}
+		capability := e.LockPackages[0].Capabilities[0]
+		if capability.Kind != "lifecycleScript" || capability.Script != "postinstall" || capability.Command != "node install.js" || capability.Execution != "blocked" {
+			t.Fatalf("unexpected capability: %#v", capability)
+		}
+	})
+
 	t.Run("lock transitive id", func(t *testing.T) {
 		r := Analyze(g, lf, Options{Query: "npm:left-pad@1.2.0"})
 		e := mustFindExplanation(t, r, "lock-package", "", "", "")

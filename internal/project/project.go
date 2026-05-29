@@ -116,13 +116,7 @@ func Check(opts Options) Result {
 			out = append(out, d...)
 			out = append(out, lockfile.CheckGraphConsistency(g, lf).Diagnostics...)
 			out = append(out, lockfile.CheckVersionConflicts(lf).Diagnostics...)
-			for _, pkg := range lf.Packages {
-				for _, cap := range pkg.Capabilities {
-					if cap.Kind == "lifecycle-script" {
-						out = append(out, diag.Diagnostic{Code: "TSPACK_CAPABILITY_LIFECYCLE_SCRIPT_PRESENT", Severity: diag.SeverityWarning, Message: "lockfile package has lifecycle-script capability", Details: []string{pkg.ID, cap.Detail}})
-					}
-				}
-			}
+			out = append(out, lifecycleCapabilityDiagnostics(lf)...)
 		}
 	} else if os.IsNotExist(err) {
 		out = append(out, diag.Diagnostic{Code: "TSPACK_CHECK_LOCKFILE_MISSING", Severity: diag.SeverityWarning, Message: "lockfile is missing"})
@@ -629,4 +623,94 @@ func hasErrors(diags []diag.Diagnostic) bool {
 		}
 	}
 	return false
+}
+
+func lifecycleCapabilityDiagnostics(lf *lockfile.Lockfile) []diag.Diagnostic {
+	if lf == nil {
+		return nil
+	}
+	diagnostics := []diag.Diagnostic{}
+	pathsByPackage := lifecyclePulledByPaths(lf)
+	for _, pkg := range lf.Packages {
+		for _, capability := range pkg.Capabilities {
+			if !isLifecycleCapability(capability) {
+				continue
+			}
+			details := []string{
+				"package: " + pkg.ID,
+				"script: " + capability.Script,
+				"command: " + capability.Command,
+				"execution: blocked by default",
+			}
+			paths := pathsByPackage[pkg.ID]
+			if len(paths) > 0 {
+				details = append(details, "pulled by:")
+				for _, path := range paths {
+					details = append(details, "  "+strings.Join(path, " -> "))
+				}
+			}
+			diagnostics = append(diagnostics, diag.Diagnostic{
+				Code:     "TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT",
+				Severity: diag.SeverityWarning,
+				Message:  "package declares install-time lifecycle script",
+				Details:  details,
+			})
+		}
+	}
+	diag.SortDiagnostics(diagnostics)
+	return diagnostics
+}
+
+func isLifecycleCapability(capability lockfile.Capability) bool {
+	return capability.Kind == "lifecycleScript" || capability.Kind == "lifecycle-script"
+}
+
+func lifecyclePulledByPaths(lf *lockfile.Lockfile) map[string][][]string {
+	edgesByFrom := map[string][]lockfile.Edge{}
+	for _, edge := range lf.Edges {
+		edgesByFrom[edge.From] = append(edgesByFrom[edge.From], edge)
+	}
+	for from := range edgesByFrom {
+		sort.SliceStable(edgesByFrom[from], func(i, j int) bool {
+			if edgesByFrom[from][i].To != edgesByFrom[from][j].To {
+				return edgesByFrom[from][i].To < edgesByFrom[from][j].To
+			}
+			return edgesByFrom[from][i].Kind < edgesByFrom[from][j].Kind
+		})
+	}
+
+	roots := []string{}
+	for from := range edgesByFrom {
+		if strings.Contains(from, ":target:") || strings.HasSuffix(from, ":tool") {
+			roots = append(roots, from)
+		}
+	}
+	sort.Strings(roots)
+
+	pathsByPackage := map[string][][]string{}
+	for _, root := range roots {
+		queue := [][]string{{root}}
+		seen := map[string]bool{}
+		for len(queue) > 0 {
+			path := queue[0]
+			queue = queue[1:]
+			current := path[len(path)-1]
+			for _, edge := range edgesByFrom[current] {
+				if seen[edge.To] {
+					continue
+				}
+				seen[edge.To] = true
+				nextPath := append(append([]string(nil), path...), edge.To)
+				pathsByPackage[edge.To] = append(pathsByPackage[edge.To], nextPath)
+				queue = append(queue, nextPath)
+			}
+		}
+	}
+	for packageID := range pathsByPackage {
+		paths := pathsByPackage[packageID]
+		sort.SliceStable(paths, func(i, j int) bool {
+			return strings.Join(paths[i], " -> ") < strings.Join(paths[j], " -> ")
+		})
+	}
+	return pathsByPackage
 }

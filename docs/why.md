@@ -211,3 +211,7 @@ When multiple lock versions match, suggestions are sorted by lock ID and every m
 ## Related docs
 
 - See `docs/claude-fooding-phase6.md` for the Phase 6 pack/why remediation closeout.
+
+## Package capabilities
+
+When a matching lock package declares lifecycle capabilities, `tspack why` prints them under `capabilities` with `execution: blocked by default`. JSON output includes a `capabilities` array on lock package objects with `{ kind, script, command, execution }`. Reverse why keeps the same reachability semantics and includes capabilities for the matched lock package.

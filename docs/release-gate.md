@@ -202,3 +202,7 @@ RunTarget smoke coverage should verify:
 - `npm test` in `manifest-frontend/` remains responsible for executing frontend tests.
 - `npm run typecheck:manifest-api` in `manifest-frontend/` validates `tspack/manifest` authoring declarations against typed fixtures.
 - Stricter standalone test-file typecheck is tracked as future M31c work.
+
+## Lifecycle capability smoke
+
+Create a fake npm registry package with a `postinstall` script that would write a marker file if executed. Run `tspack update` and verify `ts-lock.toml` records a `lifecycleScript` capability with the raw command. Run `tspack check` and verify `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT` is reported as a warning. Run `tspack sync` and verify the marker file is not created.

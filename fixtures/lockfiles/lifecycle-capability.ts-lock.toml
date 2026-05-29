@@ -1,0 +1,15 @@
+[lock]
+format = 1
+tool = "tspack"
+
+[[package]]
+id = "npm:fixture-lifecycle@1.0.0"
+name = "fixture-lifecycle"
+version = "1.0.0"
+source = "npm"
+integrity = "sha512-fixture"
+
+  [[package.capability]]
+  kind = "lifecycleScript"
+  script = "postinstall"
+  command = "node install.js"

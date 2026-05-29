@@ -2,19 +2,22 @@ package capability
 
 import (
 	"sort"
-	"strings"
 
 	"github.com/tspack/tspack/internal/lockfile"
 )
+
+const LifecycleScriptKind = "lifecycleScript"
 
 var lifecycleScriptNames = []string{
 	"preinstall",
 	"install",
 	"postinstall",
-	"prepublish",
-	"prepare",
 	"prepack",
+	"prepare",
 	"postpack",
+	"prepublish",
+	"prepublishOnly",
+	"postpublish",
 }
 
 func FromPackageJSONScripts(scripts map[string]string) []lockfile.Capability {
@@ -22,31 +25,31 @@ func FromPackageJSONScripts(scripts map[string]string) []lockfile.Capability {
 		return nil
 	}
 
-	capabilitySet := make(map[string]struct{}, len(lifecycleScriptNames))
+	capabilities := make([]lockfile.Capability, 0)
 	for _, scriptName := range lifecycleScriptNames {
-		if _, ok := scripts[scriptName]; ok {
-			capabilitySet["lifecycle-script|"+scriptName] = struct{}{}
-		}
-	}
-
-	if len(capabilitySet) == 0 {
-		return nil
-	}
-
-	capabilities := make([]lockfile.Capability, 0, len(capabilitySet))
-	for key := range capabilitySet {
-		kind, detail, ok := strings.Cut(key, "|")
-		if !ok || kind == "" || detail == "" {
+		command, ok := scripts[scriptName]
+		if !ok {
 			continue
 		}
-		capabilities = append(capabilities, lockfile.Capability{Kind: kind, Detail: detail})
+		capabilities = append(capabilities, lockfile.Capability{
+			Kind:    LifecycleScriptKind,
+			Script:  scriptName,
+			Command: command,
+		})
+	}
+
+	if len(capabilities) == 0 {
+		return nil
 	}
 
 	sort.SliceStable(capabilities, func(i, j int) bool {
 		if capabilities[i].Kind != capabilities[j].Kind {
 			return capabilities[i].Kind < capabilities[j].Kind
 		}
-		return capabilities[i].Detail < capabilities[j].Detail
+		if capabilities[i].Script != capabilities[j].Script {
+			return capabilities[i].Script < capabilities[j].Script
+		}
+		return capabilities[i].Command < capabilities[j].Command
 	})
 
 	return capabilities

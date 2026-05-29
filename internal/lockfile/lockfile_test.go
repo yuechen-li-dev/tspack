@@ -25,7 +25,7 @@ func TestParseAndMarshal(t *testing.T) {
 }
 
 func TestCapabilityRoundTripAndDiff(t *testing.T) {
-	lf := &Lockfile{Lock: LockHeader{Format: 1, Tool: "tspack"}, Packages: []Package{{ID: "npm:a@1", Name: "a", Source: "npm", Version: "1", Integrity: "x", Capabilities: []Capability{{Kind: "lifecycle-script", Detail: "postinstall"}, {Kind: "lifecycle-script", Detail: "install"}}}}}
+	lf := &Lockfile{Lock: LockHeader{Format: 1, Tool: "tspack"}, Packages: []Package{{ID: "npm:a@1", Name: "a", Source: "npm", Version: "1", Integrity: "x", Capabilities: []Capability{{Kind: "lifecycleScript", Script: "postinstall", Command: "node postinstall.js"}, {Kind: "lifecycleScript", Script: "install", Command: "node install.js"}}}}}
 	b, err := Marshal(lf)
 	if err != nil {
 		t.Fatalf("marshal failed: %v", err)
@@ -34,17 +34,56 @@ func TestCapabilityRoundTripAndDiff(t *testing.T) {
 	if len(diags) != 0 {
 		t.Fatalf("parse diagnostics: %#v", diags)
 	}
-	if !reflect.DeepEqual(parsed.Packages[0].Capabilities, []Capability{{Kind: "lifecycle-script", Detail: "install"}, {Kind: "lifecycle-script", Detail: "postinstall"}}) {
+	if !reflect.DeepEqual(parsed.Packages[0].Capabilities, []Capability{{Kind: "lifecycleScript", Script: "install", Command: "node install.js"}, {Kind: "lifecycleScript", Script: "postinstall", Command: "node postinstall.js"}}) {
 		t.Fatalf("expected sorted capabilities, got %#v", parsed.Packages[0].Capabilities)
 	}
 
 	old := &Lockfile{Lock: LockHeader{Format: 1}, Packages: []Package{{ID: "npm:a@1", Name: "a", Source: "npm", Version: "1", Integrity: "x"}}}
-	next := &Lockfile{Lock: LockHeader{Format: 1}, Packages: []Package{{ID: "npm:a@1", Name: "a", Source: "npm", Version: "1", Integrity: "x", Capabilities: []Capability{{Kind: "lifecycle-script", Detail: "postinstall"}}}}}
+	next := &Lockfile{Lock: LockHeader{Format: 1}, Packages: []Package{{ID: "npm:a@1", Name: "a", Source: "npm", Version: "1", Integrity: "x", Capabilities: []Capability{{Kind: "lifecycleScript", Script: "postinstall", Command: "node postinstall.js"}}}}}
 	d := DiffLockfiles(old, next)
 	if len(d.PackagesChanged) != 1 {
 		t.Fatalf("expected package changed for added capability, got %#v", d)
 	}
 }
+
+func TestCapabilityFixtureSemanticRoundTrip(t *testing.T) {
+	b, err := os.ReadFile("../../fixtures/lockfiles/lifecycle-capability.ts-lock.toml")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	parsed, diags := Parse("lifecycle-capability.ts-lock.toml", b)
+	if len(diags) != 0 {
+		t.Fatalf("parse diagnostics: %#v", diags)
+	}
+	encoded, err := Marshal(parsed)
+	if err != nil {
+		t.Fatalf("marshal fixture: %v", err)
+	}
+	parsedAgain, diags := Parse("lifecycle-capability.roundtrip.ts-lock.toml", encoded)
+	if len(diags) != 0 {
+		t.Fatalf("roundtrip diagnostics: %#v", diags)
+	}
+	if !reflect.DeepEqual(parsed.Packages, parsedAgain.Packages) {
+		t.Fatalf("package semantic roundtrip mismatch: got %#v want %#v", parsedAgain.Packages, parsed.Packages)
+	}
+}
+
+func TestOldFixtureWithoutCapabilitiesParses(t *testing.T) {
+	b, err := os.ReadFile("../../fixtures/lockfiles/minimal.ts-lock.toml")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	parsed, diags := Parse("minimal.ts-lock.toml", b)
+	if len(diags) != 0 {
+		t.Fatalf("parse diagnostics: %#v", diags)
+	}
+	for _, pkg := range parsed.Packages {
+		if len(pkg.Capabilities) != 0 {
+			t.Fatalf("old fixture should not have capabilities: %#v", pkg)
+		}
+	}
+}
+
 func TestInvalids(t *testing.T) {
 	cases := []struct{ f, code string }{{"invalid-bad-format.ts-lock.toml", "TSPACK_LOCK_UNSUPPORTED_FORMAT"}, {"invalid-duplicate-package.ts-lock.toml", "TSPACK_LOCK_DUPLICATE_PACKAGE"}, {"invalid-unknown-edge-ref.ts-lock.toml", "TSPACK_LOCK_UNKNOWN_PACKAGE_REF"}, {"invalid-target-path.ts-lock.toml", "TSPACK_LOCK_INVALID_PATH"}}
 	for _, tc := range cases {
