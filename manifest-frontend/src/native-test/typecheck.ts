@@ -44,6 +44,15 @@ type TspackInspectBounds = {
   width: number;
   height: number;
 };
+type TspackInspectSourceHint = {
+  raw?: string;
+  file?: string;
+  line?: number;
+  column?: number;
+  component?: string;
+  symbol?: string;
+  parseError?: string;
+};
 type TspackInspectNode = {
   id: string;
   tag: string;
@@ -53,6 +62,7 @@ type TspackInspectNode = {
   bounds: TspackInspectBounds;
   visible: boolean;
   focusable?: boolean;
+  source?: TspackInspectSourceHint;
   style?: Record<string, string | undefined>;
   children: TspackInspectNode[];
 };

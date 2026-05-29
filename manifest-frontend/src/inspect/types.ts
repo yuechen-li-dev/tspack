@@ -7,6 +7,16 @@ export type Bounds = {
   height: number;
 };
 
+export type UISourceHint = {
+  raw?: string;
+  file?: string;
+  line?: number;
+  column?: number;
+  component?: string;
+  symbol?: string;
+  parseError?: string;
+};
+
 export type UIInspectNode = {
   id: string;
   tag: string;
@@ -16,6 +26,7 @@ export type UIInspectNode = {
   bounds: Bounds;
   visible: boolean;
   focusable?: boolean;
+  source?: UISourceHint;
   style?: {
     display?: string;
     position?: string;

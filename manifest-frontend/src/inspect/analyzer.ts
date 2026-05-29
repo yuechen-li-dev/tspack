@@ -33,6 +33,75 @@ export const INSPECT_ANALYZER_SCRIPT = String.raw`
     return txt || undefined;
   };
 
+  const isPositiveIntegerText = (value) => /^[1-9][0-9]*$/.test(value);
+
+  const parseSourceLocation = (raw) => {
+    const source = { raw };
+    const value = raw.trim();
+
+    if (!value) {
+      source.parseError = 'empty source hint';
+      return source;
+    }
+
+    if (!value.includes(':')) {
+      source.file = value;
+      return source;
+    }
+
+    const parts = value.split(':');
+    const lastPart = parts[parts.length - 1];
+    const previousPart = parts.length > 1 ? parts[parts.length - 2] : undefined;
+
+    if (isPositiveIntegerText(lastPart) && previousPart !== undefined && isPositiveIntegerText(previousPart)) {
+      const file = parts.slice(0, -2).join(':');
+      if (!file) {
+        source.parseError = 'missing source file';
+        return source;
+      }
+
+      source.file = file;
+      source.line = Number(previousPart);
+      source.column = Number(lastPart);
+      return source;
+    }
+
+    if (isPositiveIntegerText(lastPart)) {
+      const file = parts.slice(0, -1).join(':');
+      if (!file) {
+        source.parseError = 'missing source file';
+        return source;
+      }
+
+      source.file = file;
+      source.line = Number(lastPart);
+      return source;
+    }
+
+    source.parseError = 'invalid source line or column';
+    return source;
+  };
+
+  const sourceHintFor = (el) => {
+    const raw = el.getAttribute('data-tspack-source');
+    const component = el.getAttribute('data-tspack-component');
+    const symbol = el.getAttribute('data-tspack-symbol');
+
+    if (raw === null && !component && !symbol) {
+      return undefined;
+    }
+
+    const source = raw === null ? {} : parseSourceLocation(raw);
+    if (component) {
+      source.component = component;
+    }
+    if (symbol) {
+      source.symbol = symbol;
+    }
+
+    return source;
+  };
+
   const nodeFor = (el) => {
     const rect = el.getBoundingClientRect();
     const cs = window.getComputedStyle(el);
@@ -48,6 +117,7 @@ export const INSPECT_ANALYZER_SCRIPT = String.raw`
       bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       visible,
       focusable: el.tabIndex >= 0,
+      source: sourceHintFor(el),
       style: {
         display: cs.display,
         position: cs.position,

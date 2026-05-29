@@ -508,6 +508,25 @@ export default (
 - `hitTests`
 - `diagnostics`
 
+Nodes may also include optional `source` metadata when the inspected page renders TSPack source hint attributes. This is useful for deterministic fixture snapshots and assertions without requiring a framework adapter:
+
+```json
+{
+  "tag": "button",
+  "role": "button",
+  "name": "Save",
+  "source": {
+    "raw": "src/components/Button.tsx:42:7",
+    "file": "src/components/Button.tsx",
+    "line": 42,
+    "column": 7,
+    "component": "Button"
+  }
+}
+```
+
+The helper treats source metadata as inspect data only. It does not open files, trust paths, or mutate source. See [Inspect Source Mapping Design](inspect-source-mapping.md).
+
 Supported options mirror the CLI where practical:
 
 ```ts

@@ -5,6 +5,16 @@ export type InspectBounds = {
   height: number;
 };
 
+export type InspectSourceHint = {
+  raw?: string;
+  file?: string;
+  line?: number;
+  column?: number;
+  component?: string;
+  symbol?: string;
+  parseError?: string;
+};
+
 export type InspectNode = {
   id?: string;
   tag?: string;
@@ -14,6 +24,7 @@ export type InspectNode = {
   bounds?: InspectBounds;
   visible?: boolean;
   focusable?: boolean;
+  source?: InspectSourceHint;
   style?: {
     display?: string;
     position?: string;
