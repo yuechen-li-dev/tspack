@@ -8,6 +8,8 @@
 - `tspack doctor format`
 - `tspack doctor run`
 - `tspack doctor inspect`
+- `tspack doctor security`
+- `tspack doctor security --json`
 - `tspack doctor --json`
 - `tspack doctor --root <path>`
 
@@ -22,6 +24,7 @@
   - host-path explicit executable policy readiness (`TSPACK_INSPECT_HOST_PATH` if set).
   - Playwright Core provider resolution (`TSPACK_PLAYWRIGHT_CORE_PATH`, project-local, VS Code bundle candidates).
   - VS Code-family executable discovery (`code`, `code-insiders`, `code-oss`, `codium`, `vscodium`).
+- Security audit summary: lifecycle capability counts, per-capability acknowledgment status, stale or unused lifecycle acknowledgments, pulled-by paths when lock edges are available, and the non-execution posture for lifecycle scripts.
 
 ## What doctor does not do
 
@@ -31,10 +34,13 @@
 - No auto-attachment to running apps.
 - No package-manager mutation.
 - No xTest bridge generation; use `tspack test --xtest-bridge <path>` when an explicit native bridge path is needed.
+- No lifecycle script execution or lifecycle behavior probing; `doctor security` only reads manifest policy and lockfile metadata.
+- No vulnerability database scanning, `npm audit`, registry checks, approval policy generation, rebuilds, jailed builds, or package-manager mutation.
 
 Scoped exit behavior:
 - `tspack doctor format` exits nonzero when format-critical checks have errors.
 - `tspack doctor run` exits nonzero when run-critical checks have errors.
+- `tspack doctor security` exits nonzero only for error-level security findings. Warning-only security findings, such as unacknowledged lifecycle scripts, exit `0`.
 - `tspack doctor` (all) and `tspack doctor inspect` remain informational by default.
 
 Environment variables used only for readiness checks:
@@ -60,3 +66,21 @@ Text output includes stable detail lines when checks provide structured details.
 ## Run environment overlays
 
 `tspack doctor run` inspects declared RunTargets and runtime availability only. It does not accept or evaluate CLI `--env` overlays, because those apply only when `tspack run` or `tspack inspect --run` starts a child process.
+
+## Security scope
+
+`tspack doctor security` is a read-only lifecycle capability audit view for the current project. It loads manifest security acknowledgments and `ts-lock.toml`, then reports a `Security` section in text or JSON. The all-scope `tspack doctor` output also includes this concise `Security` section.
+
+The lifecycle summary reports:
+
+- total lifecycle capabilities;
+- acknowledged and unacknowledged capability counts;
+- stale acknowledgment count, where the manifest package/kind/script matches but the command has drifted;
+- unused acknowledgment count, where a manifest acknowledgment is not present in the lockfile;
+- packages with lifecycle scripts count.
+
+Each lifecycle capability check includes the lock package ID, script, command, `execution: blocked`, whether it is acknowledged, the acknowledgment reason when present, and deterministic `pulledBy` path strings when lockfile edges make them available. Exact package/kind/script/command matches are `ok`; unacknowledged or stale capabilities are warnings. Unused acknowledgments are separate warning checks. Duplicate or invalid manifest policy remains manifest validation and is surfaced as an error diagnostic check if the manifest frontend reports it.
+
+If `ts-lock.toml` is missing, doctor security warns that locked lifecycle capabilities cannot be audited and recommends `tspack update` to resolve and record package capabilities. It does not fabricate zero capabilities, and it does not report unused acknowledgments because there is no lock graph to compare against. If a lockfile exists and records no lifecycle capabilities, the lifecycle summary is `ok` with zero counts.
+
+`--json` writes only parseable JSON to stdout, uses two-space indentation, appends a trailing newline, and keeps check ordering deterministic. Human text uses the same sections, checks, statuses, and sorted detail keys.

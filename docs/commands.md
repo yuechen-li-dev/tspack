@@ -75,7 +75,7 @@
 
 - `tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. See `docs/format-lint.md`.
 
-- `tspack doctor` adds non-mutating environment diagnostics. See `docs/doctor.md`.
+- `tspack doctor` adds non-mutating environment diagnostics, and `tspack doctor security` summarizes lifecycle capability security posture from the manifest and lockfile without executing scripts. See `docs/doctor.md`.
 
 ## `tspack update <query>`
 

@@ -281,7 +281,7 @@ func printHelp() {
 	fmt.Println("  tspack format [paths...] [--root .] [--check]")
 	fmt.Println("  tspack lint [paths...] [--root .] [--fix]")
 	fmt.Println("  tspack inspect <url> [experimental] [--run target] [--env KEY=VALUE] [--url <url>] [--browser auto|vscode|playwright-chromium|chromium|browser-path|host-path|cdp] [--host-path path] [--browser-path path] [--cdp endpoint] [--list-targets] [--target index-or-id] [--target-url substring] [--viewport WxH] [--selector css] [--point x,y] [--json] [--out file] [--text file]")
-	fmt.Println("  tspack doctor [format|run|inspect] [--root .] [--json]")
+	fmt.Println("  tspack doctor [format|run|inspect|security] [--root .] [--json]")
 	fmt.Println("  tspack init --kind <library|app> --name <package-name> [--version <version>] [--license <license>] [--force] [--dry-run]")
 }
 
