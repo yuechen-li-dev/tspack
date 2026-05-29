@@ -143,7 +143,7 @@ Lifecycle execution, if ever added, belongs behind a swappable backend seam. TSP
 - Runtime launch backends are explicit `RunTarget.runtime` launch adapters, not task-runner plugins.
 
 
-- `tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. See `docs/format-lint.md`.
+- `tspack format` and `tspack lint` are delegated lifecycle helpers backed by Biome. They use local-first backend resolution, fall back to a temporary default config when no project Biome config exists, and can participate in CI through the optional read-only `tspack check --format` gate. They are not part of package resolution truth. See `docs/format-lint.md` and `docs/claude-fooding-phase8.md`.
 
 - `tspack doctor` adds non-mutating environment diagnostics. See `docs/doctor.md`.
 
