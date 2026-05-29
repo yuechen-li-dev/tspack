@@ -37,6 +37,7 @@ var entries = []DiagnosticHelp{
 			"Inspect the lockfile capability metadata and package source before accepting the dependency.",
 			"Remove or replace the dependency if the lifecycle script is unexpected.",
 			"Keep the dependency if expected and add a Security acknowledgedCapabilities row with the exact package, script, command, and reason to suppress repeat warnings. Acknowledgment is not execution permission; TSPack still blocks lifecycle execution by default.",
+			"Optionally add behaviorFixture and behaviorReport evidence paths to document a reviewed explicit lifecycle behavior probe; check and doctor validate those references without running them.",
 		},
 		RelatedDocs:     []string{"docs/security.md", "docs/lockfile.md", "docs/why.md", "docs/diagnostics.md"},
 		RelatedCommands: []string{"tspack check", "tspack why <package>", "tspack why --reverse <package>"},
@@ -64,6 +65,42 @@ var entries = []DiagnosticHelp{
 			"Use explicit probe fixtures to document expected behavior; future policy and OS-level jail support are deferred.",
 		},
 		RelatedDocs: []string{"docs/security.md", "docs/native-test-harness.md", "docs/diagnostics.md"},
+	},
+
+	{
+		Code:    "TSPACK_SECURITY_BEHAVIOR_FIXTURE_MISSING",
+		Title:   "Lifecycle behavior fixture is missing",
+		Summary: "A lifecycle acknowledgment links behaviorFixture evidence, but the referenced xTest fixture does not exist.",
+		Why:     "Behavior evidence links are documentation and audit metadata. TSPack validates that the referenced fixture is present, but it does not run the fixture during check, doctor, why, update, sync, or materialization.",
+		Fixes: []string{
+			"Restore or add the referenced .xtest.ts or .xtest.tsx fixture.",
+			"Update behaviorFixture to the correct safe project-relative path.",
+			"Remove behaviorFixture if the acknowledgment intentionally has no linked behavior evidence yet.",
+		},
+		RelatedDocs: []string{"docs/security.md", "docs/manifest.md", "docs/diagnostics.md"},
+	},
+	{
+		Code:    "TSPACK_SECURITY_BEHAVIOR_REPORT_MISSING",
+		Title:   "Lifecycle behavior report is missing",
+		Summary: "A lifecycle acknowledgment links behaviorReport evidence, but the referenced JSON report does not exist.",
+		Why:     "Reports are optional evidence from explicit lifecycle behavior probes. TSPack does not generate them during check or doctor.",
+		Fixes: []string{
+			"Restore or add the referenced JSON report from a reviewed probe.",
+			"Update behaviorReport to the correct safe project-relative path.",
+			"Remove behaviorReport if no report is being tracked yet.",
+		},
+		RelatedDocs: []string{"docs/security.md", "docs/manifest.md", "docs/diagnostics.md"},
+	},
+	{
+		Code:    "TSPACK_SECURITY_BEHAVIOR_REPORT_INVALID",
+		Title:   "Lifecycle behavior report JSON is invalid",
+		Summary: "A lifecycle acknowledgment links behaviorReport evidence, but the file cannot be parsed as JSON.",
+		Why:     "Report links are optional evidence metadata. Invalid JSON is reported as a warning because the report does not grant execution permission.",
+		Fixes: []string{
+			"Replace the report with valid JSON from a reviewed explicit probe.",
+			"Remove behaviorReport if no valid report should be tracked yet.",
+		},
+		RelatedDocs: []string{"docs/security.md", "docs/manifest.md", "docs/diagnostics.md"},
 	},
 
 	{

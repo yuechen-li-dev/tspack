@@ -77,10 +77,11 @@ The lifecycle summary reports:
 - acknowledged and unacknowledged capability counts;
 - stale acknowledgment count, where the manifest package/kind/script matches but the command has drifted;
 - unused acknowledgment count, where a manifest acknowledgment is not present in the lockfile;
-- packages with lifecycle scripts count.
+- packages with lifecycle scripts count;
+- behavior fixture/report present, missing, and invalid counts when acknowledgments link evidence.
 
-Each lifecycle capability check includes the lock package ID, script, command, `execution: blocked`, whether it is acknowledged, the acknowledgment reason when present, and deterministic `pulledBy` path strings when lockfile edges make them available. Exact package/kind/script/command matches are `ok`; unacknowledged or stale capabilities are warnings. Unused acknowledgments are separate warning checks. Duplicate or invalid manifest policy remains manifest validation and is surfaced as an error diagnostic check if the manifest frontend reports it.
+Each lifecycle capability check includes the lock package ID, script, command, `execution: blocked`, whether it is acknowledged, the acknowledgment reason when present, behavior fixture/report paths and statuses when present, and deterministic `pulledBy` path strings when lockfile edges make them available. Exact package/kind/script/command matches are `ok`; unacknowledged or stale capabilities are warnings. Unused acknowledgments are separate warning checks. Duplicate or invalid manifest policy remains manifest validation and is surfaced as an error diagnostic check if the manifest frontend reports it.
 
-If `ts-lock.toml` is missing, doctor security warns that locked lifecycle capabilities cannot be audited and recommends `tspack update` to resolve and record package capabilities. It does not fabricate zero capabilities, and it does not report unused acknowledgments because there is no lock graph to compare against. If a lockfile exists and records no lifecycle capabilities, the lifecycle summary is `ok` with zero counts.
+Doctor security never runs behavior fixtures or probes. If `ts-lock.toml` is missing, doctor security still validates manifest evidence paths, warns that locked lifecycle capabilities cannot be audited, and recommends `tspack update` to resolve and record package capabilities. It does not fabricate zero capabilities, and it does not report unused acknowledgments because there is no lock graph to compare against. If a lockfile exists and records no lifecycle capabilities, the lifecycle summary is `ok` with zero counts.
 
 `--json` writes only parseable JSON to stdout, uses two-space indentation, appends a trailing newline, and keeps check ordering deterministic. Human text uses the same sections, checks, statuses, and sorted detail keys.

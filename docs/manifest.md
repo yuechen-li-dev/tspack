@@ -142,3 +142,10 @@ Workspace manifests may include a top-level `<Security />` section under `<Works
 ```
 
 Each acknowledged capability requires `package`, `kind: "lifecycleScript"`, one supported lifecycle `script`, the exact lockfile `command`, and a non-empty `reason`. Acknowledgments suppress the default lifecycle warning only when all fields match. They do not run scripts and are not written to the lockfile.
+
+Optional evidence fields may be added to a row:
+
+- `behaviorFixture?: string` — safe project-relative path to a source-controlled `.xtest.ts` or `.xtest.tsx` lifecycle behavior fixture.
+- `behaviorReport?: string` — safe project-relative path to a `.json` behavior report from a previous explicit probe.
+
+These fields are evidence metadata, not execution permission. `tspack check`, `tspack doctor security`, and `tspack why` validate and surface the references without running fixtures or lifecycle scripts. Missing references warn; omitted evidence is allowed.

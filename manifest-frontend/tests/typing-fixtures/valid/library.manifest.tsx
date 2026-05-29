@@ -42,6 +42,8 @@ export default define(
           script: 'postinstall',
           command: 'node install.js',
           reason: 'Known lifecycle capability; execution remains blocked by TSPack.',
+          behaviorFixture: 'security/esbuild-postinstall.valid.xtest.tsx',
+          behaviorReport: 'security/esbuild-postinstall.report.json',
         },
       ]}
     />

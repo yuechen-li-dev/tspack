@@ -27,6 +27,9 @@ func TestDoctorHelpAndJson(t *testing.T) {
 	writeManifestStub(t, repo)
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	_ = os.MkdirAll(filepath.Join(root, "security"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "security", "ack-postinstall.valid.xtest.tsx"), []byte("// fixture is evidence only\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "security", "ack-postinstall.report.json"), []byte(`{"ok":true,"violations":[]}`), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "ts-lock.toml"), []byte("[lock]\nformat=1\n"), 0o644)
 
 	cmd := exec.Command("go", "run", "./cmd/tspack", "help")
@@ -295,9 +298,12 @@ func TestDoctorSecurityNoLifecycleCapabilities(t *testing.T) {
 
 func TestDoctorSecurityLifecycleAcknowledgementStates(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	writeManifestStubWithIR(t, repo, `{format:1,workspace:{name:"ws"},security:{acknowledgedCapabilities:[{package:"npm:ack@1.0.0",kind:"lifecycleScript",script:"postinstall",command:"node install.js",reason:"Known lifecycle capability; execution remains blocked."},{package:"npm:stale@1.0.0",kind:"lifecycleScript",script:"postinstall",command:"node old.js",reason:"Expected package install hook."},{package:"npm:unused@1.0.0",kind:"lifecycleScript",script:"postinstall",command:"node gone.js",reason:"No longer present."}]},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{}}]}`)
+	writeManifestStubWithIR(t, repo, `{format:1,workspace:{name:"ws"},security:{acknowledgedCapabilities:[{package:"npm:ack@1.0.0",kind:"lifecycleScript",script:"postinstall",command:"node install.js",reason:"Known lifecycle capability; execution remains blocked.",behaviorFixture:"security/ack-postinstall.valid.xtest.tsx",behaviorReport:"security/ack-postinstall.report.json"},{package:"npm:stale@1.0.0",kind:"lifecycleScript",script:"postinstall",command:"node old.js",reason:"Expected package install hook."},{package:"npm:unused@1.0.0",kind:"lifecycleScript",script:"postinstall",command:"node gone.js",reason:"No longer present."}]},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{}}]}`)
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	_ = os.MkdirAll(filepath.Join(root, "security"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "security", "ack-postinstall.valid.xtest.tsx"), []byte("// fixture is evidence only\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "security", "ack-postinstall.report.json"), []byte(`{"ok":true,"violations":[]}`), 0o644)
 	lockText := `[lock]
 format = 1
 tool = "tspack"
@@ -396,6 +402,13 @@ kind = "runtime"
 	if ack.Status != "ok" || ack.Details["acknowledged"] != true || ack.Details["reason"] == "" {
 		t.Fatalf("unexpected acknowledged lifecycle check: %#v", ack)
 	}
+	if ack.Details["behaviorFixture"] != "security/ack-postinstall.valid.xtest.tsx" || ack.Details["behaviorFixtureStatus"] != "present" {
+		t.Fatalf("missing fixture evidence status: %#v", ack)
+	}
+	evidenceSummary := checks["behavior evidence summary"]
+	if evidenceSummary.Status != "ok" || evidenceSummary.Details["behaviorFixturesPresent"] != float64(1) || evidenceSummary.Details["behaviorReportsPresent"] != float64(1) {
+		t.Fatalf("unexpected evidence summary: %#v", evidenceSummary)
+	}
 	stale := checks["lifecycle npm:stale@1.0.0 postinstall"]
 	if stale.Status != "warning" || stale.Details["acknowledged"] != false || stale.Details["stale"] != true || stale.Details["acknowledgedCommand"] != "node old.js" || stale.Details["actualCommand"] != "node new.js" {
 		t.Fatalf("unexpected stale lifecycle check: %#v", stale)
@@ -408,7 +421,7 @@ kind = "runtime"
 
 func TestDoctorSecurityMissingLockfileSuppressesUnusedAcknowledgements(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	writeManifestStubWithIR(t, repo, `{format:1,workspace:{name:"ws"},security:{acknowledgedCapabilities:[{package:"npm:unused@1.0.0",kind:"lifecycleScript",script:"postinstall",command:"node gone.js",reason:"No lock graph yet."}]},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{}}]}`)
+	writeManifestStubWithIR(t, repo, `{format:1,workspace:{name:"ws"},security:{acknowledgedCapabilities:[{package:"npm:unused@1.0.0",kind:"lifecycleScript",script:"postinstall",command:"node gone.js",reason:"No lock graph yet.",behaviorFixture:"security/missing.valid.xtest.tsx"}]},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{}}]}`)
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
 
@@ -428,6 +441,9 @@ func TestDoctorSecurityMissingLockfileSuppressesUnusedAcknowledgements(t *testin
 	}
 	if _, ok := checks["unused acknowledgement npm:unused@1.0.0 postinstall"]; ok {
 		t.Fatalf("unused acknowledgement should be suppressed without lockfile: %#v", checks)
+	}
+	if checks["behavior fixture missing npm:unused@1.0.0 postinstall"].Status != "warning" {
+		t.Fatalf("missing fixture should be reported without lockfile: %#v", checks)
 	}
 }
 

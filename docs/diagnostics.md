@@ -234,6 +234,36 @@ Severity: error.
 
 A manifest `Security.acknowledgedCapabilities` row is malformed. Rows must include a non-empty lock package ID, `kind: "lifecycleScript"`, a supported lifecycle script name, a non-empty command, and a non-empty reason.
 
+## TSPACK_SECURITY_INVALID_BEHAVIOR_FIXTURE
+
+Severity: error.
+
+An acknowledgment `behaviorFixture` is not a safe project-relative `.xtest.ts` or `.xtest.tsx` path. Absolute paths, parent traversal, backslash paths, empty paths, and unrelated extensions are rejected.
+
+## TSPACK_SECURITY_BEHAVIOR_FIXTURE_MISSING
+
+Severity: warning.
+
+An acknowledgment links a behavior fixture that does not exist. The fixture is not run automatically; fix or remove the reference so the acknowledgment points at reviewable evidence.
+
+## TSPACK_SECURITY_INVALID_BEHAVIOR_REPORT
+
+Severity: error.
+
+An acknowledgment `behaviorReport` is not a safe project-relative `.json` path.
+
+## TSPACK_SECURITY_BEHAVIOR_REPORT_MISSING
+
+Severity: warning.
+
+An acknowledgment links a behavior report JSON file that does not exist. TSPack does not generate reports during check or doctor.
+
+## TSPACK_SECURITY_BEHAVIOR_REPORT_INVALID
+
+Severity: warning.
+
+An acknowledgment links a behavior report that exists but cannot be parsed as JSON. The report remains evidence metadata and does not grant execution permission.
+
 ## TSPACK_SECURITY_DUPLICATE_ACKNOWLEDGED_CAPABILITY
 
 Severity: error.

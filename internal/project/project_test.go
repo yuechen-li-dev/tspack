@@ -303,16 +303,142 @@ func TestCheckUnusedLifecycleAcknowledgement(t *testing.T) {
 	}
 }
 
-func TestWhyShowsLifecycleAcknowledgement(t *testing.T) {
+func TestCheckLifecycleAcknowledgementBehaviorEvidence(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "security"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fixturePath := filepath.Join(dir, "security", "dep-a-postinstall.valid.xtest.tsx")
+	markerPath := filepath.Join(dir, "marker.txt")
+	fixtureSource := "import fs from 'node:fs';\n" +
+		"import { lifecycle } from 'tspack/x/test';\n" +
+		"fs.writeFileSync('" + filepath.ToSlash(markerPath) + "', 'fixture executed');\n" +
+		"lifecycle.runScript({ package: 'npm:dep-a@1.0.0', script: 'postinstall', command: 'node install.js' });\n"
+	if err := os.WriteFile(fixturePath, []byte(fixtureSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reportPath := filepath.Join(dir, "security", "dep-a-postinstall.report.json")
+	if err := os.WriteFile(reportPath, []byte(`{"package":"npm:dep-a@1.0.0","script":"postinstall","command":"node install.js","ok":true,"violations":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ir := simpleIR()
+	ir["security"] = map[string]any{
+		"acknowledgedCapabilities": []map[string]any{{
+			"package":         "npm:dep-a@1.0.0",
+			"kind":            "lifecycleScript",
+			"script":          "postinstall",
+			"command":         "node install.js",
+			"reason":          "Known package lifecycle script; execution remains blocked by TSPack.",
+			"behaviorFixture": "security/dep-a-postinstall.valid.xtest.tsx",
+			"behaviorReport":  "security/dep-a-postinstall.report.json",
+		}},
+	}
+	irPath := writeIR(t, dir, ir)
+	lf := &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"},
+		Packages: []lockfile.Package{{ID: "npm:dep-a@1.0.0", Name: "dep-a", Version: "1.0.0", Source: "npm", Integrity: "x", Capabilities: []lockfile.Capability{{Kind: "lifecycleScript", Script: "postinstall", Command: "node install.js"}}}},
+		Targets:  []lockfile.Target{{Package: "app", Name: "core", Export: ".", Entry: "src/index.ts", Runtime: "src/index.ts", Types: "dist/index.d.ts"}},
+	}
+	b, _ := lockfile.Marshal(lf)
+	_ = os.WriteFile(filepath.Join(dir, "ts-lock.toml"), b, 0o644)
+
+	res := Check(DefaultOptionsWithIR(dir, irPath))
+	if hasErrCode(res.Diagnostics, "TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT") {
+		t.Fatalf("exact acknowledgement should suppress lifecycle warning: %#v", res.Diagnostics)
+	}
+	if hasErrCode(res.Diagnostics, "TSPACK_SECURITY_BEHAVIOR_FIXTURE_MISSING") || hasErrCode(res.Diagnostics, "TSPACK_SECURITY_BEHAVIOR_REPORT_MISSING") || hasErrCode(res.Diagnostics, "TSPACK_SECURITY_BEHAVIOR_REPORT_INVALID") {
+		t.Fatalf("present evidence should not warn: %#v", res.Diagnostics)
+	}
+	if _, err := os.Stat(markerPath); !os.IsNotExist(err) {
+		t.Fatalf("check executed behavior fixture or created marker: %v", err)
+	}
+}
+
+func TestCheckLifecycleAcknowledgementMissingBehaviorEvidence(t *testing.T) {
 	dir := t.TempDir()
 	ir := simpleIR()
 	ir["security"] = map[string]any{
 		"acknowledgedCapabilities": []map[string]any{{
-			"package": "npm:dep-a@1.0.0",
-			"kind":    "lifecycleScript",
-			"script":  "postinstall",
-			"command": "node install.js",
-			"reason":  "Known package lifecycle script; execution remains blocked by TSPack.",
+			"package":         "npm:dep-a@1.0.0",
+			"kind":            "lifecycleScript",
+			"script":          "postinstall",
+			"command":         "node install.js",
+			"reason":          "Known package lifecycle script; execution remains blocked by TSPack.",
+			"behaviorFixture": "security/missing.valid.xtest.tsx",
+			"behaviorReport":  "security/missing.report.json",
+		}},
+	}
+	irPath := writeIR(t, dir, ir)
+	lf := &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"},
+		Packages: []lockfile.Package{{ID: "npm:dep-a@1.0.0", Name: "dep-a", Version: "1.0.0", Source: "npm", Integrity: "x", Capabilities: []lockfile.Capability{{Kind: "lifecycleScript", Script: "postinstall", Command: "node install.js"}}}},
+		Targets:  []lockfile.Target{{Package: "app", Name: "core", Export: ".", Entry: "src/index.ts", Runtime: "src/index.ts", Types: "dist/index.d.ts"}},
+	}
+	b, _ := lockfile.Marshal(lf)
+	_ = os.WriteFile(filepath.Join(dir, "ts-lock.toml"), b, 0o644)
+
+	res := Check(DefaultOptionsWithIR(dir, irPath))
+	if hasErrCode(res.Diagnostics, "TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT") {
+		t.Fatalf("exact acknowledgement should still suppress lifecycle warning: %#v", res.Diagnostics)
+	}
+	if !hasErrCode(res.Diagnostics, "TSPACK_SECURITY_BEHAVIOR_FIXTURE_MISSING") {
+		t.Fatalf("missing fixture should warn: %#v", res.Diagnostics)
+	}
+	if !hasErrCode(res.Diagnostics, "TSPACK_SECURITY_BEHAVIOR_REPORT_MISSING") {
+		t.Fatalf("missing report should warn: %#v", res.Diagnostics)
+	}
+
+	_ = os.Remove(filepath.Join(dir, "ts-lock.toml"))
+	missingLock := Check(DefaultOptionsWithIR(dir, irPath))
+	if !hasErrCode(missingLock.Diagnostics, "TSPACK_SECURITY_BEHAVIOR_FIXTURE_MISSING") {
+		t.Fatalf("missing fixture should warn without lockfile: %#v", missingLock.Diagnostics)
+	}
+	if hasErrCode(missingLock.Diagnostics, "TSPACK_SECURITY_ACKNOWLEDGED_CAPABILITY_UNUSED") {
+		t.Fatalf("missing lockfile should not emit unused acknowledgement warning: %#v", missingLock.Diagnostics)
+	}
+}
+
+func TestCheckLifecycleAcknowledgementInvalidBehaviorReport(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "security"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "security", "invalid.report.json"), []byte(`not json`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ir := simpleIR()
+	ir["security"] = map[string]any{
+		"acknowledgedCapabilities": []map[string]any{{
+			"package":        "npm:dep-a@1.0.0",
+			"kind":           "lifecycleScript",
+			"script":         "postinstall",
+			"command":        "node install.js",
+			"reason":         "Known package lifecycle script; execution remains blocked by TSPack.",
+			"behaviorReport": "security/invalid.report.json",
+		}},
+	}
+	irPath := writeIR(t, dir, ir)
+	res := Check(DefaultOptionsWithIR(dir, irPath))
+	if !hasErrCode(res.Diagnostics, "TSPACK_SECURITY_BEHAVIOR_REPORT_INVALID") {
+		t.Fatalf("invalid report should warn: %#v", res.Diagnostics)
+	}
+}
+
+func TestWhyShowsLifecycleAcknowledgement(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "security"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "security", "dep-a-postinstall.valid.xtest.tsx"), []byte("// behavior evidence fixture; not run by why\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ir := simpleIR()
+	ir["security"] = map[string]any{
+		"acknowledgedCapabilities": []map[string]any{{
+			"package":         "npm:dep-a@1.0.0",
+			"kind":            "lifecycleScript",
+			"script":          "postinstall",
+			"command":         "node install.js",
+			"reason":          "Known package lifecycle script; execution remains blocked by TSPack.",
+			"behaviorFixture": "security/dep-a-postinstall.valid.xtest.tsx",
 		}},
 	}
 	irPath := writeIR(t, dir, ir)
@@ -338,6 +464,9 @@ func TestWhyShowsLifecycleAcknowledgement(t *testing.T) {
 	if !strings.Contains(capability.AcknowledgementReason, "execution remains blocked") {
 		t.Fatalf("missing acknowledgement reason: %#v", capability)
 	}
+	if capability.BehaviorFixture != "security/dep-a-postinstall.valid.xtest.tsx" || capability.BehaviorFixtureStatus != "present" {
+		t.Fatalf("missing why behavior fixture evidence: %#v", capability)
+	}
 
 	reverse := Why(DefaultOptionsWithIR(dir, irPath), WhyOptions{Query: "npm:dep-a@1.0.0", Reverse: true})
 	if hasErrors(reverse.Diagnostics) {
@@ -345,6 +474,9 @@ func TestWhyShowsLifecycleAcknowledgement(t *testing.T) {
 	}
 	if len(reverse.WhyResult.LockPackages) != 1 || !reverse.WhyResult.LockPackages[0].Capabilities[0].Acknowledged {
 		t.Fatalf("expected reverse why acknowledged metadata: %#v", reverse.WhyResult.LockPackages)
+	}
+	if reverse.WhyResult.LockPackages[0].Capabilities[0].BehaviorFixtureStatus != "present" {
+		t.Fatalf("expected reverse why behavior evidence metadata: %#v", reverse.WhyResult.LockPackages)
 	}
 }
 

@@ -89,6 +89,8 @@ declare module 'tspack/manifest' {
     script: LifecycleScriptName;
     command: string;
     reason: string;
+    behaviorFixture?: string;
+    behaviorReport?: string;
   };
 
   export type BoundaryPolicy = {
