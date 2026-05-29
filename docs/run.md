@@ -237,3 +237,6 @@ The `URL:` line is printed when the RunTarget also declares `url`.
 
 For `node` runtime launches, local compatibility tool resolution depends on strict materialized `node_modules/.bin` entries generated from root-visible dependencies only. TSPack does not infer npm scripts and does not expose transitive-only bins at root.
 
+## Related docs
+
+See `docs/claude-fooding-phase5.md` for the Phase 5 RunTarget remediation closeout.

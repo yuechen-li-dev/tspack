@@ -90,6 +90,39 @@ Native xTest smoke coverage should verify:
 - Batch mode preserves deterministic report ordering.
 - `assert.type` failures produce semantic TypeScript diagnostics.
 
+### Claude-fooding Phase 5 RunTarget smoke
+
+The Phase 5 RunTarget smoke must cover the remediated runtime loop for declared `RunTargets`, `tspack run`, `tspack doctor run`, and inspect-run startup reuse:
+
+- `tspack doctor run`
+- `tspack doctor run --json`
+- `tspack run --list`
+- `tspack run --list --json`
+- `tspack run --package <pkg> <target> --once`
+- `tspack run <target> --once`
+- `tspack run <target> --env PORT=3001`
+- HTTP readiness smoke.
+- TCP readiness smoke.
+- stdout-match readiness smoke.
+- `cwd: "workspace"` smoke.
+- `cwd: "package"` smoke.
+- Status/stderr plus child stdout passthrough smoke.
+- `tspack inspect --run <target> --env PORT=3001` env/cwd startup reuse smoke.
+- `tspack how TSPACK_RUN_TARGET_AMBIGUOUS`.
+- `tspack how TSPACK_RUN_INVALID_ENV`.
+
+RunTarget smoke coverage should verify:
+
+- `system` runtime is available without requiring a binary named `system`.
+- Reserved `bun` and `deno` runtime backends are reported as `not_applicable` until implemented.
+- Text-mode `tspack doctor run` includes useful runtime, availability, target, cwd, and readiness details.
+- TSPack status/progress is written to stderr while child stdout and stderr pass through to their matching streams.
+- Duplicate target names produce package-qualified ambiguity diagnostics and remediation hints.
+- Effective cwd policy/path is reported for run, list, doctor, and inspect-run flows.
+- Readiness details are exposed for HTTP, TCP, and stdout-match readiness policies.
+- `--env` status output lists keys only and never prints values.
+- `--env` values are literal after shell parsing; TSPack performs no shell interpolation.
+
 ## Mutation expectations
 
 - `outdated`: no lock/store/node_modules mutation.
