@@ -206,3 +206,14 @@ RunTarget smoke coverage should verify:
 ## Lifecycle capability smoke
 
 Create a fake npm registry package with a `postinstall` script that would write a marker file if executed. Run `tspack update` and verify `ts-lock.toml` records a `lifecycleScript` capability with the raw command. Run `tspack check` and verify `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT` is reported as a warning. Run `tspack sync` and verify the marker file is not created.
+
+### Lifecycle behavior harness smoke (M37b)
+
+The release gate should keep a dedicated lifecycle behavior smoke separate from update/sync/materialization:
+
+- valid JavaScript lifecycle fixture writes only under the package directory or probe temp directory and reports no violations;
+- invalid fixtures report denied network, denied secret env read, denied child process, denied outside write, and denied outside read violations;
+- unsupported shell command strings such as `sh -c ...` and `node install.js && curl ...` are rejected before execution;
+- stdout, stderr, and exit code from controlled Node scripts are preserved;
+- parent secret environment values are scrubbed unless tests explicitly inject sentinels;
+- `tspack update`, `tspack sync`, and materialization remain non-executing even when lifecycle capabilities are detected.

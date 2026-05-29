@@ -415,3 +415,53 @@ Current M34g limitations:
 - No Vite integration.
 - No full custom TypeScript symbol graph analyzer.
 - Type assertions outside a discoverable Fact/Theory callback may only map to file-level typecheck context.
+
+## Lifecycle behavior probe helper (M37b)
+
+Native xTest exposes an explicit lifecycle behavior helper for JavaScript/Node lifecycle scripts:
+
+```ts
+import { lifecycle, Suite, Fact, Project, assert } from "@tspack/manifest-frontend/native-test";
+
+export default (
+  <Suite name="lifecycle">
+    <Fact name="postinstall stays inside policy">
+      <Project from="./fixtures/package" />
+      {async ({ project }) => {
+        const result = await lifecycle.runScript({
+          packageDir: project.path("package"),
+          command: "node install.js",
+          policy: {
+            denyNetwork: true,
+            denyChildProcess: true,
+            denyEnv: ["NPM_TOKEN"],
+            allowRead: ["package/**", "tmp/**"],
+            allowWrite: ["package/**", "tmp/**"],
+          },
+          env: {
+            NPM_TOKEN: "sentinel-token",
+          },
+        });
+
+        assert.equal(result.exitCode, 0, "script exit code is preserved");
+        assert.equal(result.violations, [], "script stayed inside policy");
+      }}
+    </Fact>
+  </Suite>
+);
+```
+
+`lifecycle.runScript` returns:
+
+- `exitCode`, `signal`, and `timedOut`;
+- captured `stdout` and `stderr`;
+- `violations`, each with a stable `code`, `kind`, `detail`, and optional `path`, `module`, or `envKey`;
+- observed `reads` and `writes` where the MVP guard can record them.
+
+Supported command shape is intentionally narrow: `node install.js` and `node ./install.js`, with optional argv after the script. The helper does not execute shell strings, `npm run`, `sh -c`, command chaining, or package-manager install compatibility behavior.
+
+The helper runs with `cwd = packageDir`, a temporary `HOME`, temporary `TMPDIR` / `TEMP` / `TMP`, a scrubbed inherited environment, and then the explicit `env` overlay supplied by the test. Parent secrets are not inherited unless a test intentionally injects sentinel values.
+
+Default policy denies network, child processes, common secret environment reads, and filesystem reads/writes outside `package/**` and `tmp/**`. The default denied env list includes `NPM_TOKEN`, `NODE_AUTH_TOKEN`, `GITHUB_TOKEN`, `GITHUB_ACTIONS`, AWS session keys, `VAULT_TOKEN`, `SSH_AUTH_SOCK`, `GOOGLE_APPLICATION_CREDENTIALS`, and `AZURE_CLIENT_SECRET`.
+
+Security limitation: this is a behavior test/probe harness based on Node preload instrumentation. It is not a kernel sandbox and must not be treated as safe arbitrary malware execution. Normal `update`, `sync`, and materialization paths still do not execute lifecycle scripts.
