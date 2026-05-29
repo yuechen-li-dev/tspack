@@ -104,6 +104,7 @@ const initManifestTypesDTS = "" +
 	"    runtime: 'system' | 'node';\n" +
 	"    command: string[];\n" +
 	"    url: string;\n" +
+	"    cwd?: 'workspace' | 'package';\n" +
 	"    ready?: RunTargetReady;\n" +
 	"  };\n" +
 	"\n" +

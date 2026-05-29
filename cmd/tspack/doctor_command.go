@@ -197,37 +197,53 @@ func doctorRun(root string) doctorBuilder {
 		d.checks = append(d.checks, DoctorCheck{Name: "runTargets", Status: "error", Message: "manifest.tsx missing"})
 		return d
 	}
-	ir := loadManifestForRun(root)
+	manifestPath := filepath.Join(root, "manifest.tsx")
+	ir := loadManifestPathForRun(root, manifestPath)
 	count := 0
-	for _, pkg := range ir.Packages {
-		for _, rt := range pkg.RunTargets {
-			count++
-			readyKind := ""
-			readyPath := ""
-			if rt.Ready != nil {
-				readyKind = rt.Ready.Kind
-				readyPath = rt.Ready.Path
-			}
-			commandToken := firstToken(rt.Command)
-			targetID := pkg.Name + ":" + rt.Name
-			d.checks = append(d.checks, DoctorCheck{
-				Name:    "runTarget:" + targetID,
-				Status:  "ok",
-				Message: fmt.Sprintf("%s runtime=%s url=%s", targetID, rt.Runtime, rt.URL),
-				Details: map[string]any{
-					"id":                targetID,
-					"name":              rt.Name,
-					"runtime":           rt.Runtime,
-					"url":               rt.URL,
-					"readyKind":         readyKind,
-					"package":           pkg.Name,
-					"readyPath":         readyPath,
-					"commandFirstToken": commandToken,
-					"commandAvailable":  commandAvailable(commandToken),
-					"runtimeAvailable":  runtimeAvailable(rt.Runtime),
-				},
-			})
+	for _, ref := range collectRunTargets(root, manifestPath, ir, "") {
+		rt := ref.Target
+		count++
+		readyKind := ""
+		readyPath := ""
+		if rt.Ready != nil {
+			readyKind = rt.Ready.Kind
+			readyPath = rt.Ready.Path
 		}
+		commandToken := firstToken(rt.Command)
+		targetID := ref.PackageName + ":" + rt.Name
+		cwdPath, cwdErr := resolveRunTargetCwd(ref)
+		status := "ok"
+		message := fmt.Sprintf("%s runtime=%s url=%s", targetID, rt.Runtime, rt.URL)
+		if cwdErr != nil {
+			status = "error"
+			message = cwdErr.msg
+		}
+		details := map[string]any{
+			"id":                targetID,
+			"name":              rt.Name,
+			"runtime":           rt.Runtime,
+			"url":               rt.URL,
+			"readyKind":         readyKind,
+			"package":           ref.PackageName,
+			"readyPath":         readyPath,
+			"cwd":               effectiveRunTargetCwd(rt),
+			"cwdPath":           cwdPath,
+			"commandFirstToken": commandToken,
+			"commandAvailable":  commandAvailable(commandToken),
+			"runtimeAvailable":  runtimeAvailable(rt.Runtime),
+		}
+		if effectiveRunTargetCwd(rt) == "package" {
+			details["packageRoot"] = ref.PackageRoot
+		}
+		if cwdErr != nil {
+			details["cwdError"] = cwdErr.code
+		}
+		d.checks = append(d.checks, DoctorCheck{
+			Name:    "runTarget:" + targetID,
+			Status:  status,
+			Message: message,
+			Details: details,
+		})
 	}
 	if count == 0 {
 		d.checks = append(d.checks, DoctorCheck{Name: "runTargets", Status: "error", Message: "no run targets declared"})

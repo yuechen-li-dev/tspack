@@ -13,7 +13,7 @@
 
 ## Listing targets
 
-`tspack run --list` prints declared run targets without starting any process. Targets are grouped by package and show runtime, command, URL, and readiness policy.
+`tspack run --list` prints declared run targets without starting any process. Targets are grouped by package and show runtime, command, URL, effective cwd policy/path, and readiness policy.
 
 `tspack run --list --json` writes a machine-readable payload to stdout only:
 
@@ -31,6 +31,8 @@
       "runtime": "system",
       "command": ["node", "packages/demo/server.js"],
       "url": "http://127.0.0.1:5173",
+      "cwd": "workspace",
+      "cwdPath": "/repo",
       "ready": { "kind": "http", "path": "/" }
     }
   ],
@@ -68,7 +70,44 @@ Each row supports:
 - `runtime`: `system` or `node` (M22)
 - `command`: argv array (not shell string)
 - `url`: base URL for status/readiness
+- `cwd`: optional `"workspace"` or `"package"`; omitted means `"workspace"` for compatibility
 - `ready`: optional `{ kind: "http", path: "/" }`
+
+
+## Working directory policy
+
+RunTargets support an explicit `cwd` field:
+
+- `cwd: "workspace"` runs the command from the workspace/project root. This is also the behavior when `cwd` is omitted, preserving existing manifests.
+- `cwd: "package"` runs the command from the declaring package root, which is the natural choice for package-local dev servers.
+
+TSPack does not rewrite command argv paths. Relative paths are resolved by the child process working directory.
+
+Workspace-root command example:
+
+```tsx
+<RunTargets rows={[{
+  name: "dev",
+  runtime: "system",
+  cwd: "workspace",
+  command: ["node", "packages/demo/server.js"],
+  url: "http://127.0.0.1:5173",
+}]} />
+```
+
+Package-root command example:
+
+```tsx
+<RunTargets rows={[{
+  name: "dev",
+  runtime: "system",
+  cwd: "package",
+  command: ["node", "server.js"],
+  url: "http://127.0.0.1:5173",
+}]} />
+```
+
+Status output includes the effective cwd, for example `Cwd: workspace (/repo)` or `Cwd: package (/repo/packages/demo)`. `run --list`, `run --list --json`, and `doctor run` also report the effective cwd.
 
 ## Runtime notes
 - `system`: built-in runtime support that executes the declared argv directly. `tspack doctor run` reports this runtime as available without looking for a binary named `system`.
@@ -83,7 +122,7 @@ Runtimes are process launch backends only. TSPack still owns manifest/lock/packa
 
 ## Manifest selection
 
-By default, `tspack run` loads `<root>/manifest.tsx`. Pass `--manifest <path>` to load an explicit manifest path; this composes with `--root` but does not change command cwd semantics. Commands still execute from the workspace root in M35b; `--package` does not change cwd or command path resolution yet.
+By default, `tspack run` loads `<root>/manifest.tsx`. Pass `--manifest <path>` to load an explicit manifest path; this composes with `--root` but does not change command cwd semantics. Commands execute from the selected RunTarget cwd policy. `--package` selects the declaring package; it does not rewrite command argv paths.
 
 ## Readiness
 M22 readiness is HTTP polling:

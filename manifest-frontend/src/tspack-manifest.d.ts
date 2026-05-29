@@ -101,6 +101,7 @@ declare module 'tspack/manifest' {
     runtime: 'system' | 'node';
     command: string[];
     url: string;
+    cwd?: 'workspace' | 'package';
     ready?: RunTargetReady;
   };
 

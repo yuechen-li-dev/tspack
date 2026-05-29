@@ -80,10 +80,11 @@ A boundary row cannot specify both `from` and `transitiveFrom`. Scope paths must
 
 ## RunTargets
 
-Use `<RunTargets rows={[{ name, runtime, command, url, ready }]} />` inside a `Package`.
+Use `<RunTargets rows={[{ name, runtime, command, url, cwd, ready }]} />` inside a `Package`.
 - `runtime`: `system` or `node` in M22.
 - `command`: argv array; no shell string execution.
 - `url`: required HTTP/HTTPS URL.
+- `cwd`: optional `"workspace"` or `"package"`; omitted means `"workspace"`.
 - `ready`: optional `{ kind: "http", path: "/" }`.
 
 

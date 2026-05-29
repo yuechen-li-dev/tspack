@@ -46,6 +46,15 @@ export function parseManifestFile(filePath: string): ManifestParseResult {
   return { ok: true, ir: stableSort(parsed.doc.ir), diagnostics: [] };
 }
 
+
+export function parsePackageManifestFile(filePath: string): ManifestParseResult {
+  const parsed = parseManifestDocument(filePath, 'package');
+  if (parsed.diagnostics.length > 0 || !parsed.doc) {
+    return { ok: false, diagnostics: parsed.diagnostics };
+  }
+  return { ok: true, ir: stableSort(parsed.doc.ir), diagnostics: [] };
+}
+
 export function parseWorkspace(rootManifestPath: string): ManifestParseResult {
   const rootParsed = parseManifestDocument(rootManifestPath, 'root');
   if (rootParsed.diagnostics.length > 0 || !rootParsed.doc) {

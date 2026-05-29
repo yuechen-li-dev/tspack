@@ -20,8 +20,10 @@ import (
 )
 
 type runTargetRef struct {
-	PackageName string
-	Target      manifest.RunTarget
+	PackageName   string
+	PackageRoot   string
+	WorkspaceRoot string
+	Target        manifest.RunTarget
 }
 
 func (r runTargetRef) ID() string {
@@ -56,6 +58,8 @@ type runListTargetJSON struct {
 	Runtime string                  `json:"runtime"`
 	Command []string                `json:"command"`
 	URL     string                  `json:"url"`
+	Cwd     string                  `json:"cwd"`
+	CwdPath string                  `json:"cwdPath,omitempty"`
 	Ready   *manifest.RunReadyCheck `json:"ready,omitempty"`
 }
 
@@ -81,12 +85,16 @@ func (s *RunTargetSession) Stop() error {
 }
 
 func startRunTarget(root string, target manifest.RunTarget, timeout time.Duration, stdout io.Writer, stderr io.Writer) (*RunTargetSession, *runErr) {
+	return startRunTargetInDir(root, root, target, timeout, stdout, stderr)
+}
+
+func startRunTargetInDir(root string, cwdPath string, target manifest.RunTarget, timeout time.Duration, stdout io.Writer, stderr io.Writer) (*RunTargetSession, *runErr) {
 	resolved := target
 	if resolved.Runtime == "node" {
 		resolved.Command = resolveNodeLocalCommand(root, resolved.Command)
 	}
 	cmd := exec.Command(resolved.Command[0], resolved.Command[1:]...)
-	cmd.Dir = root
+	cmd.Dir = cwdPath
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if resolved.Runtime == "node" {
@@ -110,20 +118,27 @@ func runRunCommand(args []string) {
 	if opts.ManifestPath == "" {
 		opts.ManifestPath = filepath.Join(opts.Root, "manifest.tsx")
 	}
-	ir := loadManifestPathForRun(opts.Root, opts.ManifestPath)
+	workspaceRoot := resolveWorkspaceRoot(opts.Root)
+	ir := loadManifestPathForRun(workspaceRoot, opts.ManifestPath)
 	if opts.List {
-		renderRunTargetList(opts.Root, ir, opts.PackageName, opts.JSON)
+		renderRunTargetList(workspaceRoot, opts.ManifestPath, ir, opts.PackageName, opts.JSON)
 		return
 	}
-	selected := selectRunTarget(ir, opts.PackageName, opts.TargetArg)
+	selected := selectRunTarget(workspaceRoot, opts.ManifestPath, ir, opts.PackageName, opts.TargetArg)
 	rt := selected.Target
+	cwdPolicy := effectiveRunTargetCwd(rt)
+	cwdPath, cwdErr := resolveRunTargetCwd(selected)
+	if cwdErr != nil {
+		failRun(cwdErr.code, cwdErr.msg)
+	}
 	fmt.Fprintf(os.Stderr, "Starting run target %q\n", selected.ID())
 	fmt.Fprintf(os.Stderr, "Package: %s\n", selected.PackageName)
 	fmt.Fprintf(os.Stderr, "Runtime: %s\n", rt.Runtime)
 	fmt.Fprintf(os.Stderr, "Command: %s\n", bytes.Join(stringSliceBytes(rt.Command), []byte(" ")))
+	fmt.Fprintf(os.Stderr, "Cwd: %s (%s)\n", cwdPolicy, cwdPath)
 	readyURL := readinessURL(rt)
 	fmt.Fprintf(os.Stderr, "Waiting for: %s\n", readyURL)
-	session, readyErr := startRunTarget(opts.Root, rt, time.Duration(opts.TimeoutSeconds)*time.Second, os.Stdout, os.Stderr)
+	session, readyErr := startRunTargetInDir(workspaceRoot, cwdPath, rt, time.Duration(opts.TimeoutSeconds)*time.Second, os.Stdout, os.Stderr)
 	if readyErr != nil {
 		failRun(readyErr.code, readyErr.msg)
 	}
@@ -275,11 +290,11 @@ func loadManifestPathForRun(root string, manifestPath string) *manifest.Manifest
 	return ir
 }
 
-func selectRunTarget(ir *manifest.ManifestIR, packageName string, targetName string) runTargetRef {
+func selectRunTarget(root string, manifestPath string, ir *manifest.ManifestIR, packageName string, targetName string) runTargetRef {
 	if packageName != "" {
-		return selectRunTargetInPackage(ir, packageName, targetName)
+		return selectRunTargetInPackage(root, manifestPath, ir, packageName, targetName)
 	}
-	all := collectRunTargets(ir, "")
+	all := collectRunTargets(root, manifestPath, ir, "")
 	if len(all) == 0 {
 		failRun("TSPACK_RUN_TARGET_MISSING", "no run targets declared")
 	}
@@ -307,12 +322,12 @@ func selectRunTarget(ir *manifest.ManifestIR, packageName string, targetName str
 	return runTargetRef{}
 }
 
-func selectRunTargetInPackage(ir *manifest.ManifestIR, packageName string, targetName string) runTargetRef {
+func selectRunTargetInPackage(root string, manifestPath string, ir *manifest.ManifestIR, packageName string, targetName string) runTargetRef {
 	pkg, ok := findRunPackage(ir, packageName)
 	if !ok {
 		failRun("TSPACK_RUN_PACKAGE_NOT_FOUND", "package "+packageName+" not found; known packages: "+strings.Join(knownRunPackages(ir), ", "))
 	}
-	refs := packageRunTargetRefs(pkg)
+	refs := packageRunTargetRefs(root, manifestPath, ir, pkg)
 	if len(refs) == 0 {
 		failRun("TSPACK_RUN_TARGET_MISSING", "package "+packageName+" declares no run targets")
 	}
@@ -336,8 +351,8 @@ func selectRunTargetInPackage(ir *manifest.ManifestIR, packageName string, targe
 	return runTargetRef{}
 }
 
-func renderRunTargetList(root string, ir *manifest.ManifestIR, packageName string, jsonOutput bool) {
-	refs := collectRunTargets(ir, packageName)
+func renderRunTargetList(root string, manifestPath string, ir *manifest.ManifestIR, packageName string, jsonOutput bool) {
+	refs := collectRunTargets(root, manifestPath, ir, packageName)
 	if packageName != "" {
 		if _, ok := findRunPackage(ir, packageName); !ok {
 			failRun("TSPACK_RUN_PACKAGE_NOT_FOUND", "package "+packageName+" not found; known packages: "+strings.Join(knownRunPackages(ir), ", "))
@@ -371,6 +386,12 @@ func renderRunTargetListText(refs []runTargetRef) {
 		fmt.Fprintf(os.Stdout, "      runtime: %s\n", ref.Target.Runtime)
 		fmt.Fprintf(os.Stdout, "      command: %s\n", strings.Join(ref.Target.Command, " "))
 		fmt.Fprintf(os.Stdout, "      url: %s\n", ref.Target.URL)
+		cwdPath, _ := resolveRunTargetCwd(ref)
+		fmt.Fprintf(os.Stdout, "      cwd: %s", effectiveRunTargetCwd(ref.Target))
+		if cwdPath != "" {
+			fmt.Fprintf(os.Stdout, " (%s)", cwdPath)
+		}
+		fmt.Fprintln(os.Stdout)
 		if ref.Target.Ready != nil {
 			fmt.Fprintf(os.Stdout, "      ready: %s %s\n", ref.Target.Ready.Kind, ref.Target.Ready.Path)
 		} else {
@@ -394,6 +415,8 @@ func renderRunTargetListJSON(root string, packageName string, refs []runTargetRe
 			Runtime: ref.Target.Runtime,
 			Command: ref.Target.Command,
 			URL:     ref.Target.URL,
+			Cwd:     effectiveRunTargetCwd(ref.Target),
+			CwdPath: mustRunTargetCwd(ref),
 			Ready:   ref.Target.Ready,
 		})
 	}
@@ -412,22 +435,28 @@ func renderRunTargetListJSON(root string, packageName string, refs []runTargetRe
 	fmt.Fprintln(os.Stdout, string(encoded))
 }
 
-func collectRunTargets(ir *manifest.ManifestIR, packageName string) []runTargetRef {
+func collectRunTargets(root string, manifestPath string, ir *manifest.ManifestIR, packageName string) []runTargetRef {
 	refs := []runTargetRef{}
 	for pi := range ir.Packages {
 		pkg := &ir.Packages[pi]
 		if packageName != "" && pkg.Name != packageName {
 			continue
 		}
-		refs = append(refs, packageRunTargetRefs(pkg)...)
+		refs = append(refs, packageRunTargetRefs(root, manifestPath, ir, pkg)...)
 	}
 	return refs
 }
 
-func packageRunTargetRefs(pkg *manifest.Package) []runTargetRef {
+func packageRunTargetRefs(root string, manifestPath string, ir *manifest.ManifestIR, pkg *manifest.Package) []runTargetRef {
 	refs := make([]runTargetRef, 0, len(pkg.RunTargets))
+	packageRoot := resolvePackageRoot(root, manifestPath, ir, pkg)
 	for _, target := range pkg.RunTargets {
-		refs = append(refs, runTargetRef{PackageName: pkg.Name, Target: target})
+		refs = append(refs, runTargetRef{
+			PackageName:   pkg.Name,
+			PackageRoot:   packageRoot,
+			WorkspaceRoot: root,
+			Target:        target,
+		})
 	}
 	return refs
 }
@@ -529,4 +558,58 @@ func resolveNodeLocalCommand(root string, command []string) []string {
 		return resolved
 	}
 	return command
+}
+
+func resolveWorkspaceRoot(root string) string {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return root
+	}
+	return abs
+}
+
+func effectiveRunTargetCwd(target manifest.RunTarget) string {
+	if target.Cwd == "package" {
+		return "package"
+	}
+	return "workspace"
+}
+
+func resolveRunTargetCwd(ref runTargetRef) (string, *runErr) {
+	policy := effectiveRunTargetCwd(ref.Target)
+	if policy == "workspace" {
+		return ref.WorkspaceRoot, nil
+	}
+	if ref.PackageRoot == "" {
+		return "", &runErr{
+			code: "TSPACK_RUN_PACKAGE_ROOT_UNKNOWN",
+			msg:  "package root is unknown for " + ref.ID(),
+		}
+	}
+	return ref.PackageRoot, nil
+}
+
+func mustRunTargetCwd(ref runTargetRef) string {
+	cwdPath, err := resolveRunTargetCwd(ref)
+	if err != nil {
+		return ""
+	}
+	return cwdPath
+}
+
+func resolvePackageRoot(root string, manifestPath string, ir *manifest.ManifestIR, pkg *manifest.Package) string {
+	if pkg.Root != "" {
+		return filepath.Join(root, filepath.FromSlash(pkg.Root))
+	}
+	if len(ir.Packages) == 1 {
+		if filepath.Base(manifestPath) == "package.manifest.tsx" {
+			absManifest, err := filepath.Abs(manifestPath)
+			if err == nil {
+				return filepath.Dir(absManifest)
+			}
+			return filepath.Dir(manifestPath)
+		}
+		return root
+	}
+	return ""
 }

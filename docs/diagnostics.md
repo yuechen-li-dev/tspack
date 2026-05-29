@@ -70,7 +70,9 @@ This inventory groups primary diagnostic families by subsystem to keep command-s
 
 ## Run diagnostics
 
-- `TSPACK_RUN_*` (target resolution, package scoping, listing argument validation, launch, readiness, timeout, process lifecycle)
+- `TSPACK_RUN_*` (target resolution, package scoping, cwd validation/root resolution, listing argument validation, launch, readiness, timeout, process lifecycle)
+  - `TSPACK_RUN_INVALID_CWD`: a RunTarget `cwd` value was not `workspace` or `package`.
+  - `TSPACK_RUN_PACKAGE_ROOT_UNKNOWN`: a RunTarget requested `cwd: "package"`, but the declaring package root could not be resolved.
 
 ## Inspect diagnostics (experimental)
 

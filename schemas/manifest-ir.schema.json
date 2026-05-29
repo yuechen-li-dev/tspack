@@ -3,37 +3,123 @@
   "$id": "https://tspack.dev/schemas/manifest-ir.schema.json",
   "title": "TSPack Manifest IR (M1)",
   "type": "object",
-  "required": ["format", "workspace", "packages"],
+  "required": [
+    "format",
+    "workspace",
+    "packages"
+  ],
   "properties": {
-    "format": { "const": 1 },
+    "format": {
+      "const": 1
+    },
     "workspace": {
       "type": "object",
-      "required": ["name"],
-      "properties": { "name": { "type": "string" } },
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
       "additionalProperties": true
     },
     "packages": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "version", "kind"],
+        "required": [
+          "name",
+          "version",
+          "kind"
+        ],
         "properties": {
-          "name": { "type": "string" },
-          "version": { "type": "string" },
-          "license": { "type": "string" },
-          "root": { "type": "string" },
-          "kind": { "type": "string" },
-          "dependencies": { "type": "array", "items": { "type": "object" } },
-          "targets": { "type": "array", "items": { "type": "object" } },
-          "policies": { "type": "object" },
-          "boundaries": { "type": "array", "items": { "type": "object" } },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "license": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "dependencies": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "policies": {
+            "type": "object"
+          },
+          "boundaries": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
           "publish": {
             "type": "object",
             "properties": {
-              "include": { "type": "array", "items": { "type": "string" } },
-              "exclude": { "type": "array", "items": { "type": "string" } }
+              "include": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "exclude": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
             },
             "additionalProperties": true
+          },
+          "runTargets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "runtime": {
+                  "type": "string"
+                },
+                "command": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "url": {
+                  "type": "string"
+                },
+                "cwd": {
+                  "enum": [
+                    "workspace",
+                    "package"
+                  ]
+                },
+                "ready": {
+                  "type": "object"
+                }
+              },
+              "additionalProperties": true
+            }
           }
         },
         "additionalProperties": true
