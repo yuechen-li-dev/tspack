@@ -62,6 +62,34 @@ Boundary/import test coverage should include:
 - Type-level `denyTypeDeps` enforcement.
 - Multiple boundary diagnostic types reported in one run.
 
+### Claude-fooding Phase 4 native xTest smoke
+
+The Phase 4 native xTest smoke must cover the remediated native harness model and its release-critical development loops:
+
+- `tspack test --list`
+- `tspack test --filter <listed-id>` using an ID copied from list output.
+- `tspack test --compact`
+- `tspack test --watch` as documented/manual or test-hooked coverage because it is long-running.
+- `tspack test --batch`
+- `tspack test --update-snapshots`
+- `tspack test --json`
+- Type assertion fixture coverage for `assert.type<TExpected>(value, reason)`.
+- Snapshot fixture coverage for `expect.snapshotText(...)` and `expect.snapshotJson(...)`.
+
+Native xTest smoke coverage should verify:
+
+- Source TypeScript import closure participates in runtime execution.
+- Test IDs are root-relative and stable between list, run, and reports.
+- Copied-ID filtering selects the listed Fact or Theory case.
+- Bridge override works through `--xtest-bridge` or the `--bridge` alias.
+- Theory callback placement is flexible.
+- Zero-case Theory diagnostics report `TSPACK_TEST_THEORY_NO_CASES` instead of silently passing.
+- Compact output hides passing tests while preserving failures, skips, diagnostics, and summary counts.
+- Watch mode performs dirty-key reruns without overlapping active runs.
+- Snapshots update only when `--update-snapshots` is explicitly requested.
+- Batch mode preserves deterministic report ordering.
+- `assert.type` failures produce semantic TypeScript diagnostics.
+
 ## Mutation expectations
 
 - `outdated`: no lock/store/node_modules mutation.

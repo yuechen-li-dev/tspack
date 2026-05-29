@@ -95,6 +95,10 @@ update -> store -> sync
 
 Claude-fooding Phase 3 closed out the boundary/import model with documented physical-file boundaries (`from`), graph-reachable boundaries (`transitiveFrom`), runtime allow/deny controls (`allowOnly` and `denyDeps`), type-level deny controls (`denyTypeDeps`), and explainability through `tspack check --explain <file>`. See `docs/claude-fooding-phase3.md` for the remediation closeout.
 
+## Claude-fooding Phase 4 native xTest model
+
+Claude-fooding Phase 4 closed out the native xTest harness with runtime assertions, static type assertions, snapshots, watch mode, batch execution, static discovery, and local source import closure support. See `docs/claude-fooding-phase4.md` for the remediation closeout.
+
 ## Security guarantees
 
 - Fetch is not execute.
