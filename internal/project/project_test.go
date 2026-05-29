@@ -1127,6 +1127,224 @@ func TestPackDryRunValidationBehavior(t *testing.T) {
 	})
 }
 
+func TestPackChangelogInclusionWarning(t *testing.T) {
+	t.Run("omitted changelog warns and archive omits changelog", func(t *testing.T) {
+		dir := t.TempDir()
+		irPath := writeIR(t, dir, changelogPackIR([]string{"dist/**", "README.md", "LICENSE"}, []string{}))
+		writeChangelogPackFiles(t, dir, true)
+
+		result := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{OutputDir: filepath.Join(dir, "out")})
+		if hasErrors(result.Diagnostics) {
+			t.Fatalf("pack failed: %#v", result.Diagnostics)
+		}
+		if !hasDiagnosticSeverity(result.Diagnostics, "TSPACK_PACK_CHANGELOG_NOT_INCLUDED", diag.SeverityWarning) {
+			t.Fatalf("expected changelog warning: %#v", result.Diagnostics)
+		}
+		entries := readEntries(t, result.PackResult.Artifacts[0].Path)
+		mustNotContain(t, entries, "package/CHANGELOG.md")
+	})
+
+	t.Run("included changelog has no warning and archive includes changelog", func(t *testing.T) {
+		dir := t.TempDir()
+		irPath := writeIR(t, dir, changelogPackIR([]string{"dist/**", "README.md", "LICENSE", "CHANGELOG.md"}, []string{}))
+		writeChangelogPackFiles(t, dir, true)
+
+		result := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{OutputDir: filepath.Join(dir, "out")})
+		if hasErrors(result.Diagnostics) {
+			t.Fatalf("pack failed: %#v", result.Diagnostics)
+		}
+		if hasErrCode(result.Diagnostics, "TSPACK_PACK_CHANGELOG_NOT_INCLUDED") {
+			t.Fatalf("unexpected changelog warning: %#v", result.Diagnostics)
+		}
+		entries := readEntries(t, result.PackResult.Artifacts[0].Path)
+		mustContain(t, entries, "package/CHANGELOG.md")
+	})
+
+	t.Run("included then excluded warns and archive omits changelog", func(t *testing.T) {
+		dir := t.TempDir()
+		irPath := writeIR(t, dir, changelogPackIR([]string{"dist/**", "README.md", "LICENSE", "CHANGELOG.md"}, []string{"CHANGELOG.md"}))
+		writeChangelogPackFiles(t, dir, true)
+
+		result := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{OutputDir: filepath.Join(dir, "out")})
+		if hasErrors(result.Diagnostics) {
+			t.Fatalf("pack failed: %#v", result.Diagnostics)
+		}
+		if !hasDiagnosticSeverity(result.Diagnostics, "TSPACK_PACK_CHANGELOG_NOT_INCLUDED", diag.SeverityWarning) {
+			t.Fatalf("expected changelog warning: %#v", result.Diagnostics)
+		}
+		entries := readEntries(t, result.PackResult.Artifacts[0].Path)
+		mustNotContain(t, entries, "package/CHANGELOG.md")
+	})
+
+	t.Run("no changelog has no warning", func(t *testing.T) {
+		dir := t.TempDir()
+		irPath := writeIR(t, dir, changelogPackIR([]string{"dist/**", "README.md", "LICENSE"}, []string{}))
+		writeChangelogPackFiles(t, dir, false)
+
+		result := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{OutputDir: filepath.Join(dir, "out")})
+		if hasErrors(result.Diagnostics) {
+			t.Fatalf("pack failed: %#v", result.Diagnostics)
+		}
+		if hasErrCode(result.Diagnostics, "TSPACK_PACK_CHANGELOG_NOT_INCLUDED") {
+			t.Fatalf("unexpected changelog warning: %#v", result.Diagnostics)
+		}
+	})
+}
+
+func TestPackChangelogWarningDryRunVerifyAndAllOrNothing(t *testing.T) {
+	t.Run("dry-run surfaces warning and writes nothing", func(t *testing.T) {
+		dir := t.TempDir()
+		irPath := writeIR(t, dir, changelogPackIR([]string{"dist/**", "README.md", "LICENSE"}, []string{}))
+		writeChangelogPackFiles(t, dir, true)
+
+		result := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{DryRun: true})
+		if hasErrors(result.Diagnostics) {
+			t.Fatalf("dry-run failed: %#v", result.Diagnostics)
+		}
+		if !hasDiagnosticSeverity(result.Diagnostics, "TSPACK_PACK_CHANGELOG_NOT_INCLUDED", diag.SeverityWarning) {
+			t.Fatalf("expected dry-run changelog warning: %#v", result.Diagnostics)
+		}
+		if len(result.PackResult.Preview) == 0 {
+			t.Fatalf("expected dry-run preview")
+		}
+		if _, err := os.Stat(filepath.Join(dir, "tspack-artifacts")); !os.IsNotExist(err) {
+			t.Fatalf("dry run should not write artifacts")
+		}
+	})
+
+	t.Run("verify surfaces warning but succeeds", func(t *testing.T) {
+		dir := t.TempDir()
+		irPath := writeIR(t, dir, changelogPackIR([]string{"dist/**", "README.md", "LICENSE"}, []string{}))
+		writeChangelogPackFiles(t, dir, true)
+
+		result := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{OutputDir: filepath.Join(dir, "out"), Verify: true})
+		if hasErrors(result.Diagnostics) {
+			t.Fatalf("verify failed: %#v", result.Diagnostics)
+		}
+		if !hasDiagnosticSeverity(result.Diagnostics, "TSPACK_PACK_CHANGELOG_NOT_INCLUDED", diag.SeverityWarning) {
+			t.Fatalf("expected verify changelog warning: %#v", result.Diagnostics)
+		}
+		if result.PackResult == nil || len(result.PackResult.Artifacts) != 1 || !result.PackResult.Artifacts[0].Verified {
+			t.Fatalf("expected verified artifact: %#v", result.PackResult)
+		}
+	})
+
+	t.Run("verify included changelog has no warning and archives changelog", func(t *testing.T) {
+		dir := t.TempDir()
+		irPath := writeIR(t, dir, changelogPackIR([]string{"dist/**", "README.md", "LICENSE", "CHANGELOG.md"}, []string{}))
+		writeChangelogPackFiles(t, dir, true)
+
+		result := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{OutputDir: filepath.Join(dir, "out"), Verify: true})
+		if hasErrors(result.Diagnostics) {
+			t.Fatalf("verify failed: %#v", result.Diagnostics)
+		}
+		if hasErrCode(result.Diagnostics, "TSPACK_PACK_CHANGELOG_NOT_INCLUDED") {
+			t.Fatalf("unexpected changelog warning: %#v", result.Diagnostics)
+		}
+		entries := readEntries(t, result.PackResult.Artifacts[0].Path)
+		mustContain(t, entries, "package/CHANGELOG.md")
+	})
+
+	t.Run("changelog warning alone does not block writing", func(t *testing.T) {
+		dir := t.TempDir()
+		irPath := writeIR(t, dir, changelogPackIR([]string{"dist/**", "README.md", "LICENSE"}, []string{}))
+		writeChangelogPackFiles(t, dir, true)
+		outDir := filepath.Join(dir, "out")
+
+		result := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{OutputDir: outDir})
+		if hasErrors(result.Diagnostics) {
+			t.Fatalf("pack failed: %#v", result.Diagnostics)
+		}
+		if !hasErrCode(result.Diagnostics, "TSPACK_PACK_CHANGELOG_NOT_INCLUDED") {
+			t.Fatalf("expected changelog warning: %#v", result.Diagnostics)
+		}
+		mustExist(t, filepath.Join(outDir, "app-1.0.0.tgz"))
+	})
+
+	t.Run("warning plus include miss writes no artifact", func(t *testing.T) {
+		dir := t.TempDir()
+		irPath := writeIR(t, dir, changelogPackIR([]string{"dist/**", "README.md", "LICENSE", "missing/**"}, []string{}))
+		writeChangelogPackFiles(t, dir, true)
+		outDir := filepath.Join(dir, "out")
+
+		result := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{OutputDir: outDir})
+		if !hasErrCode(result.Diagnostics, "TSPACK_PACK_CHANGELOG_NOT_INCLUDED") {
+			t.Fatalf("expected changelog warning: %#v", result.Diagnostics)
+		}
+		if !hasErrCode(result.Diagnostics, "TSPACK_PACK_INCLUDE_MATCHED_NOTHING") {
+			t.Fatalf("expected include miss error: %#v", result.Diagnostics)
+		}
+		if _, err := os.Stat(filepath.Join(outDir, "app-1.0.0.tgz")); !os.IsNotExist(err) {
+			t.Fatalf("artifact should not be written when include pattern misses")
+		}
+	})
+}
+
+func TestPackChangelogWarningPackageScoping(t *testing.T) {
+	dir := t.TempDir()
+	ir := map[string]any{"format": 1, "workspace": map[string]any{"name": "ws"}, "packages": []map[string]any{
+		{"name": "pkg-a", "version": "1.0.0", "root": "packages/a", "kind": "library", "dependencies": []map[string]any{}, "targets": []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "dist/index.js", "types": "dist/index.d.ts", "deps": []string{}, "peers": []string{}}}, "tools": []string{}, "boundaries": []any{}, "publish": map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}}},
+		{"name": "pkg-b", "version": "1.0.0", "root": "packages/b", "kind": "library", "dependencies": []map[string]any{}, "targets": []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "dist/index.js", "types": "dist/index.d.ts", "deps": []string{}, "peers": []string{}}}, "tools": []string{}, "boundaries": []any{}, "publish": map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}}},
+	}}
+	irPath := writeIR(t, dir, ir)
+	for _, pkgRoot := range []string{"packages/a", "packages/b"} {
+		writePackageFiles(t, filepath.Join(dir, pkgRoot))
+	}
+	_ = os.WriteFile(filepath.Join(dir, "packages/a", "CHANGELOG.md"), []byte("# Changes\n"), 0o644)
+
+	selected := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{OutputDir: filepath.Join(dir, "selected"), PackageName: "pkg-b"})
+	if hasErrors(selected.Diagnostics) {
+		t.Fatalf("selected pack failed: %#v", selected.Diagnostics)
+	}
+	if hasErrCode(selected.Diagnostics, "TSPACK_PACK_CHANGELOG_NOT_INCLUDED") {
+		t.Fatalf("package B pack should not show package A warning: %#v", selected.Diagnostics)
+	}
+
+	all := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{OutputDir: filepath.Join(dir, "all")})
+	if hasErrors(all.Diagnostics) {
+		t.Fatalf("workspace pack failed: %#v", all.Diagnostics)
+	}
+	if !hasDiagnosticSeverity(all.Diagnostics, "TSPACK_PACK_CHANGELOG_NOT_INCLUDED", diag.SeverityWarning) {
+		t.Fatalf("workspace pack should show package A warning: %#v", all.Diagnostics)
+	}
+}
+
+func changelogPackIR(include []string, exclude []string) map[string]any {
+	ir := simpleIR()
+	pkg := ir["packages"].([]map[string]any)[0]
+	pkg["targets"] = []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "dist/index.js", "types": "dist/index.d.ts", "deps": []string{}, "peers": []string{}}}
+	pkg["publish"] = map[string]any{"include": include, "exclude": exclude}
+	return ir
+}
+
+func writeChangelogPackFiles(t *testing.T, dir string, includeChangelog bool) {
+	t.Helper()
+	writePackageFiles(t, dir)
+	_ = os.WriteFile(filepath.Join(dir, "README.md"), []byte("readme\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "LICENSE"), []byte("license\n"), 0o644)
+	if includeChangelog {
+		_ = os.WriteFile(filepath.Join(dir, "CHANGELOG.md"), []byte("# Changes\n"), 0o644)
+	}
+}
+
+func writePackageFiles(t *testing.T, dir string) {
+	t.Helper()
+	_ = os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+	_ = os.MkdirAll(filepath.Join(dir, "dist"), 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "src", "index.ts"), []byte("export const x = 1;\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "dist", "index.js"), []byte("export const x = 1;\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "dist", "index.d.ts"), []byte("export declare const x: number;\n"), 0o644)
+}
+
+func hasDiagnosticSeverity(diags []diag.Diagnostic, code string, severity diag.Severity) bool {
+	for _, diagnostic := range diags {
+		if diagnostic.Code == code && diagnostic.Severity == severity {
+			return true
+		}
+	}
+	return false
+}
+
 func TestPackWriteFailureLeavesNoFinalArtifact(t *testing.T) {
 	dir := t.TempDir()
 	irPath := writeIR(t, dir, simpleIR())
