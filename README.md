@@ -13,7 +13,7 @@ Core thesis: **Declare targets. Resolve sources. Enforce boundaries. Lock realit
 | Core package | `tspack update` | Resolve and write deterministic `ts-lock.toml` (or plan-only with `--dry-run`); text mode reports plain progress on stderr and supports `--quiet`. | Mutates lock (except `--dry-run`). |
 | Core package | `tspack sync` | Materialize compatibility `node_modules` from lock/store. | Does not mutate lock. |
 | Core package | `tspack why`
-- `tspack how` | Explain dependency/target reachability and presence; `why --json` emits structured explanations and diagnostics. | Does not mutate lock. |
+- `tspack how` | Explain dependency/target reachability and presence; `why --json` emits structured explanations and diagnostics; `why --reverse` shows which roots pull a locked package in. | Does not mutate lock. |
 | Core package | `tspack pack` | Build deterministic package archives. | Does not mutate lock. |
 | Native harness | `tspack test` | Run native xTest/Vitest command loop. | May write test outputs; no lock/manifest mutation. |
 | Native harness | `tspack artifact` | Run standalone suite-level native artifact units. | May write artifact output; no lock/manifest mutation. |

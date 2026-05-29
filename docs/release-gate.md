@@ -11,6 +11,8 @@
 - `tspack sync`
 - `tspack why <dep>`
 - `tspack why <dep> --json`
+- `tspack why --reverse <lock-package-or-name>`
+- `tspack why --reverse <lock-package-or-name> --json`
 - `tspack how --list`
 - `tspack how TSPACK_IR_INVALID_RELATIVE_PATH`
 - `tspack pack`

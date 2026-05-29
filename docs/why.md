@@ -92,6 +92,100 @@ The top-level report contains `command`, `query`, the `package` filter or `null`
 
 In JSON mode, not-found and lockfile diagnostics are also structured. For example, a bare transitive-name miss such as `tspack why loose-envify --json` returns parseable JSON with `TSPACK_WHY_NOT_FOUND`; its `details` list includes matching lock IDs and suggested full lock-ID commands when lock data is available.
 
+
+## Reverse why
+
+`tspack why --reverse <query>` answers the inverse lock-graph question: which declared roots ultimately pull a locked package into `ts-lock.toml`?
+
+Use reverse why when you want to know who pulls a transitive package in, or which package targets/tools transitively depend on a specific lock package.
+
+Supported reverse query forms are lock/package oriented:
+
+```bash
+tspack why --reverse loose-envify
+tspack why --reverse npm:loose-envify@1.4.0
+tspack why --reverse npm:loose-envify
+tspack why --reverse react --package @acme/app
+tspack why --reverse react --json
+```
+
+Bare package names, including scoped names such as `@biomejs/cli-linux-x64`, match all locked npm packages with that name. If multiple versions are locked, reverse why reports each matching lock package in deterministic lock-ID order.
+
+Reverse paths are printed from the root that introduced the package toward the queried package, even though the graph walk runs over incoming lock edges. For example:
+
+```text
+Reverse why: npm:loose-envify@1.4.0
+
+npm:loose-envify@1.4.0 is pulled in by:
+
+  @acme/app:target:app
+    path:
+      @acme/app:target:app
+      -> npm:react@18.3.1
+      -> npm:loose-envify@1.4.0
+```
+
+Roots are lock edge sources outside the locked package set, such as package targets (`@pkg:target:<target>`), package tools (`@pkg:tool`), and other project/manifest roots that point into the lock graph. Transitive lock packages are not treated as roots.
+
+`--package <pkg>` filters reverse paths to roots owned by that package. If the lock package exists but no reverse path remains after filtering, the command succeeds with an empty reverse path list and reports that no reverse paths came from the package.
+
+Reverse why requires `ts-lock.toml`. A missing lockfile is an error in reverse mode because the command cannot answer from manifest declarations alone; run `tspack update` first.
+
+### Reverse JSON output
+
+`tspack why --reverse <query> --json` writes stdout-only JSON with `mode: "reverse"`, matching `lockPackages`, structured `reverse` paths, and diagnostics. Each reverse path includes the matched lock package, root, root-to-query node path, and edge objects:
+
+```json
+{
+  "command": "why",
+  "mode": "reverse",
+  "query": "loose-envify",
+  "package": null,
+  "ok": true,
+  "summary": {
+    "lockPackages": 1,
+    "reversePaths": 1,
+    "diagnostics": 0,
+    "warnings": 0,
+    "errors": 0
+  },
+  "lockPackages": [
+    {
+      "id": "npm:loose-envify@1.4.0",
+      "name": "loose-envify",
+      "version": "1.4.0",
+      "source": "npm"
+    }
+  ],
+  "reverse": [
+    {
+      "lockPackage": "npm:loose-envify@1.4.0",
+      "root": "@acme/app:target:app",
+      "path": [
+        "@acme/app:target:app",
+        "npm:react@18.3.1",
+        "npm:loose-envify@1.4.0"
+      ],
+      "edges": [
+        {
+          "from": "@acme/app:target:app",
+          "to": "npm:react@18.3.1",
+          "kind": "runtime",
+          "optional": false
+        },
+        {
+          "from": "npm:react@18.3.1",
+          "to": "npm:loose-envify@1.4.0",
+          "kind": "runtime",
+          "optional": false
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}
+```
+
 ## Not-found guidance for transitive package names
 
 If a bare package query does not match a declared dependency key/target (for example `tspack why loose-envify`) but matching lock packages exist, `TSPACK_WHY_NOT_FOUND` includes detail lines that list matching lock IDs and suggest exact commands, such as:
@@ -103,7 +197,8 @@ tspack why npm:loose-envify@1.4.0
 When multiple lock versions match, suggestions are sorted by lock ID and every matching full lock ID is listed.
 
 ## Behavior with missing or invalid lockfile
-- Missing lockfile emits `TSPACK_WHY_LOCKFILE_MISSING` warning and still returns manifest graph explanations.
+- Missing lockfile emits `TSPACK_WHY_LOCKFILE_MISSING` warning and still returns manifest graph explanations for normal why.
+- Reverse why treats a missing lockfile as an error because reverse paths require lock graph edges.
 - Without lock data, `tspack why` cannot suggest transitive lock package IDs for a not-found bare name.
 - Invalid lockfile emits lock diagnostics and still tries to return graph-based explanations.
 
