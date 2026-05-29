@@ -1546,6 +1546,27 @@ func TestCLIHelpIncludesFormatAndLint(t *testing.T) {
 	}
 }
 
+func TestDefaultBiomeConfigContent(t *testing.T) {
+	var config map[string]any
+	if err := json.Unmarshal(defaultBiomeConfigBytes(), &config); err != nil {
+		t.Fatalf("default Biome config must be valid JSON: %v", err)
+	}
+
+	assertNestedValue(t, config, true, "formatter", "enabled")
+	assertNestedValue(t, config, "tab", "formatter", "indentStyle")
+	assertNestedValue(t, config, float64(100), "formatter", "lineWidth")
+	assertNestedValue(t, config, true, "organizeImports", "enabled")
+	assertNestedValue(t, config, true, "linter", "rules", "recommended")
+	assertNestedValue(t, config, "warn", "linter", "rules", "correctness", "noUnusedVariables")
+	assertNestedValue(t, config, "warn", "linter", "rules", "correctness", "noUnusedImports")
+	assertNestedValue(t, config, "error", "linter", "rules", "style", "useImportType")
+	assertNestedValue(t, config, "double", "javascript", "formatter", "quoteStyle")
+	assertNestedValue(t, config, "all", "javascript", "formatter", "trailingCommas")
+	assertNestedValue(t, config, "always", "javascript", "formatter", "semicolons")
+	assertNestedValue(t, config, "always", "javascript", "formatter", "arrowParentheses")
+	assertNestedValue(t, config, true, "javascript", "formatter", "bracketSpacing")
+}
+
 func TestCLIFormatArgsAndBiomeBinPriority(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	root := t.TempDir()
@@ -1613,6 +1634,90 @@ func TestCLIBiomePathBackendFallback(t *testing.T) {
 	got := readCapturedBiomeArgv(t, capture)
 	assertBiomeArgsInclude(t, got, "format", "--write", "src")
 	assertBiomeArgsOmit(t, got, "--check")
+}
+
+func TestCLIBiomeDefaultConfigSignalingAndCleanup(t *testing.T) {
+	repo := filepath.Join("..", "..")
+
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{name: "format check", args: []string{"format", "src", "--check"}},
+		{name: "lint", args: []string{"lint", "src"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			capture := filepath.Join(root, "capture.json")
+			localBiome := filepath.Join(root, "node_modules", ".bin", "biome")
+			writeBiomeConfigCaptureBackend(t, localBiome, capture, "BIOME_STDOUT", "BIOME_STDERR")
+
+			stdout, stderr, err := runTSPackForBiomeSplit(t, repo, root, append(tc.args, "--root", root), "")
+			if err != nil {
+				t.Fatalf("expected command to succeed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+			}
+			if !strings.Contains(stderr, defaultBiomeConfigStatusLine) {
+				t.Fatalf("expected default config message on stderr:\n%s", stderr)
+			}
+			if strings.Contains(stdout, defaultBiomeConfigStatusLine) {
+				t.Fatalf("default config message must not be on stdout:\n%s", stdout)
+			}
+
+			captured := readCapturedBiomeInvocation(t, capture)
+			if captured.ConfigPath == "" {
+				t.Fatalf("expected --config-path for default config: %#v", captured)
+			}
+			if _, err := os.Stat(captured.ConfigPath); !os.IsNotExist(err) {
+				t.Fatalf("expected temp config to be removed after command, stat err: %v", err)
+			}
+
+			var config map[string]any
+			if err := json.Unmarshal([]byte(captured.ConfigJSON), &config); err != nil {
+				t.Fatalf("captured config must be valid JSON: %v\n%s", err, captured.ConfigJSON)
+			}
+			assertNestedValue(t, config, "double", "javascript", "formatter", "quoteStyle")
+			assertNestedValue(t, config, true, "organizeImports", "enabled")
+		})
+	}
+}
+
+func TestCLIBiomeProjectConfigSuppressesDefaultSignal(t *testing.T) {
+	repo := filepath.Join("..", "..")
+
+	cases := []struct {
+		name       string
+		configName string
+	}{
+		{name: "biome json", configName: "biome.json"},
+		{name: "biome jsonc", configName: "biome.jsonc"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			capture := filepath.Join(root, "capture.json")
+			localBiome := filepath.Join(root, "node_modules", ".bin", "biome")
+			writeBiomeConfigCaptureBackend(t, localBiome, capture, "BIOME_STDOUT", "")
+			if err := os.WriteFile(filepath.Join(root, tc.configName), []byte("{}\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			stdout, stderr, err := runTSPackForBiomeSplit(t, repo, root, []string{"format", "src", "--check", "--root", root}, "")
+			if err != nil {
+				t.Fatalf("expected command to succeed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+			}
+			if strings.Contains(stderr, defaultBiomeConfigStatusLine) || strings.Contains(stdout, defaultBiomeConfigStatusLine) {
+				t.Fatalf("did not expect default config message with project config\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+			}
+
+			captured := readCapturedBiomeInvocation(t, capture)
+			if captured.ConfigPath != "" {
+				t.Fatalf("project config should be discovered by Biome without temp --config-path: %#v", captured)
+			}
+		})
+	}
 }
 
 func TestCLIBiomeFormatAndLintFailureDiagnostics(t *testing.T) {
@@ -1810,6 +1915,42 @@ func TestCLIBiomeBackendStartFailureStaysGeneric(t *testing.T) {
 	}
 }
 
+type capturedBiomeInvocation struct {
+	Argv       []string `json:"argv"`
+	Cwd        string   `json:"cwd"`
+	ConfigPath string   `json:"configPath"`
+	ConfigJSON string   `json:"configJSON"`
+}
+
+func writeBiomeConfigCaptureBackend(t *testing.T, path string, capture string, stdoutText string, stderrText string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	backend := fmt.Sprintf(`#!/usr/bin/env node
+const fs = require('fs');
+const argv = process.argv.slice(2);
+const configFlagIndex = argv.indexOf('--config-path');
+let configPath = '';
+let configJSON = '';
+if (configFlagIndex >= 0) {
+  configPath = argv[configFlagIndex + 1] || '';
+  configJSON = fs.readFileSync(configPath, 'utf8');
+  JSON.parse(configJSON);
+}
+fs.writeFileSync(%q, JSON.stringify({ argv, cwd: process.cwd(), configPath, configJSON }));
+if (%q) {
+  process.stdout.write(%q + '\n');
+}
+if (%q) {
+  process.stderr.write(%q + '\n');
+}
+`, capture, stdoutText, stdoutText, stderrText, stderrText)
+	if err := os.WriteFile(path, []byte(backend), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func writeBiomeCaptureBackend(t *testing.T, path string, marker string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -1873,6 +2014,24 @@ func runTSPackForBiome(t *testing.T, repo string, root string, args []string, pa
 	return string(output), err
 }
 
+func runTSPackForBiomeSplit(t *testing.T, repo string, root string, args []string, pathDir string) (string, string, error) {
+	t.Helper()
+	cmd := exec.Command("go", append([]string{"run", "./cmd/tspack"}, args...)...)
+	cmd.Dir = repo
+	pathValue := os.Getenv("PATH")
+	if pathDir != "" {
+		pathValue = pathDir + string(os.PathListSeparator) + pathValue
+	}
+	cmd.Env = append(os.Environ(), "PATH="+pathValue)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
+}
+
 func readCapturedBiomeArgv(t *testing.T, capture string) []string {
 	t.Helper()
 	data, err := os.ReadFile(capture)
@@ -1886,6 +2045,19 @@ func readCapturedBiomeArgv(t *testing.T, capture string) []string {
 		t.Fatal(err)
 	}
 	return got.Argv
+}
+
+func readCapturedBiomeInvocation(t *testing.T, capture string) capturedBiomeInvocation {
+	t.Helper()
+	data, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got capturedBiomeInvocation
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	return got
 }
 
 func assertBiomeArgsInclude(t *testing.T, got []string, want ...string) {
@@ -1905,6 +2077,25 @@ func assertBiomeArgsOmit(t *testing.T, got []string, unwanted ...string) {
 		if containsExactArg(got, arg) {
 			t.Fatalf("expected argv to omit %q in %s", arg, joined)
 		}
+	}
+}
+
+func assertNestedValue(t *testing.T, root map[string]any, want any, path ...string) {
+	t.Helper()
+	var current any = root
+	for _, key := range path {
+		currentMap, ok := current.(map[string]any)
+		if !ok {
+			t.Fatalf("expected object at %s, got %#v", strings.Join(path, "."), current)
+		}
+		value, ok := currentMap[key]
+		if !ok {
+			t.Fatalf("missing key %s", strings.Join(path, "."))
+		}
+		current = value
+	}
+	if !reflect.DeepEqual(current, want) {
+		t.Fatalf("expected %s to be %#v, got %#v", strings.Join(path, "."), want, current)
 	}
 }
 

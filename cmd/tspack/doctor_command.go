@@ -183,12 +183,27 @@ func doctorFormat(root string) doctorBuilder {
 		}
 		d.checks = append(d.checks, DoctorCheck{Name: "biome", Status: "error", Message: "biome backend missing", Details: details, Recommendation: "Install biome for format/lint support."})
 	}
-	if _, err := os.Stat(filepath.Join(root, "biome.json")); err == nil {
-		d.checks = append(d.checks, DoctorCheck{Name: "config", Status: "ok", Message: "biome.json found", Details: map[string]any{"configPath": filepath.Join(root, "biome.json")}})
-	} else if _, err := os.Stat(filepath.Join(root, "biome.jsonc")); err == nil {
-		d.checks = append(d.checks, DoctorCheck{Name: "config", Status: "ok", Message: "biome.jsonc found", Details: map[string]any{"configPath": filepath.Join(root, "biome.jsonc")}})
+	configPath, configSource := projectBiomeConfigPath(root)
+	if configSource == "project" {
+		d.checks = append(d.checks, DoctorCheck{
+			Name:    "config",
+			Status:  "ok",
+			Message: filepath.Base(configPath) + " found",
+			Details: map[string]any{
+				"configPath":   configPath,
+				"configSource": configSource,
+			},
+		})
 	} else {
-		d.checks = append(d.checks, DoctorCheck{Name: "config", Status: "warning", Message: "biome config not found; TSPack defaults will be used"})
+		d.checks = append(d.checks, DoctorCheck{
+			Name:    "config",
+			Status:  "warning",
+			Message: "biome config not found; TSPack default will be used",
+			Details: map[string]any{
+				"configSource": configSource,
+				"defaultStyle": defaultBiomeStyleSummary,
+			},
+		})
 	}
 	return d
 }

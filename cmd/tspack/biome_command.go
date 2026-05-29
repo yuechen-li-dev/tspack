@@ -63,6 +63,7 @@ func runBiomeCommand(command string, args []string) {
 	}
 	if configPath != "" {
 		defer os.Remove(configPath)
+		fmt.Fprintln(os.Stderr, defaultBiomeConfigStatusLine)
 	}
 
 	cmd := exec.Command(biomePath, backendArgs...)
@@ -115,6 +116,10 @@ func emitBiomeInvalidFlags(command string, msg string) {
 	os.Exit(1)
 }
 
+const defaultBiomeConfigStatusLine = "Using TSPack default Biome config: tabs, 100 columns, double quotes, organized imports, recommended lint rules. Add biome.json to customize."
+
+const defaultBiomeStyleSummary = "tabs, 100 columns, double quotes, organizeImports, recommended rules"
+
 func buildBiomeArgs(command, root string, useCheck, useFix bool, paths []string) ([]string, string, error) {
 	args := []string{command}
 	if command == "format" && !useCheck {
@@ -126,19 +131,11 @@ func buildBiomeArgs(command, root string, useCheck, useFix bool, paths []string)
 
 	configPath := ""
 	if !hasProjectBiomeConfig(root) {
-		tmpFile, err := os.CreateTemp("", "tspack-biome-*.json")
+		tmpConfigPath, err := writeDefaultBiomeConfigTempFile()
 		if err != nil {
 			return nil, "", err
 		}
-		configPath = tmpFile.Name()
-		defaultConfig := "{\n  \"formatter\": {\n    \"enabled\": true\n  },\n  \"linter\": {\n    \"enabled\": true,\n    \"rules\": {\n      \"recommended\": true\n    }\n  }\n}\n"
-		if _, err := tmpFile.WriteString(defaultConfig); err != nil {
-			_ = tmpFile.Close()
-			return nil, configPath, err
-		}
-		if err := tmpFile.Close(); err != nil {
-			return nil, configPath, err
-		}
+		configPath = tmpConfigPath
 		args = append(args, "--config-path", configPath)
 	}
 
@@ -150,14 +147,78 @@ func buildBiomeArgs(command, root string, useCheck, useFix bool, paths []string)
 	return args, configPath, nil
 }
 
+func writeDefaultBiomeConfigTempFile() (string, error) {
+	tmpFile, err := os.CreateTemp("", "tspack-biome-*.json")
+	if err != nil {
+		return "", err
+	}
+	configPath := tmpFile.Name()
+
+	if _, err := tmpFile.Write(defaultBiomeConfigBytes()); err != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(configPath)
+		return "", err
+	}
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(configPath)
+		return "", err
+	}
+	return configPath, nil
+}
+
+func defaultBiomeConfigBytes() []byte {
+	return []byte(`{
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "tab",
+    "lineWidth": 100
+  },
+  "organizeImports": {
+    "enabled": true
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "correctness": {
+        "noUnusedVariables": "warn",
+        "noUnusedImports": "warn"
+      },
+      "style": {
+        "useImportType": "error"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "trailingCommas": "all",
+      "semicolons": "always",
+      "arrowParentheses": "always",
+      "bracketSpacing": true
+    }
+  }
+}
+`)
+}
+
 func hasProjectBiomeConfig(root string) bool {
-	if _, err := os.Stat(filepath.Join(root, "biome.json")); err == nil {
-		return true
+	configPath, _ := projectBiomeConfigPath(root)
+	return configPath != ""
+}
+
+func projectBiomeConfigPath(root string) (string, string) {
+	jsonPath := filepath.Join(root, "biome.json")
+	if _, err := os.Stat(jsonPath); err == nil {
+		return jsonPath, "project"
 	}
-	if _, err := os.Stat(filepath.Join(root, "biome.jsonc")); err == nil {
-		return true
+
+	jsoncPath := filepath.Join(root, "biome.jsonc")
+	if _, err := os.Stat(jsoncPath); err == nil {
+		return jsoncPath, "project"
 	}
-	return false
+
+	return "", "tspack-default"
 }
 
 func resolveBiomeBackend(root string) string {
