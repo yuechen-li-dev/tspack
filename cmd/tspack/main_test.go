@@ -1545,37 +1545,106 @@ func TestCLIHelpIncludesFormatAndLint(t *testing.T) {
 	}
 }
 
-func TestCLIBiomeBackendResolutionAndArgs(t *testing.T) {
+func TestCLIFormatArgsAndBiomeBinPriority(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	root := t.TempDir()
-	binDir := filepath.Join(root, "node_modules", ".bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	capture := filepath.Join(root, "capture.json")
-	backend := "#!/usr/bin/env node\nconst fs=require('fs');const p=process.env.TSPACK_CAPTURE;fs.writeFileSync(p,JSON.stringify({argv:process.argv.slice(2),cwd:process.cwd()}));process.stdout.write('LOCAL_BACKEND\\n');"
-	if err := os.WriteFile(filepath.Join(binDir, "biome"), []byte(backend), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	pathDir := t.TempDir()
-	pathBackend := "#!/usr/bin/env node\nprocess.stdout.write('PATH_BACKEND\\n');"
-	if err := os.WriteFile(filepath.Join(pathDir, "biome"), []byte(pathBackend), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	localBiome := filepath.Join(root, "node_modules", ".bin", "biome")
+	pathBiome := filepath.Join(t.TempDir(), "biome")
 
-	cmd := exec.Command("go", "run", "./cmd/tspack", "format", "src", "tests", "--root", root)
+	writeBiomeCaptureBackend(t, localBiome, "LOCAL_BACKEND")
+	writeBiomeCaptureBackend(t, pathBiome, "PATH_BACKEND")
+
+	output := runTSPackWithBiomeCapture(t, repo, root, []string{"format", "src", "tests", "--root", root}, capture, filepath.Dir(pathBiome))
+	if !strings.Contains(output, "LOCAL_BACKEND") {
+		t.Fatalf("expected local .bin backend: %s", output)
+	}
+	if strings.Contains(output, "PATH_BACKEND") {
+		t.Fatalf("path backend should not run when .bin exists: %s", output)
+	}
+	got := readCapturedBiomeArgv(t, capture)
+	assertBiomeArgsInclude(t, got, "format", "--write", "src", "tests")
+	assertBiomeArgsOmit(t, got, "--check")
+
+	output = runTSPackWithBiomeCapture(t, repo, root, []string{"format", "src", "--check", "--root", root}, capture, filepath.Dir(pathBiome))
+	if !strings.Contains(output, "LOCAL_BACKEND") {
+		t.Fatalf("expected local .bin backend for check: %s", output)
+	}
+	got = readCapturedBiomeArgv(t, capture)
+	assertBiomeArgsInclude(t, got, "format", "src")
+	assertBiomeArgsOmit(t, got, "--check", "--write")
+}
+
+func TestCLIBiomeDirectPackageBackendFallback(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	capture := filepath.Join(root, "capture.json")
+	directBiome := filepath.Join(root, "node_modules", "@biomejs", "biome", "bin", "biome")
+	pathBiome := filepath.Join(t.TempDir(), "biome")
+
+	writeBiomeCaptureBackend(t, directBiome, "DIRECT_BACKEND")
+	writeBiomeCaptureBackend(t, pathBiome, "PATH_BACKEND")
+
+	output := runTSPackWithBiomeCapture(t, repo, root, []string{"format", "src", "--check", "--root", root}, capture, filepath.Dir(pathBiome))
+	if !strings.Contains(output, "DIRECT_BACKEND") {
+		t.Fatalf("expected direct package backend: %s", output)
+	}
+	if strings.Contains(output, "PATH_BACKEND") {
+		t.Fatalf("path backend should not run when direct package backend exists: %s", output)
+	}
+	got := readCapturedBiomeArgv(t, capture)
+	assertBiomeArgsInclude(t, got, "format", "src")
+	assertBiomeArgsOmit(t, got, "--check", "--write")
+}
+
+func TestCLIBiomePathBackendFallback(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	capture := filepath.Join(root, "capture.json")
+	pathBiome := filepath.Join(t.TempDir(), "biome")
+
+	writeBiomeCaptureBackend(t, pathBiome, "PATH_BACKEND")
+
+	output := runTSPackWithBiomeCapture(t, repo, root, []string{"format", "src", "--root", root}, capture, filepath.Dir(pathBiome))
+	if !strings.Contains(output, "PATH_BACKEND") {
+		t.Fatalf("expected PATH backend: %s", output)
+	}
+	got := readCapturedBiomeArgv(t, capture)
+	assertBiomeArgsInclude(t, got, "format", "--write", "src")
+	assertBiomeArgsOmit(t, got, "--check")
+}
+
+func writeBiomeCaptureBackend(t *testing.T, path string, marker string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	backend := fmt.Sprintf(`#!/usr/bin/env node
+const fs = require('fs');
+const capture = process.env.TSPACK_CAPTURE;
+fs.writeFileSync(capture, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }));
+process.stdout.write(%q + '\n');
+`, marker)
+	if err := os.WriteFile(path, []byte(backend), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func runTSPackWithBiomeCapture(t *testing.T, repo string, root string, args []string, capture string, pathDir string) string {
+	t.Helper()
+	_ = os.Remove(capture)
+	cmd := exec.Command("go", append([]string{"run", "./cmd/tspack"}, args...)...)
 	cmd.Dir = repo
 	cmd.Env = append(os.Environ(), "PATH="+pathDir+":"+os.Getenv("PATH"), "TSPACK_CAPTURE="+capture)
 	b, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("format failed: %v\n%s", err, string(b))
+		t.Fatalf("tspack failed: %v\n%s", err, string(b))
 	}
-	if !strings.Contains(string(b), "LOCAL_BACKEND") {
-		t.Fatalf("expected local backend: %s", string(b))
-	}
-	if strings.Contains(string(b), "PATH_BACKEND") {
-		t.Fatalf("path backend should not run: %s", string(b))
-	}
+	return string(b)
+}
+
+func readCapturedBiomeArgv(t *testing.T, capture string) []string {
+	t.Helper()
 	data, err := os.ReadFile(capture)
 	if err != nil {
 		t.Fatal(err)
@@ -1586,10 +1655,36 @@ func TestCLIBiomeBackendResolutionAndArgs(t *testing.T) {
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatal(err)
 	}
-	joined := strings.Join(got.Argv, " ")
-	if !strings.Contains(joined, "format") || !strings.Contains(joined, "--write") || !strings.Contains(joined, "src") || !strings.Contains(joined, "tests") {
-		t.Fatalf("unexpected argv: %v", got.Argv)
+	return got.Argv
+}
+
+func assertBiomeArgsInclude(t *testing.T, got []string, want ...string) {
+	t.Helper()
+	joined := strings.Join(got, " ")
+	for _, arg := range want {
+		if !containsExactArg(got, arg) {
+			t.Fatalf("expected argv to include %q in %s", arg, joined)
+		}
 	}
+}
+
+func assertBiomeArgsOmit(t *testing.T, got []string, unwanted ...string) {
+	t.Helper()
+	joined := strings.Join(got, " ")
+	for _, arg := range unwanted {
+		if containsExactArg(got, arg) {
+			t.Fatalf("expected argv to omit %q in %s", arg, joined)
+		}
+	}
+}
+
+func containsExactArg(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCLIBiomeMissingBackendAndInvalidFlags(t *testing.T) {

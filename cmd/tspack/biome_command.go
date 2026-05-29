@@ -90,12 +90,8 @@ func emitBiomeInvalidFlags(command string, msg string) {
 
 func buildBiomeArgs(command, root string, useCheck, useFix bool, paths []string) ([]string, string, error) {
 	args := []string{command}
-	if command == "format" {
-		if useCheck {
-			args = append(args, "--check")
-		} else {
-			args = append(args, "--write")
-		}
+	if command == "format" && !useCheck {
+		args = append(args, "--write")
 	}
 	if command == "lint" && useFix {
 		args = append(args, "--write")
@@ -138,14 +134,7 @@ func hasProjectBiomeConfig(root string) bool {
 }
 
 func resolveBiomeBackend(root string) string {
-	localCandidates := []string{filepath.Join(root, "node_modules", ".bin", "biome")}
-	if runtime.GOOS == "windows" {
-		localCandidates = append(localCandidates,
-			filepath.Join(root, "node_modules", ".bin", "biome.cmd"),
-			filepath.Join(root, "node_modules", ".bin", "biome.exe"),
-		)
-	}
-	for _, candidate := range localCandidates {
+	for _, candidate := range localBiomeCandidates(root) {
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 			return candidate
 		}
@@ -155,4 +144,26 @@ func resolveBiomeBackend(root string) string {
 		return pathBiome
 	}
 	return ""
+}
+
+func localBiomeCandidates(root string) []string {
+	candidates := []string{
+		filepath.Join(root, "node_modules", ".bin", "biome"),
+	}
+	if runtime.GOOS == "windows" {
+		candidates = append(candidates,
+			filepath.Join(root, "node_modules", ".bin", "biome.cmd"),
+			filepath.Join(root, "node_modules", ".bin", "biome.exe"),
+		)
+	}
+
+	directBin := filepath.Join(root, "node_modules", "@biomejs", "biome", "bin")
+	candidates = append(candidates, filepath.Join(directBin, "biome"))
+	if runtime.GOOS == "windows" {
+		candidates = append(candidates,
+			filepath.Join(directBin, "biome.cmd"),
+			filepath.Join(directBin, "biome.exe"),
+		)
+	}
+	return candidates
 }

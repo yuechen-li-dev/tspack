@@ -8,10 +8,12 @@ TSPack provides Biome-backed code formatting and linting orchestration.
 ## Backend resolution
 
 TSPack resolves the Biome backend in this order:
-1. `<root>/node_modules/.bin/biome`
-2. `biome` from `PATH`
 
-TSPack does not use `npm run`, `npx`, `bunx`, `pnpm dlx`, or `yarn dlx`.
+1. `<root>/node_modules/.bin/biome`
+2. `<root>/node_modules/@biomejs/biome/bin/biome`
+3. `biome` from `PATH`
+
+The direct package fallback supports strict TSPack materialization layouts where the package binary exists even if a package-manager-style shim is unavailable. TSPack does not use `npm run`, `npx`, `bunx`, `pnpm dlx`, or `yarn dlx`.
 
 If Biome is missing, TSPack emits `TSPACK_BIOME_BACKEND_NOT_FOUND`.
 
@@ -23,8 +25,8 @@ If Biome is missing, TSPack emits `TSPACK_BIOME_BACKEND_NOT_FOUND`.
 
 ## Mutation behavior
 
-- `tspack format` may modify files (`--write`).
-- `tspack format --check` is read-only.
+- `tspack format` may modify files by invoking Biome format with `--write`.
+- `tspack format --check` is read-only and uses Biome's non-write format mode. TSPack does not pass a Biome `--check` flag for `format`.
 - `tspack lint` is read-only.
 - `tspack lint --fix` may modify files (`--write`).
 
@@ -36,5 +38,4 @@ These commands do not install packages or run package-manager scripts.
 
 ## Sync compatibility expectation
 
-When Biome is declared as a direct tool dependency and materialized by `tspack sync`, TSPack generates `node_modules/.bin/biome` as part of strict compatibility materialization. `tspack format`/`tspack lint` can resolve that local backend without npm script execution.
-
+When Biome is declared as a direct tool dependency and materialized by `tspack sync`, TSPack generates `node_modules/.bin/biome` as part of strict compatibility materialization and preserves the executable package binary at `node_modules/@biomejs/biome/bin/biome` on POSIX. `tspack format`/`tspack lint` can resolve either local backend without npm script execution.
