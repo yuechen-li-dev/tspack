@@ -71,11 +71,38 @@ func runBiomeCommand(command string, args []string) {
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			fmt.Fprintf(os.Stderr, "TSPACK_BIOME_COMMAND_FAILED: biome %s exited with code %d\n", command, exitErr.ExitCode())
-			os.Exit(exitErr.ExitCode())
+			exitCode := exitErr.ExitCode()
+			if exitCode >= 0 {
+				emitBiomeExitDiagnostic(command, useCheck, useFix, exitCode)
+				os.Exit(exitCode)
+			}
 		}
+
 		fmt.Fprintf(os.Stderr, "TSPACK_BIOME_COMMAND_FAILED: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+func emitBiomeExitDiagnostic(command string, useCheck bool, useFix bool, exitCode int) {
+	switch {
+	case command == "format" && useCheck:
+		fmt.Fprintf(os.Stderr, "TSPACK_FORMAT_CHECK_FAILED: format check failed\n")
+		fmt.Fprintln(os.Stderr, "Biome format found files that would change.")
+		fmt.Fprintln(os.Stderr, "Run `tspack format` to apply formatting.")
+	case command == "format":
+		fmt.Fprintf(os.Stderr, "TSPACK_FORMAT_WRITE_FAILED: format failed\n")
+		fmt.Fprintf(os.Stderr, "Biome format exited with code %d while applying formatting.\n", exitCode)
+	case command == "lint" && useFix:
+		fmt.Fprintf(os.Stderr, "TSPACK_LINT_FIX_INCOMPLETE: lint fix incomplete\n")
+		fmt.Fprintln(os.Stderr, "Biome may have applied safe fixes, but violations remain.")
+		fmt.Fprintln(os.Stderr, "Review the remaining diagnostics.")
+		fmt.Fprintln(os.Stderr, "Unsafe fixes are not applied by default.")
+	case command == "lint":
+		fmt.Fprintf(os.Stderr, "TSPACK_LINT_CHECK_FAILED: lint check failed\n")
+		fmt.Fprintln(os.Stderr, "Biome reported lint violations.")
+		fmt.Fprintln(os.Stderr, "Run `tspack lint --fix` to apply safe fixes where possible.")
+	default:
+		fmt.Fprintf(os.Stderr, "TSPACK_BIOME_COMMAND_FAILED: biome %s exited with code %d\n", command, exitCode)
 	}
 }
 

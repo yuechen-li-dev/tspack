@@ -73,7 +73,7 @@
 - Experimental surface: `inspect`.
 
 
-- `tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. See `docs/format-lint.md`.
+- `tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. Format/lint diagnostics distinguish check findings (`TSPACK_FORMAT_CHECK_FAILED`, `TSPACK_LINT_CHECK_FAILED`), format write failures (`TSPACK_FORMAT_WRITE_FAILED`), and incomplete safe-fix attempts (`TSPACK_LINT_FIX_INCOMPLETE`). See `docs/format-lint.md`.
 
 - `tspack doctor` adds non-mutating environment diagnostics, and `tspack doctor security` summarizes lifecycle capability security posture from the manifest and lockfile without executing scripts. See `docs/doctor.md`.
 
