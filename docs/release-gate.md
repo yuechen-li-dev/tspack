@@ -23,6 +23,9 @@
 - `tspack doom`
 - `tspack run`
 - `tspack inspect <target>` (**experimental**)
+- `tspack inspect <url> --browser playwright-chromium --selector <css> --point x,y` selector/point regression smoke (**experimental**)
+- `tspack inspect --cdp http://127.0.0.1:<port> --list-targets` with an existing CDP/Electron target smoke when available (**experimental**)
+- `tspack inspect <url> --browser playwright-webkit` WebKit backend smoke, skipped when Playwright WebKit is unavailable (**experimental**)
 - `tspack format`
 - `tspack format --check`
 - `tspack lint`
