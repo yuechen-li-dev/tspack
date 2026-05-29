@@ -370,3 +370,13 @@ JSON snapshots use deterministic two-space serialization with sorted object keys
 Mismatch diagnostics include the snapshot path, reason, expected and actual SHA-256 hashes, and the first differing line with expected and actual line text. Full snapshot contents are not dumped. Compact output still hides passing tests and shows snapshot failures because they are normal failed tests. Snapshot update mode reports update activity and includes a `snapshots updated` summary count.
 
 M34e intentionally does not add TSX `<Snapshot>` elements, inline snapshots, binary snapshots, custom serializers, interactive update prompts, snapshot pruning, Vitest snapshot compatibility, or watch-mode behavior changes.
+
+## File-level batch execution
+
+Native xTest supports file-level batch execution through `tspack test --batch`. Batch mode keeps the existing native harness semantics inside each file: test declarations execute sequentially, Theory cases are not parallelized, and snapshot assertions, artifacts, project fixtures, and command helpers use the same per-test contexts as serial runs.
+
+Across files, the runner schedules up to an automatically selected worker count. The count is the smaller of available host parallelism and the number of runnable files, with an internal cap of eight workers to avoid oversubscribing small projects or CI runners. This is intentionally not a public tuning surface.
+
+Batch output is deterministic by construction. Discovery order remains the sorted root-relative native file order. Each worker stores its file result at the file's original discovery index, then the final text, compact text, or JSON report is rendered once after all workers complete. A faster later file can finish before an earlier slower file, but the report still lists the earlier file first.
+
+Filters are applied before scheduling wherever discovery can prove that a file has no matching tests, which avoids importing unselected files and their module side effects. Snapshot update mode remains safe because snapshot paths are namespaced by source file, and tests within a source file still execute sequentially. Project fixtures and artifact directories remain per-test/per-file deterministic and are not shared across concurrently running files.

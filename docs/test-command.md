@@ -32,7 +32,7 @@
 - Changes are debounced, and TSPack never starts overlapping native xTest runs. If files change while a run is in flight, the next poll observes the dirty files and schedules one follow-up rerun.
 - `tspack test --watch --list` and `tspack test --watch --json` are rejected with `TSPACK_TEST_WATCH_INVALID_MODE` because list mode is static discovery and repeated JSON documents are not a stable automation protocol.
 - Selecting Vitest with `--watch` is rejected with `TSPACK_TEST_WATCH_UNSUPPORTED_BACKEND`; M34d does not proxy Vitest's own watch mode.
-- Watch mode is dirty-key tracking only. It does not implement affected-test graph selection, HMR, rerun-failed-only behavior, snapshots, parallel execution, or an interactive terminal UI.
+- Watch mode is dirty-key tracking only. It does not implement affected-test graph selection, HMR, rerun-failed-only behavior, snapshots beyond composing with the selected command, affected parallelism beyond `--batch`, or an interactive terminal UI.
 
 ## Native xTest compact output
 
@@ -66,6 +66,7 @@
 - `TSPACK_TEST_BACKEND_LIST_UNSUPPORTED`
 - `TSPACK_TEST_BACKEND_FILTER_UNSUPPORTED`
 - `TSPACK_TEST_COMPACT_UNSUPPORTED_BACKEND`
+- `TSPACK_TEST_BATCH_UNSUPPORTED_BACKEND`
 - `TSPACK_TEST_WATCH_UNSUPPORTED_BACKEND`
 - `TSPACK_TEST_WATCH_INVALID_MODE`
 - `TSPACK_TEST_WATCH_FAILED`
@@ -80,3 +81,23 @@
 Without `--update-snapshots`, `tspack test` is read-only for snapshots. Missing snapshots fail with `TSPACK_SNAPSHOT_MISSING`, and mismatches fail with `TSPACK_SNAPSHOT_MISMATCH`.
 
 `--filter` limits update scope to selected native xTest cases. `--list` remains static discovery and does not forward snapshot update mode to the native bridge. Compact mode keeps hiding passing tests while still showing snapshot failures and the snapshot update summary. The Vitest backend does not support this flag; selecting Vitest with `--update-snapshots` reports `TSPACK_SNAPSHOT_UNSUPPORTED_BACKEND`.
+
+## Native xTest batch execution
+
+`tspack test --batch` enables native xTest file-level parallelism. The scheduling unit is the test source file: test files may run concurrently, but each file still runs its own Fact, Theory case, Valid, or Invalid entries sequentially in existing declaration order.
+
+Batch worker count is automatic. TSPack chooses the smaller of available host parallelism and the number of scheduled test files, with an internal conservative cap of eight workers. M34f intentionally exposes no public `--jobs`, `--workers`, or `--max-workers` flag.
+
+Reporting remains deterministic. Discovery uses the normal sorted native file order, batch results are stored at the original file index, and text/compact/JSON reports are reconstructed in that order after scheduled files finish. Per-file output is not streamed while tests are running, so concurrently completing files cannot interleave report text.
+
+Supported native compositions:
+
+- `tspack test --batch --filter <text>` applies native filters before scheduling files where possible. Files with no selected tests are not imported or run.
+- `tspack test --batch --compact` keeps compact output semantics: passing tests are hidden, failures/skips/diagnostics and the summary remain deterministic.
+- `tspack test --batch --update-snapshots` may update snapshots from multiple files concurrently. Snapshot paths remain anchored by the owning source file, and tests within one file remain sequential.
+- `tspack test --batch --root <project>` and `tspack test --batch --xtest-bridge <path>` compose normally.
+- `tspack test --watch --batch` is allowed for native xTest and each watch rerun invokes the same batch-capable native command. Existing watch no-overlap behavior still prevents overlapping reruns.
+- `tspack test --list --batch` treats batch as an execution-only option and does not forward it to the native bridge for list mode.
+- `tspack test --json --batch` emits one parseable deterministic JSON report with no progress text on stdout.
+
+Vitest does not support M34f batch proxying. Selecting Vitest with `--batch` is rejected with `TSPACK_TEST_BATCH_UNSUPPORTED_BACKEND`.

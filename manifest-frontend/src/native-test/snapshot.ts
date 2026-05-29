@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -12,13 +13,23 @@ type SnapshotContext = {
   updates: TestSnapshotUpdate[];
 };
 
-let activeContext: SnapshotContext | undefined;
+const snapshotStorage = new AsyncLocalStorage<SnapshotContext | undefined>();
+let fallbackContext: SnapshotContext | undefined;
 
 export function setSnapshotContext(context: SnapshotContext | undefined): void {
-  activeContext = context;
+  fallbackContext = context;
+  snapshotStorage.enterWith(context);
 }
 
-export function assertTextSnapshot(value: unknown, name: string, reason: string): void {
+function currentSnapshotContext(): SnapshotContext | undefined {
+  return snapshotStorage.getStore() ?? fallbackContext;
+}
+
+export function assertTextSnapshot(
+  value: unknown,
+  name: string,
+  reason: string,
+): void {
   if (typeof value !== "string") {
     throw snapshotFailure(
       "TSPACK_SNAPSHOT_TEXT_VALUE_INVALID",
@@ -31,7 +42,11 @@ export function assertTextSnapshot(value: unknown, name: string, reason: string)
   assertSnapshot("text", name, normalizeTextSnapshot(value), reason);
 }
 
-export function assertJsonSnapshot(value: unknown, name: string, reason: string): void {
+export function assertJsonSnapshot(
+  value: unknown,
+  name: string,
+  reason: string,
+): void {
   assertSnapshot("json", name, `${stableJson(value, reason)}\n`, reason);
 }
 
@@ -41,7 +56,7 @@ function assertSnapshot(
   actual: string,
   reason: string,
 ): void {
-  const context = activeContext;
+  const context = currentSnapshotContext();
   if (!context) {
     throw snapshotFailure(
       "TSPACK_SNAPSHOT_WRITE_DISABLED",
@@ -53,7 +68,9 @@ function assertSnapshot(
 
   validateSnapshotName(name, reason);
   const snapshotPath = snapshotFilePath(context.testFilePath, name, kind);
-  const displayPath = normalizePath(path.relative(context.rootDir, snapshotPath));
+  const displayPath = normalizePath(
+    path.relative(context.rootDir, snapshotPath),
+  );
 
   if (!fs.existsSync(snapshotPath)) {
     if (context.updateSnapshots) {
@@ -72,7 +89,9 @@ function assertSnapshot(
     );
   }
 
-  const expected = normalizeStoredSnapshot(fs.readFileSync(snapshotPath, "utf8"));
+  const expected = normalizeStoredSnapshot(
+    fs.readFileSync(snapshotPath, "utf8"),
+  );
   if (expected === actual) {
     return;
   }
@@ -132,7 +151,11 @@ function validateSnapshotName(name: string, reason: string): void {
   }
 }
 
-function snapshotFilePath(testFilePath: string, name: string, kind: SnapshotKind): string {
+function snapshotFilePath(
+  testFilePath: string,
+  name: string,
+  kind: SnapshotKind,
+): string {
   const testDir = path.dirname(testFilePath);
   const namespace = path.basename(testFilePath);
   const extension = kind === "text" ? "snap.txt" : "snap.json";
@@ -155,7 +178,11 @@ function stableJson(value: unknown, reason: string): string {
   return JSON.stringify(toStableJsonValue(value, new Set(), reason), null, 2);
 }
 
-function toStableJsonValue(value: unknown, seen: Set<object>, reason: string): unknown {
+function toStableJsonValue(
+  value: unknown,
+  seen: Set<object>,
+  reason: string,
+): unknown {
   if (value === null) {
     return null;
   }

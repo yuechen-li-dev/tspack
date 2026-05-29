@@ -60,6 +60,7 @@ This inventory groups primary diagnostic families by subsystem to keep command-s
   - `TSPACK_TEST_WATCH_UNSUPPORTED_BACKEND`: `tspack test --watch` was requested for a backend other than native xTest, such as Vitest. Native watch mode does not proxy Vitest watch behavior.
   - `TSPACK_TEST_WATCH_INVALID_MODE`: watch mode was combined with a static or automation-oriented mode such as `--list` or `--json`. Run those modes without `--watch`.
   - `TSPACK_TEST_WATCH_FAILED`: watch mode could not scan or poll the project root. Details include the filesystem error.
+  - `TSPACK_TEST_BATCH_UNSUPPORTED_BACKEND`: `tspack test --batch` was requested for a backend other than native xTest, such as Vitest. M34f does not proxy Vitest parallelism.
 - `TSPACK_ARTIFACT_*`
 - `TSPACK_BENCH_*`
 - `TSPACK_DOOM_*`

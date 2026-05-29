@@ -6,6 +6,7 @@ import { performance } from "node:perf_hooks";
 import { markArtifactWriteActivity, setActivityTracker } from "./activity.js";
 import {
   clearPendingExpectations,
+  setPendingExpectationScope,
   verifyNoPendingExpectations,
 } from "./expect.js";
 import { setSnapshotContext } from "./snapshot.js";
@@ -203,8 +204,11 @@ export async function runSuite(
   return results;
 }
 
-
-function shouldRun(options: RunSuiteOptions, localId: string, name: string): boolean {
+function shouldRun(
+  options: RunSuiteOptions,
+  localId: string,
+  name: string,
+): boolean {
   if (!options.shouldRunTest) {
     return true;
   }
@@ -246,7 +250,6 @@ function makeStructureFailure(
   error.code = code;
   return { id, name, status: "failed", durationMs: 0, error, artifacts: [] };
 }
-
 
 type SingleSnapshotOptions = {
   testFilePath?: string;
@@ -298,6 +301,7 @@ async function runSingle(
     skipCount: 0,
     artifactWriteCount: 0,
   };
+  setPendingExpectationScope(new Set());
   setActivityTracker({
     markAssert: () => {
       activity.assertCount += 1;
@@ -407,6 +411,7 @@ async function runSingle(
   } finally {
     setActivityTracker(undefined);
     setSnapshotContext(undefined);
+    setPendingExpectationScope(undefined);
   }
 }
 function readCycleTimeSeconds(node: RuntimeNode): number | undefined {

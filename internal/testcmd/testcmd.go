@@ -23,6 +23,7 @@ type Options struct {
 	Watch           bool
 	JSON            bool
 	UpdateSnapshots bool
+	Batch           bool
 }
 
 type Result struct {
@@ -49,6 +50,9 @@ func RunContext(ctx context.Context, opts Options) Result {
 	selected := selectedBackends(opts)
 	if len(selected) == 0 {
 		selected = autoDetectBackends(opts.RootDir)
+		if opts.Batch && containsString(selected, "xtest") {
+			selected = []string{"xtest"}
+		}
 	}
 	if len(selected) == 0 {
 		return Result{Diagnostics: []diag.Diagnostic{{Code: "TSPACK_TEST_NO_BACKENDS", Severity: diag.SeverityError, Message: "no test backends discovered"}}, ExitCode: 1}
@@ -145,6 +149,9 @@ func runXTestContext(ctx context.Context, opts Options, result *Result) {
 	}
 	if opts.UpdateSnapshots && !opts.List {
 		args = append(args, "--update-snapshots")
+	}
+	if opts.Batch && !opts.List {
+		args = append(args, "--batch")
 	}
 	cmd := exec.CommandContext(ctx, "node", args...)
 	cmd.Stdout = os.Stdout
@@ -268,6 +275,11 @@ func missingBridgeDiagnostic(resolution BridgeResolution) diag.Diagnostic {
 }
 
 func runVitest(opts Options, result *Result) {
+	if opts.Batch {
+		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_BATCH_UNSUPPORTED_BACKEND", Severity: diag.SeverityError, Message: "batch execution only applies to native xTest"})
+		result.ExitCode = 1
+		return
+	}
 	if opts.Compact {
 		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_COMPACT_UNSUPPORTED_BACKEND", Severity: diag.SeverityWarning, Message: "compact output only applies to native xTest; Vitest output is unchanged"})
 	}
