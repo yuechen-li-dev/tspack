@@ -52,6 +52,12 @@ Primary commands:
 
 Scope:
 - declared `RunTargets`
+- package-qualified target selection
+- readiness checks
+- cwd policy
+- explicit env overlays
+- doctor integration
+- inspect-run startup reuse
 - `tspack run [target]`
 - `tspack inspect` (experimental)
 - run-target inspection (`tspack inspect dev` / `tspack inspect --run dev`)
@@ -98,6 +104,10 @@ Claude-fooding Phase 3 closed out the boundary/import model with documented phys
 ## Claude-fooding Phase 4 native xTest model
 
 Claude-fooding Phase 4 closed out the native xTest harness with runtime assertions, static type assertions, snapshots, watch mode, batch execution, static discovery, and local source import closure support. See `docs/claude-fooding-phase4.md` for the remediation closeout.
+
+## Claude-fooding Phase 5 RunTarget model
+
+Claude-fooding Phase 5 closed out the runtime loop with declared RunTargets, readiness checks, doctor integration, package-qualified target selection, cwd policy, explicit env overlays, and inspect-run startup reuse. See `docs/claude-fooding-phase5.md` for the remediation closeout.
 
 ## Security guarantees
 
