@@ -27,8 +27,11 @@ func TestPackUnsafeEmptyAndSymlink(t *testing.T) {
 	d := t.TempDir()
 	pkg = &graph.PackageNode{Name: "app", Version: "1.0.0", Publish: manifest.PublishPolicy{Include: []string{"nope/**"}}}
 	r = Pack(d, pkg, Options{DryRun: true})
-	if !hasCode(r.Diagnostics, "TSPACK_PACK_EMPTY_PACKAGE") {
-		t.Fatalf("expected empty package")
+	if !hasCode(r.Diagnostics, "TSPACK_PACK_INCLUDE_MATCHED_NOTHING") {
+		t.Fatalf("expected empty include error")
+	}
+	if !hasSeverity(r.Diagnostics, "TSPACK_PACK_INCLUDE_MATCHED_NOTHING", diag.SeverityError) {
+		t.Fatalf("expected empty include diagnostic to be an error: %#v", r.Diagnostics)
 	}
 
 	d2 := t.TempDir()
@@ -263,6 +266,15 @@ func hasCode(diags []diag.Diagnostic, c string) bool {
 	}
 	return false
 }
+func hasSeverity(diags []diag.Diagnostic, c string, severity diag.Severity) bool {
+	for _, d := range diags {
+		if d.Code == c && d.Severity == severity {
+			return true
+		}
+	}
+	return false
+}
+
 func contains(s []string, v string) bool {
 	for _, x := range s {
 		if x == v {

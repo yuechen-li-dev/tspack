@@ -195,4 +195,6 @@ Page/analyzer:
 
 ## Pack diagnostics
 
+- `TSPACK_PACK_INCLUDE_MATCHED_NOTHING`: an explicit `publish.include` pattern matched no files. This is an error by default because it usually means build outputs such as `dist/**` are missing. Details include the package name, pattern, package root, and a remediation hint to build outputs first or remove/update the include pattern.
+- `TSPACK_PACK_WRITE_FAILED`: archive output could not be created, written, or moved into place. Pack writes through temporary files and cleans temporary/final paths on a best-effort basis before reporting this error.
 - `TSPACK_PACK_UNPUBLISHABLE_PEER_DEPENDENCY`: a publishable package target declares a peer dependency from a non-npm source such as `path`, `git`, or `workspace`. Generated npm `peerDependencies` require package names with version ranges, so pack fails instead of silently omitting the peer.

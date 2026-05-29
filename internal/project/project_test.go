@@ -996,3 +996,173 @@ func buildRegistryForTargetedSelection(t *testing.T) *fakeClient {
 	}
 	return &fakeClient{meta: meta, tar: tarballs}
 }
+
+func TestPackAllOrNothingValidationFailureWritesNoArtifacts(t *testing.T) {
+	dir := t.TempDir()
+	ir := packWorkspaceIRForM36b(true)
+	writeM36bWorkspaceFiles(t, dir)
+	irPath := writeIR(t, dir, ir)
+	outDir := filepath.Join(dir, "out")
+
+	result := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{OutputDir: outDir})
+	if !hasErrCode(result.Diagnostics, "TSPACK_PACK_MISSING_PUBLISH_POLICY") {
+		t.Fatalf("expected missing publish policy diagnostic: %#v", result.Diagnostics)
+	}
+	if result.PackResult != nil && len(result.PackResult.Artifacts) > 0 {
+		t.Fatalf("expected no artifacts on validation failure: %#v", result.PackResult.Artifacts)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "lib-1.0.0.tgz")); !os.IsNotExist(err) {
+		t.Fatalf("valid package artifact should not be written when another selected package fails")
+	}
+}
+
+func TestPackPackageScopedValidPackageWritesArtifact(t *testing.T) {
+	dir := t.TempDir()
+	ir := packWorkspaceIRForM36b(true)
+	writeM36bWorkspaceFiles(t, dir)
+	irPath := writeIR(t, dir, ir)
+	outDir := filepath.Join(dir, "out")
+
+	result := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{OutputDir: outDir, PackageName: "lib"})
+	if hasErrors(result.Diagnostics) {
+		t.Fatalf("package-scoped pack failed: %#v", result.Diagnostics)
+	}
+	if len(result.PackResult.Artifacts) != 1 {
+		t.Fatalf("expected one artifact: %#v", result.PackResult)
+	}
+	mustExist(t, filepath.Join(outDir, "lib-1.0.0.tgz"))
+	if _, err := os.Stat(filepath.Join(outDir, "app-1.0.0.tgz")); !os.IsNotExist(err) {
+		t.Fatalf("package-scoped pack wrote unselected artifact")
+	}
+}
+
+func TestPackIncludeMissPolicies(t *testing.T) {
+	t.Run("missing include is an error and writes no artifact", func(t *testing.T) {
+		dir := t.TempDir()
+		ir := simpleIR()
+		ir["packages"].([]map[string]any)[0]["targets"] = []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "src/index.ts", "types": "src/index.ts", "deps": []string{}, "peers": []string{}}}
+		irPath := writeIR(t, dir, ir)
+		outDir := filepath.Join(dir, "out")
+		_ = os.RemoveAll(filepath.Join(dir, "dist"))
+		_ = os.MkdirAll(filepath.Join(dir, "dist"), 0o755)
+
+		result := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{OutputDir: outDir})
+		if !hasErrCode(result.Diagnostics, "TSPACK_PACK_INCLUDE_MATCHED_NOTHING") {
+			t.Fatalf("expected include miss diagnostic: %#v", result.Diagnostics)
+		}
+		if _, err := os.Stat(filepath.Join(outDir, "app-1.0.0.tgz")); !os.IsNotExist(err) {
+			t.Fatalf("artifact should not be written when include misses")
+		}
+	})
+
+	t.Run("partial include miss is an error and writes no artifact", func(t *testing.T) {
+		dir := t.TempDir()
+		ir := simpleIR()
+		pkg := ir["packages"].([]map[string]any)[0]
+		pkg["targets"] = []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "src/index.ts", "types": "src/index.ts", "deps": []string{}, "peers": []string{}}}
+		pkg["publish"] = map[string]any{"include": []string{"dist/**", "README.md"}, "exclude": []string{}}
+		irPath := writeIR(t, dir, ir)
+		outDir := filepath.Join(dir, "out")
+		_ = os.WriteFile(filepath.Join(dir, "README.md"), []byte("readme\n"), 0o644)
+		_ = os.RemoveAll(filepath.Join(dir, "dist"))
+		_ = os.MkdirAll(filepath.Join(dir, "dist"), 0o755)
+
+		result := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{OutputDir: outDir})
+		if !hasErrCode(result.Diagnostics, "TSPACK_PACK_INCLUDE_MATCHED_NOTHING") {
+			t.Fatalf("expected include miss diagnostic: %#v", result.Diagnostics)
+		}
+		if _, err := os.Stat(filepath.Join(outDir, "app-1.0.0.tgz")); !os.IsNotExist(err) {
+			t.Fatalf("artifact should not be written when one include pattern misses")
+		}
+	})
+
+	t.Run("exclude miss does not fail", func(t *testing.T) {
+		dir := t.TempDir()
+		ir := simpleIR()
+		pkg := ir["packages"].([]map[string]any)[0]
+		pkg["publish"] = map[string]any{"include": []string{"dist/**"}, "exclude": []string{"missing/**"}}
+		irPath := writeIR(t, dir, ir)
+		outDir := filepath.Join(dir, "out")
+
+		result := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{OutputDir: outDir})
+		if hasErrors(result.Diagnostics) {
+			t.Fatalf("exclude miss should not fail: %#v", result.Diagnostics)
+		}
+		mustExist(t, filepath.Join(outDir, "app-1.0.0.tgz"))
+	})
+}
+
+func TestPackDryRunValidationBehavior(t *testing.T) {
+	t.Run("missing include exits validation path and writes nothing", func(t *testing.T) {
+		dir := t.TempDir()
+		ir := simpleIR()
+		ir["packages"].([]map[string]any)[0]["targets"] = []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "src/index.ts", "types": "src/index.ts", "deps": []string{}, "peers": []string{}}}
+		irPath := writeIR(t, dir, ir)
+		_ = os.RemoveAll(filepath.Join(dir, "dist"))
+		_ = os.MkdirAll(filepath.Join(dir, "dist"), 0o755)
+
+		result := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{DryRun: true})
+		if !hasErrCode(result.Diagnostics, "TSPACK_PACK_INCLUDE_MATCHED_NOTHING") {
+			t.Fatalf("expected dry-run include miss diagnostic: %#v", result.Diagnostics)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "tspack-artifacts")); !os.IsNotExist(err) {
+			t.Fatalf("dry run should not write artifacts")
+		}
+	})
+
+	t.Run("valid dry-run prints a plan and writes nothing", func(t *testing.T) {
+		dir := t.TempDir()
+		irPath := writeIR(t, dir, simpleIR())
+
+		result := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{DryRun: true})
+		if hasErrors(result.Diagnostics) {
+			t.Fatalf("dry run failed: %#v", result.Diagnostics)
+		}
+		if len(result.PackResult.Preview) == 0 {
+			t.Fatalf("expected dry-run preview")
+		}
+		if _, err := os.Stat(filepath.Join(dir, "tspack-artifacts")); !os.IsNotExist(err) {
+			t.Fatalf("dry run should not write artifacts")
+		}
+	})
+}
+
+func TestPackWriteFailureLeavesNoFinalArtifact(t *testing.T) {
+	dir := t.TempDir()
+	irPath := writeIR(t, dir, simpleIR())
+	outPath := filepath.Join(dir, "not-a-directory")
+	_ = os.WriteFile(outPath, []byte("file blocks output dir\n"), 0o644)
+
+	result := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{OutputDir: outPath})
+	if !hasErrCode(result.Diagnostics, "TSPACK_PACK_WRITE_FAILED") {
+		t.Fatalf("expected write failure diagnostic: %#v", result.Diagnostics)
+	}
+	if result.PackResult != nil && len(result.PackResult.Artifacts) > 0 {
+		t.Fatalf("write failure should not report artifacts: %#v", result.PackResult.Artifacts)
+	}
+	if _, err := os.Stat(filepath.Join(outPath, "app-1.0.0.tgz")); err == nil {
+		t.Fatalf("final artifact should not remain after write failure")
+	}
+}
+
+func packWorkspaceIRForM36b(appMissingPublish bool) map[string]any {
+	appPublish := map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}
+	if appMissingPublish {
+		appPublish = map[string]any{"include": []string{}, "exclude": []string{}}
+	}
+	return map[string]any{"format": 1, "workspace": map[string]any{"name": "ws"}, "packages": []map[string]any{
+		{"name": "lib", "version": "1.0.0", "root": "packages/lib", "kind": "library", "dependencies": []map[string]any{}, "targets": []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "dist/index.js", "types": "dist/index.d.ts", "deps": []string{}, "peers": []string{}}}, "tools": []string{}, "boundaries": []any{}, "publish": map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}}},
+		{"name": "app", "version": "1.0.0", "root": "packages/app", "kind": "app", "dependencies": []map[string]any{}, "targets": []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "dist/index.js", "types": "dist/index.d.ts", "deps": []string{}, "peers": []string{}}}, "tools": []string{}, "boundaries": []any{}, "publish": appPublish, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}}},
+	}}
+}
+
+func writeM36bWorkspaceFiles(t *testing.T, dir string) {
+	t.Helper()
+	for _, pkgRoot := range []string{"packages/lib", "packages/app"} {
+		_ = os.MkdirAll(filepath.Join(dir, pkgRoot, "src"), 0o755)
+		_ = os.MkdirAll(filepath.Join(dir, pkgRoot, "dist"), 0o755)
+		_ = os.WriteFile(filepath.Join(dir, pkgRoot, "src", "index.ts"), []byte("export const x = 1;\n"), 0o644)
+		_ = os.WriteFile(filepath.Join(dir, pkgRoot, "dist", "index.js"), []byte("export const x = 1;\n"), 0o644)
+		_ = os.WriteFile(filepath.Join(dir, pkgRoot, "dist", "index.d.ts"), []byte("export declare const x: number;\n"), 0o644)
+	}
+}

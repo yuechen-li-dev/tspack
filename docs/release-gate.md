@@ -23,6 +23,16 @@
 - `tspack lint`
 - `tspack doctor`
 
+
+### Pack safety smoke
+
+The pack release smoke should cover strict pack safety defaults:
+
+- A workspace pack where one selected package is valid and another selected package fails pack validation must exit nonzero and leave no final `.tgz` artifacts.
+- `tspack pack --package <valid-package>` in that workspace must still write the selected package artifact.
+- A package with `publish.include = ["dist/**"]` and missing build output must fail with `TSPACK_PACK_INCLUDE_MATCHED_NOTHING` and write no artifact.
+- `tspack pack --dry-run` must validate include patterns, fail when the real pack would fail, and write no artifacts.
+
 ### Claude-fooding Phase 2 package-manager smoke
 
 The Phase 2 package-manager smoke must cover the validated update→store→sync loop and read-only UX commands:

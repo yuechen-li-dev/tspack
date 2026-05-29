@@ -460,14 +460,25 @@ func Pack(opts Options, packOpts PackOptions) Result {
 		pkgs = []*graph.PackageNode{p}
 	}
 	pr := &PackResult{}
+	plans := []pack.Plan{}
+	packOptions := pack.Options{OutputDir: packOpts.OutputDir, DryRun: packOpts.DryRun}
 	for _, p := range pkgs {
-		r := pack.Pack(opts.RootDir, p, pack.Options{OutputDir: packOpts.OutputDir, DryRun: packOpts.DryRun})
+		r := pack.PlanPackage(opts.RootDir, p, packOptions)
 		out = append(out, r.Diagnostics...)
-		for _, a := range r.Artifacts {
-			pr.Artifacts = append(pr.Artifacts, PackArtifact(a))
-		}
+		plans = append(plans, r.Plans...)
 		for _, f := range r.Preview {
 			pr.Preview = append(pr.Preview, PackFile(f))
+		}
+	}
+	if hasErrors(out) {
+		diag.SortDiagnostics(out)
+		return Result{Diagnostics: out, PackResult: pr}
+	}
+	if !packOpts.DryRun {
+		writeResult := pack.WritePlans(plans, packOptions)
+		out = append(out, writeResult.Diagnostics...)
+		for _, a := range writeResult.Artifacts {
+			pr.Artifacts = append(pr.Artifacts, PackArtifact(a))
 		}
 	}
 	diag.SortDiagnostics(out)
