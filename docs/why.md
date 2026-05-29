@@ -207,3 +207,7 @@ When multiple lock versions match, suggestions are sorted by lock ID and every m
 - No license audit
 - No dependency health scoring
 - No update recommendation
+
+## Related docs
+
+- See `docs/claude-fooding-phase6.md` for the Phase 6 pack/why remediation closeout.

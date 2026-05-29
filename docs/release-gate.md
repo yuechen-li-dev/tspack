@@ -40,6 +40,33 @@ The pack release smoke should cover strict pack safety defaults:
 - `tspack pack --dry-run --verify` must fail deterministically with `TSPACK_PACK_INVALID_ARGS` and write no artifacts.
 - A package with `CHANGELOG.md` at its root but no final publish-policy entry for it must warn with `TSPACK_PACK_CHANGELOG_NOT_INCLUDED` while still succeeding when no error diagnostics exist.
 
+### Claude-fooding Phase 6 pack/why smoke
+
+The Phase 6 pack/why smoke must cover the closeout state documented in `docs/claude-fooding-phase6.md`:
+
+- `tspack pack --dry-run` validates the selected package set, prints the planned contents, and writes no artifacts.
+- `tspack pack --verify` structurally verifies produced npm artifacts before finalization.
+- `tspack pack --package <pkg> --verify` verifies one package selection without packing unrelated packages.
+- Generated `package/package.json` metadata checks cover `license`, `main`, `types`, `peerDependencies`, and optional `peerDependenciesMeta`.
+- All-or-nothing failure smoke verifies that a selected-package failure exits nonzero and leaves no partial final artifacts.
+- Include matched nothing smoke verifies `TSPACK_PACK_INCLUDE_MATCHED_NOTHING` as an error.
+- Changelog omission smoke verifies `CHANGELOG.md` omission warns with `TSPACK_PACK_CHANGELOG_NOT_INCLUDED` without auto-including or mutating publish policy.
+- Deterministic repeated pack hash smoke verifies identical selected inputs produce the same reported `sha256:<hex>` hash.
+- `tspack why <declared-dep>` explains declared dependency reachability.
+- `tspack why <bare-transitive-name>` suggestion smoke verifies full lock-ID guidance for matching transitives.
+- `tspack why npm:<name>@<version>` explains an exact lock package.
+- `tspack why --json` emits deterministic structured output.
+- `tspack why --reverse <name>` emits root-to-query reverse dependency paths.
+- `tspack why <declared-dep> --package <pkg>` scopes explanations to the selected package.
+
+Phase 6 expected behavior coverage should verify:
+
+- Pack failures leave no partial artifacts from the selected package set.
+- `pack --verify` does not run scripts, execute package code, install dependencies, publish, or perform registry/network checks.
+- Why JSON keeps stdout clean for parseable JSON on handled paths.
+- Reverse why paths are printed and encoded root-to-query.
+- Lock edges in normal why are declaration-scoped and deduplicated.
+
 ### Claude-fooding Phase 2 package-manager smoke
 
 The Phase 2 package-manager smoke must cover the validated update→store→sync loop and read-only UX commands:

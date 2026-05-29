@@ -75,3 +75,7 @@ There is currently no `--continue-on-error` and no `--allow-empty-patterns`. The
 - No `tspack publish`.
 - No npm auth/registry upload.
 - No build/test/dev/add/remove/why behavior.
+
+## Related docs
+
+- See `docs/claude-fooding-phase6.md` for the Phase 6 pack/why remediation closeout.

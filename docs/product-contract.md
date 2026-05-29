@@ -109,6 +109,10 @@ Claude-fooding Phase 4 closed out the native xTest harness with runtime assertio
 
 Claude-fooding Phase 5 closed out the runtime loop with declared RunTargets, readiness checks, doctor integration, package-qualified target selection, cwd policy, explicit env overlays, and inspect-run startup reuse. See `docs/claude-fooding-phase5.md` for the remediation closeout.
 
+## Claude-fooding Phase 6 pack/why model
+
+Claude-fooding Phase 6 closed out pack and why as publish/audit-grade release-gate surfaces: pack produces deterministic archives, verifies package metadata and package path references structurally, and keeps explicit publish policy authoritative; why provides structured dependency explanations and root-to-transitive reverse dependency paths. See `docs/claude-fooding-phase6.md` for the remediation closeout.
+
 ## Security guarantees
 
 - Fetch is not execute.
