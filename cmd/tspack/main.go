@@ -159,7 +159,7 @@ func printHelp() {
 	fmt.Println("  tspack check [--root .] [--json] [--explain <file>]")
 	fmt.Println("  tspack update [query] [--root .] [--dry-run] [--json] [--quiet]")
 	fmt.Println("  tspack sync [--root .] [--clean]")
-	fmt.Println("  tspack pack [--root .] [--out dir] [--package name] [--dry-run]")
+	fmt.Println("  tspack pack [--root .] [--out dir] [--package name] [--dry-run] [--verify]")
 	fmt.Println("  tspack why <query> [--root .] [--package name]")
 	fmt.Println("  tspack outdated [--root .] [--json]")
 	fmt.Println("  tspack how <diagnostic-code> [--json]")
@@ -631,6 +631,13 @@ func runCommand(args []string) {
 			}
 			fmt.Fprintf(os.Stderr, "unknown %s flag: --dry-run\n", cmd)
 			os.Exit(1)
+		case "--verify":
+			if cmd == "pack" {
+				packOpts.Verify = true
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "unknown %s flag: --verify\n", cmd)
+			os.Exit(1)
 		case "--package":
 			i++
 			packOpts.PackageName = args[i]
@@ -825,6 +832,9 @@ func runCommand(args []string) {
 	if result.PackResult != nil {
 		for _, a := range result.PackResult.Artifacts {
 			fmt.Printf("packed %s@%s -> %s (%s)\n", a.PackageName, a.Version, a.Path, a.Hash)
+			if a.Verified {
+				fmt.Printf("Verified package artifact: %s\n", a.Path)
+			}
 		}
 		if packOpts.DryRun {
 			for _, f := range result.PackResult.Preview {

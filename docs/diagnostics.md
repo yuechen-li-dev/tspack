@@ -195,6 +195,13 @@ Page/analyzer:
 
 ## Pack diagnostics
 
+- `TSPACK_PACK_INVALID_ARGS`: pack flags were combined in a contradictory way; currently `--dry-run --verify` is rejected because dry-run intentionally produces no archive for verification to inspect.
 - `TSPACK_PACK_INCLUDE_MATCHED_NOTHING`: an explicit `publish.include` pattern matched no files. This is an error by default because it usually means build outputs such as `dist/**` are missing. Details include the package name, pattern, package root, and a remediation hint to build outputs first or remove/update the include pattern.
 - `TSPACK_PACK_WRITE_FAILED`: archive output could not be created, written, or moved into place. Pack writes through temporary files and cleans temporary/final paths on a best-effort basis before reporting this error.
 - `TSPACK_PACK_UNPUBLISHABLE_PEER_DEPENDENCY`: a publishable package target declares a peer dependency from a non-npm source such as `path`, `git`, or `workspace`. Generated npm `peerDependencies` require package names with version ranges, so pack fails instead of silently omitting the peer.
+- `TSPACK_PACK_VERIFY_FAILED`: `--verify` could not read the produced archive or found an artifact-level structural failure such as an empty/stub package payload.
+- `TSPACK_PACK_VERIFY_PACKAGE_JSON_MISSING`: `--verify` could not find `package/package.json` in the produced archive.
+- `TSPACK_PACK_VERIFY_PACKAGE_JSON_INVALID`: `--verify` found `package/package.json`, but it was not valid JSON.
+- `TSPACK_PACK_VERIFY_MISSING_FILE`: `--verify` found a `package.json` path reference such as `main`, `types`, or an `exports` target that does not exist in the archive. Details include package, archive, field, and referenced path.
+- `TSPACK_PACK_VERIFY_INVALID_PACKAGE_PATH`: `--verify` found an unsafe archive entry path or package metadata path reference, such as an absolute path, parent traversal, URL-like target, or backslash-containing path.
+- `TSPACK_PACK_VERIFY_METADATA_MISMATCH`: `--verify` found package metadata that does not match the manifest-derived pack plan, including name/version/license/main/types/exports or peer dependency metadata.

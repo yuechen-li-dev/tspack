@@ -74,6 +74,7 @@ type PackOptions struct {
 	OutputDir   string
 	PackageName string
 	DryRun      bool
+	Verify      bool
 }
 type PackResult struct {
 	Artifacts []PackArtifact
@@ -85,6 +86,7 @@ type PackArtifact struct {
 	Path        string
 	Hash        string
 	Size        int64
+	Verified    bool
 }
 type PackFile struct {
 	PackageName string
@@ -434,6 +436,10 @@ func preserveNonSelectedNPMLocks(g *graph.WorkspaceGraph, old *lockfile.Lockfile
 }
 
 func Pack(opts Options, packOpts PackOptions) Result {
+	if packOpts.DryRun && packOpts.Verify {
+		return Result{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_PACK_INVALID_ARGS", "--verify requires a produced archive and cannot be combined with --dry-run")}}
+	}
+
 	_, g, out := loadManifestAndGraph(opts)
 	out = append(out, check.CheckPackage(check.CheckOptions{RootDir: opts.RootDir, Graph: g}).Diagnostics...)
 	if _, err := os.Stat(opts.LockfilePath); err == nil {
@@ -461,7 +467,7 @@ func Pack(opts Options, packOpts PackOptions) Result {
 	}
 	pr := &PackResult{}
 	plans := []pack.Plan{}
-	packOptions := pack.Options{OutputDir: packOpts.OutputDir, DryRun: packOpts.DryRun}
+	packOptions := pack.Options{OutputDir: packOpts.OutputDir, DryRun: packOpts.DryRun, Verify: packOpts.Verify}
 	for _, p := range pkgs {
 		r := pack.PlanPackage(opts.RootDir, p, packOptions)
 		out = append(out, r.Diagnostics...)
