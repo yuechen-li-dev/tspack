@@ -6,7 +6,8 @@
 - Runs project checks before packing.
 - Plans and validates every selected package before writing final `.tgz` artifacts.
 - Writes artifacts all-or-nothing for the selected package set: if any selected package has an error, no final artifacts are written.
-- Writes archives through temporary files and then renames them into place; write failures report `TSPACK_PACK_WRITE_FAILED` and clean temporary files on a best-effort basis.
+- With `--verify`, writes temporary archives, verifies every selected artifact, and only then renames archives into final paths.
+- Writes archives through temporary files and then renames them into place; write and verification failures clean temporary/final files on a best-effort basis.
 - Does not build.
 - Does not publish.
 - Does not execute scripts.
@@ -37,8 +38,22 @@ Generated `peerDependencies` are derived from manifest peer dependencies that us
 ## Workspace behavior
 By default, `tspack pack` packs all workspace packages. Use `--package <name>` to pack one package. The all-or-nothing guarantee applies to the selected package set: a one-package selection writes that package when valid, while a multi-package selection writes none if any selected package fails.
 
+## Verification
+`tspack pack --verify` creates the same deterministic `.tgz` archive that normal pack would create, but keeps it at a temporary path until structural verification succeeds. Verification inspects the produced tarball as an npm package artifact; it does not reinterpret the tarball as a TSPack source workspace unless the artifact itself contains a manifest as ordinary package content.
+
+Verification checks:
+
+- the archive is readable as gzip/tar, every entry is under `package/`, and entry names do not use absolute paths, parent traversal, or backslashes;
+- `package/package.json` exists and parses as JSON;
+- package metadata matches the manifest-derived pack plan: `name`, `version`, `license` when declared, root `main`, root `types`, and generated `exports`;
+- package path references from `main`, `types`, and string leaves inside `exports` are safe package-relative paths and point at files present in the archive;
+- npm peer dependencies and optional peer metadata match the manifest-derived peer dependency metadata;
+- the archive contains at least one real payload entry in addition to `package/package.json`.
+
+Verification is intentionally structural only. It does not run `npm install`, fetch registry metadata, publish, execute lifecycle scripts, run package scripts, or execute code from the package. If any selected artifact fails verification, pack exits nonzero and no final artifact from the selected set remains.
+
 ## Dry run
-`tspack pack --dry-run` performs the same validation as a real pack, including include-pattern miss checks, and exits nonzero if pack would fail. A valid dry run prints the planned archive entries but writes no artifacts.
+`tspack pack --dry-run` performs the same validation as a real pack, including include-pattern miss checks, and exits nonzero if pack would fail. A valid dry run prints the planned archive entries but writes no artifacts. `tspack pack --dry-run --verify` is rejected with `TSPACK_PACK_INVALID_ARGS` because verification requires a produced archive to inspect.
 
 ## Empty package policy
 If publish policy leaves no real files, pack fails rather than producing an archive containing only generated metadata. A `publish.include` pattern that matches nothing is reported as `TSPACK_PACK_INCLUDE_MATCHED_NOTHING`; other empty-content cases use `TSPACK_PACK_EMPTY_PACKAGE`.

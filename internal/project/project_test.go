@@ -1166,3 +1166,54 @@ func writeM36bWorkspaceFiles(t *testing.T, dir string) {
 		_ = os.WriteFile(filepath.Join(dir, pkgRoot, "dist", "index.d.ts"), []byte("export declare const x: number;\n"), 0o644)
 	}
 }
+
+func TestPackVerifyPackageScopedWritesVerifiedArtifact(t *testing.T) {
+	dir := t.TempDir()
+	ir := packWorkspaceIRForM36b(false)
+	packages := ir["packages"].([]map[string]any)
+	packages[0]["license"] = "MIT"
+	packages[0]["dependencies"] = []map[string]any{
+		{"key": "react", "kind": "peer", "source": map[string]any{"kind": "npm", "package": "react", "range": ">=18 <20"}},
+	}
+	packages[0]["targets"] = []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "dist/index.js", "types": "dist/index.d.ts", "deps": []string{}, "peers": []string{"react"}}}
+	irPath := writeIR(t, dir, ir)
+	writeM36bWorkspaceFiles(t, dir)
+	outDir := filepath.Join(dir, "out")
+
+	first := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{OutputDir: outDir, PackageName: "lib", Verify: true})
+	if hasErrors(first.Diagnostics) {
+		t.Fatalf("pack --verify failed: %#v", first.Diagnostics)
+	}
+	if first.PackResult == nil || len(first.PackResult.Artifacts) != 1 || !first.PackResult.Artifacts[0].Verified {
+		t.Fatalf("expected one verified artifact: %#v", first.PackResult)
+	}
+	mustExist(t, filepath.Join(outDir, "lib-1.0.0.tgz"))
+	if _, err := os.Stat(filepath.Join(outDir, "app-1.0.0.tgz")); !os.IsNotExist(err) {
+		t.Fatalf("package-scoped verify should not write unselected package")
+	}
+
+	secondOutDir := filepath.Join(dir, "out2")
+	second := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{OutputDir: secondOutDir, PackageName: "lib", Verify: true})
+	if hasErrors(second.Diagnostics) || second.PackResult == nil || len(second.PackResult.Artifacts) != 1 {
+		t.Fatalf("second pack --verify failed: %#v", second.Diagnostics)
+	}
+	if first.PackResult.Artifacts[0].Hash != second.PackResult.Artifacts[0].Hash {
+		t.Fatalf("verified package hash is not deterministic: %s != %s", first.PackResult.Artifacts[0].Hash, second.PackResult.Artifacts[0].Hash)
+	}
+}
+
+func TestPackDryRunVerifyRejected(t *testing.T) {
+	dir := t.TempDir()
+	irPath := writeIR(t, dir, simpleIR())
+
+	result := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{DryRun: true, Verify: true})
+	if !hasErrCode(result.Diagnostics, "TSPACK_PACK_INVALID_ARGS") {
+		t.Fatalf("expected dry-run verify invalid args diagnostic: %#v", result.Diagnostics)
+	}
+	if result.PackResult != nil && len(result.PackResult.Artifacts) > 0 {
+		t.Fatalf("dry-run verify should not report artifacts: %#v", result.PackResult.Artifacts)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "tspack-artifacts")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run verify should not write artifacts")
+	}
+}

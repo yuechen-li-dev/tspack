@@ -13,6 +13,7 @@
 - `tspack how --list`
 - `tspack how TSPACK_IR_INVALID_RELATIVE_PATH`
 - `tspack pack`
+- `tspack pack --verify`
 - `tspack test`
 - `tspack artifact`
 - `tspack bench`
@@ -32,6 +33,8 @@ The pack release smoke should cover strict pack safety defaults:
 - `tspack pack --package <valid-package>` in that workspace must still write the selected package artifact.
 - A package with `publish.include = ["dist/**"]` and missing build output must fail with `TSPACK_PACK_INCLUDE_MATCHED_NOTHING` and write no artifact.
 - `tspack pack --dry-run` must validate include patterns, fail when the real pack would fail, and write no artifacts.
+- `tspack pack --verify` must verify produced archives before finalizing them, print verified-artifact output on success, and leave no final `.tgz` files when verification fails.
+- `tspack pack --dry-run --verify` must fail deterministically with `TSPACK_PACK_INVALID_ARGS` and write no artifacts.
 
 ### Claude-fooding Phase 2 package-manager smoke
 
