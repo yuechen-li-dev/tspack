@@ -50,6 +50,7 @@ type CheckJSONDiagnostic struct {
 
 type WhyJSONReport struct {
 	Command      string               `json:"command"`
+	Mode         string               `json:"mode,omitempty"`
 	Query        string               `json:"query"`
 	Package      *string              `json:"package"`
 	OK           bool                 `json:"ok"`
@@ -58,11 +59,16 @@ type WhyJSONReport struct {
 	LockfilePath string               `json:"lockfilePath,omitempty"`
 	Summary      WhyJSONSummary       `json:"summary"`
 	Explanations []WhyJSONExplanation `json:"explanations"`
+	LockPackages []WhyJSONLockPackage `json:"lockPackages,omitempty"`
+	Reverse      []WhyJSONReversePath `json:"reverse,omitempty"`
+	Notes        []string             `json:"notes,omitempty"`
 	Diagnostics  []WhyJSONDiagnostic  `json:"diagnostics"`
 }
 
 type WhyJSONSummary struct {
 	Explanations int `json:"explanations"`
+	LockPackages int `json:"lockPackages,omitempty"`
+	ReversePaths int `json:"reversePaths,omitempty"`
 	Diagnostics  int `json:"diagnostics"`
 	Warnings     int `json:"warnings"`
 	Errors       int `json:"errors"`
@@ -121,6 +127,13 @@ type WhyJSONLockEdge struct {
 	To       string `json:"to"`
 	Kind     string `json:"kind"`
 	Optional bool   `json:"optional"`
+}
+
+type WhyJSONReversePath struct {
+	LockPackage string            `json:"lockPackage"`
+	Root        string            `json:"root"`
+	Path        []string          `json:"path"`
+	Edges       []WhyJSONLockEdge `json:"edges"`
 }
 
 type WhyJSONDiagnostic struct {
@@ -246,7 +259,7 @@ func printHelp() {
 	fmt.Println("  tspack update [query] [--root .] [--dry-run] [--json] [--quiet]")
 	fmt.Println("  tspack sync [--root .] [--clean]")
 	fmt.Println("  tspack pack [--root .] [--out dir] [--package name] [--dry-run] [--verify]")
-	fmt.Println("  tspack why <query> [--root .] [--package name]")
+	fmt.Println("  tspack why [--reverse] <query> [--root .] [--package name]")
 	fmt.Println("  tspack outdated [--root .] [--json]")
 	fmt.Println("  tspack how <diagnostic-code> [--json]")
 	fmt.Println("  tspack how --list [--json]")
@@ -668,6 +681,7 @@ func runCommand(args []string) {
 	updateQuery := ""
 	packOpts := project.PackOptions{}
 	whyOpts := project.WhyOptions{}
+	whyPositionals := []string{}
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
 		case "--root":
@@ -728,6 +742,12 @@ func runCommand(args []string) {
 			i++
 			packOpts.PackageName = args[i]
 			whyOpts.PackageName = args[i]
+		case "--reverse":
+			if cmd != "why" {
+				fmt.Fprintf(os.Stderr, "unknown %s flag: --reverse\n", cmd)
+				os.Exit(1)
+			}
+			whyOpts.Reverse = true
 		case "--json":
 			jsonOutput = true
 		case "--explain":
@@ -761,11 +781,26 @@ func runCommand(args []string) {
 				}
 				updateQuery = args[i]
 			}
+			if cmd == "why" {
+				whyPositionals = append(whyPositionals, args[i])
+			}
 		}
 	}
 	var result project.Result
-	if cmd == "why" && len(args) > 1 {
-		whyOpts.Query = args[1]
+	if cmd == "why" {
+		if whyOpts.Reverse {
+			if len(whyPositionals) == 0 {
+				fmt.Fprintln(os.Stderr, "TSPACK_WHY_QUERY_REQUIRED: reverse why requires exactly one query")
+				os.Exit(1)
+			}
+			if len(whyPositionals) > 1 {
+				fmt.Fprintln(os.Stderr, "TSPACK_WHY_INVALID_ARGS: reverse why requires exactly one query")
+				os.Exit(1)
+			}
+		}
+		if len(whyPositionals) > 0 {
+			whyOpts.Query = whyPositionals[0]
+		}
 	}
 	if cmd == "check" && explainSet && len(checkPositionals) > 0 {
 		fmt.Fprintln(os.Stderr, "TSPACK_CHECK_EXPLAIN_FILE_REQUIRED: --explain requires exactly one file path")
@@ -894,7 +929,10 @@ func runCommand(args []string) {
 			fmt.Printf("lockfile diff: +%d -%d\n", len(result.LockDiff.PackagesAdded), len(result.LockDiff.PackagesRemoved))
 		}
 	}
-	if result.WhyResult != nil {
+	if result.WhyResult != nil && whyOpts.Reverse {
+		printReverseWhyResult(whyOpts, result.WhyResult)
+	}
+	if result.WhyResult != nil && !whyOpts.Reverse {
 		for _, e := range result.WhyResult.Explanations {
 			if e.MatchType == "dependency" {
 				fmt.Printf("%s declared in package %q as %s\n", e.DependencyKey, e.PackageName, e.Kind)
@@ -969,6 +1007,52 @@ func runCommand(args []string) {
 			fmt.Fprintln(os.Stderr, "pack failed; no artifacts were written")
 		}
 		os.Exit(1)
+	}
+}
+
+func printReverseWhyResult(whyOpts project.WhyOptions, result *why.Result) {
+	fmt.Printf("Reverse why: %s\n", whyOpts.Query)
+	fmt.Println()
+
+	if len(result.LockPackages) > 1 {
+		fmt.Println("Matching lock packages:")
+		for _, lockPackage := range result.LockPackages {
+			fmt.Printf("  %s\n", lockPackage.ID)
+		}
+		fmt.Println()
+	}
+
+	pathsByLockPackage := map[string][]why.ReversePath{}
+	for _, path := range result.ReversePaths {
+		pathsByLockPackage[path.LockPackage] = append(pathsByLockPackage[path.LockPackage], path)
+	}
+
+	for _, lockPackage := range result.LockPackages {
+		paths := pathsByLockPackage[lockPackage.ID]
+		if len(paths) == 0 {
+			if whyOpts.PackageName != "" {
+				fmt.Printf("No reverse paths from package %s.\n", whyOpts.PackageName)
+			} else {
+				fmt.Printf("No reverse paths found for %s.\n", lockPackage.ID)
+			}
+			fmt.Println()
+			continue
+		}
+
+		fmt.Printf("%s is pulled in by:\n", lockPackage.ID)
+		fmt.Println()
+		for _, path := range paths {
+			fmt.Printf("  %s\n", path.Root)
+			fmt.Println("    path:")
+			for index, node := range path.Path {
+				if index == 0 {
+					fmt.Printf("      %s\n", node)
+				} else {
+					fmt.Printf("      -> %s\n", node)
+				}
+			}
+			fmt.Println()
+		}
 	}
 }
 
@@ -1102,15 +1186,27 @@ func buildWhyJSONReport(opts project.Options, whyOpts project.WhyOptions, result
 	}
 
 	explanations := []WhyJSONExplanation{}
+	lockPackages := []WhyJSONLockPackage{}
+	reversePaths := []WhyJSONReversePath{}
+	notes := []string{}
 	if result.WhyResult != nil {
 		for _, explanation := range result.WhyResult.Explanations {
 			explanations = append(explanations, buildWhyJSONExplanation(explanation))
 		}
+		for _, lockPackage := range result.WhyResult.LockPackages {
+			lockPackages = append(lockPackages, buildWhyJSONLockPackage(lockPackage))
+		}
+		for _, reversePath := range result.WhyResult.ReversePaths {
+			reversePaths = append(reversePaths, buildWhyJSONReversePath(reversePath))
+		}
+		notes = append(notes, result.WhyResult.Notes...)
 	}
 
 	diagnostics := buildWhyJSONDiagnostics(result.Diagnostics)
 	summary := WhyJSONSummary{
 		Explanations: len(explanations),
+		LockPackages: len(lockPackages),
+		ReversePaths: len(reversePaths),
 		Diagnostics:  len(diagnostics),
 	}
 	for _, diagnostic := range diagnostics {
@@ -1122,8 +1218,14 @@ func buildWhyJSONReport(opts project.Options, whyOpts project.WhyOptions, result
 		}
 	}
 
+	mode := ""
+	if whyOpts.Reverse {
+		mode = "reverse"
+	}
+
 	return WhyJSONReport{
 		Command:      "why",
+		Mode:         mode,
 		Query:        whyOpts.Query,
 		Package:      packageFilter,
 		OK:           summary.Errors == 0,
@@ -1132,8 +1234,38 @@ func buildWhyJSONReport(opts project.Options, whyOpts project.WhyOptions, result
 		LockfilePath: opts.LockfilePath,
 		Summary:      summary,
 		Explanations: explanations,
+		LockPackages: lockPackages,
+		Reverse:      reversePaths,
+		Notes:        notes,
 		Diagnostics:  diagnostics,
 	}
+}
+
+func buildWhyJSONLockPackage(lockPackage why.LockPackageRef) WhyJSONLockPackage {
+	return WhyJSONLockPackage{
+		ID:      lockPackage.ID,
+		Name:    lockPackage.Name,
+		Version: lockPackage.Version,
+		Source:  lockPackage.Source,
+		Hash:    lockPackage.Hash,
+	}
+}
+
+func buildWhyJSONReversePath(reversePath why.ReversePath) WhyJSONReversePath {
+	jsonPath := WhyJSONReversePath{
+		LockPackage: reversePath.LockPackage,
+		Root:        reversePath.Root,
+		Path:        append([]string(nil), reversePath.Path...),
+	}
+	for _, edge := range reversePath.Edges {
+		jsonPath.Edges = append(jsonPath.Edges, WhyJSONLockEdge{
+			From:     edge.From,
+			To:       edge.To,
+			Kind:     edge.Kind,
+			Optional: edge.Optional,
+		})
+	}
+	return jsonPath
 }
 
 func buildWhyJSONExplanation(explanation why.Explanation) WhyJSONExplanation {

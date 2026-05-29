@@ -225,6 +225,117 @@ func TestWhyMatrix(t *testing.T) {
 	})
 }
 
+func TestReverseWhyMatrix(t *testing.T) {
+	scopedGraph := buildScopedGraph(t)
+	scopedLock := buildScopedLock()
+
+	t.Run("reverse lock id", func(t *testing.T) {
+		r := Analyze(scopedGraph, scopedLock, Options{Query: "npm:loose-envify@1.4.0", Reverse: true})
+		if len(r.Diagnostics) != 0 {
+			t.Fatalf("unexpected diagnostics: %#v", r.Diagnostics)
+		}
+		path := mustFindReversePath(t, r, "npm:loose-envify@1.4.0", "@prisma-ui/demo:target:app")
+		assertPathEquals(t, path.Path, []string{"@prisma-ui/demo:target:app", "npm:react@18.3.1", "npm:loose-envify@1.4.0"})
+	})
+
+	t.Run("reverse bare name", func(t *testing.T) {
+		r := Analyze(scopedGraph, scopedLock, Options{Query: "loose-envify", Reverse: true})
+		if len(r.LockPackages) != 1 || r.LockPackages[0].ID != "npm:loose-envify@1.4.0" {
+			t.Fatalf("unexpected lock packages: %#v", r.LockPackages)
+		}
+		mustFindReversePath(t, r, "npm:loose-envify@1.4.0", "@prisma-ui/demo:target:app")
+	})
+
+	t.Run("multiple versions sorted", func(t *testing.T) {
+		r := Analyze(scopedGraph, scopedLock, Options{Query: "react", Reverse: true})
+		if got := lockPackageIDs(r.LockPackages); !reflect.DeepEqual(got, []string{"npm:react@18.3.1", "npm:react@19.2.6"}) {
+			t.Fatalf("unexpected packages: %#v", got)
+		}
+		mustFindReversePath(t, r, "npm:react@18.3.1", "@prisma-ui/demo:target:app")
+		mustFindReversePath(t, r, "npm:react@19.2.6", "@prisma-ui/components:target:core")
+	})
+
+	t.Run("package filter", func(t *testing.T) {
+		r := Analyze(scopedGraph, scopedLock, Options{Query: "react", PackageName: "@prisma-ui/demo", Reverse: true})
+		if len(r.ReversePaths) != 1 {
+			t.Fatalf("expected one filtered path, got %#v", r.ReversePaths)
+		}
+		if r.ReversePaths[0].Root != "@prisma-ui/demo:target:app" {
+			t.Fatalf("unexpected root: %#v", r.ReversePaths[0])
+		}
+
+		r = Analyze(scopedGraph, scopedLock, Options{Query: "loose-envify", PackageName: "@prisma-ui/components", Reverse: true})
+		if len(r.ReversePaths) != 0 {
+			t.Fatalf("expected no filtered paths, got %#v", r.ReversePaths)
+		}
+		if len(r.Notes) != 1 || r.Notes[0] != "package filter matched no roots" {
+			t.Fatalf("expected package filter note, got %#v", r.Notes)
+		}
+	})
+
+	t.Run("cycles are safe", func(t *testing.T) {
+		cycleLock := buildScopedLock()
+		cycleLock.Packages = append(cycleLock.Packages, lockfile.Package{ID: "npm:cycle@1.0.0", Name: "cycle", Version: "1.0.0", Source: "npm"})
+		cycleLock.Edges = append(cycleLock.Edges,
+			lockfile.Edge{From: "npm:loose-envify@1.4.0", To: "npm:cycle@1.0.0", Kind: "runtime"},
+			lockfile.Edge{From: "npm:cycle@1.0.0", To: "npm:react@18.3.1", Kind: "runtime"},
+		)
+		r := Analyze(scopedGraph, cycleLock, Options{Query: "cycle", Reverse: true})
+		path := mustFindReversePath(t, r, "npm:cycle@1.0.0", "@prisma-ui/demo:target:app")
+		assertPathEquals(t, path.Path, []string{"@prisma-ui/demo:target:app", "npm:react@18.3.1", "npm:loose-envify@1.4.0", "npm:cycle@1.0.0"})
+	})
+
+	t.Run("missing lockfile", func(t *testing.T) {
+		r := Analyze(scopedGraph, nil, Options{Query: "react", Reverse: true})
+		d := mustFindDiag(t, r.Diagnostics, "TSPACK_WHY_LOCKFILE_MISSING")
+		if d.Severity != diag.SeverityError {
+			t.Fatalf("expected error severity, got %s", d.Severity)
+		}
+	})
+
+	t.Run("no match", func(t *testing.T) {
+		r := Analyze(scopedGraph, scopedLock, Options{Query: "missing-everywhere", Reverse: true})
+		d := mustFindDiag(t, r.Diagnostics, "TSPACK_WHY_NOT_FOUND")
+		if strings.Contains(strings.Join(d.Details, "\n"), "npm:react") {
+			t.Fatalf("unexpected lockfile dump: %#v", d.Details)
+		}
+	})
+
+	t.Run("determinism", func(t *testing.T) {
+		r1 := Analyze(scopedGraph, scopedLock, Options{Query: "react", Reverse: true})
+		r2 := Analyze(scopedGraph, scopedLock, Options{Query: "react", Reverse: true})
+		if !reflect.DeepEqual(r1, r2) {
+			t.Fatalf("non-deterministic reverse why results")
+		}
+	})
+}
+
+func mustFindReversePath(t *testing.T, r Result, lockPackage string, root string) ReversePath {
+	t.Helper()
+	for _, path := range r.ReversePaths {
+		if path.LockPackage == lockPackage && path.Root == root {
+			return path
+		}
+	}
+	t.Fatalf("reverse path not found: lockPackage=%s root=%s got=%#v", lockPackage, root, r.ReversePaths)
+	return ReversePath{}
+}
+
+func assertPathEquals(t *testing.T, got []string, want []string) {
+	t.Helper()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected path:\n got %#v\nwant %#v", got, want)
+	}
+}
+
+func lockPackageIDs(packages []LockPackageRef) []string {
+	ids := []string{}
+	for _, lockPackage := range packages {
+		ids = append(ids, lockPackage.ID)
+	}
+	return ids
+}
+
 func TestWhyDocsMentionLockIDForm(t *testing.T) {
 	content, err := os.ReadFile("../../docs/why.md")
 	if err != nil {

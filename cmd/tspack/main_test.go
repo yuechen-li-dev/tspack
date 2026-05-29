@@ -201,11 +201,14 @@ process.stdout.write(JSON.stringify(out));`
 
 type whyJSONReport struct {
 	Command string  `json:"command"`
+	Mode    string  `json:"mode"`
 	Query   string  `json:"query"`
 	Package *string `json:"package"`
 	OK      bool    `json:"ok"`
 	Summary struct {
 		Explanations int `json:"explanations"`
+		LockPackages int `json:"lockPackages"`
+		ReversePaths int `json:"reversePaths"`
 		Diagnostics  int `json:"diagnostics"`
 		Warnings     int `json:"warnings"`
 		Errors       int `json:"errors"`
@@ -234,6 +237,24 @@ type whyJSONReport struct {
 			Optional bool   `json:"optional"`
 		} `json:"lockEdges"`
 	} `json:"explanations"`
+	LockPackages []struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Version string `json:"version"`
+		Source  string `json:"source"`
+	} `json:"lockPackages"`
+	Reverse []struct {
+		LockPackage string   `json:"lockPackage"`
+		Root        string   `json:"root"`
+		Path        []string `json:"path"`
+		Edges       []struct {
+			From     string `json:"from"`
+			To       string `json:"to"`
+			Kind     string `json:"kind"`
+			Optional bool   `json:"optional"`
+		} `json:"edges"`
+	} `json:"reverse"`
+	Notes       []string `json:"notes"`
 	Diagnostics []struct {
 		Code     string   `json:"code"`
 		Severity string   `json:"severity"`
@@ -329,6 +350,39 @@ func TestCLIWhyJSON(t *testing.T) {
 		t.Fatalf("expected structured not-found suggestion details: %#v", notFoundReport.Diagnostics)
 	}
 
+	reverseReport, reverseBytes, reverseStderr, err := runWhyJSON("--reverse", "loose-envify", "--json")
+	if err != nil {
+		t.Fatalf("reverse why loose-envify --json failed: %v\nstdout: %s\nstderr: %s", err, reverseBytes, reverseStderr)
+	}
+	if reverseStderr != "" {
+		t.Fatalf("reverse why json should not write stderr, got: %s", reverseStderr)
+	}
+	if reverseReport.Mode != "reverse" || !reverseReport.OK || reverseReport.Summary.LockPackages != 1 || reverseReport.Summary.ReversePaths != 2 {
+		t.Fatalf("unexpected reverse report summary: %#v", reverseReport)
+	}
+	if !whyJSONHasReversePath(reverseReport, "npm:loose-envify@1.4.0", "@acme/components:target:core") {
+		t.Fatalf("expected components reverse path: %#v", reverseReport.Reverse)
+	}
+	if !whyJSONHasReversePath(reverseReport, "npm:loose-envify@1.4.0", "@acme/demo:target:app") {
+		t.Fatalf("expected demo reverse path: %#v", reverseReport.Reverse)
+	}
+
+	reverseRepeatReport, reverseRepeatBytes, reverseRepeatStderr, err := runWhyJSON("--reverse", "loose-envify", "--json")
+	if err != nil {
+		t.Fatalf("repeat reverse why failed: %v\nstderr: %s", err, reverseRepeatStderr)
+	}
+	if reverseBytes != reverseRepeatBytes || !reflect.DeepEqual(reverseReport, reverseRepeatReport) {
+		t.Fatalf("reverse why json should be deterministic\nfirst: %s\nrepeat: %s", reverseBytes, reverseRepeatBytes)
+	}
+
+	filteredReverse, _, filteredReverseStderr, err := runWhyJSON("--reverse", "loose-envify", "--package", "@acme/demo", "--json")
+	if err != nil {
+		t.Fatalf("filtered reverse why failed: %v\nstderr: %s", err, filteredReverseStderr)
+	}
+	if len(filteredReverse.Reverse) != 1 || filteredReverse.Reverse[0].Root != "@acme/demo:target:app" {
+		t.Fatalf("expected only demo reverse path, got %#v", filteredReverse.Reverse)
+	}
+
 	if err := os.Remove(lockfile); err != nil {
 		t.Fatalf("remove lockfile: %v", err)
 	}
@@ -344,6 +398,17 @@ func TestCLIWhyJSON(t *testing.T) {
 	}
 	if !whyJSONHasDiagnostic(missingLockReport, "TSPACK_WHY_LOCKFILE_MISSING", "warning") {
 		t.Fatalf("expected missing lockfile warning: %#v", missingLockReport.Diagnostics)
+	}
+
+	reverseMissingLockReport, _, reverseMissingLockStderr, err := runWhyJSON("--reverse", "react", "--json")
+	if err == nil {
+		t.Fatalf("reverse missing-lockfile why should exit nonzero")
+	}
+	if reverseMissingLockStderr != "" {
+		t.Fatalf("reverse missing-lockfile why json should not write stderr, got: %s", reverseMissingLockStderr)
+	}
+	if reverseMissingLockReport.OK || !whyJSONHasDiagnostic(reverseMissingLockReport, "TSPACK_WHY_LOCKFILE_MISSING", "error") {
+		t.Fatalf("expected reverse missing lockfile error report: %#v", reverseMissingLockReport)
 	}
 
 	if err := os.WriteFile(lockfile, []byte(whyJSONLockfile()), 0o644); err != nil {
@@ -422,6 +487,7 @@ func whyJSONLockfile() string {
 		"[[edge]]\nfrom=\"@acme/components:target:core\"\nto=\"npm:react@19.2.6\"\nkind=\"peer\"\noptional=false\n" +
 		"[[edge]]\nfrom=\"@acme/demo:target:app\"\nto=\"npm:react@18.3.1\"\nkind=\"runtime\"\noptional=false\n" +
 		"[[edge]]\nfrom=\"npm:react@19.2.6\"\nto=\"npm:loose-envify@1.4.0\"\nkind=\"runtime\"\noptional=false\n" +
+		"[[edge]]\nfrom=\"npm:react@18.3.1\"\nto=\"npm:loose-envify@1.4.0\"\nkind=\"runtime\"\noptional=false\n" +
 		"[[target]]\npackage=\"@acme/components\"\nname=\"core\"\nexport=\".\"\nentry=\"src/components.ts\"\nruntime=\"src/components.ts\"\ntypes=\"dist/components.d.ts\"\n" +
 		"[[target]]\npackage=\"@acme/demo\"\nname=\"app\"\nexport=\"./app\"\nentry=\"src/demo.ts\"\nruntime=\"src/demo.ts\"\ntypes=\"dist/demo.d.ts\"\n"
 }
@@ -460,6 +526,15 @@ func countWhyJSONLockEdge(report whyJSONReport, from string, to string, kind str
 		}
 	}
 	return count
+}
+
+func whyJSONHasReversePath(report whyJSONReport, lockPackage string, root string) bool {
+	for _, path := range report.Reverse {
+		if path.LockPackage == lockPackage && path.Root == root {
+			return true
+		}
+	}
+	return false
 }
 
 func whyJSONHasDiagnostic(report whyJSONReport, code string, severity string) bool {

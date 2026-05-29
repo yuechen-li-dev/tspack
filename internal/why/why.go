@@ -9,10 +9,17 @@ import (
 	"github.com/tspack/tspack/internal/lockfile"
 )
 
-type Options struct{ Query, PackageName string }
+type Options struct {
+	Query       string
+	PackageName string
+	Reverse     bool
+}
 type Result struct {
 	Diagnostics  []diag.Diagnostic
 	Explanations []Explanation
+	LockPackages []LockPackageRef
+	ReversePaths []ReversePath
+	Notes        []string
 }
 type Explanation struct {
 	Query, PackageName, DependencyKey, ExternalPackageName, TargetName, Kind string
@@ -36,6 +43,13 @@ type LockEdgeRef struct {
 	Optional       bool
 }
 
+type ReversePath struct {
+	LockPackage string
+	Root        string
+	Path        []string
+	Edges       []LockEdgeRef
+}
+
 func Analyze(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, opts Options) Result { /*same*/
 	out := Result{}
 	if strings.TrimSpace(opts.Query) == "" {
@@ -45,6 +59,9 @@ func Analyze(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, opts Options) Resul
 	if g == nil {
 		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_WHY_GRAPH_INVALID", Severity: diag.SeverityError, Message: "workspace graph is invalid"})
 		return out
+	}
+	if opts.Reverse {
+		return analyzeReverse(g, lf, opts)
 	}
 	q := opts.Query
 	pkgs := g.AllPackages()
@@ -381,4 +398,256 @@ func lockEdgeKey(edge LockEdgeRef) string {
 		key += "|optional"
 	}
 	return key
+}
+
+func analyzeReverse(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, opts Options) Result {
+	out := Result{}
+	query := strings.TrimSpace(opts.Query)
+	if lf == nil {
+		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{
+			Code:     "TSPACK_WHY_LOCKFILE_MISSING",
+			Severity: diag.SeverityError,
+			Message:  "lockfile is missing",
+			Details:  []string{"reverse why requires a lockfile; run tspack update"},
+		})
+		return out
+	}
+
+	if opts.PackageName != "" {
+		if _, ok := g.Package(opts.PackageName); !ok {
+			out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_WHY_PACKAGE_NOT_FOUND", Severity: diag.SeverityError, Message: "package not found", Details: []string{opts.PackageName}})
+			return out
+		}
+	}
+
+	matchedPackages := reverseQueryLockPackages(g, lf, query)
+	if len(matchedPackages) == 0 {
+		out.Diagnostics = append(out.Diagnostics, buildReverseWhyNotFoundDiagnostic(query, lf))
+		diag.SortDiagnostics(out.Diagnostics)
+		return out
+	}
+
+	for _, lockPackage := range matchedPackages {
+		out.LockPackages = append(out.LockPackages, LockPackageRef{
+			ID:      lockPackage.ID,
+			Name:    lockPackage.Name,
+			Version: lockPackage.Version,
+			Source:  lockPackage.Source,
+			Hash:    lockPackage.Hash,
+		})
+	}
+	sortLockPackages(out.LockPackages)
+
+	lockPackageIDs := lockPackageIDSet(lf)
+	incomingEdges := incomingEdgesByTarget(lf)
+	seenPaths := map[string]bool{}
+	for _, lockPackage := range out.LockPackages {
+		paths := reversePathsForLockPackage(lockPackage.ID, incomingEdges, lockPackageIDs, opts.PackageName)
+		for _, path := range paths {
+			key := reversePathKey(path)
+			if seenPaths[key] {
+				continue
+			}
+			seenPaths[key] = true
+			out.ReversePaths = append(out.ReversePaths, path)
+		}
+	}
+	sortReversePaths(out.ReversePaths)
+
+	if opts.PackageName != "" && len(out.ReversePaths) == 0 {
+		out.Notes = append(out.Notes, "package filter matched no roots")
+	}
+
+	diag.SortDiagnostics(out.Diagnostics)
+	return out
+}
+
+func reverseQueryLockPackages(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, query string) []lockfile.Package {
+	if lf == nil {
+		return nil
+	}
+
+	matchesByID := []lockfile.Package{}
+	for _, lockPackage := range lf.Packages {
+		if lockPackage.ID == query {
+			matchesByID = append(matchesByID, lockPackage)
+		}
+	}
+	if len(matchesByID) > 0 {
+		sortLockfilePackages(matchesByID)
+		return matchesByID
+	}
+
+	packageName := query
+	if strings.HasPrefix(query, "npm:") {
+		packageName = strings.TrimPrefix(query, "npm:")
+	}
+
+	matchesByName := lockPackagesByName(lf, packageName)
+	if len(matchesByName) > 0 {
+		return matchesByName
+	}
+
+	if g == nil {
+		return nil
+	}
+
+	declaredPackageNames := map[string]bool{}
+	for _, pkg := range g.AllPackages() {
+		for _, dep := range pkg.AllDependencies() {
+			if dep.Key == query && dep.Source.Kind == "npm" && dep.Source.Package != "" {
+				declaredPackageNames[dep.Source.Package] = true
+			}
+		}
+	}
+	if len(declaredPackageNames) != 1 {
+		return nil
+	}
+
+	declaredPackageName := ""
+	for name := range declaredPackageNames {
+		declaredPackageName = name
+	}
+	return lockPackagesByName(lf, declaredPackageName)
+}
+
+func lockPackagesByName(lf *lockfile.Lockfile, packageName string) []lockfile.Package {
+	matches := []lockfile.Package{}
+	for _, lockPackage := range lf.Packages {
+		if lockPackage.Name == packageName {
+			matches = append(matches, lockPackage)
+		}
+	}
+	sortLockfilePackages(matches)
+	return matches
+}
+
+func sortLockfilePackages(packages []lockfile.Package) {
+	sort.SliceStable(packages, func(i, j int) bool {
+		return packages[i].ID < packages[j].ID
+	})
+}
+
+func lockPackageIDSet(lf *lockfile.Lockfile) map[string]bool {
+	ids := map[string]bool{}
+	for _, lockPackage := range lf.Packages {
+		ids[lockPackage.ID] = true
+	}
+	return ids
+}
+
+func incomingEdgesByTarget(lf *lockfile.Lockfile) map[string][]lockfile.Edge {
+	incoming := map[string][]lockfile.Edge{}
+	for _, edge := range lf.Edges {
+		incoming[edge.To] = append(incoming[edge.To], edge)
+	}
+	for target := range incoming {
+		sortLockfileEdges(incoming[target])
+	}
+	return incoming
+}
+
+func reversePathsForLockPackage(lockPackageID string, incomingEdges map[string][]lockfile.Edge, lockPackageIDs map[string]bool, packageFilter string) []ReversePath {
+	paths := []ReversePath{}
+	seenPaths := map[string]bool{}
+	visited := map[string]bool{lockPackageID: true}
+	walkReversePaths(lockPackageID, lockPackageID, nil, incomingEdges, lockPackageIDs, packageFilter, visited, seenPaths, &paths)
+	sortReversePaths(paths)
+	return paths
+}
+
+func walkReversePaths(queryLockPackage string, current string, edgePath []LockEdgeRef, incomingEdges map[string][]lockfile.Edge, lockPackageIDs map[string]bool, packageFilter string, visited map[string]bool, seenPaths map[string]bool, paths *[]ReversePath) {
+	for _, incoming := range incomingEdges[current] {
+		edge := LockEdgeRef(incoming)
+		nextEdgePath := prependLockEdge(edge, edgePath)
+		if !lockPackageIDs[incoming.From] {
+			root := incoming.From
+			if packageFilter != "" && !rootBelongsToPackage(root, packageFilter) {
+				continue
+			}
+			path := ReversePath{
+				LockPackage: queryLockPackage,
+				Root:        root,
+				Path:        nodesFromEdges(nextEdgePath),
+				Edges:       nextEdgePath,
+			}
+			key := reversePathKey(path)
+			if seenPaths[key] {
+				continue
+			}
+			seenPaths[key] = true
+			*paths = append(*paths, path)
+			continue
+		}
+
+		if visited[incoming.From] {
+			continue
+		}
+		visited[incoming.From] = true
+		walkReversePaths(queryLockPackage, incoming.From, nextEdgePath, incomingEdges, lockPackageIDs, packageFilter, visited, seenPaths, paths)
+		delete(visited, incoming.From)
+	}
+}
+
+func prependLockEdge(edge LockEdgeRef, edges []LockEdgeRef) []LockEdgeRef {
+	out := make([]LockEdgeRef, 0, len(edges)+1)
+	out = append(out, edge)
+	out = append(out, edges...)
+	return out
+}
+
+func nodesFromEdges(edges []LockEdgeRef) []string {
+	if len(edges) == 0 {
+		return nil
+	}
+	nodes := make([]string, 0, len(edges)+1)
+	nodes = append(nodes, edges[0].From)
+	for _, edge := range edges {
+		nodes = append(nodes, edge.To)
+	}
+	return nodes
+}
+
+func rootBelongsToPackage(root string, packageName string) bool {
+	return strings.HasPrefix(root, packageName+":")
+}
+
+func reversePathKey(path ReversePath) string {
+	return path.LockPackage + "|" + strings.Join(path.Path, "|")
+}
+
+func sortReversePaths(paths []ReversePath) {
+	sort.SliceStable(paths, func(i, j int) bool {
+		a := paths[i]
+		b := paths[j]
+		if a.LockPackage != b.LockPackage {
+			return a.LockPackage < b.LockPackage
+		}
+		if a.Root != b.Root {
+			return a.Root < b.Root
+		}
+		return strings.Join(a.Path, "\x00") < strings.Join(b.Path, "\x00")
+	})
+}
+
+func buildReverseWhyNotFoundDiagnostic(query string, lf *lockfile.Lockfile) diag.Diagnostic {
+	details := []string{
+		"no lock package matched reverse query \"" + query + "\"",
+		"try `tspack why <declared-dep>` for manifest declarations",
+	}
+
+	matchingLockIDs := matchingLockPackageIDs(query, lf)
+	if len(matchingLockIDs) > 0 {
+		details = append(details, "matching lock packages exist:")
+		for _, id := range matchingLockIDs {
+			details = append(details, "  "+id)
+		}
+	}
+
+	return diag.Diagnostic{
+		Code:     "TSPACK_WHY_NOT_FOUND",
+		Severity: diag.SeverityError,
+		Message:  "why reverse query not found: " + query,
+		Details:  details,
+	}
 }

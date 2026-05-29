@@ -43,8 +43,9 @@ This inventory groups primary diagnostic families by subsystem to keep command-s
 - Severity is preserved (`error`, `warning`, `info`), and warning diagnostics are included in the report summary.
 - `ok` is `false` when one or more `error` diagnostics exist, otherwise `true`.
 - `TSPACK_LOCK_VERSION_CONFLICT` warns when one source ecosystem/package name appears at multiple locked versions (for example two npm react versions).
-- `TSPACK_WHY_NOT_FOUND` may include detail lines with matching lock package IDs and suggested `tspack why npm:<name>@<version>` queries when a bare package name only matches transitive lock entries. Multiple suggestions are sorted and scoped package IDs use the same lock ID form, for example `npm:@scope/pkg@1.2.3`.
+- `TSPACK_WHY_NOT_FOUND` may include detail lines with matching lock package IDs and suggested `tspack why npm:<name>@<version>` queries when a bare package name only matches transitive lock entries. Multiple suggestions are sorted and scoped package IDs use the same lock ID form, for example `npm:@scope/pkg@1.2.3`. In reverse mode, not-found means no locked package matched the reverse query and the details point users back to normal `tspack why <declared-dep>` for manifest declarations.
 - `tspack why --json` preserves why diagnostics, details, and suggestions in the JSON `diagnostics` array; handled diagnostic paths keep stdout parseable and do not print human diagnostic text to stderr.
+- `TSPACK_WHY_LOCKFILE_MISSING` is warning-only for normal `tspack why`, which can still answer from manifest declarations. It is an error for `tspack why --reverse` because reverse explanations require lockfile edges; run `tspack update` first.
 
 ### Boundary validation diagnostics
 
