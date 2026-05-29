@@ -16,7 +16,7 @@
 ## What doctor checks
 
 - Project basics: root, `manifest.tsx`, `ts-lock.toml`, `node_modules`.
-- Format/lint readiness: Biome backend resolution and config presence. Backend details include the selected path, source (`local`, `direct-package`, or `path`), the root `.bin` candidate, and the direct `@biomejs/biome` package candidate.
+- Format/lint readiness: Biome backend resolution and config source. Backend details include the selected path, source (`local`, `direct-package`, or `path`), the root `.bin` candidate, and the direct `@biomejs/biome` package candidate. Config details report `configSource: project` with `configPath` when `biome.json`/`biome.jsonc` exists, or `configSource: tspack-default` with the default style summary when TSPack would use its temporary default config.
 - Run readiness: runtime executables and declared run targets. Declared targets are reported with package-qualified IDs such as `runTarget:@scope/pkg:dev`. The `system` runtime is built in and means “execute declared argv directly,” so it is available even though there is no `system` executable. `bun` and `deno` are reserved/future runtime backends and are reported as not applicable rather than warnings until implemented.
 - Inspect readiness (**experimental**): environment suitability and explicit-backend requirements.
   - platform-webview candidate and session env checks (`DISPLAY`, `WAYLAND_DISPLAY`, `DBUS_SESSION_BUS_ADDRESS`).

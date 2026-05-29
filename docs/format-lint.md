@@ -19,9 +19,27 @@ If Biome is missing, TSPack emits `TSPACK_BIOME_BACKEND_NOT_FOUND`.
 
 ## Config behavior
 
-- If `biome.json` or `biome.jsonc` exists in project root, Biome uses that config.
-- If neither config file exists, TSPack generates a temporary default config and passes it with `--config-path` for the command invocation.
+- If `biome.json` or `biome.jsonc` exists in project root, Biome uses that project config and TSPack does not print any default-config status message.
+- If neither config file exists, TSPack generates an opinionated temporary default config and passes it with `--config-path` for the command invocation.
 - The temporary config file is not written into project root and is cleaned up after execution.
+- When the temporary default is used, TSPack prints one concise status line to stderr before Biome starts: `Using TSPack default Biome config: tabs, 100 columns, double quotes, organized imports, recommended lint rules. Add biome.json to customize.`
+- Add `biome.json` or `biome.jsonc` to customize or override these defaults.
+
+TSPack's default Biome config is intentionally explicit:
+
+- formatter enabled;
+- tab indentation;
+- `lineWidth` 100;
+- JavaScript/TypeScript double quotes;
+- trailing commas `all`;
+- semicolons `always`;
+- arrow parentheses `always`;
+- bracket spacing enabled;
+- `organizeImports` enabled;
+- linter enabled with recommended rules;
+- `lint/style/useImportType` set to error;
+- `lint/correctness/noUnusedVariables` set to warning;
+- `lint/correctness/noUnusedImports` set to warning.
 
 ## Mutation and exit behavior
 

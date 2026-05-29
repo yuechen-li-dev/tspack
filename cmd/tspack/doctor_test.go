@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -89,6 +90,90 @@ func TestDoctorFormatMissingBiomeExitsNonzero(t *testing.T) {
 	b, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("expected nonzero exit for missing biome: %s", string(b))
+	}
+}
+
+func TestDoctorFormatReportsDefaultBiomeConfigSource(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	backend := filepath.Join(root, "node_modules", ".bin", "biome")
+	if err := os.MkdirAll(filepath.Dir(backend), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backend, []byte("#!/bin/sh\necho 1.0.0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	before := tempBiomeConfigFiles(t)
+	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "format", "--root", root, "--json")
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "PATH="+t.TempDir())
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("doctor format json failed: %v\n%s", err, string(b))
+	}
+	after := tempBiomeConfigFiles(t)
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("doctor must not create temp Biome configs\nbefore: %#v\nafter: %#v", before, after)
+	}
+
+	var report DoctorReport
+	if err := json.Unmarshal(b, &report); err != nil {
+		t.Fatalf("invalid doctor json: %v\n%s", err, string(b))
+	}
+	config := flattenDoctorChecks(report)["config"]
+	if config.Details["configSource"] != "tspack-default" {
+		t.Fatalf("expected tspack-default config source: %#v", config.Details)
+	}
+	if config.Details["defaultStyle"] != defaultBiomeStyleSummary {
+		t.Fatalf("expected default style summary: %#v", config.Details)
+	}
+	if _, ok := config.Details["configPath"]; ok {
+		t.Fatalf("default doctor details should not report a temp config path: %#v", config.Details)
+	}
+}
+
+func TestDoctorFormatReportsProjectBiomeConfigSource(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	backend := filepath.Join(root, "node_modules", ".bin", "biome")
+	if err := os.MkdirAll(filepath.Dir(backend), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backend, []byte("#!/bin/sh\necho 1.0.0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(root, "biome.jsonc")
+	if err := os.WriteFile(configPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "format", "--root", root, "--json")
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "PATH="+t.TempDir())
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("doctor format json failed: %v\n%s", err, string(b))
+	}
+	var report DoctorReport
+	if err := json.Unmarshal(b, &report); err != nil {
+		t.Fatalf("invalid doctor json: %v\n%s", err, string(b))
+	}
+	config := flattenDoctorChecks(report)["config"]
+	if config.Details["configSource"] != "project" {
+		t.Fatalf("expected project config source: %#v", config.Details)
+	}
+	if config.Details["configPath"] != configPath {
+		t.Fatalf("expected project config path: %#v", config.Details)
+	}
+	if _, ok := config.Details["defaultStyle"]; ok {
+		t.Fatalf("project config details should not include default style: %#v", config.Details)
 	}
 }
 
@@ -246,6 +331,15 @@ func writeManifestStubWithIR(t *testing.T, repo string, irJSON string) {
 	stub := "#!/usr/bin/env node\nconst out={ok:true,ir:" + irJSON + ",diagnostics:[]};process.stdout.write(JSON.stringify(out));"
 	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
 	t.Cleanup(func() { _ = os.Remove(cliPath) })
+}
+
+func tempBiomeConfigFiles(t *testing.T) []string {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(os.TempDir(), "tspack-biome-*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return matches
 }
 
 func flattenDoctorChecks(report DoctorReport) map[string]DoctorCheck {
