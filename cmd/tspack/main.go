@@ -871,6 +871,9 @@ func runCommand(args []string) {
 		fmt.Printf("  errors: %d\n", result.Outdated.Summary.Errors)
 	}
 	if hasErrors(result.Diagnostics) {
+		if cmd == "pack" {
+			fmt.Fprintln(os.Stderr, "pack failed; no artifacts were written")
+		}
 		os.Exit(1)
 	}
 }
