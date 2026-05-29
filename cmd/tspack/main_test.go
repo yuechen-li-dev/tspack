@@ -1602,6 +1602,17 @@ func TestCLIHowCommand(t *testing.T) {
 	if !strings.Contains(string(b), "types: \"\"") {
 		t.Fatalf("expected app types empty string note: %s", string(b))
 	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "how", "TSPACK_PACK_CHANGELOG_NOT_INCLUDED")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("how changelog code failed: %v\n%s", err, string(b))
+	}
+	text = string(b)
+	if !strings.Contains(text, "CHANGELOG.md") || !strings.Contains(text, "Publish include") {
+		t.Fatalf("expected changelog publish guidance: %s", text)
+	}
 }
 
 func TestCLIDiagnosticDetailsPrintedAndJSONStructured(t *testing.T) {

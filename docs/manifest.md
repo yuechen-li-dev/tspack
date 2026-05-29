@@ -51,6 +51,16 @@ export default define(
 
 
 
+## Publish include conventions
+
+`<Publish include={...} />` is the complete explicit source of package contents before `exclude` filters apply. TSPack does not silently add conventional files. Include optional package documents, such as `README.md`, `LICENSE`, and `CHANGELOG.md`, only when those files exist and should be published:
+
+```tsx
+<Publish include={["dist/**", "README.md", "LICENSE", "CHANGELOG.md"]} exclude={[]} />
+```
+
+If `CHANGELOG.md` exists but the final publish policy omits it, `tspack pack` warns with `TSPACK_PACK_CHANGELOG_NOT_INCLUDED`; add the file to `include` or intentionally ignore the warning.
+
 ## Package publish metadata
 
 A package `license` is carried into generated package artifacts. When `tspack pack` generates `package/package.json`, a manifest package with `license="MIT"` emits `"license": "MIT"`; missing or empty licenses are not invented.

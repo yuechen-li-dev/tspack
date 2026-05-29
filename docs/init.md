@@ -25,6 +25,10 @@ Generated manifests import from `tspack/manifest`, so TS-aware editors provide a
 - `--force` (overwrite generated files)
 - `--dry-run` (print plan only)
 
+## Publish policy note
+
+The library template keeps publish contents explicit with `include={["dist/**", "README.md", "LICENSE"]}`. If you add a `CHANGELOG.md` file and want it in the package, add `"CHANGELOG.md"` to `<Publish include={...} />` explicitly. TSPack warns during pack when `CHANGELOG.md` exists but the final publish policy omits it; init does not add that include by default because it does not generate a changelog file.
+
 ## Safety
 
 By default, `tspack init` refuses to overwrite existing generated files and emits `TSPACK_INIT_FILE_EXISTS`.

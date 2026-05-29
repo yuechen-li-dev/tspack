@@ -38,6 +38,7 @@ The pack release smoke should cover strict pack safety defaults:
 - `tspack pack --dry-run` must validate include patterns, fail when the real pack would fail, and write no artifacts.
 - `tspack pack --verify` must verify produced archives before finalizing them, print verified-artifact output on success, and leave no final `.tgz` files when verification fails.
 - `tspack pack --dry-run --verify` must fail deterministically with `TSPACK_PACK_INVALID_ARGS` and write no artifacts.
+- A package with `CHANGELOG.md` at its root but no final publish-policy entry for it must warn with `TSPACK_PACK_CHANGELOG_NOT_INCLUDED` while still succeeding when no error diagnostics exist.
 
 ### Claude-fooding Phase 2 package-manager smoke
 

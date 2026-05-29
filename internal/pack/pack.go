@@ -128,6 +128,7 @@ func PlanPackage(root string, pkg *graph.PackageNode, opts Options) Result {
 			delete(files, m.archive)
 		}
 	}
+	out.Diagnostics = append(out.Diagnostics, changelogNotIncludedDiagnostics(pkgRoot, pkg, files)...)
 	for _, t := range pkg.Targets {
 		if _, err := os.Stat(filepath.Join(pkgRoot, t.Runtime)); err != nil {
 			out.Diagnostics = append(out.Diagnostics, dErr("TSPACK_PACK_MISSING_RUNTIME_OUTPUT", "missing runtime output", "package="+pkg.Name, t.Runtime))
@@ -171,6 +172,40 @@ func PlanPackage(root string, pkg *graph.PackageNode, opts Options) Result {
 	name := strings.ReplaceAll(strings.TrimPrefix(pkg.Name, "@"), "/", "-") + "-" + pkg.Version + ".tgz"
 	out.Plans = append(out.Plans, planForPackage(pkg, filepath.Join(outputDir, name), files, keys))
 	return out
+}
+
+func changelogNotIncludedDiagnostics(pkgRoot string, pkg *graph.PackageNode, files map[string]matchedFile) []diag.Diagnostic {
+	const changelogPath = "CHANGELOG.md"
+
+	info, err := os.Stat(filepath.Join(pkgRoot, changelogPath))
+	if err != nil || info.IsDir() {
+		return nil
+	}
+	if _, ok := files[changelogPath]; ok {
+		return nil
+	}
+
+	details := []string{
+		"package=" + pkg.Name,
+		"changelog=" + changelogPath,
+		"publish include:",
+	}
+	for _, include := range pkg.Publish.Include {
+		details = append(details, "  "+include)
+	}
+	details = append(details,
+		"fix:",
+		`  add "CHANGELOG.md" to <Publish include={[...]} />`,
+		"note: TSPack does not auto-include files outside Publish.include",
+	)
+
+	return []diag.Diagnostic{{
+		Code:     "TSPACK_PACK_CHANGELOG_NOT_INCLUDED",
+		Severity: diag.SeverityWarning,
+		Message:  "changelog file exists but is not included in publish policy",
+		Details:  details,
+		Fixes:    []string{`Add "CHANGELOG.md" to <Publish include={[...]} /> if this package should publish its changelog.`},
+	}}
 }
 
 func planForPackage(pkg *graph.PackageNode, path string, files map[string]matchedFile, keys []string) Plan {

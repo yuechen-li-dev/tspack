@@ -199,6 +199,7 @@ Page/analyzer:
 
 - `TSPACK_PACK_INVALID_ARGS`: pack flags were combined in a contradictory way; currently `--dry-run --verify` is rejected because dry-run intentionally produces no archive for verification to inspect.
 - `TSPACK_PACK_INCLUDE_MATCHED_NOTHING`: an explicit `publish.include` pattern matched no files. This is an error by default because it usually means build outputs such as `dist/**` are missing. Details include the package name, pattern, package root, and a remediation hint to build outputs first or remove/update the include pattern.
+- `TSPACK_PACK_CHANGELOG_NOT_INCLUDED`: `CHANGELOG.md` exists at the package root, but the final publish policy omits it. This is a warning only; add `CHANGELOG.md` to `<Publish include={[...]} />` to publish it, remove an excluding pattern if needed, or intentionally ignore the warning. TSPack does not auto-include changelogs.
 - `TSPACK_PACK_WRITE_FAILED`: archive output could not be created, written, or moved into place. Pack writes through temporary files and cleans temporary/final paths on a best-effort basis before reporting this error.
 - `TSPACK_PACK_UNPUBLISHABLE_PEER_DEPENDENCY`: a publishable package target declares a peer dependency from a non-npm source such as `path`, `git`, or `workspace`. Generated npm `peerDependencies` require package names with version ranges, so pack fails instead of silently omitting the peer.
 - `TSPACK_PACK_VERIFY_FAILED`: `--verify` could not read the produced archive or found an artifact-level structural failure such as an empty/stub package payload.

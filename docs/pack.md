@@ -21,6 +21,14 @@ Every explicit include pattern is a contract. If a `publish.include` pattern mat
 
 Unsafe paths (absolute paths, `..`, backslashes) are rejected.
 
+TSPack does not auto-include changelogs. If a package root has `CHANGELOG.md` but the final `publish.include` / `publish.exclude` policy omits it, pack emits `TSPACK_PACK_CHANGELOG_NOT_INCLUDED` as a warning and continues. To publish a changelog, declare it explicitly:
+
+```tsx
+<Publish include={["dist/**", "README.md", "LICENSE", "CHANGELOG.md"]} />
+```
+
+The warning is non-fatal because some packages intentionally omit changelogs. Keeping the file list explicit preserves deterministic, auditable package contents. The same planning warning appears during normal pack, `tspack pack --dry-run`, and `tspack pack --verify`; verification does not require a changelog.
+
 If `package.json` is not included by policy, tspack generates a deterministic `package/package.json` in-archive from the manifest IR. The generated file includes `name`, `version`, `exports`, and, when available or applicable, package publish metadata: `license`, `main`, `types`, `peerDependencies`, and `peerDependenciesMeta` for optional npm peers.
 
 Generated `main` is derived only from the root export target (`export: "."`) runtime output and is normalized as an npm package-relative path such as `./dist/index.js`. Generated `types` follows the root export target types output when present. Export entries keep the existing manifest target exports and use normalized package-relative paths.
