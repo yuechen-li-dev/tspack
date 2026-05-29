@@ -67,6 +67,8 @@ func startRunTarget(root string, target manifest.RunTarget, timeout time.Duratio
 
 func runRunCommand(args []string) {
 	root := "."
+	manifestPath := ""
+	manifestExplicit := false
 	timeoutSeconds := 30
 	once := false
 	targetArg := ""
@@ -74,9 +76,25 @@ func runRunCommand(args []string) {
 		a := args[i]
 		switch a {
 		case "--root":
+			if i+1 >= len(args) {
+				failRun("TSPACK_RUN_INVALID_TARGET", "--root requires a value")
+			}
 			i++
 			root = args[i]
+			if !manifestExplicit {
+				manifestPath = filepath.Join(root, "manifest.tsx")
+			}
+		case "--manifest":
+			if i+1 >= len(args) {
+				failRun("TSPACK_RUN_INVALID_TARGET", "--manifest requires a value")
+			}
+			i++
+			manifestPath = args[i]
+			manifestExplicit = true
 		case "--ready-timeout":
+			if i+1 >= len(args) {
+				failRun("TSPACK_RUN_INVALID_TIMEOUT", "--ready-timeout requires a value")
+			}
 			i++
 			n, err := strconv.Atoi(args[i])
 			if err != nil || n <= 0 {
@@ -95,18 +113,21 @@ func runRunCommand(args []string) {
 			targetArg = a
 		}
 	}
-	ir := loadManifestForRun(root)
+	if manifestPath == "" {
+		manifestPath = filepath.Join(root, "manifest.tsx")
+	}
+	ir := loadManifestPathForRun(root, manifestPath)
 	rt := selectRunTarget(ir, targetArg)
-	fmt.Printf("Starting run target %q\n", rt.Name)
-	fmt.Printf("Runtime: %s\n", rt.Runtime)
-	fmt.Printf("Command: %s\n", bytes.Join(stringSliceBytes(rt.Command), []byte(" ")))
+	fmt.Fprintf(os.Stderr, "Starting run target %q\n", rt.Name)
+	fmt.Fprintf(os.Stderr, "Runtime: %s\n", rt.Runtime)
+	fmt.Fprintf(os.Stderr, "Command: %s\n", bytes.Join(stringSliceBytes(rt.Command), []byte(" ")))
 	readyURL := readinessURL(rt)
-	fmt.Printf("Waiting for: %s\n", readyURL)
+	fmt.Fprintf(os.Stderr, "Waiting for: %s\n", readyURL)
 	session, readyErr := startRunTarget(root, rt, time.Duration(timeoutSeconds)*time.Second, os.Stdout, os.Stderr)
 	if readyErr != nil {
 		failRun(readyErr.code, readyErr.msg)
 	}
-	fmt.Printf("Ready: %s\n", session.URL)
+	fmt.Fprintf(os.Stderr, "Ready: %s\n", session.URL)
 	if once {
 		_ = session.Stop()
 		return
@@ -163,8 +184,12 @@ func terminate(cmd *exec.Cmd) error {
 func failRun(code, msg string) { fmt.Fprintln(os.Stderr, code+": "+msg); os.Exit(1) }
 
 func loadManifestForRun(root string) *manifest.ManifestIR {
+	return loadManifestPathForRun(root, filepath.Join(root, "manifest.tsx"))
+}
+
+func loadManifestPathForRun(root string, manifestPath string) *manifest.ManifestIR {
+	_ = root
 	cliPath := filepath.Join("manifest-frontend", "dist", "src", "cli.js")
-	manifestPath := filepath.Join(root, "manifest.tsx")
 	cmd := exec.Command("node", cliPath, manifestPath)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

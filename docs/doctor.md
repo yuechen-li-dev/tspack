@@ -15,7 +15,7 @@
 
 - Project basics: root, `manifest.tsx`, `ts-lock.toml`, `node_modules`.
 - Format/lint readiness: Biome backend resolution and config presence.
-- Run readiness: runtime executables and declared run targets.
+- Run readiness: runtime executables and declared run targets. The `system` runtime is built in and means “execute declared argv directly,” so it is available even though there is no `system` executable. `bun` and `deno` are reserved/future runtime backends and are reported as not applicable rather than warnings until implemented.
 - Inspect readiness (**experimental**): environment suitability and explicit-backend requirements.
   - platform-webview candidate and session env checks (`DISPLAY`, `WAYLAND_DISPLAY`, `DBUS_SESSION_BUS_ADDRESS`).
   - CDP explicit endpoint policy readiness (`TSPACK_INSPECT_CDP_ENDPOINT` if set).
@@ -41,6 +41,10 @@ Environment variables used only for readiness checks:
 - `TSPACK_INSPECT_CDP_ENDPOINT`
 - `TSPACK_INSPECT_HOST_PATH`
 - `TSPACK_PLAYWRIGHT_CORE_PATH`
+
+## Text details
+
+Text output includes stable detail lines when checks provide structured details. Runtime checks include path/version when available. Run target checks include package, runtime, runtime availability, command first token, command availability, URL, ready kind, and ready path. Detail keys are sorted for deterministic output.
 
 ## Status meanings
 

@@ -2181,3 +2181,99 @@ console.log('PASS src/cwd.xtest.tsx::cwd/pass');
 		t.Fatalf("default bridge from unrelated cwd failed: %v\n%s", err, string(b))
 	}
 }
+
+func TestCLIRunStatusUsesStderrAndChildStreamsPassThrough(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	port := reservePort(t)
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	server := fmt.Sprintf(`const http=require('http');
+console.log('child stdout');
+console.error('child stderr');
+http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}).listen(%d,'127.0.0.1');
+setInterval(()=>{},1000);
+`, port)
+	_ = os.WriteFile(filepath.Join(root, "server.js"), []byte(server), 0o644)
+	writeRunFrontendStub(t, fmt.Sprintf(`{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}}]}]}`, port))
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--once")
+	cmd.Dir = repo
+	var stdout strings.Builder
+	var stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	stdoutText := stdout.String()
+	stderrText := stderr.String()
+	if strings.Contains(stdoutText, "Starting run target") || strings.Contains(stdoutText, "Runtime:") || strings.Contains(stdoutText, "Ready:") {
+		t.Fatalf("status leaked to stdout:\nstdout=%q\nstderr=%q", stdoutText, stderrText)
+	}
+	if !strings.Contains(stdoutText, "child stdout") {
+		t.Fatalf("child stdout did not pass through stdout:\nstdout=%q\nstderr=%q", stdoutText, stderrText)
+	}
+	for _, expected := range []string{"Starting run target", "Runtime:", "Waiting for:", "Ready:", "child stderr"} {
+		if !strings.Contains(stderrText, expected) {
+			t.Fatalf("stderr missing %q:\nstdout=%q\nstderr=%q", expected, stdoutText, stderrText)
+		}
+	}
+}
+
+func TestCLIRunManifestFlag(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	defaultPort := reservePort(t)
+	explicitPort := reservePort(t)
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	explicitManifest := filepath.Join(root, "package.manifest.tsx")
+	_ = os.WriteFile(explicitManifest, []byte("export default {}\n"), 0o644)
+	server := `const http=require('http'); const p=Number(process.argv[2]); http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}).listen(p,'127.0.0.1'); setInterval(()=>{},1000);`
+	_ = os.WriteFile(filepath.Join(root, "server.js"), []byte(server), 0o644)
+	writeRunManifestSwitchingStub(t, repo, filepath.Base(explicitManifest), defaultPort, explicitPort)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--once")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), fmt.Sprintf("Ready: http://127.0.0.1:%d", defaultPort)) {
+		t.Fatalf("default manifest run failed: %v\n%s", err, string(b))
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--manifest", explicitManifest, "--once")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), fmt.Sprintf("Ready: http://127.0.0.1:%d", explicitPort)) {
+		t.Fatalf("explicit manifest run failed: %v\n%s", err, string(b))
+	}
+
+	missingManifest := filepath.Join(root, "missing.manifest.tsx")
+	cmd = exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--manifest", missingManifest, "--once")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED") {
+		t.Fatalf("expected missing explicit manifest diagnostic: %v\n%s", err, string(b))
+	}
+}
+
+func writeRunManifestSwitchingStub(t *testing.T, repo string, explicitBase string, defaultPort int, explicitPort int) {
+	t.Helper()
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	_ = os.MkdirAll(frontend, 0o755)
+	cliPath := filepath.Join(frontend, "cli.js")
+	stub := fmt.Sprintf(`#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+const manifestPath = process.argv[2];
+if (!fs.existsSync(manifestPath)) {
+  console.error('manifest not found: ' + manifestPath);
+  process.exit(1);
+}
+const explicit = path.basename(manifestPath) === %q;
+const port = explicit ? %d : %d;
+const name = explicit ? 'explicit' : 'dev';
+const out = {ok:true,ir:{format:1,workspace:{name:'ws'},packages:[{name:'app',version:'1.0.0',kind:'app',dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:['dist/**'],exclude:[]},policies:{},runTargets:[{name,runtime:'system',command:['node','server.js',String(port)],url:'http://127.0.0.1:' + port,ready:{kind:'http',path:'/'}}]}]},diagnostics:[]};
+process.stdout.write(JSON.stringify(out));
+`, explicitBase, explicitPort, defaultPort)
+	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
+	t.Cleanup(func() { _ = os.Remove(cliPath) })
+}

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 )
@@ -180,9 +181,18 @@ func doctorFormat(root string) doctorBuilder {
 func doctorRun(root string) doctorBuilder {
 	d := doctorBuilder{}
 	d.checks = append(d.checks, runtimeCheck("node", "--version"))
-	d.checks = append(d.checks, runtimeCheck("bun", "--version"))
-	d.checks = append(d.checks, runtimeCheck("deno", "--version"))
-	d.checks = append(d.checks, DoctorCheck{Name: "runtime:system", Status: "ok", Message: "system runtime support available"})
+	d.checks = append(d.checks, reservedRuntimeCheck("bun"))
+	d.checks = append(d.checks, reservedRuntimeCheck("deno"))
+	d.checks = append(d.checks, DoctorCheck{
+		Name:    "runtime:system",
+		Status:  "ok",
+		Message: "system runtime support available",
+		Details: map[string]any{
+			"available": true,
+			"builtIn":   true,
+			"status":    "built in; executes declared argv directly",
+		},
+	})
 	if _, err := os.Stat(filepath.Join(root, "manifest.tsx")); err != nil {
 		d.checks = append(d.checks, DoctorCheck{Name: "runTargets", Status: "error", Message: "manifest.tsx missing"})
 		return d
@@ -198,6 +208,7 @@ func doctorRun(root string) doctorBuilder {
 				readyKind = rt.Ready.Kind
 				readyPath = rt.Ready.Path
 			}
+			commandToken := firstToken(rt.Command)
 			d.checks = append(d.checks, DoctorCheck{
 				Name:    "runTarget:" + rt.Name,
 				Status:  "ok",
@@ -207,8 +218,10 @@ func doctorRun(root string) doctorBuilder {
 					"runtime":           rt.Runtime,
 					"url":               rt.URL,
 					"readyKind":         readyKind,
+					"package":           pkg.Name,
 					"readyPath":         readyPath,
-					"commandFirstToken": firstToken(rt.Command),
+					"commandFirstToken": commandToken,
+					"commandAvailable":  commandAvailable(commandToken),
 					"runtimeAvailable":  runtimeAvailable(rt.Runtime),
 				},
 			})
@@ -235,14 +248,32 @@ func doctorInspect(root string) doctorBuilder {
 func runtimeCheck(command string, versionFlag string) DoctorCheck {
 	path, err := exec.LookPath(command)
 	if err != nil {
-		return DoctorCheck{Name: command, Status: "warning", Message: command + " not found"}
+		return DoctorCheck{
+			Name:    command,
+			Status:  "warning",
+			Message: command + " not found",
+			Details: map[string]any{"available": false},
+		}
 	}
-	details := map[string]any{"path": path}
+	details := map[string]any{"available": true, "path": path}
 	version := commandVersion(path, versionFlag)
 	if version != "" {
 		details["version"] = version
 	}
 	return DoctorCheck{Name: command, Status: "ok", Message: command + " found", Details: details}
+}
+
+func reservedRuntimeCheck(name string) DoctorCheck {
+	return DoctorCheck{
+		Name:    name,
+		Status:  "not_applicable",
+		Message: "reserved runtime backend; not implemented yet",
+		Details: map[string]any{
+			"available":   false,
+			"implemented": false,
+			"status":      "reserved runtime backend; not implemented yet",
+		},
+	}
 }
 
 func commandVersion(path string, flag string) string {
@@ -271,6 +302,17 @@ func firstToken(parts []string) string {
 }
 
 func runtimeAvailable(name string) bool {
+	if name == "system" {
+		return true
+	}
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
+func commandAvailable(name string) bool {
+	if name == "" {
+		return false
+	}
 	_, err := exec.LookPath(name)
 	return err == nil
 }
@@ -379,9 +421,46 @@ func printDoctorText(report DoctorReport) {
 		fmt.Println(s.Name)
 		for _, c := range s.Checks {
 			fmt.Printf("  %s: %s\n", c.Name, c.Message)
+			printDoctorDetails(c.Details)
 		}
 		fmt.Println()
 	}
 	fmt.Println("Summary")
 	fmt.Printf("  ok: %d\n  warnings: %d\n  errors: %d\n", report.Summary.Ok, report.Summary.Warnings, report.Summary.Errors)
+}
+
+func printDoctorDetails(details map[string]any) {
+	if len(details) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(details))
+	for key := range details {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		fmt.Printf("    %s: %s\n", key, doctorDetailValue(details[key]))
+	}
+}
+
+func doctorDetailValue(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case bool:
+		if typed {
+			return "true"
+		}
+		return "false"
+	case int:
+		return fmt.Sprintf("%d", typed)
+	case nil:
+		return ""
+	default:
+		b, err := json.Marshal(typed)
+		if err != nil {
+			return fmt.Sprint(typed)
+		}
+		return string(b)
+	}
 }
