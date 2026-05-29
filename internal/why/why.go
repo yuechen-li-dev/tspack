@@ -27,7 +27,7 @@ type Explanation struct {
 type DeclarationReason struct {
 	PackageName, Scope, TargetName, DependencyKey, Kind string
 	Optional                                            bool
-	SourceKind, SourcePackage                           string
+	SourceKind, SourcePackage, SourceRange              string
 }
 type ReachabilityRef struct{ PackageName, TargetName, Reason string }
 type LockPackageRef struct{ ID, Name, Version, Source, Hash string }
@@ -62,7 +62,7 @@ func Analyze(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, opts Options) Resul
 				continue
 			}
 			e := Explanation{Query: q, PackageName: p.Name, DependencyKey: d.Key, ExternalPackageName: d.Source.Package, Kind: string(d.Kind), Optional: d.Optional, MatchType: "dependency"}
-			e.DeclaredBy = append(e.DeclaredBy, DeclarationReason{PackageName: p.Name, DependencyKey: d.Key, Kind: string(d.Kind), Optional: d.Optional, SourceKind: d.Source.Kind, SourcePackage: d.Source.Package})
+			e.DeclaredBy = append(e.DeclaredBy, DeclarationReason{PackageName: p.Name, DependencyKey: d.Key, Kind: string(d.Kind), Optional: d.Optional, SourceKind: d.Source.Kind, SourcePackage: d.Source.Package, SourceRange: d.Source.Range})
 			r := p.DependencyReachability(d.Key)
 			for _, t := range r.RuntimeTargets {
 				e.ReachableFrom = append(e.ReachableFrom, ReachabilityRef{PackageName: p.Name, TargetName: t.Name, Reason: "runtime"})
@@ -82,7 +82,7 @@ func Analyze(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, opts Options) Resul
 			e := Explanation{Query: q, PackageName: p.Name, TargetName: t.Name, MatchType: "target", Kind: "target"}
 			e.DeclaredBy = append(e.DeclaredBy, DeclarationReason{PackageName: p.Name, Scope: "target", TargetName: t.Name})
 			for _, d := range append(t.RuntimeDeps, t.PeerDeps...) {
-				e.DeclaredBy = append(e.DeclaredBy, DeclarationReason{PackageName: p.Name, Scope: "target", TargetName: t.Name, DependencyKey: d.Key, Kind: string(d.Kind), Optional: d.Optional, SourceKind: d.Source.Kind, SourcePackage: d.Source.Package})
+				e.DeclaredBy = append(e.DeclaredBy, DeclarationReason{PackageName: p.Name, Scope: "target", TargetName: t.Name, DependencyKey: d.Key, Kind: string(d.Kind), Optional: d.Optional, SourceKind: d.Source.Kind, SourcePackage: d.Source.Package, SourceRange: d.Source.Range})
 			}
 			addTargetLockDetails(&e, lf, p.Name, t.Name)
 			out.Explanations = append(out.Explanations, e)

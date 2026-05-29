@@ -19,6 +19,7 @@ import (
 	"github.com/tspack/tspack/internal/manifest"
 	"github.com/tspack/tspack/internal/project"
 	"github.com/tspack/tspack/internal/testcmd"
+	"github.com/tspack/tspack/internal/why"
 )
 
 type CheckJSONReport struct {
@@ -46,6 +47,91 @@ type CheckJSONDiagnostic struct {
 	Details  interface{} `json:"details,omitempty"`
 	Fixes    interface{} `json:"fixes,omitempty"`
 }
+
+type WhyJSONReport struct {
+	Command      string               `json:"command"`
+	Query        string               `json:"query"`
+	Package      *string              `json:"package"`
+	OK           bool                 `json:"ok"`
+	Root         string               `json:"root"`
+	ManifestPath string               `json:"manifestPath,omitempty"`
+	LockfilePath string               `json:"lockfilePath,omitempty"`
+	Summary      WhyJSONSummary       `json:"summary"`
+	Explanations []WhyJSONExplanation `json:"explanations"`
+	Diagnostics  []WhyJSONDiagnostic  `json:"diagnostics"`
+}
+
+type WhyJSONSummary struct {
+	Explanations int `json:"explanations"`
+	Diagnostics  int `json:"diagnostics"`
+	Warnings     int `json:"warnings"`
+	Errors       int `json:"errors"`
+}
+
+type WhyJSONExplanation struct {
+	Kind                string                `json:"kind"`
+	PackageName         string                `json:"package,omitempty"`
+	DependencyKey       string                `json:"dependencyKey,omitempty"`
+	DependencyKind      string                `json:"dependencyKind,omitempty"`
+	ExternalPackageName string                `json:"externalPackageName,omitempty"`
+	TargetName          string                `json:"targetName,omitempty"`
+	Optional            bool                  `json:"optional,omitempty"`
+	Source              *WhyJSONSource        `json:"source,omitempty"`
+	DeclaredBy          []WhyJSONDeclaration  `json:"declaredBy,omitempty"`
+	ReachableFrom       []WhyJSONReachability `json:"reachableFrom,omitempty"`
+	NotReachableFrom    []WhyJSONReachability `json:"notReachableFrom,omitempty"`
+	LockPackages        []WhyJSONLockPackage  `json:"lockPackages,omitempty"`
+	LockEdges           []WhyJSONLockEdge     `json:"lockEdges,omitempty"`
+	DirectProject       *bool                 `json:"directProject,omitempty"`
+}
+
+type WhyJSONSource struct {
+	Kind    string `json:"kind,omitempty"`
+	Package string `json:"package,omitempty"`
+	Range   string `json:"range,omitempty"`
+}
+
+type WhyJSONDeclaration struct {
+	PackageName   string         `json:"package,omitempty"`
+	Scope         string         `json:"scope,omitempty"`
+	TargetName    string         `json:"targetName,omitempty"`
+	DependencyKey string         `json:"dependencyKey,omitempty"`
+	Kind          string         `json:"kind,omitempty"`
+	Optional      bool           `json:"optional,omitempty"`
+	Source        *WhyJSONSource `json:"source,omitempty"`
+}
+
+type WhyJSONReachability struct {
+	PackageName string `json:"package"`
+	TargetName  string `json:"target"`
+	Reason      string `json:"reason"`
+	Ref         string `json:"ref"`
+}
+
+type WhyJSONLockPackage struct {
+	ID      string `json:"id"`
+	Name    string `json:"name,omitempty"`
+	Version string `json:"version,omitempty"`
+	Source  string `json:"source,omitempty"`
+	Hash    string `json:"hash,omitempty"`
+}
+
+type WhyJSONLockEdge struct {
+	From     string `json:"from"`
+	To       string `json:"to"`
+	Kind     string `json:"kind"`
+	Optional bool   `json:"optional"`
+}
+
+type WhyJSONDiagnostic struct {
+	Code     string   `json:"code"`
+	Severity string   `json:"severity"`
+	Message  string   `json:"message"`
+	File     string   `json:"file,omitempty"`
+	Details  []string `json:"details"`
+	Fixes    []string `json:"fixes,omitempty"`
+}
+
 type UpdateDryRunJSONReport struct {
 	Command     string                         `json:"command"`
 	DryRun      bool                           `json:"dryRun"`
@@ -733,6 +819,19 @@ func runCommand(args []string) {
 	case "outdated":
 		result = project.Outdated(opts)
 	}
+	if cmd == "why" && jsonOutput {
+		report := buildWhyJSONReport(opts, whyOpts, result)
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(report); err != nil {
+			fmt.Fprintf(os.Stderr, "TSPACK_WHY_JSON_ENCODE_FAILED: %v\n", err)
+			os.Exit(1)
+		}
+		if hasErrors(result.Diagnostics) {
+			os.Exit(1)
+		}
+		return
+	}
 	if cmd == "outdated" && jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -993,6 +1092,149 @@ func buildCheckJSONReport(opts project.Options, result project.Result) CheckJSON
 		Summary:      summary,
 		Diagnostics:  jsonDiagnostics,
 	}
+}
+
+func buildWhyJSONReport(opts project.Options, whyOpts project.WhyOptions, result project.Result) WhyJSONReport {
+	packageFilter := (*string)(nil)
+	if whyOpts.PackageName != "" {
+		name := whyOpts.PackageName
+		packageFilter = &name
+	}
+
+	explanations := []WhyJSONExplanation{}
+	if result.WhyResult != nil {
+		for _, explanation := range result.WhyResult.Explanations {
+			explanations = append(explanations, buildWhyJSONExplanation(explanation))
+		}
+	}
+
+	diagnostics := buildWhyJSONDiagnostics(result.Diagnostics)
+	summary := WhyJSONSummary{
+		Explanations: len(explanations),
+		Diagnostics:  len(diagnostics),
+	}
+	for _, diagnostic := range diagnostics {
+		switch diagnostic.Severity {
+		case string(diag.SeverityError):
+			summary.Errors++
+		case string(diag.SeverityWarning):
+			summary.Warnings++
+		}
+	}
+
+	return WhyJSONReport{
+		Command:      "why",
+		Query:        whyOpts.Query,
+		Package:      packageFilter,
+		OK:           summary.Errors == 0,
+		Root:         opts.RootDir,
+		ManifestPath: opts.ManifestPath,
+		LockfilePath: opts.LockfilePath,
+		Summary:      summary,
+		Explanations: explanations,
+		Diagnostics:  diagnostics,
+	}
+}
+
+func buildWhyJSONExplanation(explanation why.Explanation) WhyJSONExplanation {
+	jsonExplanation := WhyJSONExplanation{
+		Kind:                explanation.MatchType,
+		PackageName:         explanation.PackageName,
+		DependencyKey:       explanation.DependencyKey,
+		DependencyKind:      explanation.Kind,
+		ExternalPackageName: explanation.ExternalPackageName,
+		TargetName:          explanation.TargetName,
+		Optional:            explanation.Optional,
+		DirectProject:       explanation.DirectProject,
+	}
+	if jsonExplanation.Kind == "" {
+		jsonExplanation.Kind = explanation.Kind
+	}
+
+	for _, declaration := range explanation.DeclaredBy {
+		jsonDeclaration := WhyJSONDeclaration{
+			PackageName:   declaration.PackageName,
+			Scope:         declaration.Scope,
+			TargetName:    declaration.TargetName,
+			DependencyKey: declaration.DependencyKey,
+			Kind:          declaration.Kind,
+			Optional:      declaration.Optional,
+		}
+		if declaration.SourceKind != "" || declaration.SourcePackage != "" || declaration.SourceRange != "" {
+			jsonDeclaration.Source = &WhyJSONSource{
+				Kind:    declaration.SourceKind,
+				Package: declaration.SourcePackage,
+				Range:   declaration.SourceRange,
+			}
+		}
+		jsonExplanation.DeclaredBy = append(jsonExplanation.DeclaredBy, jsonDeclaration)
+	}
+
+	jsonExplanation.Source = primaryWhyJSONSource(jsonExplanation.DeclaredBy)
+	for _, reachable := range explanation.ReachableFrom {
+		jsonExplanation.ReachableFrom = append(jsonExplanation.ReachableFrom, buildWhyJSONReachability(reachable))
+	}
+	for _, unreachable := range explanation.NotReachableFrom {
+		jsonExplanation.NotReachableFrom = append(jsonExplanation.NotReachableFrom, buildWhyJSONReachability(unreachable))
+	}
+	for _, lockPackage := range explanation.LockPackages {
+		jsonExplanation.LockPackages = append(jsonExplanation.LockPackages, WhyJSONLockPackage{
+			ID:      lockPackage.ID,
+			Name:    lockPackage.Name,
+			Version: lockPackage.Version,
+			Source:  lockPackage.Source,
+			Hash:    lockPackage.Hash,
+		})
+	}
+	for _, edge := range explanation.LockEdges {
+		jsonExplanation.LockEdges = append(jsonExplanation.LockEdges, WhyJSONLockEdge{
+			From:     edge.From,
+			To:       edge.To,
+			Kind:     edge.Kind,
+			Optional: edge.Optional,
+		})
+	}
+
+	return jsonExplanation
+}
+
+func primaryWhyJSONSource(declarations []WhyJSONDeclaration) *WhyJSONSource {
+	for _, declaration := range declarations {
+		if declaration.Source != nil {
+			return declaration.Source
+		}
+	}
+	return nil
+}
+
+func buildWhyJSONReachability(ref why.ReachabilityRef) WhyJSONReachability {
+	return WhyJSONReachability{
+		PackageName: ref.PackageName,
+		TargetName:  ref.TargetName,
+		Reason:      ref.Reason,
+		Ref:         ref.PackageName + ":target:" + ref.TargetName,
+	}
+}
+
+func buildWhyJSONDiagnostics(diags []diag.Diagnostic) []WhyJSONDiagnostic {
+	sorted := append([]diag.Diagnostic(nil), diags...)
+	diag.SortDiagnostics(sorted)
+	jsonDiagnostics := []WhyJSONDiagnostic{}
+	for _, diagnostic := range sorted {
+		jsonDiagnostic := WhyJSONDiagnostic{
+			Code:     diagnostic.Code,
+			Severity: string(diagnostic.Severity),
+			Message:  diagnostic.Message,
+			File:     diagnostic.File,
+			Details:  append([]string(nil), diagnostic.Details...),
+			Fixes:    append([]string(nil), diagnostic.Fixes...),
+		}
+		if jsonDiagnostic.Details == nil {
+			jsonDiagnostic.Details = []string{}
+		}
+		jsonDiagnostics = append(jsonDiagnostics, jsonDiagnostic)
+	}
+	return jsonDiagnostics
 }
 
 func hasErrors(diags []diag.Diagnostic) bool {

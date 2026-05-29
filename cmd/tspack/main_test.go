@@ -199,6 +199,292 @@ process.stdout.write(JSON.stringify(out));`
 	}
 }
 
+type whyJSONReport struct {
+	Command string  `json:"command"`
+	Query   string  `json:"query"`
+	Package *string `json:"package"`
+	OK      bool    `json:"ok"`
+	Summary struct {
+		Explanations int `json:"explanations"`
+		Diagnostics  int `json:"diagnostics"`
+		Warnings     int `json:"warnings"`
+		Errors       int `json:"errors"`
+	} `json:"summary"`
+	Explanations []struct {
+		Kind           string `json:"kind"`
+		PackageName    string `json:"package"`
+		DependencyKey  string `json:"dependencyKey"`
+		DependencyKind string `json:"dependencyKind"`
+		TargetName     string `json:"targetName"`
+		Source         struct {
+			Kind    string `json:"kind"`
+			Package string `json:"package"`
+			Range   string `json:"range"`
+		} `json:"source"`
+		ReachableFrom []struct {
+			Ref string `json:"ref"`
+		} `json:"reachableFrom"`
+		LockPackages []struct {
+			ID string `json:"id"`
+		} `json:"lockPackages"`
+		LockEdges []struct {
+			From     string `json:"from"`
+			To       string `json:"to"`
+			Kind     string `json:"kind"`
+			Optional bool   `json:"optional"`
+		} `json:"lockEdges"`
+	} `json:"explanations"`
+	Diagnostics []struct {
+		Code     string   `json:"code"`
+		Severity string   `json:"severity"`
+		Message  string   `json:"message"`
+		Details  []string `json:"details"`
+	} `json:"diagnostics"`
+}
+
+func TestCLIWhyJSON(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	bin := buildTspackBinary(t, repo)
+	root := setupWhyJSONWorkspace(t, repo)
+	lockfile := filepath.Join(root, "ts-lock.toml")
+
+	runWhyJSON := func(args ...string) (whyJSONReport, string, string, error) {
+		fullArgs := append([]string{"why"}, args...)
+		fullArgs = append(fullArgs, "--root", root, "--lockfile", lockfile)
+		cmd := exec.Command(bin, fullArgs...)
+		cmd.Dir = repo
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		var report whyJSONReport
+		if unmarshalErr := json.Unmarshal(stdout.Bytes(), &report); unmarshalErr != nil {
+			t.Fatalf("stdout should be parseable JSON: %v\nstdout: %s\nstderr: %s", unmarshalErr, stdout.String(), stderr.String())
+		}
+		return report, stdout.String(), stderr.String(), err
+	}
+
+	reactReport, firstBytes, stderrText, err := runWhyJSON("react", "--json")
+	if err != nil {
+		t.Fatalf("why react --json failed: %v\nstdout: %s\nstderr: %s", err, firstBytes, stderrText)
+	}
+	if stderrText != "" {
+		t.Fatalf("why react --json should not write stderr, got: %s", stderrText)
+	}
+	if reactReport.Command != "why" || reactReport.Query != "react" || !reactReport.OK {
+		t.Fatalf("unexpected report header: %#v", reactReport)
+	}
+	if reactReport.Summary.Explanations == 0 || len(reactReport.Explanations) == 0 {
+		t.Fatalf("expected explanations: %#v", reactReport)
+	}
+	if !whyJSONHasDependencyExplanation(reactReport, "@acme/components", "react", "peer") {
+		t.Fatalf("expected dependency explanation for @acme/components react peer: %#v", reactReport.Explanations)
+	}
+	if !whyJSONHasLockEdge(reactReport, "@acme/components:target:core", "npm:react@19.2.6", "peer") {
+		t.Fatalf("expected structured scoped lock edge: %#v", reactReport.Explanations)
+	}
+
+	scopedReport, _, scopedStderr, err := runWhyJSON("react", "--package", "@acme/components", "--json")
+	if err != nil {
+		t.Fatalf("why react --package --json failed: %v\nstderr: %s", err, scopedStderr)
+	}
+	if scopedStderr != "" {
+		t.Fatalf("package scoped why json should not write stderr, got: %s", scopedStderr)
+	}
+	if scopedReport.Package == nil || *scopedReport.Package != "@acme/components" {
+		t.Fatalf("expected package filter in report: %#v", scopedReport.Package)
+	}
+	for _, explanation := range scopedReport.Explanations {
+		if explanation.PackageName != "@acme/components" {
+			t.Fatalf("expected only @acme/components explanations, got %#v", scopedReport.Explanations)
+		}
+	}
+
+	lockIDReport, _, lockIDStderr, err := runWhyJSON("npm:loose-envify@1.4.0", "--json")
+	if err != nil {
+		t.Fatalf("why lock ID --json failed: %v\nstderr: %s", err, lockIDStderr)
+	}
+	if lockIDStderr != "" {
+		t.Fatalf("lock ID why json should not write stderr, got: %s", lockIDStderr)
+	}
+	if !whyJSONHasLockPackage(lockIDReport, "npm:loose-envify@1.4.0") {
+		t.Fatalf("expected lock package explanation: %#v", lockIDReport.Explanations)
+	}
+	if countWhyJSONLockEdge(lockIDReport, "npm:react@19.2.6", "npm:loose-envify@1.4.0", "runtime") != 1 {
+		t.Fatalf("expected one inbound dependent edge: %#v", lockIDReport.Explanations)
+	}
+
+	notFoundReport, _, notFoundStderr, err := runWhyJSON("loose-envify", "--json")
+	if err == nil {
+		t.Fatalf("why loose-envify --json should preserve nonzero not-found semantics")
+	}
+	if notFoundStderr != "" {
+		t.Fatalf("not-found why json should not write stderr, got: %s", notFoundStderr)
+	}
+	if notFoundReport.OK || notFoundReport.Summary.Errors == 0 {
+		t.Fatalf("expected not-found report to be not ok: %#v", notFoundReport)
+	}
+	if !whyJSONHasDiagnosticDetail(notFoundReport, "TSPACK_WHY_NOT_FOUND", "npm:loose-envify@1.4.0") || !whyJSONHasDiagnosticDetail(notFoundReport, "TSPACK_WHY_NOT_FOUND", "tspack why npm:loose-envify@1.4.0") {
+		t.Fatalf("expected structured not-found suggestion details: %#v", notFoundReport.Diagnostics)
+	}
+
+	if err := os.Remove(lockfile); err != nil {
+		t.Fatalf("remove lockfile: %v", err)
+	}
+	missingLockReport, _, missingLockStderr, err := runWhyJSON("react", "--json")
+	if err != nil {
+		t.Fatalf("missing-lockfile why react --json should follow warning-only success semantics: %v\nstderr: %s", err, missingLockStderr)
+	}
+	if missingLockStderr != "" {
+		t.Fatalf("missing-lockfile why json should not write stderr, got: %s", missingLockStderr)
+	}
+	if !missingLockReport.OK || missingLockReport.Summary.Warnings == 0 || missingLockReport.Summary.Explanations == 0 {
+		t.Fatalf("expected warning plus manifest explanations: %#v", missingLockReport)
+	}
+	if !whyJSONHasDiagnostic(missingLockReport, "TSPACK_WHY_LOCKFILE_MISSING", "warning") {
+		t.Fatalf("expected missing lockfile warning: %#v", missingLockReport.Diagnostics)
+	}
+
+	if err := os.WriteFile(lockfile, []byte(whyJSONLockfile()), 0o644); err != nil {
+		t.Fatalf("restore lockfile: %v", err)
+	}
+	repeatReport, repeatBytes, repeatStderr, err := runWhyJSON("react", "--json")
+	if err != nil {
+		t.Fatalf("repeat why react --json failed: %v\nstderr: %s", err, repeatStderr)
+	}
+	if firstBytes != repeatBytes || !reflect.DeepEqual(reactReport, repeatReport) {
+		t.Fatalf("why json should be deterministic\nfirst: %s\nrepeat: %s", firstBytes, repeatBytes)
+	}
+
+	textCmd := exec.Command(bin, "why", "react", "--root", root, "--lockfile", lockfile)
+	textCmd.Dir = repo
+	var textStdout bytes.Buffer
+	var textStderr bytes.Buffer
+	textCmd.Stdout = &textStdout
+	textCmd.Stderr = &textStderr
+	if err := textCmd.Run(); err != nil {
+		t.Fatalf("why react text mode failed: %v\nstderr: %s", err, textStderr.String())
+	}
+	if !strings.Contains(textStdout.String(), "react declared in package") {
+		t.Fatalf("expected human text output, got: %s", textStdout.String())
+	}
+	var textJSON whyJSONReport
+	if json.Unmarshal(textStdout.Bytes(), &textJSON) == nil {
+		t.Fatalf("text mode should not emit JSON: %s", textStdout.String())
+	}
+}
+
+func setupWhyJSONWorkspace(t *testing.T, repo string) string {
+	t.Helper()
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	if err := os.MkdirAll(frontend, 0o755); err != nil {
+		t.Fatalf("create frontend dir: %v", err)
+	}
+	cliPath := filepath.Join(frontend, "cli.js")
+	stub := `#!/usr/bin/env node
+const out={ok:true,ir:{format:1,workspace:{name:"ws"},packages:[{name:"@acme/components",version:"1.0.0",kind:"library",dependencies:[{key:"react",kind:"peer",source:{kind:"npm",package:"react",range:">=18 <20"}}],targets:[{name:"core",export:".",entry:"src/components.ts",runtime:"src/components.ts",types:"dist/components.d.ts",deps:[],peers:["react"]}],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{types:{},boundaries:{}}},{name:"@acme/demo",version:"1.0.0",kind:"library",dependencies:[{key:"react",kind:"runtime",source:{kind:"npm",package:"react",range:"^18.3.1"}}],targets:[{name:"app",export:"./app",entry:"src/demo.ts",runtime:"src/demo.ts",types:"dist/demo.d.ts",deps:["react"],peers:[]}],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{types:{},boundaries:{}}}]},diagnostics:[]};
+process.stdout.write(JSON.stringify(out));`
+	if err := os.WriteFile(cliPath, []byte(stub), 0o755); err != nil {
+		t.Fatalf("write frontend stub: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Remove(cliPath) })
+
+	root := t.TempDir()
+	for _, dir := range []string{"src", "dist"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatalf("create %s: %v", dir, err)
+		}
+	}
+	files := map[string]string{
+		"manifest.tsx":         "export default {}\n",
+		"src/components.ts":    "x\n",
+		"src/demo.ts":          "x\n",
+		"dist/components.d.ts": "x\n",
+		"dist/demo.d.ts":       "x\n",
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "ts-lock.toml"), []byte(whyJSONLockfile()), 0o644); err != nil {
+		t.Fatalf("write lockfile: %v", err)
+	}
+	return root
+}
+
+func whyJSONLockfile() string {
+	return "[lock]\nformat=1\ntool=\"tspack\"\n" +
+		"[[package]]\nid=\"npm:react@19.2.6\"\nname=\"react\"\nversion=\"19.2.6\"\nsource=\"npm\"\nhash=\"h\"\n" +
+		"[[package]]\nid=\"npm:react@18.3.1\"\nname=\"react\"\nversion=\"18.3.1\"\nsource=\"npm\"\nhash=\"h\"\n" +
+		"[[package]]\nid=\"npm:loose-envify@1.4.0\"\nname=\"loose-envify\"\nversion=\"1.4.0\"\nsource=\"npm\"\nhash=\"h\"\n" +
+		"[[edge]]\nfrom=\"@acme/components:target:core\"\nto=\"npm:react@19.2.6\"\nkind=\"peer\"\noptional=false\n" +
+		"[[edge]]\nfrom=\"@acme/demo:target:app\"\nto=\"npm:react@18.3.1\"\nkind=\"runtime\"\noptional=false\n" +
+		"[[edge]]\nfrom=\"npm:react@19.2.6\"\nto=\"npm:loose-envify@1.4.0\"\nkind=\"runtime\"\noptional=false\n" +
+		"[[target]]\npackage=\"@acme/components\"\nname=\"core\"\nexport=\".\"\nentry=\"src/components.ts\"\nruntime=\"src/components.ts\"\ntypes=\"dist/components.d.ts\"\n" +
+		"[[target]]\npackage=\"@acme/demo\"\nname=\"app\"\nexport=\"./app\"\nentry=\"src/demo.ts\"\nruntime=\"src/demo.ts\"\ntypes=\"dist/demo.d.ts\"\n"
+}
+
+func whyJSONHasDependencyExplanation(report whyJSONReport, packageName string, dependencyKey string, dependencyKind string) bool {
+	for _, explanation := range report.Explanations {
+		if explanation.Kind == "dependency" && explanation.PackageName == packageName && explanation.DependencyKey == dependencyKey && explanation.DependencyKind == dependencyKind {
+			return true
+		}
+	}
+	return false
+}
+
+func whyJSONHasLockPackage(report whyJSONReport, id string) bool {
+	for _, explanation := range report.Explanations {
+		for _, lockPackage := range explanation.LockPackages {
+			if lockPackage.ID == id {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func whyJSONHasLockEdge(report whyJSONReport, from string, to string, kind string) bool {
+	return countWhyJSONLockEdge(report, from, to, kind) > 0
+}
+
+func countWhyJSONLockEdge(report whyJSONReport, from string, to string, kind string) int {
+	count := 0
+	for _, explanation := range report.Explanations {
+		for _, edge := range explanation.LockEdges {
+			if edge.From == from && edge.To == to && edge.Kind == kind {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+func whyJSONHasDiagnostic(report whyJSONReport, code string, severity string) bool {
+	for _, diagnostic := range report.Diagnostics {
+		if diagnostic.Code == code && diagnostic.Severity == severity {
+			return true
+		}
+	}
+	return false
+}
+
+func whyJSONHasDiagnosticDetail(report whyJSONReport, code string, detailSubstring string) bool {
+	for _, diagnostic := range report.Diagnostics {
+		if diagnostic.Code != code {
+			continue
+		}
+		for _, detail := range diagnostic.Details {
+			if strings.Contains(detail, detailSubstring) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func TestCLIHelpAndUnsupportedCommands(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	help := exec.Command("go", "run", "./cmd/tspack", "help")

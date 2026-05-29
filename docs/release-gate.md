@@ -10,6 +10,7 @@
 - `tspack update --dry-run`
 - `tspack sync`
 - `tspack why <dep>`
+- `tspack why <dep> --json`
 - `tspack how --list`
 - `tspack how TSPACK_IR_INVALID_RELATIVE_PATH`
 - `tspack pack`
@@ -47,6 +48,7 @@ The Phase 2 package-manager smoke must cover the validated update→store→sync
 - `tspack sync`
 - `tspack check --json`
 - `tspack why <declared-dep>`
+- `tspack why <declared-dep> --json`
 - `tspack how TSPACK_LOCK_VERSION_CONFLICT`
 
 Fixture/fake-registry smoke should include:
