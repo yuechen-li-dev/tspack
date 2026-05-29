@@ -66,6 +66,10 @@ export const assert = {
     validateReason(reason);
     throw createFailure('fail', reason);
   },
+  type<TExpected>(value: TExpected, reason: string): void {
+    void value;
+    validateReason(reason);
+  },
   near(actual: number, expected: number, tolerance: number, reason: string): void {
     validateReason(reason);
     if (!Number.isFinite(actual) || !Number.isFinite(expected) || !Number.isFinite(tolerance) || tolerance < 0) {

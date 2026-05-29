@@ -380,3 +380,36 @@ Across files, the runner schedules up to an automatically selected worker count.
 Batch output is deterministic by construction. Discovery order remains the sorted root-relative native file order. Each worker stores its file result at the file's original discovery index, then the final text, compact text, or JSON report is rendered once after all workers complete. A faster later file can finish before an earlier slower file, but the report still lists the earlier file first.
 
 Filters are applied before scheduling wherever discovery can prove that a file has no matching tests, which avoids importing unselected files and their module side effects. Snapshot update mode remains safe because snapshot paths are namespaced by source file, and tests within a source file still execute sequentially. Project fixtures and artifact directories remain per-test/per-file deterministic and are not shared across concurrently running files.
+
+## M34g experimental static type assertions
+
+Native xTest now includes an experimental static assertion lane for TypeScript assignability checks:
+
+```tsx
+<Fact name="cx returns string">
+  {() => {
+    assert.type<string>(
+      cx("a"),
+      "cx should return a string"
+    );
+  }}
+</Fact>
+```
+
+`assert.type<TExpected>(value, reason)` is a static proposition, not a runtime value comparison. The TypeScript signature is intentionally simple: `value` must be assignable to `TExpected`, and `reason` is a required human-readable string. At runtime `assert.type` validates the reason and records assertion activity, but it does not inspect or compare TypeScript types.
+
+During native test execution, xTest builds a TypeScript `Program` from the original native test source file plus TypeScript's normal local relative import resolution. It uses controlled compiler options (`strict`, ES2022, ESNext modules, Bundler module resolution, JSX preserve, no emit) rather than a full bundler, Vite, or a custom TypeScript symbol graph engine. This is enough for local source return types imported with relative paths to participate in assignability checks.
+
+Type assertion calls shaped like `assert.type<TExpected>(value, "reason")` are discovered in Fact/Theory callback bodies. Passing calls then execute as runtime no-ops that count as meaningful assertion activity. Failing calls are reported as native test failures with `TSPACK_TYPE_ASSERTION_FAILED`, the assertion reason, expected type text, TypeScript diagnostic code/message, file, line, and column when available. Missing or empty literal reasons are reported as `TSPACK_TYPE_ASSERTION_REASON_REQUIRED`.
+
+List mode remains non-executing and does not run the typecheck lane. Normal run, batch run, compact output, and JSON output include selected type assertion failures. Filtered runs ignore type assertion failures in unselected Fact/Theory bodies when the assertion can be mapped to a test context; Theory diagnostics attach to the Theory base rather than to every case.
+
+Current M34g limitations:
+
+- Assignability only; no exact type equality helper.
+- No negative type assertions such as “not assignable”.
+- No `expect.type` chain API.
+- No tsconfig/path-alias integration.
+- No Vite integration.
+- No full custom TypeScript symbol graph analyzer.
+- Type assertions outside a discoverable Fact/Theory callback may only map to file-level typecheck context.

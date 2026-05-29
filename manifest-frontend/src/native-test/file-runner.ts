@@ -16,6 +16,10 @@ import { isSkipSignal, skip } from "./skip.js";
 import { runSuite } from "./runner.js";
 import { markArtifactWriteActivity, setActivityTracker } from "./activity.js";
 import { loadRuntimeSuiteForFile } from "./runtime-load.js";
+import {
+  typecheckNativeTestFile,
+  type TypeAssertionDiagnostic,
+} from "./typecheck.js";
 import { createCommandContext } from "./command.js";
 import type {
   ArtifactRunResult,
@@ -136,20 +140,48 @@ async function runNativeTestFile(
   const diagnostics: Diagnostic[] = [];
 
   try {
-    const root = await loadRuntimeSuiteForFile(file.filePath, { rootDir });
-    const artifactRoot =
-      options.artifactRoot ?? path.join(rootDir, ".tspack", "test-artifacts");
+    const typecheckResult = typecheckNativeTestFile(file.filePath, { rootDir });
     const filePrefix = normalizePublicTestPath(
       path.relative(rootDir, file.filePath),
     );
+    const selectedTypecheckDiagnostics = typecheckResult.diagnostics.filter(
+      (diagnostic) =>
+        typeAssertionDiagnosticMatchesSelection(
+          diagnostic,
+          filePrefix,
+          file,
+          options.filter,
+        ),
+    );
+    const failedLocalTypeAssertionIds = new Set<string>();
+
+    for (const diagnostic of selectedTypecheckDiagnostics) {
+      if (diagnostic.localTestId) {
+        failedLocalTypeAssertionIds.add(diagnostic.localTestId);
+      }
+      results.push(createTypeAssertionFailureResult(diagnostic, filePrefix));
+    }
+
+    const root = await loadRuntimeSuiteForFile(file.filePath, { rootDir });
+    const artifactRoot =
+      options.artifactRoot ?? path.join(rootDir, ".tspack", "test-artifacts");
     const runResults = await runSuite(root, {
       artifactRoot,
       defaultTimeoutSeconds: options.defaultTimeoutSeconds,
       snapshotFilePath: file.filePath,
       snapshotRootDir: rootDir,
       updateSnapshots: options.updateSnapshots === true,
-      shouldRunTest: (localId, name) =>
-        matchesFilter(`${filePrefix}::${localId}`, name, options.filter),
+      shouldRunTest: (localId, name) => {
+        if (
+          isBlockedByTypeAssertionFailure(
+            localId,
+            failedLocalTypeAssertionIds,
+          )
+        ) {
+          return false;
+        }
+        return matchesFilter(`${filePrefix}::${localId}`, name, options.filter);
+      },
     });
 
     for (const result of runResults) {
@@ -614,6 +646,102 @@ function filterByTestSelection(
     });
   }
   return matchedFiles;
+}
+
+function typeAssertionDiagnosticMatchesSelection(
+  diagnostic: TypeAssertionDiagnostic,
+  filePrefix: string,
+  file: DiscoveredFile,
+  filter: string | undefined,
+): boolean {
+  if (!filter) {
+    return true;
+  }
+  if (!diagnostic.localTestId) {
+    return true;
+  }
+
+  const fullId = `${filePrefix}::${diagnostic.localTestId}`;
+  if (
+    matchesFilter(
+      fullId,
+      diagnostic.testName ?? diagnostic.localTestId,
+      filter,
+    )
+  ) {
+    return true;
+  }
+
+  const casePrefix = `${fullId}[`;
+  return file.tests.some((test) => {
+    if (!test.id.startsWith(casePrefix)) {
+      return false;
+    }
+    return matchesFilter(test.id, test.name, filter);
+  });
+}
+
+function createTypeAssertionFailureResult(
+  diagnostic: TypeAssertionDiagnostic,
+  filePrefix: string,
+): TestResult {
+  const id = diagnostic.localTestId
+    ? `${filePrefix}::${diagnostic.localTestId}`
+    : `${filePrefix}::typecheck`;
+  const name = diagnostic.testName ?? "typecheck";
+  const error = new Error(renderTypeAssertionMessage(diagnostic)) as Error & {
+    code: string;
+    reason?: string;
+    assertion: string;
+    expected?: unknown;
+    details: Record<string, unknown>;
+  };
+  error.code = diagnostic.code;
+  error.reason = diagnostic.reason;
+  error.assertion = "type";
+  error.expected = diagnostic.expectedTypeText;
+  error.details = {
+    file: diagnostic.file,
+    line: diagnostic.line,
+    column: diagnostic.column,
+  };
+
+  if (diagnostic.typescriptCode !== undefined) {
+    error.details.typescriptCode = `TS${diagnostic.typescriptCode}`;
+  }
+  if (diagnostic.typescriptMessage) {
+    error.details.typescriptMessage = diagnostic.typescriptMessage;
+  }
+
+  return {
+    id,
+    name,
+    status: "failed",
+    durationMs: 0,
+    error,
+    artifacts: [],
+  };
+}
+
+function renderTypeAssertionMessage(
+  diagnostic: TypeAssertionDiagnostic,
+): string {
+  if (diagnostic.typescriptCode !== undefined && diagnostic.typescriptMessage) {
+    return `${diagnostic.message}: TypeScript TS${diagnostic.typescriptCode}: ${diagnostic.typescriptMessage}`;
+  }
+  return diagnostic.message;
+}
+
+function isBlockedByTypeAssertionFailure(
+  localId: string,
+  failedLocalTypeAssertionIds: Set<string>,
+): boolean {
+  for (const failedId of failedLocalTypeAssertionIds) {
+    if (localId === failedId || localId.startsWith(`${failedId}[`)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function matchesFilter(

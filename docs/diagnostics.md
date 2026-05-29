@@ -61,6 +61,9 @@ This inventory groups primary diagnostic families by subsystem to keep command-s
   - `TSPACK_TEST_WATCH_INVALID_MODE`: watch mode was combined with a static or automation-oriented mode such as `--list` or `--json`. Run those modes without `--watch`.
   - `TSPACK_TEST_WATCH_FAILED`: watch mode could not scan or poll the project root. Details include the filesystem error.
   - `TSPACK_TEST_BATCH_UNSUPPORTED_BACKEND`: `tspack test --batch` was requested for a backend other than native xTest, such as Vitest. M34f does not proxy Vitest parallelism.
+  - `TSPACK_TEST_TYPECHECK_FAILED`: native xTest could not build or load the TypeScript source program for the static type assertion lane.
+  - `TSPACK_TYPE_ASSERTION_FAILED`: an `assert.type<TExpected>(value, reason)` call failed TypeScript assignability checking. The diagnostic includes the reason, expected type text, and TypeScript diagnostic details when available.
+  - `TSPACK_TYPE_ASSERTION_REASON_REQUIRED`: an `assert.type` call is missing a non-empty string literal reason.
 - `TSPACK_ARTIFACT_*`
 - `TSPACK_BENCH_*`
 - `TSPACK_DOOM_*`

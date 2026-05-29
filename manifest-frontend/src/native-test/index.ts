@@ -8,6 +8,11 @@ export {
   runNativeArtifacts,
   chooseBatchWorkerCount,
 } from "./file-runner.js";
+export { typecheckNativeTestFile } from "./typecheck.js";
+export type {
+  NativeTypecheckResult,
+  TypeAssertionDiagnostic,
+} from "./typecheck.js";
 export { listNativeBenchmarks, runNativeBenchmarks } from "./benchmark.js";
 export {
   listNativeProphecies,
