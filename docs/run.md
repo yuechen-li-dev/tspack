@@ -5,7 +5,7 @@
 ## Usage
 - `tspack run`
 - `tspack run <target>`
-- `tspack run [target] --root <path> --ready-timeout <seconds> [--once]`
+- `tspack run [target] --root <path> [--manifest <path>] --ready-timeout <seconds> [--once]`
 
 ## Target selection
 1. explicit `<target>` if provided
@@ -26,11 +26,19 @@ Each row supports:
 - `ready`: optional `{ kind: "http", path: "/" }`
 
 ## Runtime notes
-- `system`: execute argv directly.
+- `system`: built-in runtime support that executes the declared argv directly. `tspack doctor run` reports this runtime as available without looking for a binary named `system`.
 - `node`: execute argv directly and prefer local `node_modules/.bin` before PATH.
-- Future reserved backends: `bun`, `deno` (not implemented in M22).
+- Future reserved backends: `bun`, `deno` (not implemented yet and not launched by `tspack run`).
 
 Runtimes are process launch backends only. TSPack still owns manifest/lock/package/test lifecycle.
+
+## Streams
+
+`tspack run` writes TSPack-owned status/progress lines (`Starting`, `Runtime`, `Command`, `Waiting for`, `Ready`) to **stderr**. The child process stdout passes through to stdout, and the child process stderr passes through to stderr. This keeps stdout usable for scripts that consume child output.
+
+## Manifest selection
+
+By default, `tspack run` loads `<root>/manifest.tsx`. Pass `--manifest <path>` to load an explicit manifest path; this composes with `--root` but does not change command cwd semantics. Commands still execute from the workspace root in M35a.
 
 ## Readiness
 M22 readiness is HTTP polling:
