@@ -36,7 +36,7 @@ A runtime-grounded IDE should preserve normal code review and source-control wor
 ## Future capabilities
 
 - Click a UI node and inspect its structural runtime facts.
-- Map an inspected node back to source files and framework/component locations.
+- Map an inspected node back to probable source files and framework/component locations through optional source hints first.
 - Build an LLM context bundle containing the selected node, bounds, role/name/text, computed styles, source file, and diagnostics.
 - Add xTest UI assertions for role, name, visibility, bounds, and hit-test behavior.
 - Add a visual overlay or design-surface observer that remains backed by text diffs.
@@ -64,9 +64,9 @@ Future editing workflows should still become text diffs. The IDE can observe and
 - Render the inspect JSON tree and selected node details in VS Code.
 - Copy selected node JSON for bug reports, tests, or future context bundles.
 
-### Future: source mapping
+### M40b: inspect source mapping design probe
 
-Connect inspected nodes to source locations without making runtime inspection framework-specific.
+Connect inspected nodes to probable source locations without making runtime inspection framework-specific. The staged design starts with optional `data-tspack-source`, `data-tspack-component`, and `data-tspack-symbol` hints, then leaves transforms, heuristics, framework adapters, and IDE reveal commands for later milestones. See [Inspect Source Mapping Design](inspect-source-mapping.md).
 
 ### Future: LLM context bundles
 
@@ -93,4 +93,4 @@ Native xTest can now participate directly in the runtime-grounded workflow:
 3. **Snapshot** stable subtrees with `expect.snapshotJson` when structural regressions should be reviewed.
 4. **Provide context later** by handing exact inspect JSON to higher-level tools instead of guessing from CSS or source.
 
-This step is intentionally limited to observation plus test assertions. It does not add source mapping, visual editing handles, screenshots, OCR, or LLM context bundles.
+This step is intentionally limited to observation plus test assertions. Source hints may now appear in inspect JSON when a page provides them, but the helper does not add visual editing handles, source mutation, screenshots, OCR, reveal-source behavior, or LLM context bundles.

@@ -56,6 +56,14 @@ function sampleResult(): InspectResult {
           text: "Save",
           bounds: { x: 20, y: 20, width: 80, height: 30 },
           visible: true,
+          source: {
+            raw: 'src/components/Button.tsx:42:7',
+            file: 'src/components/Button.tsx',
+            line: 42,
+            column: 7,
+            component: 'Button',
+            symbol: 'Button.Primary',
+          },
           children: [],
         },
       ],
@@ -191,6 +199,8 @@ describe("native inspect helper", () => {
               points: [{ x: 3, y: 4 }],
             });
             assert.type<string | undefined>(ui.root?.role, "url inspect root role is typed");
+            assert.type<string | undefined>(ui.root?.source?.file, "url inspect source file is typed");
+            assert.type<number | undefined>(ui.root?.source?.line, "url inspect source line is typed");
             assert.type<string>(cdp.target.url, "cdp inspect target url is typed");
           }}</Fact>
         </Suite>
@@ -206,7 +216,17 @@ describe("native inspect helper", () => {
   itWithChromium("can inspect a tiny local page when Playwright Chromium is available", async () => {
     const server = http.createServer((request, response) => {
       response.setHeader("content-type", "text/html");
-      response.end(`<!doctype html><main role="main"><button>Save</button></main>`);
+      response.end(`<!doctype html>
+        <main role="main" data-tspack-source="src/pages/Home.tsx">
+          <button
+            data-tspack-source="src/components/Button.tsx:42:7"
+            data-tspack-component="Button"
+            data-tspack-symbol="Button.Primary"
+          >Save</button>
+          <span data-tspack-source="src/components/Badge.tsx:17">Ready</span>
+          <div data-tspack-source="src/components/Broken.tsx:line">Broken</div>
+          <p>No source</p>
+        </main>`);
     });
 
     await new Promise<void>((resolve) => {
@@ -228,9 +248,36 @@ describe("native inspect helper", () => {
 
       expect(ui.root?.role).toBe("main");
       expect(ui.root?.visible).toBe(true);
-      expect(ui.root?.children.some((node) => node.role === "button")).toBe(
-        true,
-      );
+      expect(ui.root?.source).toMatchObject({
+        raw: "src/pages/Home.tsx",
+        file: "src/pages/Home.tsx",
+      });
+
+      const button = ui.root?.children.find((node) => node.role === "button");
+      expect(button?.source).toMatchObject({
+        raw: "src/components/Button.tsx:42:7",
+        file: "src/components/Button.tsx",
+        line: 42,
+        column: 7,
+        component: "Button",
+        symbol: "Button.Primary",
+      });
+
+      const badge = ui.root?.children.find((node) => node.text === "Ready");
+      expect(badge?.source).toMatchObject({
+        raw: "src/components/Badge.tsx:17",
+        file: "src/components/Badge.tsx",
+        line: 17,
+      });
+
+      const malformed = ui.root?.children.find((node) => node.text === "Broken");
+      expect(malformed?.source).toMatchObject({
+        raw: "src/components/Broken.tsx:line",
+        parseError: "invalid source line or column",
+      });
+
+      const plain = ui.root?.children.find((node) => node.text === "No source");
+      expect(plain?.source).toBeUndefined();
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => {

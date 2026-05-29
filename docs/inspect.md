@@ -16,6 +16,7 @@ It is **not** screenshot matching, visual diffing, machine vision, component ren
 - structural DOM/layout/style/text/role extraction
 - JSON and text output
 - selector filtering and hit-test support
+- optional source hint extraction through `data-tspack-source`, `data-tspack-component`, and `data-tspack-symbol`
 - platform-webview backend scaffold/probe (intended future default)
 - Playwright-backed inspection path for Chromium and WebKit
 - explicit CDP endpoint inspection path
@@ -132,6 +133,31 @@ VS Code/Electron app UI inspection:
 
 When `--json` is set and `--run` is used, progress and run-target logs go to stderr and JSON output remains on stdout.
 
+## Source hints
+
+Inspect can report optional, page-provided source hints on individual nodes. The analyzer reads:
+
+- `data-tspack-source`, in the form `<file>`, `<file>:<line>`, or `<file>:<line>:<column>`
+- `data-tspack-component`
+- `data-tspack-symbol`
+
+When present, the node may include:
+
+```json
+{
+  "source": {
+    "raw": "src/components/Button.tsx:42:7",
+    "file": "src/components/Button.tsx",
+    "line": 42,
+    "column": 7,
+    "component": "Button",
+    "symbol": "Button.Primary"
+  }
+}
+```
+
+Malformed source hints do not fail inspect. The raw value is preserved with `source.parseError`, and TSPack does not resolve, open, or trust source hint paths in M40b. See [Inspect Source Mapping Design](inspect-source-mapping.md) for the staged source mapping strategy and security model.
+
 ## Inspect diagnostics
 
 Target/input:
@@ -196,7 +222,7 @@ The extension supports the following proof-of-concept workflow:
 4. Pick a target and let the extension execute `tspack inspect --cdp <endpoint> --target <index> --json`.
 5. Review the runtime UI tree, selected node details, diagnostics, and copyable selected-node JSON inside VS Code.
 
-The extension is intentionally scoped to observation: target listing, inspect tree rendering, selected-node details, and JSON copy. It does not implement visual editing, source mutation, source mapping, LLM integration, screenshot/OCR/machine vision, framework adapters, or a Code-OSS fork.
+The extension is intentionally scoped to observation: target listing, inspect tree rendering, selected-node details, and JSON copy. It does not implement visual editing, source mutation, reveal-source navigation, LLM integration, screenshot/OCR/machine vision, framework adapters, or a Code-OSS fork. The tree can display source hint metadata that the CLI already reports, but it does not open files from those hints.
 
 See [Runtime-Grounded IDE Vision](runtime-grounded-ide.md) for the broader direction.
 

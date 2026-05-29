@@ -86,6 +86,15 @@ export function buildInspectNodeTooltip(node: InspectNode): string {
   appendTooltipLine(lines, 'bounds', formatCompactBounds(node.bounds));
   appendTooltipLine(lines, 'visible', node.visible);
   appendTooltipLine(lines, 'focusable', node.focusable);
+  if (node.source) {
+    appendTooltipLine(lines, 'source', node.source.raw);
+    appendTooltipLine(lines, 'sourceFile', node.source.file);
+    appendTooltipLine(lines, 'sourceLine', node.source.line);
+    appendTooltipLine(lines, 'sourceColumn', node.source.column);
+    appendTooltipLine(lines, 'component', node.source.component);
+    appendTooltipLine(lines, 'symbol', node.source.symbol);
+    appendTooltipLine(lines, 'sourceParseError', node.source.parseError);
+  }
   if (node.style) {
     appendTooltipLine(lines, 'display', node.style.display);
     appendTooltipLine(lines, 'position', node.style.position);

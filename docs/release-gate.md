@@ -35,7 +35,6 @@
 - `tspack doctor security`
 - `tspack doctor security --json`
 
-
 ### Pack safety smoke
 
 The pack release smoke should cover strict pack safety defaults:
@@ -176,7 +175,6 @@ RunTarget smoke coverage should verify:
 - `--env` status output lists keys only and never prints values.
 - `--env` values are literal after shell parsing; TSPack performs no shell interpolation.
 
-
 ### Claude-fooding Phase 8 format/lint smoke
 
 The Phase 8 format/lint smoke must cover the closeout state documented in `docs/claude-fooding-phase8.md`:
@@ -274,7 +272,6 @@ The release gate should keep a dedicated lifecycle behavior smoke separate from 
 - Verify `tspack why`, `tspack why --json`, and `tspack why --reverse` show behavior evidence metadata for the acknowledged capability.
 - Verify `tspack update`, `tspack sync`, materialization, `tspack check`, `tspack doctor security`, and `tspack why` still do not execute the acknowledged script or create marker files.
 
-
 ### Phase 7 doctor security smoke
 
 The lifecycle security doctor smoke must cover read-only reporting only:
@@ -287,7 +284,6 @@ The lifecycle security doctor smoke must cover read-only reporting only:
 - `tspack doctor security --json` writes parseable two-space-indented JSON to stdout only, appends a trailing newline, and is deterministic for stable project paths.
 - All-scope `tspack doctor` includes a concise `Security` section.
 - The smoke must not execute lifecycle scripts, run lifecycle probes, mutate package-manager state, call registries, or run vulnerability scans.
-
 
 ### Claude-fooding Phase 7 security/policy smoke
 
@@ -327,7 +323,7 @@ The M39b release gate should cover the VS Code extension proof of concept withou
 - CLI command construction uses `tspack inspect --cdp <endpoint> --target <index> --json` for target inspection.
 - Missing `tspack` binary, unavailable CDP endpoint, no targets, diagnostics, and invalid JSON map to user-facing extension messages or output-channel debug details.
 - `docs/runtime-grounded-ide.md` exists and is linked from `docs/inspect.md`.
-- The proof of concept remains observation-only: no visual editing, source mutation, source mapping, LLM integration, screenshot/OCR/machine vision, framework adapters, Storybook integration, browser extension, xTest helper additions, or Code-OSS fork behavior.
+- The proof of concept remains observation-only: no visual editing, source mutation, reveal-source command, LLM integration, screenshot/OCR/machine vision, framework adapters, Storybook integration, browser extension, additional xTest helper semantics, or Code-OSS fork behavior. Source hint display is allowed because it serializes existing inspect JSON only.
 
 ## Inspect helper smoke
 
@@ -339,3 +335,15 @@ Before release, verify the native xTest inspect helper path:
 - Confirm a fact that only calls `await inspect.url(...)` fails with `TSPACK_TEST_NO_ASSERTION`.
 - Confirm browser-unavailable environments skip browser integration tests with a clear reason instead of failing CI.
 - Confirm `inspect.cdp(endpoint, { target: 0, selector: "..." })` option mapping without requiring VS Code or Electron.
+
+## M40b inspect source mapping design/probe smoke
+
+Before release, verify the source mapping probe remains narrow and deterministic:
+
+- `docs/inspect-source-mapping.md` exists and documents the staged strategy, non-goals, source hint contract, trust/security model, heuristic notes, and future milestones.
+- `docs/inspect.md` and `docs/runtime-grounded-ide.md` link to the source mapping design.
+- A static HTML fixture with `data-tspack-source`, `data-tspack-component`, and `data-tspack-symbol` reports `node.source` in inspect JSON.
+- `<file>`, `<file>:<line>`, and `<file>:<line>:<column>` source hint forms parse into stable JSON fields.
+- Malformed source hints preserve `source.raw` and report `source.parseError` without failing inspect.
+- Nodes without source hints omit `source`.
+- Extension tree conversion may display source hint metadata but must not implement reveal-source or filesystem access.

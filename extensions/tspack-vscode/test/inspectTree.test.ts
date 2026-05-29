@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildInspectNodeDescription,
   buildInspectNodeLabel,
+  buildInspectNodeTooltip,
   buildInspectTree,
   serializeInspectNode,
 } from '../src/inspectTree';
@@ -33,6 +34,14 @@ const fixture: InspectResult = {
         bounds: { x: 1140, y: 742, width: 36, height: 28 },
         visible: true,
         focusable: true,
+        source: {
+          raw: 'src/components/Notifications.tsx:42:7',
+          file: 'src/components/Notifications.tsx',
+          line: 42,
+          column: 7,
+          component: 'NotificationsButton',
+          symbol: 'Notifications.Button',
+        },
         style: {
           display: 'flex',
           position: 'relative',
@@ -84,6 +93,20 @@ describe('inspect tree conversion', () => {
       throw new Error('missing fixture node');
     }
     expect(JSON.parse(serializeInspectNode(node))).toEqual(node);
+  });
+
+  it('includes source hint metadata in tooltips', () => {
+    const node = fixture.root?.children?.[0];
+    if (!node) {
+      throw new Error('missing fixture node');
+    }
+
+    const tooltip = buildInspectNodeTooltip(node);
+
+    expect(tooltip).toContain('sourceFile: src/components/Notifications.tsx');
+    expect(tooltip).toContain('sourceLine: 42');
+    expect(tooltip).toContain('component: NotificationsButton');
+    expect(tooltip).toContain('symbol: Notifications.Button');
   });
 });
 
