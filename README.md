@@ -19,7 +19,7 @@ Core thesis: **Declare targets. Resolve sources. Enforce boundaries. Lock realit
 | Native harness | `tspack artifact` | Run standalone suite-level native artifact units. | May write artifact output; no lock/manifest mutation. |
 | Native harness | `tspack bench` | Run native benchmark units (`*.benchmark.tsx`). | May write benchmark outputs; no lock/manifest mutation. |
 | Native harness | `tspack doom` | Run quarantined prophecy/doom units (`*.prophecy.tsx`). | May write doom outputs; no lock/manifest mutation. |
-| Runtime / inspection | `tspack run [target]` | Start declared manifest `RunTargets` and wait for readiness. | **Not npm scripts**; no lock/manifest mutation. |
+| Runtime / inspection | `tspack run [target]` | Start, list (`--list [--json]`), or package-scope (`--package <name>`) declared manifest `RunTargets`. | **Not npm scripts**; no lock/manifest mutation. |
 | Runtime / inspection | `tspack inspect <url\|target>` | Structural UI inspection; supports declared run target inspection. | **Experimental**; backend surface may evolve. |
 
 ## Core contracts

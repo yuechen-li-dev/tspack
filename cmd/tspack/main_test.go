@@ -2277,3 +2277,130 @@ process.stdout.write(JSON.stringify(out));
 	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
 	t.Cleanup(func() { _ = os.Remove(cliPath) })
 }
+
+func TestCLIRunListAndPackageScoping(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	markerPath := filepath.Join(root, "started.txt")
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "marker.js"), []byte("require('fs').writeFileSync('started.txt', 'started')\n"), 0o644)
+	stubIR := `{format:1,workspace:{name:"ws"},packages:[{name:"@prisma-ui/demo",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","marker.js"],url:"http://127.0.0.1:5991",ready:{kind:"http",path:"/"}},{name:"preview",runtime:"node",command:["vite","preview"],url:"http://127.0.0.1:5992",ready:{kind:"http",path:"/"}}]},{name:"@prisma-ui/docs",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","docs-server.js"],url:"http://127.0.0.1:5993",ready:{kind:"http",path:"/"}}]}]}`
+	writeRunFrontendStub(t, stubIR)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--list")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run --list failed: %v\n%s", err, string(b))
+	}
+	out := string(b)
+	for _, expected := range []string{"Run targets", "@prisma-ui/demo", "dev", "preview", "@prisma-ui/docs", "runtime: system", "ready: http /"} {
+		if !strings.Contains(out, expected) {
+			t.Fatalf("run --list missing %q:\n%s", expected, out)
+		}
+	}
+	if _, statErr := os.Stat(markerPath); !os.IsNotExist(statErr) {
+		t.Fatalf("run --list started a process; marker stat err=%v", statErr)
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--package", "@prisma-ui/demo", "--list", "--json")
+	cmd.Dir = repo
+	var stdout strings.Builder
+	var stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run --list --json failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("json list wrote stderr: %q", stderr.String())
+	}
+	var payload struct {
+		Command string `json:"command"`
+		Mode    string `json:"mode"`
+		Package string `json:"package"`
+		Targets []struct {
+			ID      string   `json:"id"`
+			Package string   `json:"package"`
+			Name    string   `json:"name"`
+			Command []string `json:"command"`
+		} `json:"targets"`
+	}
+	if err := json.Unmarshal([]byte(stdout.String()), &payload); err != nil {
+		t.Fatalf("json list stdout was not parseable: %v\n%s", err, stdout.String())
+	}
+	if payload.Command != "run" || payload.Mode != "list" || payload.Package != "@prisma-ui/demo" || len(payload.Targets) != 2 {
+		t.Fatalf("unexpected json list payload: %+v", payload)
+	}
+	if payload.Targets[0].ID != "@prisma-ui/demo:dev" || payload.Targets[1].ID != "@prisma-ui/demo:preview" {
+		t.Fatalf("unexpected target ids: %+v", payload.Targets)
+	}
+}
+
+func TestCLIRunPackageSelectionAndAmbiguityDiagnostics(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	server := `const http=require('http'); const p=Number(process.argv[2]); http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}).listen(p,'127.0.0.1'); setInterval(()=>{},1000);`
+	_ = os.WriteFile(filepath.Join(root, "server.js"), []byte(server), 0o644)
+	portDemo := reservePort(t)
+	portDocs := reservePort(t)
+	portTools := reservePort(t)
+	stubIR := fmt.Sprintf(`{format:1,workspace:{name:"ws"},packages:[{name:"@prisma-ui/demo",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js","%d"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}}]},{name:"@prisma-ui/docs",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js","%d"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}}]},{name:"@prisma-ui/tools",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"lint",runtime:"system",command:["node","server.js","%d"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}}]}]}`, portDemo, portDemo, portDocs, portDocs, portTools, portTools)
+	writeRunFrontendStub(t, stubIR)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "dev", "--once")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_RUN_TARGET_AMBIGUOUS") || !strings.Contains(string(b), "@prisma-ui/demo:dev") || !strings.Contains(string(b), "@prisma-ui/docs:dev") || !strings.Contains(string(b), "--package <name>") {
+		t.Fatalf("expected package-qualified ambiguity: %v\n%s", err, string(b))
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--package", "@prisma-ui/demo", "dev", "--once")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), `Starting run target "@prisma-ui/demo:dev"`) || !strings.Contains(string(b), "Package: @prisma-ui/demo") || !strings.Contains(string(b), fmt.Sprintf("Ready: http://127.0.0.1:%d", portDemo)) {
+		t.Fatalf("package-scoped run failed: %v\n%s", err, string(b))
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--package", "@prisma-ui/tools", "--once")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), `Starting run target "@prisma-ui/tools:lint"`) {
+		t.Fatalf("package single-target fallback failed: %v\n%s", err, string(b))
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--package", "@prisma-ui/missing", "dev", "--once")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_RUN_PACKAGE_NOT_FOUND") || !strings.Contains(string(b), "@prisma-ui/demo") || !strings.Contains(string(b), "@prisma-ui/docs") {
+		t.Fatalf("expected missing package diagnostic: %v\n%s", err, string(b))
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--package", "@prisma-ui/demo", "missing", "--once")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_RUN_TARGET_NOT_FOUND") || !strings.Contains(string(b), "@prisma-ui/demo") || !strings.Contains(string(b), "dev") {
+		t.Fatalf("expected package target-not-found diagnostic: %v\n%s", err, string(b))
+	}
+}
+
+func TestCLIRunListInvalidArgs(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js"],url:"http://127.0.0.1:5999"}]}]}`)
+
+	for _, args := range [][]string{
+		{"run", "--root", root, "--list", "dev"},
+		{"run", "--root", root, "--list", "--once"},
+		{"run", "--root", root, "--package"},
+	} {
+		cmd := exec.Command("go", append([]string{"run", "./cmd/tspack"}, args...)...)
+		cmd.Dir = repo
+		b, err := cmd.CombinedOutput()
+		if err == nil || !strings.Contains(string(b), "TSPACK_RUN_INVALID_ARGS") {
+			t.Fatalf("expected invalid args for %v: %v\n%s", args, err, string(b))
+		}
+	}
+}

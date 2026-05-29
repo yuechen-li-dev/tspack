@@ -106,7 +106,10 @@ func TestDoctorRunSystemRuntimeAndReservedRuntimeSignal(t *testing.T) {
 		t.Fatalf("invalid doctor json: %v\n%s", err, string(b))
 	}
 	checks := flattenDoctorChecks(report)
-	runTarget := checks["runTarget:dev"]
+	runTarget := checks["runTarget:app:dev"]
+	if runTarget.Details["id"] != "app:dev" {
+		t.Fatalf("missing package-qualified run target id: %#v", runTarget.Details)
+	}
 	if runTarget.Details["runtimeAvailable"] != true {
 		t.Fatalf("system runtimeAvailable should be true: %#v", runTarget.Details)
 	}

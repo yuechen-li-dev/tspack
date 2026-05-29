@@ -1,19 +1,64 @@
-# tspack run (M22)
+# tspack run
 
 `tspack run` launches declared runtime targets from the manifest.
 
 ## Usage
 - `tspack run`
 - `tspack run <target>`
-- `tspack run [target] --root <path> [--manifest <path>] --ready-timeout <seconds> [--once]`
+- `tspack run --package <package-name> [target]`
+- `tspack run --list`
+- `tspack run --list --json`
+- `tspack run --package <package-name> --list [--json]`
+- `tspack run [--package <package-name>] [target] --root <path> [--manifest <path>] --ready-timeout <seconds> [--once]`
 
-## Target selection
-1. explicit `<target>` if provided
-2. `dev` target if present
-3. only target if exactly one exists
-4. otherwise fail (`TSPACK_RUN_TARGET_AMBIGUOUS`)
+## Listing targets
 
-If no run targets exist, fails with `TSPACK_RUN_TARGET_MISSING`.
+`tspack run --list` prints declared run targets without starting any process. Targets are grouped by package and show runtime, command, URL, and readiness policy.
+
+`tspack run --list --json` writes a machine-readable payload to stdout only:
+
+```json
+{
+  "command": "run",
+  "mode": "list",
+  "root": ".",
+  "package": null,
+  "targets": [
+    {
+      "id": "@prisma-ui/demo:dev",
+      "package": "@prisma-ui/demo",
+      "name": "dev",
+      "runtime": "system",
+      "command": ["node", "packages/demo/server.js"],
+      "url": "http://127.0.0.1:5173",
+      "ready": { "kind": "http", "path": "/" }
+    }
+  ],
+  "diagnostics": []
+}
+```
+
+Use `--package <package-name>` with `--list` to show only one package's targets. `--list` rejects positional targets and `--once` because listing never starts a process.
+
+## Target identity and selection
+
+Run target identity is package-qualified as `<package-name>:<target-name>`, for example `@prisma-ui/demo:dev`. Users select targets with `--package <package-name>` plus the target name, or by target name alone when the name is unambiguous.
+
+Selection rules without `--package`:
+1. explicit `<target>` if provided and exactly one package declares that target name
+2. the single global `dev` target if exactly one package declares `dev`
+3. the only target if exactly one target exists globally
+4. otherwise fail with `TSPACK_RUN_TARGET_AMBIGUOUS`
+
+Selection rules with `--package <package-name>`:
+1. explicit `<target>` inside that package if provided
+2. that package's `dev` target if present
+3. that package's only target if exactly one target exists in the package
+4. otherwise fail with a package-scoped diagnostic
+
+If no run targets exist, fails with `TSPACK_RUN_TARGET_MISSING`. If `--package` names an unknown package, fails with `TSPACK_RUN_PACKAGE_NOT_FOUND` and includes known packages. If a target is missing inside a selected package, fails with `TSPACK_RUN_TARGET_NOT_FOUND` and includes that package's known targets.
+
+Duplicate target names across packages are allowed. For example, if both `@prisma-ui/demo` and `@prisma-ui/docs` declare `dev`, `tspack run dev` fails with `TSPACK_RUN_TARGET_AMBIGUOUS`, lists `@prisma-ui/demo:dev` and `@prisma-ui/docs:dev`, and hints to use `--package <name>`.
 
 ## Manifest syntax
 Use `<RunTargets rows={[...]} />` under a package.
@@ -34,11 +79,11 @@ Runtimes are process launch backends only. TSPack still owns manifest/lock/packa
 
 ## Streams
 
-`tspack run` writes TSPack-owned status/progress lines (`Starting`, `Runtime`, `Command`, `Waiting for`, `Ready`) to **stderr**. The child process stdout passes through to stdout, and the child process stderr passes through to stderr. This keeps stdout usable for scripts that consume child output.
+`tspack run` writes TSPack-owned status/progress lines (`Starting`, `Package`, `Runtime`, `Command`, `Waiting for`, `Ready`) to **stderr**. The `Starting` line uses the package-qualified target ID, such as `@prisma-ui/demo:dev`. The child process stdout passes through to stdout, and the child process stderr passes through to stderr. This keeps stdout usable for scripts that consume child output.
 
 ## Manifest selection
 
-By default, `tspack run` loads `<root>/manifest.tsx`. Pass `--manifest <path>` to load an explicit manifest path; this composes with `--root` but does not change command cwd semantics. Commands still execute from the workspace root in M35a.
+By default, `tspack run` loads `<root>/manifest.tsx`. Pass `--manifest <path>` to load an explicit manifest path; this composes with `--root` but does not change command cwd semantics. Commands still execute from the workspace root in M35b; `--package` does not change cwd or command path resolution yet.
 
 ## Readiness
 M22 readiness is HTTP polling:

@@ -209,11 +209,13 @@ func doctorRun(root string) doctorBuilder {
 				readyPath = rt.Ready.Path
 			}
 			commandToken := firstToken(rt.Command)
+			targetID := pkg.Name + ":" + rt.Name
 			d.checks = append(d.checks, DoctorCheck{
-				Name:    "runTarget:" + rt.Name,
+				Name:    "runTarget:" + targetID,
 				Status:  "ok",
-				Message: fmt.Sprintf("%s runtime=%s url=%s", rt.Name, rt.Runtime, rt.URL),
+				Message: fmt.Sprintf("%s runtime=%s url=%s", targetID, rt.Runtime, rt.URL),
 				Details: map[string]any{
+					"id":                targetID,
 					"name":              rt.Name,
 					"runtime":           rt.Runtime,
 					"url":               rt.URL,
