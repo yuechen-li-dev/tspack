@@ -2,6 +2,8 @@
 
 M16 introduces an opt-in, TSPack-native unit test substrate.
 
+See `docs/claude-fooding-phase4.md` for the Phase 4 native xTest remediation closeout.
+
 ## Scope
 
 - Native test file naming

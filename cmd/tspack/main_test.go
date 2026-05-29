@@ -380,6 +380,31 @@ func TestDocsReleaseGateIncludesPhase3BoundarySmoke(t *testing.T) {
 	}
 }
 
+func TestDocsReleaseGateIncludesPhase4NativeXTestSmoke(t *testing.T) {
+	phase4Doc := filepath.Join("..", "..", "docs", "claude-fooding-phase4.md")
+	if _, err := os.Stat(phase4Doc); err != nil {
+		t.Fatalf("phase 4 closeout doc missing: %v", err)
+	}
+
+	doc, err := os.ReadFile(filepath.Join("..", "..", "docs", "release-gate.md"))
+	if err != nil {
+		t.Fatalf("read release gate doc: %v", err)
+	}
+
+	text := string(doc)
+	for _, phrase := range []string{
+		"`tspack test --batch`",
+		"`tspack test --watch`",
+		"`tspack test --update-snapshots`",
+		"assert.type",
+		"snapshot",
+	} {
+		if !strings.Contains(text, phrase) {
+			t.Fatalf("release gate doc missing phase 4 native xTest smoke phrase %q", phrase)
+		}
+	}
+}
+
 func TestCheckJSONWarningOnlyLockfileMissing(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
