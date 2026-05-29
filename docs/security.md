@@ -118,3 +118,25 @@ Default probe policy denies common risky behavior:
 Security honesty: the guard is Node preload instrumentation, not a kernel security boundary. It is useful for tests and behavior detection, but it is not an OS jail, network namespace, container sandbox, malware scanner, or vulnerability database. Future hardened execution may use OS-level sandboxes or jails; M37b deliberately does not implement them.
 
 Known MVP limitations: the guard intercepts common Node APIs, not every possible filesystem or native-code path; it supports controlled Node script commands only; it does not implement approval policy, package-manager mutation behavior, `npm install` compatibility, dotenv loading, or public install/rebuild execution.
+
+## Lifecycle capability acknowledgments
+
+TSPack records npm lifecycle scripts as package capabilities and blocks lifecycle execution during `update`, `sync`, and materialization. A project may acknowledge a known lifecycle capability in the manifest to suppress the default `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT` warning:
+
+```tsx
+<Security
+  acknowledgedCapabilities={[
+    {
+      package: "npm:esbuild@0.24.0",
+      kind: "lifecycleScript",
+      script: "postinstall",
+      command: "node install.js",
+      reason: "Known lifecycle capability; execution remains blocked by TSPack.",
+    },
+  ]}
+/>
+```
+
+Acknowledgment is not execution permission. It does not cause TSPack to run package scripts, does not approve rebuilds, and does not enable npm-install compatibility behavior. The package ID, script name, and raw command must match the lockfile capability exactly. If the package changes the command, `tspack check` reports command drift with `TSPACK_SECURITY_ACKNOWLEDGED_CAPABILITY_STALE` and still reports the actual unacknowledged lifecycle capability. If an acknowledgment no longer matches any lockfile capability, `tspack check` reports `TSPACK_SECURITY_ACKNOWLEDGED_CAPABILITY_UNUSED`.
+
+Behavior fixtures and jailed execution policies are separate future work. M37c only quiets known capability warnings while preserving audit visibility in `why` and the lockfile.

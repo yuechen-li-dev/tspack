@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/tspack/tspack/internal/capability"
 	"github.com/tspack/tspack/internal/check"
 	"github.com/tspack/tspack/internal/diag"
 	"github.com/tspack/tspack/internal/graph"
@@ -106,7 +107,6 @@ func DefaultOptions(root string) Options {
 
 func Check(opts Options) Result {
 	ir, g, out := loadManifestAndGraph(opts)
-	_ = ir
 	out = append(out, check.CheckPackage(check.CheckOptions{RootDir: opts.RootDir, Graph: g}).Diagnostics...)
 	if _, err := os.Stat(opts.LockfilePath); err == nil {
 		lf, d, e := lockfile.LoadFile(opts.LockfilePath)
@@ -116,7 +116,7 @@ func Check(opts Options) Result {
 			out = append(out, d...)
 			out = append(out, lockfile.CheckGraphConsistency(g, lf).Diagnostics...)
 			out = append(out, lockfile.CheckVersionConflicts(lf).Diagnostics...)
-			out = append(out, lifecycleCapabilityDiagnostics(lf)...)
+			out = append(out, lifecycleCapabilityDiagnostics(lf, lifecycleAcknowledgementSet(ir))...)
 		}
 	} else if os.IsNotExist(err) {
 		out = append(out, diag.Diagnostic{Code: "TSPACK_CHECK_LOCKFILE_MISSING", Severity: diag.SeverityWarning, Message: "lockfile is missing"})
@@ -487,7 +487,7 @@ func Pack(opts Options, packOpts PackOptions) Result {
 }
 
 func Why(opts Options, whyOpts WhyOptions) Result {
-	_, g, out := loadManifestAndGraph(opts)
+	ir, g, out := loadManifestAndGraph(opts)
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
 	}
@@ -517,7 +517,7 @@ func Why(opts Options, whyOpts WhyOptions) Result {
 	if whyOpts.Reverse && lockfileMissing {
 		wr = why.Result{}
 	} else {
-		wr = why.Analyze(g, lf, why.Options{Query: whyOpts.Query, PackageName: whyOpts.PackageName, Reverse: whyOpts.Reverse})
+		wr = why.Analyze(g, lf, why.Options{Query: whyOpts.Query, PackageName: whyOpts.PackageName, Reverse: whyOpts.Reverse, AcknowledgedCapabilities: ir.Security.AcknowledgedCapabilities})
 		out = append(out, wr.Diagnostics...)
 	}
 	diag.SortDiagnostics(out)
@@ -625,16 +625,31 @@ func hasErrors(diags []diag.Diagnostic) bool {
 	return false
 }
 
-func lifecycleCapabilityDiagnostics(lf *lockfile.Lockfile) []diag.Diagnostic {
+func lifecycleCapabilityDiagnostics(lf *lockfile.Lockfile, acknowledgements map[string]manifest.AcknowledgedCapability) []diag.Diagnostic {
 	if lf == nil {
 		return nil
 	}
 	diagnostics := []diag.Diagnostic{}
+	usedAcknowledgements := map[string]bool{}
+	staleAcknowledgements := map[string]staleLifecycleAcknowledgement{}
 	pathsByPackage := lifecyclePulledByPaths(lf)
 	for _, pkg := range lf.Packages {
 		for _, capability := range pkg.Capabilities {
 			if !isLifecycleCapability(capability) {
 				continue
+			}
+			ackKey := lifecycleAcknowledgementKey(pkg.ID, capability.Script, capability.Command)
+			if _, ok := acknowledgements[ackKey]; ok {
+				usedAcknowledgements[ackKey] = true
+				continue
+			}
+			staleKey := lifecycleStaleAcknowledgementKey(pkg.ID, capability.Script)
+			for _, acknowledgement := range acknowledgements {
+				if acknowledgement.Package == pkg.ID && acknowledgement.Script == capability.Script && acknowledgement.Command != capability.Command {
+					acknowledgementKey := lifecycleAcknowledgementKey(acknowledgement.Package, acknowledgement.Script, acknowledgement.Command)
+					usedAcknowledgements[acknowledgementKey] = true
+					staleAcknowledgements[staleKey] = staleLifecycleAcknowledgement{Acknowledgement: acknowledgement, ActualCommand: capability.Command}
+				}
 			}
 			details := []string{
 				"package: " + pkg.ID,
@@ -657,8 +672,65 @@ func lifecycleCapabilityDiagnostics(lf *lockfile.Lockfile) []diag.Diagnostic {
 			})
 		}
 	}
+	for _, stale := range staleAcknowledgements {
+		diagnostics = append(diagnostics, diag.Diagnostic{
+			Code:     "TSPACK_SECURITY_ACKNOWLEDGED_CAPABILITY_STALE",
+			Severity: diag.SeverityWarning,
+			Message:  "acknowledged lifecycle capability command no longer matches lockfile",
+			Details: []string{
+				"package: " + stale.Acknowledgement.Package,
+				"script: " + stale.Acknowledgement.Script,
+				"acknowledged command: " + stale.Acknowledgement.Command,
+				"actual command: " + stale.ActualCommand,
+			},
+		})
+	}
+	for key, acknowledgement := range acknowledgements {
+		if usedAcknowledgements[key] {
+			continue
+		}
+		diagnostics = append(diagnostics, diag.Diagnostic{
+			Code:     "TSPACK_SECURITY_ACKNOWLEDGED_CAPABILITY_UNUSED",
+			Severity: diag.SeverityWarning,
+			Message:  "acknowledged lifecycle capability is not present in the lockfile",
+			Details: []string{
+				"package: " + acknowledgement.Package,
+				"script: " + acknowledgement.Script,
+				"command: " + acknowledgement.Command,
+				"reason: " + acknowledgement.Reason,
+			},
+		})
+	}
 	diag.SortDiagnostics(diagnostics)
 	return diagnostics
+}
+
+type staleLifecycleAcknowledgement struct {
+	Acknowledgement manifest.AcknowledgedCapability
+	ActualCommand   string
+}
+
+func lifecycleAcknowledgementSet(ir *manifest.ManifestIR) map[string]manifest.AcknowledgedCapability {
+	acknowledgements := map[string]manifest.AcknowledgedCapability{}
+	if ir == nil {
+		return acknowledgements
+	}
+	for _, acknowledgement := range ir.Security.AcknowledgedCapabilities {
+		if acknowledgement.Kind != capability.LifecycleScriptKind {
+			continue
+		}
+		key := lifecycleAcknowledgementKey(acknowledgement.Package, acknowledgement.Script, acknowledgement.Command)
+		acknowledgements[key] = acknowledgement
+	}
+	return acknowledgements
+}
+
+func lifecycleAcknowledgementKey(packageID string, script string, command string) string {
+	return packageID + "|" + capability.LifecycleScriptKind + "|" + script + "|" + command
+}
+
+func lifecycleStaleAcknowledgementKey(packageID string, script string) string {
+	return packageID + "|" + capability.LifecycleScriptKind + "|" + script
 }
 
 func isLifecycleCapability(capability lockfile.Capability) bool {

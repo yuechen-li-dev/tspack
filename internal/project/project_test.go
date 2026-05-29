@@ -203,9 +203,164 @@ func TestCheckWarnsOnLifecycleCapability(t *testing.T) {
 	}
 }
 
+func TestCheckAcknowledgedLifecycleCapabilitySuppressesDefaultWarning(t *testing.T) {
+	dir := t.TempDir()
+	ir := simpleIR()
+	ir["security"] = map[string]any{
+		"acknowledgedCapabilities": []map[string]any{{
+			"package": "npm:dep-a@1.0.0",
+			"kind":    "lifecycleScript",
+			"script":  "postinstall",
+			"command": "node install.js",
+			"reason":  "Known package lifecycle script; execution remains blocked by TSPack.",
+		}},
+	}
+	irPath := writeIR(t, dir, ir)
+	lf := &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"},
+		Packages: []lockfile.Package{{ID: "npm:dep-a@1.0.0", Name: "dep-a", Version: "1.0.0", Source: "npm", Integrity: "x", Capabilities: []lockfile.Capability{{Kind: "lifecycleScript", Script: "postinstall", Command: "node install.js"}}}},
+		Targets:  []lockfile.Target{{Package: "app", Name: "core", Export: ".", Entry: "src/index.ts", Runtime: "src/index.ts", Types: "dist/index.d.ts"}},
+	}
+	b, _ := lockfile.Marshal(lf)
+	_ = os.WriteFile(filepath.Join(dir, "ts-lock.toml"), b, 0o644)
+
+	res := Check(DefaultOptionsWithIR(dir, irPath))
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("check failed: %#v", res.Diagnostics)
+	}
+	if hasErrCode(res.Diagnostics, "TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT") {
+		t.Fatalf("acknowledged lifecycle capability should not emit default warning: %#v", res.Diagnostics)
+	}
+	after, err := os.ReadFile(filepath.Join(dir, "ts-lock.toml"))
+	if err != nil {
+		t.Fatalf("read lockfile after check: %v", err)
+	}
+	if !bytes.Equal(b, after) {
+		t.Fatalf("check mutated lockfile")
+	}
+}
+
+func TestCheckLifecycleAcknowledgementDriftAndUnused(t *testing.T) {
+	dir := t.TempDir()
+	ir := simpleIR()
+	ir["security"] = map[string]any{
+		"acknowledgedCapabilities": []map[string]any{{
+			"package": "npm:dep-a@1.0.0",
+			"kind":    "lifecycleScript",
+			"script":  "postinstall",
+			"command": "node install.js",
+			"reason":  "Known package lifecycle script; execution remains blocked by TSPack.",
+		}},
+	}
+	irPath := writeIR(t, dir, ir)
+	lf := &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"},
+		Packages: []lockfile.Package{{ID: "npm:dep-a@1.0.0", Name: "dep-a", Version: "1.0.0", Source: "npm", Integrity: "x", Capabilities: []lockfile.Capability{{Kind: "lifecycleScript", Script: "postinstall", Command: "node malicious.js"}}}},
+		Targets:  []lockfile.Target{{Package: "app", Name: "core", Export: ".", Entry: "src/index.ts", Runtime: "src/index.ts", Types: "dist/index.d.ts"}},
+	}
+	b, _ := lockfile.Marshal(lf)
+	_ = os.WriteFile(filepath.Join(dir, "ts-lock.toml"), b, 0o644)
+
+	res := Check(DefaultOptionsWithIR(dir, irPath))
+	if !hasErrCode(res.Diagnostics, "TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT") {
+		t.Fatalf("expected lifecycle warning for changed command: %#v", res.Diagnostics)
+	}
+	if !hasErrCode(res.Diagnostics, "TSPACK_SECURITY_ACKNOWLEDGED_CAPABILITY_STALE") {
+		t.Fatalf("expected stale acknowledgement warning: %#v", res.Diagnostics)
+	}
+	if hasErrCode(res.Diagnostics, "TSPACK_SECURITY_ACKNOWLEDGED_CAPABILITY_UNUSED") {
+		t.Fatalf("stale acknowledgement should not also be reported unused: %#v", res.Diagnostics)
+	}
+}
+
+func TestCheckUnusedLifecycleAcknowledgement(t *testing.T) {
+	dir := t.TempDir()
+	ir := simpleIR()
+	ir["security"] = map[string]any{
+		"acknowledgedCapabilities": []map[string]any{{
+			"package": "npm:dep-a@1.0.0",
+			"kind":    "lifecycleScript",
+			"script":  "postinstall",
+			"command": "node install.js",
+			"reason":  "Known package lifecycle script; execution remains blocked by TSPack.",
+		}},
+	}
+	irPath := writeIR(t, dir, ir)
+	lf := &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"},
+		Packages: []lockfile.Package{{ID: "npm:other@1.0.0", Name: "other", Version: "1.0.0", Source: "npm", Integrity: "x"}},
+		Targets:  []lockfile.Target{{Package: "app", Name: "core", Export: ".", Entry: "src/index.ts", Runtime: "src/index.ts", Types: "dist/index.d.ts"}},
+	}
+	b, _ := lockfile.Marshal(lf)
+	_ = os.WriteFile(filepath.Join(dir, "ts-lock.toml"), b, 0o644)
+
+	res := Check(DefaultOptionsWithIR(dir, irPath))
+	if !hasErrCode(res.Diagnostics, "TSPACK_SECURITY_ACKNOWLEDGED_CAPABILITY_UNUSED") {
+		t.Fatalf("expected unused acknowledgement warning: %#v", res.Diagnostics)
+	}
+
+	_ = os.Remove(filepath.Join(dir, "ts-lock.toml"))
+	missingLock := Check(DefaultOptionsWithIR(dir, irPath))
+	if hasErrCode(missingLock.Diagnostics, "TSPACK_SECURITY_ACKNOWLEDGED_CAPABILITY_UNUSED") {
+		t.Fatalf("missing lockfile should not emit unused acknowledgement warning: %#v", missingLock.Diagnostics)
+	}
+}
+
+func TestWhyShowsLifecycleAcknowledgement(t *testing.T) {
+	dir := t.TempDir()
+	ir := simpleIR()
+	ir["security"] = map[string]any{
+		"acknowledgedCapabilities": []map[string]any{{
+			"package": "npm:dep-a@1.0.0",
+			"kind":    "lifecycleScript",
+			"script":  "postinstall",
+			"command": "node install.js",
+			"reason":  "Known package lifecycle script; execution remains blocked by TSPack.",
+		}},
+	}
+	irPath := writeIR(t, dir, ir)
+	lf := &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"},
+		Packages: []lockfile.Package{{ID: "npm:dep-a@1.0.0", Name: "dep-a", Version: "1.0.0", Source: "npm", Integrity: "x", Capabilities: []lockfile.Capability{{Kind: "lifecycleScript", Script: "postinstall", Command: "node install.js"}}}},
+		Edges:    []lockfile.Edge{{From: "app:target:core", To: "npm:dep-a@1.0.0", Kind: "runtime"}},
+		Targets:  []lockfile.Target{{Package: "app", Name: "core", Export: ".", Entry: "src/index.ts", Runtime: "src/index.ts", Types: "dist/index.d.ts"}},
+	}
+	b, _ := lockfile.Marshal(lf)
+	_ = os.WriteFile(filepath.Join(dir, "ts-lock.toml"), b, 0o644)
+
+	res := Why(DefaultOptionsWithIR(dir, irPath), WhyOptions{Query: "npm:dep-a@1.0.0"})
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("why failed: %#v", res.Diagnostics)
+	}
+	if len(res.WhyResult.Explanations) != 1 || len(res.WhyResult.Explanations[0].LockPackages) != 1 {
+		t.Fatalf("expected lock package explanation: %#v", res.WhyResult)
+	}
+	capability := res.WhyResult.Explanations[0].LockPackages[0].Capabilities[0]
+	if !capability.Acknowledged {
+		t.Fatalf("expected acknowledged capability: %#v", capability)
+	}
+	if !strings.Contains(capability.AcknowledgementReason, "execution remains blocked") {
+		t.Fatalf("missing acknowledgement reason: %#v", capability)
+	}
+
+	reverse := Why(DefaultOptionsWithIR(dir, irPath), WhyOptions{Query: "npm:dep-a@1.0.0", Reverse: true})
+	if hasErrors(reverse.Diagnostics) {
+		t.Fatalf("reverse why failed: %#v", reverse.Diagnostics)
+	}
+	if len(reverse.WhyResult.LockPackages) != 1 || !reverse.WhyResult.LockPackages[0].Capabilities[0].Acknowledged {
+		t.Fatalf("expected reverse why acknowledged metadata: %#v", reverse.WhyResult.LockPackages)
+	}
+}
+
 func TestSyncDoesNotExecuteLifecycleScripts(t *testing.T) {
 	dir := t.TempDir()
-	irPath := writeIR(t, dir, simpleIR())
+	ir := simpleIR()
+	ir["security"] = map[string]any{
+		"acknowledgedCapabilities": []map[string]any{{
+			"package": "npm:dep-a@1.0.0",
+			"kind":    "lifecycleScript",
+			"script":  "postinstall",
+			"command": "node install.js",
+			"reason":  "Known package lifecycle script; execution remains blocked by TSPack.",
+		}},
+	}
+	irPath := writeIR(t, dir, ir)
 	st, _ := store.Open(filepath.Join(dir, ".tspack", "store"))
 	marker := filepath.Join(dir, "marker.txt")
 	depRoot := t.TempDir()

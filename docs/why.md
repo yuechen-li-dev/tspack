@@ -214,4 +214,4 @@ When multiple lock versions match, suggestions are sorted by lock ID and every m
 
 ## Package capabilities
 
-When a matching lock package declares lifecycle capabilities, `tspack why` prints them under `capabilities` with `execution: blocked by default`. JSON output includes a `capabilities` array on lock package objects with `{ kind, script, command, execution }`. Reverse why keeps the same reachability semantics and includes capabilities for the matched lock package.
+When a matching lock package declares lifecycle capabilities, `tspack why` prints them under `capabilities` with `execution: blocked by default`. JSON output includes a `capabilities` array on lock package objects with `{ kind, script, command, execution, acknowledged, acknowledgementReason }`. Human output prints `acknowledged: true` with the manifest reason when a lifecycle capability matches project policy, or `acknowledged: false` otherwise. Reverse why keeps the same reachability semantics and includes acknowledgement metadata for the matched lock package.

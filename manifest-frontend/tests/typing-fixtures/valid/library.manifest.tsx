@@ -3,6 +3,7 @@ import {
   Package,
   Policies,
   Publish,
+  Security,
   Targets,
   Tools,
   TypePolicy,
@@ -33,6 +34,17 @@ const deps = defineDeps({
 
 export default define(
   <Workspace name="mono">
+    <Security
+      acknowledgedCapabilities={[
+        {
+          package: 'npm:esbuild@0.24.0',
+          kind: 'lifecycleScript',
+          script: 'postinstall',
+          command: 'node install.js',
+          reason: 'Known lifecycle capability; execution remains blocked by TSPack.',
+        },
+      ]}
+    />
     <Package name="@acme/pkg" version="1.0.0" kind="library" license="MIT" dependencies={{ values: [deps.react, deps.ts, deps.tslib] }}>
       <Policies types={typesPolicy} boundaries={boundaryPolicy} />
       <Targets

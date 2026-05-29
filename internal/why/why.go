@@ -7,12 +7,14 @@ import (
 	"github.com/tspack/tspack/internal/diag"
 	"github.com/tspack/tspack/internal/graph"
 	"github.com/tspack/tspack/internal/lockfile"
+	"github.com/tspack/tspack/internal/manifest"
 )
 
 type Options struct {
-	Query       string
-	PackageName string
-	Reverse     bool
+	Query                    string
+	PackageName              string
+	Reverse                  bool
+	AcknowledgedCapabilities []manifest.AcknowledgedCapability
 }
 type Result struct {
 	Diagnostics  []diag.Diagnostic
@@ -45,6 +47,8 @@ type LockPackageRef struct {
 type CapabilityRef struct {
 	Kind, Script, Command string
 	Execution             string
+	Acknowledged          bool
+	AcknowledgementReason string
 }
 type LockEdgeRef struct {
 	From, To, Kind string
@@ -100,7 +104,7 @@ func Analyze(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, opts Options) Resul
 					e.NotReachableFrom = append(e.NotReachableFrom, ReachabilityRef{PackageName: p.Name, TargetName: t.Name, Reason: "not-allowed"})
 				}
 			}
-			addDependencyLockDetails(&e, lf, p, d.Source.Package)
+			addDependencyLockDetails(&e, lf, p, d.Source.Package, opts.AcknowledgedCapabilities)
 			out.Explanations = append(out.Explanations, e)
 		}
 		if t, ok := p.Target(q); ok {
@@ -109,7 +113,7 @@ func Analyze(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, opts Options) Resul
 			for _, d := range append(t.RuntimeDeps, t.PeerDeps...) {
 				e.DeclaredBy = append(e.DeclaredBy, DeclarationReason{PackageName: p.Name, Scope: "target", TargetName: t.Name, DependencyKey: d.Key, Kind: string(d.Kind), Optional: d.Optional, SourceKind: d.Source.Kind, SourcePackage: d.Source.Package, SourceRange: d.Source.Range})
 			}
-			addTargetLockDetails(&e, lf, p.Name, t.Name)
+			addTargetLockDetails(&e, lf, p.Name, t.Name, opts.AcknowledgedCapabilities)
 			out.Explanations = append(out.Explanations, e)
 		}
 	}
@@ -120,7 +124,7 @@ func Analyze(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, opts Options) Resul
 			}
 			direct := false
 			e := Explanation{Query: q, MatchType: "lock-package"}
-			e.LockPackages = append(e.LockPackages, lockPackageRef(lp))
+			e.LockPackages = append(e.LockPackages, lockPackageRef(lp, opts.AcknowledgedCapabilities))
 			for _, edge := range lf.Edges {
 				if edge.To == q || edge.From == q {
 					e.LockEdges = append(e.LockEdges, LockEdgeRef(edge))
@@ -208,7 +212,7 @@ func lockPackageIDExists(query string, lf *lockfile.Lockfile) bool {
 	return false
 }
 
-func addDependencyLockDetails(e *Explanation, lf *lockfile.Lockfile, pkg *graph.PackageNode, packageName string) {
+func addDependencyLockDetails(e *Explanation, lf *lockfile.Lockfile, pkg *graph.PackageNode, packageName string, acknowledgements []manifest.AcknowledgedCapability) {
 	if lf == nil || pkg == nil || packageName == "" {
 		return
 	}
@@ -220,10 +224,10 @@ func addDependencyLockDetails(e *Explanation, lf *lockfile.Lockfile, pkg *graph.
 
 	rootFromValues := dependencyRootFromValues(e, pkg)
 	rootEdges := lockEdgesFromRootsToPackages(lf, rootFromValues, matchingPackageIDs)
-	addScopedLockDetails(e, lf, rootEdges)
+	addScopedLockDetails(e, lf, rootEdges, acknowledgements)
 }
 
-func addTargetLockDetails(e *Explanation, lf *lockfile.Lockfile, packageName string, targetName string) {
+func addTargetLockDetails(e *Explanation, lf *lockfile.Lockfile, packageName string, targetName string, acknowledgements []manifest.AcknowledgedCapability) {
 	if lf == nil || packageName == "" || targetName == "" {
 		return
 	}
@@ -235,16 +239,16 @@ func addTargetLockDetails(e *Explanation, lf *lockfile.Lockfile, packageName str
 			rootEdges = append(rootEdges, edge)
 		}
 	}
-	addScopedLockDetails(e, lf, rootEdges)
+	addScopedLockDetails(e, lf, rootEdges, acknowledgements)
 }
 
-func addScopedLockDetails(e *Explanation, lf *lockfile.Lockfile, rootEdges []lockfile.Edge) {
+func addScopedLockDetails(e *Explanation, lf *lockfile.Lockfile, rootEdges []lockfile.Edge, acknowledgements []manifest.AcknowledgedCapability) {
 	if len(rootEdges) == 0 {
 		return
 	}
 
 	sortLockfileEdges(rootEdges)
-	packageByID := lockPackageRefsByID(lf)
+	packageByID := lockPackageRefsByID(lf, acknowledgements)
 	seenPackages := map[string]bool{}
 
 	for _, edge := range rootEdges {
@@ -316,15 +320,15 @@ func lockPackageIDsByName(lf *lockfile.Lockfile, packageName string) map[string]
 	return packageIDs
 }
 
-func lockPackageRefsByID(lf *lockfile.Lockfile) map[string]LockPackageRef {
+func lockPackageRefsByID(lf *lockfile.Lockfile, acknowledgements []manifest.AcknowledgedCapability) map[string]LockPackageRef {
 	refs := map[string]LockPackageRef{}
 	for _, pkg := range lf.Packages {
-		refs[pkg.ID] = lockPackageRef(pkg)
+		refs[pkg.ID] = lockPackageRef(pkg, acknowledgements)
 	}
 	return refs
 }
 
-func lockPackageRef(pkg lockfile.Package) LockPackageRef {
+func lockPackageRef(pkg lockfile.Package, acknowledgements []manifest.AcknowledgedCapability) LockPackageRef {
 	ref := LockPackageRef{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, Hash: pkg.Hash}
 	for _, capability := range pkg.Capabilities {
 		if capability.Kind != "lifecycleScript" && capability.Kind != "lifecycle-script" {
@@ -334,11 +338,14 @@ func lockPackageRef(pkg lockfile.Package) LockPackageRef {
 		if script == "" {
 			script = capability.Detail
 		}
+		acknowledged, reason := lifecycleAcknowledgementForCapability(pkg.ID, script, capability.Command, acknowledgements)
 		ref.Capabilities = append(ref.Capabilities, CapabilityRef{
-			Kind:      "lifecycleScript",
-			Script:    script,
-			Command:   capability.Command,
-			Execution: "blocked",
+			Kind:                  "lifecycleScript",
+			Script:                script,
+			Command:               capability.Command,
+			Execution:             "blocked",
+			Acknowledged:          acknowledged,
+			AcknowledgementReason: reason,
 		})
 	}
 	sort.SliceStable(ref.Capabilities, func(i, j int) bool {
@@ -351,6 +358,25 @@ func lockPackageRef(pkg lockfile.Package) LockPackageRef {
 		return ref.Capabilities[i].Command < ref.Capabilities[j].Command
 	})
 	return ref
+}
+
+func lifecycleAcknowledgementForCapability(packageID string, script string, command string, acknowledgements []manifest.AcknowledgedCapability) (bool, string) {
+	for _, acknowledgement := range acknowledgements {
+		if acknowledgement.Package != packageID {
+			continue
+		}
+		if acknowledgement.Kind != "lifecycleScript" {
+			continue
+		}
+		if acknowledgement.Script != script {
+			continue
+		}
+		if acknowledgement.Command != command {
+			continue
+		}
+		return true, acknowledgement.Reason
+	}
+	return false, ""
 }
 
 func reachableLockEdges(lf *lockfile.Lockfile, rootEdges []lockfile.Edge) []lockfile.Edge {
@@ -465,7 +491,7 @@ func analyzeReverse(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, opts Options
 	}
 
 	for _, lockPackage := range matchedPackages {
-		out.LockPackages = append(out.LockPackages, lockPackageRef(lockPackage))
+		out.LockPackages = append(out.LockPackages, lockPackageRef(lockPackage, opts.AcknowledgedCapabilities))
 	}
 	sortLockPackages(out.LockPackages)
 
