@@ -216,3 +216,43 @@ func flattenDoctorChecks(report DoctorReport) map[string]DoctorCheck {
 	}
 	return checks
 }
+
+func TestDoctorRunReportsReadyKindSpecificDetails(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	writeManifestStubWithIR(t, repo, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"db",runtime:"system",command:["node","db.js"],ready:{kind:"tcp",port:5432}},{name:"web",runtime:"system",command:["node","web.js"],url:"http://127.0.0.1:5173",ready:{kind:"stdout-match",pattern:"Local:",stream:"stderr"}}]}]}`)
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "run", "--root", root, "--json")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("doctor run json failed: %v\n%s", err, string(b))
+	}
+	var report DoctorReport
+	if err := json.Unmarshal(b, &report); err != nil {
+		t.Fatalf("invalid doctor json: %v\n%s", err, string(b))
+	}
+	checks := flattenDoctorChecks(report)
+	db := checks["runTarget:app:db"]
+	if db.Details["readyKind"] != "tcp" || db.Details["readyHost"] != "127.0.0.1" || db.Details["readyPort"] != float64(5432) {
+		t.Fatalf("missing tcp ready details: %#v", db.Details)
+	}
+	web := checks["runTarget:app:web"]
+	if web.Details["readyKind"] != "stdout-match" || web.Details["readyPattern"] != "Local:" || web.Details["readyStream"] != "stderr" {
+		t.Fatalf("missing stdout-match ready details: %#v", web.Details)
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "doctor", "run", "--root", root)
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("doctor run text failed: %v\n%s", err, string(b))
+	}
+	text := string(b)
+	for _, expected := range []string{"readyKind: tcp", "readyHost: 127.0.0.1", "readyPort: 5432", "readyKind: stdout-match", "readyPattern: Local:", "readyStream: stderr"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("doctor text missing %q:\n%s", expected, text)
+		}
+	}
+}

@@ -94,10 +94,21 @@ const initManifestTypesDTS = "" +
 	"    [key: string]: Primitive | Primitive[] | DependencyRefLike[] | undefined;\n" +
 	"  };\n" +
 	"\n" +
-	"  export type RunTargetReady = {\n" +
-	"    kind: 'http';\n" +
-	"    path: string;\n" +
-	"  };\n" +
+	"  export type RunTargetReady =\n" +
+	"    | {\n" +
+	"        kind: 'http';\n" +
+	"        path: string;\n" +
+	"      }\n" +
+	"    | {\n" +
+	"        kind: 'tcp';\n" +
+	"        host?: string;\n" +
+	"        port: number;\n" +
+	"      }\n" +
+	"    | {\n" +
+	"        kind: 'stdout-match';\n" +
+	"        pattern: string;\n" +
+	"        stream?: 'stdout' | 'stderr' | 'both';\n" +
+	"      };\n" +
 	"\n" +
 	"  export type RunTargetRow = {\n" +
 	"    name: string;\n" +

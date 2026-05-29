@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -64,11 +66,11 @@ type runListTargetJSON struct {
 }
 
 type RunTargetSession struct {
-	Target   manifest.RunTarget
-	Cmd      *exec.Cmd
-	URL      string
-	ReadyURL string
-	waitCh   chan error
+	Target           manifest.RunTarget
+	Cmd              *exec.Cmd
+	URL              string
+	ReadyDescription string
+	waitCh           chan error
 }
 
 func (s *RunTargetSession) Stop() error {
@@ -95,22 +97,50 @@ func startRunTargetInDir(root string, cwdPath string, target manifest.RunTarget,
 	}
 	cmd := exec.Command(resolved.Command[0], resolved.Command[1:]...)
 	cmd.Dir = cwdPath
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
+	readyCheck := newReadyCheck(resolved)
+	stdoutMatcher, stderrMatcher := readyCheck.outputMatchers()
+	var stdoutPipe io.ReadCloser
+	var stderrPipe io.ReadCloser
+	var pipeErr error
+	if stdoutMatcher != nil {
+		stdoutPipe, pipeErr = cmd.StdoutPipe()
+		if pipeErr != nil {
+			return nil, &runErr{code: "TSPACK_RUN_PROCESS_START_FAILED", msg: pipeErr.Error()}
+		}
+	} else {
+		cmd.Stdout = stdout
+	}
+	if stderrMatcher != nil {
+		stderrPipe, pipeErr = cmd.StderrPipe()
+		if pipeErr != nil {
+			return nil, &runErr{code: "TSPACK_RUN_PROCESS_START_FAILED", msg: pipeErr.Error()}
+		}
+	} else {
+		cmd.Stderr = stderr
+	}
 	if resolved.Runtime == "node" {
 		prependNodeModulesBin(cmd, root)
 	}
-	readyURL := readinessURL(resolved)
 	if err := cmd.Start(); err != nil {
 		return nil, &runErr{code: "TSPACK_RUN_PROCESS_START_FAILED", msg: err.Error()}
 	}
+	var copyWG sync.WaitGroup
+	copyOutputPipe(stdoutPipe, stdout, stdoutMatcher, &copyWG)
+	copyOutputPipe(stderrPipe, stderr, stderrMatcher, &copyWG)
 	waitCh := make(chan error, 1)
-	go func() { waitCh <- cmd.Wait() }()
-	if readyErr := waitReady(waitCh, readyURL, timeout); readyErr != nil {
-		_ = terminate(cmd)
+	go func() {
+		waitErr := cmd.Wait()
+		copyWG.Wait()
+		waitCh <- waitErr
+	}()
+	if readyErr := waitReady(waitCh, readyCheck, timeout); readyErr != nil {
+		if readyErr.code != "TSPACK_RUN_PROCESS_EXITED_EARLY" {
+			_ = terminate(cmd)
+			<-waitCh
+		}
 		return nil, readyErr
 	}
-	return &RunTargetSession{Target: resolved, Cmd: cmd, URL: resolved.URL, ReadyURL: readyURL, waitCh: waitCh}, nil
+	return &RunTargetSession{Target: resolved, Cmd: cmd, URL: resolved.URL, ReadyDescription: readyCheck.readyDescription(), waitCh: waitCh}, nil
 }
 
 func runRunCommand(args []string) {
@@ -136,13 +166,16 @@ func runRunCommand(args []string) {
 	fmt.Fprintf(os.Stderr, "Runtime: %s\n", rt.Runtime)
 	fmt.Fprintf(os.Stderr, "Command: %s\n", bytes.Join(stringSliceBytes(rt.Command), []byte(" ")))
 	fmt.Fprintf(os.Stderr, "Cwd: %s (%s)\n", cwdPolicy, cwdPath)
-	readyURL := readinessURL(rt)
-	fmt.Fprintf(os.Stderr, "Waiting for: %s\n", readyURL)
+	readyCheck := newReadyCheck(rt)
+	fmt.Fprintf(os.Stderr, "Waiting for: %s\n", readyCheck.waitingDescription())
 	session, readyErr := startRunTargetInDir(workspaceRoot, cwdPath, rt, time.Duration(opts.TimeoutSeconds)*time.Second, os.Stdout, os.Stderr)
 	if readyErr != nil {
 		failRun(readyErr.code, readyErr.msg)
 	}
-	fmt.Fprintf(os.Stderr, "Ready: %s\n", session.URL)
+	fmt.Fprintf(os.Stderr, "Ready: %s\n", session.ReadyDescription)
+	if session.URL != "" && session.ReadyDescription != session.URL {
+		fmt.Fprintf(os.Stderr, "URL: %s\n", session.URL)
+	}
 	if opts.Once {
 		_ = session.Stop()
 		return
@@ -217,22 +250,16 @@ func parseRunCommandOptions(args []string) runCommandOptions {
 
 type runErr struct{ code, msg string }
 
-func waitReady(waitCh <-chan error, readyURL string, timeout time.Duration) *runErr {
+func waitReady(waitCh <-chan error, readyCheck runReadyCheck, timeout time.Duration) *runErr {
 	deadline := time.Now().Add(timeout)
-	client := &http.Client{Timeout: 1 * time.Second}
 	for {
 		select {
 		case <-waitCh:
 			return &runErr{"TSPACK_RUN_PROCESS_EXITED_EARLY", "process exited before ready"}
 		default:
 		}
-		resp, err := client.Get(readyURL)
-		if err == nil {
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
-			if resp.StatusCode >= 200 && resp.StatusCode <= 399 {
-				return nil
-			}
+		if readyCheck.ready() {
+			return nil
 		}
 		if time.Now().After(deadline) {
 			return &runErr{"TSPACK_RUN_READY_TIMEOUT", "ready check timed out"}
@@ -245,17 +272,13 @@ func terminate(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil
 	}
-	_ = cmd.Process.Signal(syscall.SIGTERM)
-	t := time.NewTimer(2 * time.Second)
-	defer t.Stop()
-	done := make(chan struct{})
-	go func() { _, _ = cmd.Process.Wait(); close(done) }()
-	select {
-	case <-done:
-		return nil
-	case <-t.C:
-		return cmd.Process.Kill()
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		return err
 	}
+	time.AfterFunc(2*time.Second, func() {
+		_ = cmd.Process.Kill()
+	})
+	return nil
 }
 
 func failRun(code, msg string) { fmt.Fprintln(os.Stderr, code+": "+msg); os.Exit(1) }
@@ -393,7 +416,7 @@ func renderRunTargetListText(refs []runTargetRef) {
 		}
 		fmt.Fprintln(os.Stdout)
 		if ref.Target.Ready != nil {
-			fmt.Fprintf(os.Stdout, "      ready: %s %s\n", ref.Target.Ready.Kind, ref.Target.Ready.Path)
+			fmt.Fprintf(os.Stdout, "      ready: %s\n", formatReadyForList(ref.Target.Ready))
 		} else {
 			fmt.Fprintln(os.Stdout, "      ready: url")
 		}
@@ -507,6 +530,217 @@ func runTargetNames(refs []runTargetRef) []string {
 
 func ambiguousTargetMessage(name string, refs []runTargetRef) string {
 	return "target " + name + " is ambiguous; candidates: " + strings.Join(runTargetIDs(refs), ", ") + "; hint: use --package <name> to select one"
+}
+
+type runReadyCheck interface {
+	ready() bool
+	waitingDescription() string
+	readyDescription() string
+	outputMatchers() (*outputMatcher, *outputMatcher)
+}
+
+type httpReadyCheck struct {
+	url string
+}
+
+func (c *httpReadyCheck) ready() bool {
+	client := &http.Client{Timeout: 1 * time.Second}
+	resp, err := client.Get(c.url)
+	if err != nil {
+		return false
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+	return resp.StatusCode >= 200 && resp.StatusCode <= 399
+}
+
+func (c *httpReadyCheck) waitingDescription() string {
+	return "http " + c.url
+}
+
+func (c *httpReadyCheck) readyDescription() string {
+	return c.url
+}
+
+func (c *httpReadyCheck) outputMatchers() (*outputMatcher, *outputMatcher) {
+	return nil, nil
+}
+
+type tcpReadyCheck struct {
+	host string
+	port int
+}
+
+func (c *tcpReadyCheck) ready() bool {
+	conn, err := net.DialTimeout("tcp", c.address(), 1*time.Second)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+func (c *tcpReadyCheck) waitingDescription() string {
+	return "tcp " + c.address()
+}
+
+func (c *tcpReadyCheck) readyDescription() string {
+	return "tcp " + c.address()
+}
+
+func (c *tcpReadyCheck) outputMatchers() (*outputMatcher, *outputMatcher) {
+	return nil, nil
+}
+
+func (c *tcpReadyCheck) address() string {
+	return net.JoinHostPort(c.host, strconv.Itoa(c.port))
+}
+
+type stdoutMatchReadyCheck struct {
+	pattern       string
+	stream        string
+	sharedMatcher *outputMatcher
+}
+
+func (c *stdoutMatchReadyCheck) ready() bool {
+	return c.sharedMatcher.matched()
+}
+
+func (c *stdoutMatchReadyCheck) waitingDescription() string {
+	return fmt.Sprintf("stdout-match %q on %s", c.pattern, c.stream)
+}
+
+func (c *stdoutMatchReadyCheck) readyDescription() string {
+	return fmt.Sprintf("matched %q", c.pattern)
+}
+
+func (c *stdoutMatchReadyCheck) outputMatchers() (*outputMatcher, *outputMatcher) {
+	switch c.stream {
+	case "stdout":
+		return c.sharedMatcher, nil
+	case "stderr":
+		return nil, c.sharedMatcher
+	default:
+		return c.sharedMatcher, c.sharedMatcher
+	}
+}
+
+type outputMatcher struct {
+	pattern []byte
+	mu      sync.Mutex
+	tail    []byte
+	seen    bool
+}
+
+func newOutputMatcher(pattern string) *outputMatcher {
+	return &outputMatcher{pattern: []byte(pattern)}
+}
+
+func (m *outputMatcher) observe(chunk []byte) {
+	if m == nil || len(chunk) == 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.seen {
+		return
+	}
+	combined := make([]byte, 0, len(m.tail)+len(chunk))
+	combined = append(combined, m.tail...)
+	combined = append(combined, chunk...)
+	if bytes.Contains(combined, m.pattern) {
+		m.seen = true
+		return
+	}
+	keep := len(m.pattern) - 1
+	if keep <= 0 {
+		m.tail = nil
+		return
+	}
+	if len(combined) <= keep {
+		m.tail = append(m.tail[:0], combined...)
+		return
+	}
+	m.tail = append(m.tail[:0], combined[len(combined)-keep:]...)
+}
+
+func (m *outputMatcher) matched() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.seen
+}
+
+func copyOutputPipe(pipe io.ReadCloser, destination io.Writer, matcher *outputMatcher, wg *sync.WaitGroup) {
+	if pipe == nil {
+		return
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer pipe.Close()
+		buffer := make([]byte, 4096)
+		for {
+			n, err := pipe.Read(buffer)
+			if n > 0 {
+				chunk := buffer[:n]
+				_, _ = destination.Write(chunk)
+				matcher.observe(chunk)
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+}
+
+func newReadyCheck(rt manifest.RunTarget) runReadyCheck {
+	if rt.Ready == nil {
+		return &httpReadyCheck{url: rt.URL}
+	}
+	switch rt.Ready.Kind {
+	case "tcp":
+		host := rt.Ready.Host
+		if host == "" {
+			host = "127.0.0.1"
+		}
+		return &tcpReadyCheck{host: host, port: rt.Ready.Port}
+	case "stdout-match":
+		stream := rt.Ready.Stream
+		if stream == "" {
+			stream = "both"
+		}
+		return &stdoutMatchReadyCheck{
+			pattern:       rt.Ready.Pattern,
+			stream:        stream,
+			sharedMatcher: newOutputMatcher(rt.Ready.Pattern),
+		}
+	default:
+		return &httpReadyCheck{url: readinessURL(rt)}
+	}
+}
+
+func formatReadyForList(ready *manifest.RunReadyCheck) string {
+	switch ready.Kind {
+	case "http":
+		return "http " + ready.Path
+	case "tcp":
+		host := ready.Host
+		if host == "" {
+			host = "127.0.0.1"
+		}
+		return "tcp " + net.JoinHostPort(host, strconv.Itoa(ready.Port))
+	case "stdout-match":
+		stream := ready.Stream
+		if stream == "" {
+			stream = "both"
+		}
+		return fmt.Sprintf("stdout-match %q on %s", ready.Pattern, stream)
+	default:
+		return ready.Kind
+	}
 }
 
 func readinessURL(rt manifest.RunTarget) string {

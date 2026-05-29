@@ -2480,3 +2480,122 @@ func TestCLIRunListInvalidArgs(t *testing.T) {
 		}
 	}
 }
+
+func TestCLIRunTCPReadyKind(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	port := reservePort(t)
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	script := `const net = require('net');
+const port = Number(process.argv[2]);
+setTimeout(() => {
+  const server = net.createServer((socket) => socket.end('ok'));
+  server.listen(port, '127.0.0.1');
+}, 200);
+setInterval(() => {}, 1000);
+`
+	_ = os.WriteFile(filepath.Join(root, "tcp-server.js"), []byte(script), 0o644)
+	writeRunFrontendStub(t, fmt.Sprintf(`{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","tcp-server.js","%d"],ready:{kind:"tcp",port:%d}}]}]}`, port, port))
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--ready-timeout", "3", "--once")
+	cmd.Dir = repo
+	var stdout strings.Builder
+	var stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("tcp run failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String(), "Waiting for:") || !strings.Contains(stderr.String(), fmt.Sprintf("Waiting for: tcp 127.0.0.1:%d", port)) || !strings.Contains(stderr.String(), fmt.Sprintf("Ready: tcp 127.0.0.1:%d", port)) {
+		t.Fatalf("unexpected tcp run output:\nstdout=%s\nstderr=%s", stdout.String(), stderr.String())
+	}
+}
+
+func TestCLIRunTCPReadyTimeout(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	port := reservePort(t)
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "hang.js"), []byte("setInterval(() => {}, 1000);\n"), 0o644)
+	writeRunFrontendStub(t, fmt.Sprintf(`{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","hang.js"],ready:{kind:"tcp",port:%d}}]}]}`, port))
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--ready-timeout", "1", "--once")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_RUN_READY_TIMEOUT") {
+		t.Fatalf("expected tcp timeout: %v\n%s", err, string(b))
+	}
+}
+
+func TestCLIRunStdoutMatchReadyKindPreservesStreams(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	script := `process.stdout.write('child stdout before READY');
+setTimeout(() => process.stdout.write('-TOKEN after\n'), 100);
+process.stderr.write('child stderr passthrough\n');
+setInterval(() => {}, 1000);
+`
+	_ = os.WriteFile(filepath.Join(root, "stdout-ready.js"), []byte(script), 0o644)
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","stdout-ready.js"],url:"http://127.0.0.1:5173",ready:{kind:"stdout-match",pattern:"READY-TOKEN",stream:"stdout"}}]}]}`)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--ready-timeout", "3", "--once")
+	cmd.Dir = repo
+	var stdout strings.Builder
+	var stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("stdout-match run failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "READY-TOKEN") || !strings.Contains(stderr.String(), "child stderr passthrough") {
+		t.Fatalf("child streams were not preserved:\nstdout=%s\nstderr=%s", stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String(), "Waiting for:") || !strings.Contains(stderr.String(), `Waiting for: stdout-match "READY-TOKEN" on stdout`) || !strings.Contains(stderr.String(), `Ready: matched "READY-TOKEN"`) || !strings.Contains(stderr.String(), "URL: http://127.0.0.1:5173") {
+		t.Fatalf("unexpected stdout-match status output:\nstdout=%s\nstderr=%s", stdout.String(), stderr.String())
+	}
+}
+
+func TestCLIRunStdoutMatchStreamSelectionAndEarlyExit(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "stderr-only.js"), []byte("process.stderr.write('READY on stderr\\n'); setInterval(() => {}, 1000);\n"), 0o644)
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","stderr-only.js"],ready:{kind:"stdout-match",pattern:"READY",stream:"stdout"}}]}]}`)
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--ready-timeout", "1", "--once")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_RUN_READY_TIMEOUT") || !strings.Contains(string(b), "READY on stderr") {
+		t.Fatalf("expected stream-specific timeout with stderr passthrough: %v\n%s", err, string(b))
+	}
+
+	_ = os.WriteFile(filepath.Join(root, "exit-before-ready.js"), []byte("process.stdout.write('not yet\\n');\n"), 0o644)
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","exit-before-ready.js"],ready:{kind:"stdout-match",pattern:"READY"}}]}]}`)
+	cmd = exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--ready-timeout", "2", "--once")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(b), "TSPACK_RUN_PROCESS_EXITED_EARLY") {
+		t.Fatalf("expected stdout-match early exit: %v\n%s", err, string(b))
+	}
+}
+
+func TestCLIRunListShowsNewReadyKinds(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"tcp",runtime:"system",command:["node","server.js"],ready:{kind:"tcp",host:"127.0.0.1",port:5432}},{name:"stdout",runtime:"system",command:["node","server.js"],ready:{kind:"stdout-match",pattern:"Local:",stream:"both"}}]}]}`)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--list")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "ready: tcp 127.0.0.1:5432") || !strings.Contains(string(b), `ready: stdout-match "Local:" on both`) {
+		t.Fatalf("run --list missing new ready details: %v\n%s", err, string(b))
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--list", "--json")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), `"kind": "tcp"`) || !strings.Contains(string(b), `"port": 5432`) || !strings.Contains(string(b), `"kind": "stdout-match"`) || !strings.Contains(string(b), `"pattern": "Local:"`) {
+		t.Fatalf("run --list --json missing new ready details: %v\n%s", err, string(b))
+	}
+}

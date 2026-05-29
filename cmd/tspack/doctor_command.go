@@ -205,9 +205,23 @@ func doctorRun(root string) doctorBuilder {
 		count++
 		readyKind := ""
 		readyPath := ""
+		readyHost := ""
+		readyPort := 0
+		readyPattern := ""
+		readyStream := ""
 		if rt.Ready != nil {
 			readyKind = rt.Ready.Kind
 			readyPath = rt.Ready.Path
+			readyHost = rt.Ready.Host
+			readyPort = rt.Ready.Port
+			readyPattern = rt.Ready.Pattern
+			readyStream = rt.Ready.Stream
+			if readyKind == "tcp" && readyHost == "" {
+				readyHost = "127.0.0.1"
+			}
+			if readyKind == "stdout-match" && readyStream == "" {
+				readyStream = "both"
+			}
 		}
 		commandToken := firstToken(rt.Command)
 		targetID := ref.PackageName + ":" + rt.Name
@@ -226,6 +240,10 @@ func doctorRun(root string) doctorBuilder {
 			"readyKind":         readyKind,
 			"package":           ref.PackageName,
 			"readyPath":         readyPath,
+			"readyHost":         readyHost,
+			"readyPort":         readyPort,
+			"readyPattern":      readyPattern,
+			"readyStream":       readyStream,
 			"cwd":               effectiveRunTargetCwd(rt),
 			"cwdPath":           cwdPath,
 			"commandFirstToken": commandToken,
