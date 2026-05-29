@@ -164,7 +164,7 @@ func printHelp() {
 	fmt.Println("  tspack outdated [--root .] [--json]")
 	fmt.Println("  tspack how <diagnostic-code> [--json]")
 	fmt.Println("  tspack how --list [--json]")
-	fmt.Println("  tspack test [--root .] [-xtest] [-vitest] [--list] [--filter text] [--compact] [--watch] [--xtest-bridge path]")
+	fmt.Println("  tspack test [--root .] [-xtest] [-vitest] [--list] [--filter text] [--compact] [--update-snapshots] [--watch] [--xtest-bridge path]")
 	fmt.Println("  tspack artifact [--root .] [--out path] [--list] [--filter text] [--json]")
 	fmt.Println("  tspack bench [--root .] [--list] [--filter text] [--json]")
 	fmt.Println("  tspack doom [--root .] [--list] [--filter text] [--json] [--out path]")
@@ -498,6 +498,8 @@ func runTestCommand(args []string) {
 			opts.Compact = true
 		case "--watch":
 			opts.Watch = true
+		case "--update-snapshots":
+			opts.UpdateSnapshots = true
 		case "--json":
 			opts.JSON = true
 		case "--filter":

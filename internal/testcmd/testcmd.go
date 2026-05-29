@@ -13,15 +13,16 @@ import (
 )
 
 type Options struct {
-	RootDir     string
-	UseXTest    bool
-	UseVitest   bool
-	List        bool
-	Filter      string
-	Compact     bool
-	XTestBridge string
-	Watch       bool
-	JSON        bool
+	RootDir         string
+	UseXTest        bool
+	UseVitest       bool
+	List            bool
+	Filter          string
+	Compact         bool
+	XTestBridge     string
+	Watch           bool
+	JSON            bool
+	UpdateSnapshots bool
 }
 
 type Result struct {
@@ -141,6 +142,9 @@ func runXTestContext(ctx context.Context, opts Options, result *Result) {
 	}
 	if opts.Compact && !opts.List {
 		args = append(args, "--compact")
+	}
+	if opts.UpdateSnapshots && !opts.List {
+		args = append(args, "--update-snapshots")
 	}
 	cmd := exec.CommandContext(ctx, "node", args...)
 	cmd.Stdout = os.Stdout
@@ -266,6 +270,11 @@ func missingBridgeDiagnostic(resolution BridgeResolution) diag.Diagnostic {
 func runVitest(opts Options, result *Result) {
 	if opts.Compact {
 		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_COMPACT_UNSUPPORTED_BACKEND", Severity: diag.SeverityWarning, Message: "compact output only applies to native xTest; Vitest output is unchanged"})
+	}
+	if opts.UpdateSnapshots {
+		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_SNAPSHOT_UNSUPPORTED_BACKEND", Severity: diag.SeverityError, Message: "snapshot updates only apply to native xTest"})
+		result.ExitCode = 1
+		return
 	}
 	if opts.List {
 		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_BACKEND_LIST_UNSUPPORTED", Severity: diag.SeverityWarning, Message: "Vitest list mode is not supported in M18"})

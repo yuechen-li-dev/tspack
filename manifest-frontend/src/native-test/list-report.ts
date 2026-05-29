@@ -39,7 +39,35 @@ export async function listNativeArtifacts(options: DiscoverOptions): Promise<{ a
   return { artifacts: listStandaloneArtifacts(discovered), diagnostics: discovered.diagnostics };
 }
 
-export function createNativeTestReport(result: RunFilesResult): NativeTestRunReport { const tests: ReportedTest[] = result.results.map((entry) => ({ id: entry.id, name: entry.name, filePath: entry.id.split('::')[0], status: entry.status, durationMs: entry.durationMs, failure: entry.error ? normalizeFailure(entry.error) : undefined, skipReason: entry.skipReason, artifacts: entry.artifacts })); tests.sort((a, b) => a.id.localeCompare(b.id)); const summary = { total: tests.length, passed: tests.filter((test) => test.status === 'passed').length, failed: tests.filter((test) => test.status === 'failed').length, skipped: tests.filter((test) => test.status === 'skipped').length, diagnostics: result.diagnostics.length }; return { summary, tests, diagnostics: [...result.diagnostics] }; }
+export function createNativeTestReport(result: RunFilesResult): NativeTestRunReport {
+  const tests: ReportedTest[] = result.results.map((entry) => ({
+    id: entry.id,
+    name: entry.name,
+    filePath: entry.id.split('::')[0],
+    status: entry.status,
+    durationMs: entry.durationMs,
+    failure: entry.error ? normalizeFailure(entry.error) : undefined,
+    skipReason: entry.skipReason,
+    artifacts: entry.artifacts,
+    snapshots: entry.snapshots,
+  }));
+  tests.sort((a, b) => a.id.localeCompare(b.id));
+
+  const snapshotsUpdated = tests.reduce(
+    (total, test) => total + (test.snapshots?.length ?? 0),
+    0,
+  );
+  const summary = {
+    total: tests.length,
+    passed: tests.filter((test) => test.status === 'passed').length,
+    failed: tests.filter((test) => test.status === 'failed').length,
+    skipped: tests.filter((test) => test.status === 'skipped').length,
+    diagnostics: result.diagnostics.length,
+    snapshotsUpdated,
+  };
+
+  return { summary, tests, diagnostics: [...result.diagnostics] };
+}
 
 export function createNativeArtifactReport(result: ArtifactRunResult): NativeArtifactRunReport {
   const artifacts = [...result.artifacts].sort((a, b) => a.id.localeCompare(b.id));
@@ -68,6 +96,16 @@ function appendNativeTestFailureLines(lines: string[], failure: FailureInfo): vo
     for (const key of Object.keys(failure.details).sort()) {
       lines.push(`  ${key}: ${JSON.stringify(failure.details[key])}`);
     }
+  }
+}
+
+function appendNativeTestSnapshotLines(lines: string[], test: ReportedTest): void {
+  if (!test.snapshots || test.snapshots.length === 0) {
+    return;
+  }
+  for (const snapshot of test.snapshots) {
+    lines.push(`  UPDATED ${snapshot.path}`);
+    lines.push(`    reason: ${snapshot.reason}`);
   }
 }
 
@@ -115,6 +153,7 @@ export function formatNativeTestTextReport(report: NativeTestRunReport): string 
       lines.push(`  reason: ${test.skipReason}`);
     }
     appendNativeTestArtifactLines(lines, test);
+    appendNativeTestSnapshotLines(lines, test);
     lines.push('');
   }
   lines.push('Summary:');
@@ -123,6 +162,9 @@ export function formatNativeTestTextReport(report: NativeTestRunReport): string 
   lines.push(`  failed: ${report.summary.failed}`);
   lines.push(`  skipped: ${report.summary.skipped}`);
   lines.push(`  diagnostics: ${report.summary.diagnostics}`);
+  if (report.summary.snapshotsUpdated !== undefined) {
+    lines.push(`  snapshots updated: ${report.summary.snapshotsUpdated}`);
+  }
   return `${lines.join('\n')}\n`;
 }
 
@@ -142,6 +184,7 @@ export function formatNativeTestCompactTextReport(report: NativeTestRunReport): 
       lines.push(`  reason: ${test.skipReason}`);
     }
     appendNativeTestArtifactLines(lines, test);
+    appendNativeTestSnapshotLines(lines, test);
     lines.push('');
   }
 
@@ -150,6 +193,9 @@ export function formatNativeTestCompactTextReport(report: NativeTestRunReport): 
   lines.push(`  passed: ${report.summary.passed}`);
   lines.push(`  failed: ${report.summary.failed}`);
   lines.push(`  skipped: ${report.summary.skipped}`);
+  if (report.summary.snapshotsUpdated !== undefined) {
+    lines.push(`  snapshots updated: ${report.summary.snapshotsUpdated}`);
+  }
   return `${lines.join('\n')}\n`;
 }
 
@@ -220,12 +266,39 @@ export function formatNativeBenchmarkTextReport(report: NativeBenchmarkRunReport
 export function formatNativeBenchmarkJsonReport(report: NativeBenchmarkRunReport): string { return `${JSON.stringify(report, null, 2)}\n`; }
 export function nativeBenchmarkExitCode(report: NativeBenchmarkRunReport): 0 | 1 { if (report.summary.failed > 0) return 1; if (report.diagnostics.some((diag) => (diag.severity ?? 'error') === 'error')) return 1; return 0; }
 
-function normalizeFailure(error: Error & { code?: string; reason?: string; assertion?: string; expected?: unknown; actual?: unknown }): FailureInfo {
+function normalizeFailure(
+  error: Error & {
+    code?: string;
+    reason?: string;
+    assertion?: string;
+    expected?: unknown;
+    actual?: unknown;
+    details?: Record<string, unknown>;
+  },
+): FailureInfo {
   const details: Record<string, unknown> = {};
   const anyError = error as Record<string, unknown>;
-  if (anyError.tolerance !== undefined) details.tolerance = anyError.tolerance;
-  if (anyError.difference !== undefined) details.difference = anyError.difference;
-  return { code: error.code, message: error.message, reason: error.reason, assertion: error.assertion, actual: error.actual, expected: error.expected, details: Object.keys(details).length === 0 ? undefined : details };
+  if (error.details) {
+    for (const key of Object.keys(error.details)) {
+      details[key] = error.details[key];
+    }
+  }
+  if (anyError.tolerance !== undefined) {
+    details.tolerance = anyError.tolerance;
+  }
+  if (anyError.difference !== undefined) {
+    details.difference = anyError.difference;
+  }
+
+  return {
+    code: error.code,
+    message: error.message,
+    reason: error.reason,
+    assertion: error.assertion,
+    actual: error.actual,
+    expected: error.expected,
+    details: Object.keys(details).length === 0 ? undefined : details,
+  };
 }
 
 function normalizePath(filePath: string): string {
