@@ -8,6 +8,7 @@ import {
   clearPendingExpectations,
   verifyNoPendingExpectations,
 } from "./expect.js";
+import { setSnapshotContext } from "./snapshot.js";
 import { isSkipSignal } from "./skip.js";
 import type {
   DiscoveredArtifact,
@@ -15,6 +16,7 @@ import type {
   ProjectResultInfo,
   TestArtifact,
   TestResult,
+  TestSnapshotUpdate,
 } from "./types.js";
 import { createCommandContext, type CommandContext } from "./command.js";
 
@@ -36,6 +38,10 @@ type RuntimeNode = {
 type RunSuiteOptions = {
   artifactRoot?: string;
   defaultTimeoutSeconds?: number;
+  snapshotFilePath?: string;
+  snapshotRootDir?: string;
+  updateSnapshots?: boolean;
+  shouldRunTest?: (localId: string, name: string) => boolean;
 };
 type TestContext = {
   artifact: ArtifactWriter;
@@ -106,6 +112,9 @@ export async function runSuite(
       const cb = child.children.find((e) => typeof e === "function") as
         | ((ctx?: TestContext) => unknown)
         | undefined;
+      if (!shouldRun(options, id, factName)) {
+        continue;
+      }
       results.push(
         await runSingle(
           id,
@@ -114,6 +123,7 @@ export async function runSuite(
           project,
           artifactRoot,
           options.defaultTimeoutSeconds ?? 30,
+          snapshotOptions(options),
           async (ctx) => cb?.(ctx),
         ),
       );
@@ -148,6 +158,9 @@ export async function runSuite(
       const cb = callbacks[0];
       for (let i = 0; i < cases.length; i += 1) {
         const id = `${suiteName}/${theoryName}[${i}]`;
+        if (!shouldRun(options, id, theoryName)) {
+          continue;
+        }
         results.push(
           await runSingle(
             id,
@@ -156,6 +169,7 @@ export async function runSuite(
             project,
             artifactRoot,
             cycleTimeSeconds,
+            snapshotOptions(options),
             async (ctx) => cb({ ...cases[i].props }, ctx),
           ),
         );
@@ -169,6 +183,9 @@ export async function runSuite(
       const cb = child.children.find((e) => typeof e === "function") as
         | ((ctx?: TestContext) => unknown)
         | undefined;
+      if (!shouldRun(options, id, invariantName)) {
+        continue;
+      }
       results.push(
         await runSingle(
           id,
@@ -177,12 +194,21 @@ export async function runSuite(
           project,
           artifactRoot,
           options.defaultTimeoutSeconds ?? 30,
+          snapshotOptions(options),
           async (ctx) => cb?.(ctx),
         ),
       );
     }
   }
   return results;
+}
+
+
+function shouldRun(options: RunSuiteOptions, localId: string, name: string): boolean {
+  if (!options.shouldRunTest) {
+    return true;
+  }
+  return options.shouldRunTest(localId, name);
 }
 
 function getTheoryStructureError(
@@ -221,6 +247,36 @@ function makeStructureFailure(
   return { id, name, status: "failed", durationMs: 0, error, artifacts: [] };
 }
 
+
+type SingleSnapshotOptions = {
+  testFilePath?: string;
+  rootDir?: string;
+  updateSnapshots: boolean;
+};
+
+function snapshotOptions(options: RunSuiteOptions): SingleSnapshotOptions {
+  return {
+    testFilePath: options.snapshotFilePath,
+    rootDir: options.snapshotRootDir,
+    updateSnapshots: options.updateSnapshots === true,
+  };
+}
+
+function createSnapshotContext(
+  options: SingleSnapshotOptions,
+  updates: TestSnapshotUpdate[],
+) {
+  if (!options.testFilePath || !options.rootDir) {
+    return undefined;
+  }
+  return {
+    testFilePath: options.testFilePath,
+    rootDir: options.rootDir,
+    updateSnapshots: options.updateSnapshots,
+    updates,
+  };
+}
+
 async function runSingle(
   id: string,
   name: string,
@@ -228,10 +284,12 @@ async function runSingle(
   projectDecl: DiscoveredProjectFixture | undefined,
   artifactRoot: string,
   timeoutSeconds: number,
+  snapshotOptions: SingleSnapshotOptions,
   fn: (ctx: TestContext) => unknown,
 ): Promise<TestResult> {
   const started = performance.now();
   const state = createArtifactState(id, declarations, artifactRoot);
+  const snapshotUpdates: TestSnapshotUpdate[] = [];
   let projectResult: ProjectResultInfo | undefined;
   let sandboxRoot: string | undefined;
   const activity = {
@@ -255,6 +313,7 @@ async function runSingle(
     },
   });
   try {
+    setSnapshotContext(createSnapshotContext(snapshotOptions, snapshotUpdates));
     const projectContext = projectDecl
       ? await createProjectContext(id, projectDecl)
       : undefined;
@@ -301,6 +360,7 @@ async function runSingle(
       durationMs: performance.now() - started,
       artifacts: state.results,
       project: projectResult,
+      snapshots: snapshotUpdates,
     };
   } catch (error) {
     if (isSkipSignal(error)) {
@@ -314,6 +374,7 @@ async function runSingle(
         durationMs: performance.now() - started,
         skipReason: error.skipReason,
         artifacts: state.results,
+        snapshots: snapshotUpdates,
         project: projectDecl
           ? {
               sourcePath: projectDecl.from,
@@ -341,9 +402,11 @@ async function runSingle(
       error: error as Error,
       artifacts: state.results,
       project: projectResult,
+      snapshots: snapshotUpdates,
     };
   } finally {
     setActivityTracker(undefined);
+    setSnapshotContext(undefined);
   }
 }
 function readCycleTimeSeconds(node: RuntimeNode): number | undefined {

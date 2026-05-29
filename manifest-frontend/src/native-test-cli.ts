@@ -3,11 +3,11 @@ import path from 'node:path';
 import { createNativeArtifactReport, createNativeBenchmarkReport, createNativeDoomReport, createNativeTestReport, discoverNativeTestFile, formatNativeArtifactJsonReport, formatNativeArtifactTextReport, formatNativeBenchmarkJsonReport, formatNativeBenchmarkTextReport, formatNativeDoomJsonReport, formatNativeDoomTextReport, formatNativeTestJsonReport, formatNativeTestTextReport, formatNativeTestCompactTextReport, listNativeArtifacts, listNativeBenchmarks, listNativeProphecies, listNativeTests, nativeArtifactExitCode, nativeBenchmarkExitCode, nativeDoomExitCode, nativeTestExitCode, runNativeArtifacts, runNativeBenchmarks, runNativeProphecies, runNativeTestFiles } from './native-test/index.js';
 
 type Mode = 'test' | 'artifact' | 'bench' | 'doom' | 'doom-child';
-type Options = { mode: Mode; rootDir: string; list: boolean; filter?: string; json: boolean; compact: boolean; out?: string };
+type Options = { mode: Mode; rootDir: string; list: boolean; filter?: string; json: boolean; compact: boolean; updateSnapshots: boolean; out?: string };
 
 function parseArgs(argv: string[]): Options {
   const mode = (argv[2] === 'artifact' ? 'artifact' : argv[2] === 'bench' ? 'bench' : argv[2] === 'doom' ? 'doom' : argv[2] === 'doom-child' ? 'doom-child' : 'test') as Mode;
-  const options: Options = { mode, rootDir: '.', list: false, json: false, compact: false };
+  const options: Options = { mode, rootDir: '.', list: false, json: false, compact: false, updateSnapshots: false };
   for (let i = 3; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--root') { i += 1; options.rootDir = argv[i] ?? '.'; continue; }
@@ -15,6 +15,7 @@ function parseArgs(argv: string[]): Options {
     if (arg === '--filter') { i += 1; options.filter = argv[i]; continue; }
     if (arg === '--json') { options.json = true; continue; }
     if (arg === '--compact') { options.compact = true; continue; }
+    if (arg === '--update-snapshots') { options.updateSnapshots = true; continue; }
     if (arg === '--out') { i += 1; options.out = argv[i]; continue; }
     if (arg === '--file' || arg === '--id') { i += 1; continue; }
     throw new Error(`unknown flag: ${arg}`);
@@ -86,7 +87,7 @@ async function main(): Promise<void> {
     process.stdout.write(options.json ? formatNativeTestJsonReport(report) : formatNativeTestTextReport(report));
     process.exit(nativeTestExitCode(report));
   }
-  const runResult = await runNativeTestFiles({ rootDir: options.rootDir, filter: options.filter });
+  const runResult = await runNativeTestFiles({ rootDir: options.rootDir, filter: options.filter, updateSnapshots: options.updateSnapshots });
   const report = createNativeTestReport(runResult);
   if (options.json) {
     process.stdout.write(formatNativeTestJsonReport(report));

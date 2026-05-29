@@ -36,3 +36,54 @@ func TestResolveXTestBridgeMissingIncludesSearchContext(t *testing.T) {
 		t.Fatalf("expected cwd and executable details, got %q", joined)
 	}
 }
+
+func TestRunXTestForwardsUpdateSnapshotsOnlyForRunMode(t *testing.T) {
+	root := t.TempDir()
+	bridge := filepath.Join(root, "bridge.js")
+	recordPath := filepath.Join(root, "args.txt")
+	script := "#!/usr/bin/env node\n" +
+		"import fs from 'node:fs';\n" +
+		"fs.appendFileSync(" + quoteJS(recordPath) + ", process.argv.slice(2).join('\\t') + '\\n');\n" +
+		"console.log('Native xTest results');\n" +
+		"console.log('');\n" +
+		"console.log('Summary:');\n" +
+		"console.log('  total: 0');\n" +
+		"console.log('  passed: 0');\n" +
+		"console.log('  failed: 0');\n" +
+		"console.log('  skipped: 0');\n"
+	if err := os.WriteFile(bridge, []byte(script), 0o755); err != nil {
+		t.Fatalf("write bridge: %v", err)
+	}
+
+	runXTest(Options{RootDir: root, XTestBridge: bridge, UpdateSnapshots: true}, &Result{})
+	runXTest(Options{RootDir: root, XTestBridge: bridge, UpdateSnapshots: true, List: true}, &Result{})
+
+	recorded, err := os.ReadFile(recordPath)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(recorded)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected two invocations, got %q", string(recorded))
+	}
+	if !strings.Contains(lines[0], "--update-snapshots") {
+		t.Fatalf("run invocation did not include --update-snapshots: %q", lines[0])
+	}
+	if strings.Contains(lines[1], "--update-snapshots") {
+		t.Fatalf("list invocation should not include --update-snapshots: %q", lines[1])
+	}
+}
+
+func TestVitestUpdateSnapshotsUnsupported(t *testing.T) {
+	result := Run(Options{RootDir: t.TempDir(), UseVitest: true, UpdateSnapshots: true})
+	if result.ExitCode == 0 {
+		t.Fatalf("expected unsupported backend failure")
+	}
+	if len(result.Diagnostics) == 0 || result.Diagnostics[0].Code != "TSPACK_SNAPSHOT_UNSUPPORTED_BACKEND" {
+		t.Fatalf("expected snapshot unsupported diagnostic, got %#v", result.Diagnostics)
+	}
+}
+
+func quoteJS(value string) string {
+	return "`" + strings.ReplaceAll(value, "`", "\\`") + "`"
+}

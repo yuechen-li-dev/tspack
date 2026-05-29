@@ -72,3 +72,11 @@
 
 - `--list -xtest` includes Fact, Theory case, Valid, and Invalid entries.
 - `tspack artifact` continues to use standalone suite-level `<Artifact>` declarations and does not list/run Valid/Invalid entries.
+
+## Snapshot update mode
+
+`tspack test --update-snapshots` enables native xTest snapshot/golden update mode. It applies only to the native xTest backend: missing snapshots are written, mismatched snapshots are overwritten, matching snapshots are left unchanged, and successful writes are reported in text/JSON run reports.
+
+Without `--update-snapshots`, `tspack test` is read-only for snapshots. Missing snapshots fail with `TSPACK_SNAPSHOT_MISSING`, and mismatches fail with `TSPACK_SNAPSHOT_MISMATCH`.
+
+`--filter` limits update scope to selected native xTest cases. `--list` remains static discovery and does not forward snapshot update mode to the native bridge. Compact mode keeps hiding passing tests while still showing snapshot failures and the snapshot update summary. The Vitest backend does not support this flag; selecting Vitest with `--update-snapshots` reports `TSPACK_SNAPSHOT_UNSUPPORTED_BACKEND`.

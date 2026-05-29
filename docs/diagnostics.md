@@ -162,3 +162,14 @@ Page/analyzer:
 
 - `TSPACK_BOUNDARY_TYPE_EXPLICIT_DENY`: a scanner-visible type-only external import or re-export matched a boundary row's `denyTypeDeps`. Details include `package`, `import`, `boundary`, `denyTypeDeps`, and `path`; transitive rows also include `transitiveFrom` and `seed`.
 - `TSPACK_BOUNDARY_INVALID_DENY_TYPE_DEPS`: a manifest IR boundary row contained an invalid `denyTypeDeps` value, such as an empty string entry.
+
+## Native xTest snapshots
+
+- `TSPACK_SNAPSHOT_INVALID_NAME`: a snapshot name is empty, path-like, traversal-like, starts with `.`, contains separators, or contains characters outside letters, numbers, `_`, `-`, and `.`.
+- `TSPACK_SNAPSHOT_MISSING`: a snapshot assertion ran in read-only mode and the expected `.snap.txt` or `.snap.json` file does not exist. Run `tspack test --update-snapshots` to create it.
+- `TSPACK_SNAPSHOT_MISMATCH`: a snapshot file exists but differs from the normalized actual value. Details include the snapshot path, expected and actual hashes, and the first differing line.
+- `TSPACK_SNAPSHOT_WRITE_DISABLED`: a snapshot assertion ran without native xTest file execution context.
+- `TSPACK_SNAPSHOT_WRITE_FAILED`: update mode attempted to write a snapshot but the filesystem write failed.
+- `TSPACK_SNAPSHOT_TEXT_VALUE_INVALID`: `expect.snapshotText` received a non-string value.
+- `TSPACK_SNAPSHOT_JSON_UNSUPPORTED`: `expect.snapshotJson` received an unsupported value such as `undefined`, a function, bigint, non-finite number, circular reference, or non-plain object.
+- `TSPACK_SNAPSHOT_UNSUPPORTED_BACKEND`: `--update-snapshots` was requested for a backend other than native xTest.

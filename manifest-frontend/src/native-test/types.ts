@@ -156,6 +156,7 @@ export type RunFilesOptions = {
   listOnly?: boolean;
   artifactRoot?: string;
   defaultTimeoutSeconds?: number;
+  updateSnapshots?: boolean;
 };
 
 export type RunArtifactsOptions = {
@@ -175,6 +176,11 @@ export type FailureInfo = {
   actual?: unknown;
   expected?: unknown;
   details?: Record<string, unknown>;
+};
+
+export type TestSnapshotUpdate = {
+  path: string;
+  reason: string;
 };
 
 export type TestArtifact = {
@@ -205,6 +211,7 @@ export type TestResult = {
   error?: AssertionFailure | Error;
   artifacts?: TestArtifact[];
   project?: ProjectResultInfo;
+  snapshots?: TestSnapshotUpdate[];
 };
 
 export type StandaloneArtifactResult = {
@@ -234,6 +241,7 @@ export type NativeTestSummary = {
   failed: number;
   skipped: number;
   diagnostics: number;
+  snapshotsUpdated?: number;
   durationMs?: number;
   project?: ProjectResultInfo;
 };
@@ -248,6 +256,7 @@ export type ReportedTest = {
   skipReason?: string;
   artifacts?: TestArtifact[];
   project?: ProjectResultInfo;
+  snapshots?: TestSnapshotUpdate[];
 };
 
 export type NativeTestRunReport = {
@@ -312,7 +321,8 @@ export type NativeBenchmarkRunReport = {
 export type AssertionFailure = Error & {
   code: string;
   assertion: string;
-  reason: string;
+  reason?: string;
   expected?: unknown;
   actual?: unknown;
+  details?: Record<string, unknown>;
 };

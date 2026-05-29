@@ -44,9 +44,17 @@ export async function runNativeTestFiles(options: RunFilesOptions): Promise<RunF
     try {
       const root = await loadRuntimeSuiteForFile(file.filePath, { rootDir });
       const artifactRoot = options.artifactRoot ?? path.join(rootDir, '.tspack', 'test-artifacts');
-      const runResults = await runSuite(root, { artifactRoot, defaultTimeoutSeconds: options.defaultTimeoutSeconds });
+      const filePrefix = normalizePublicTestPath(path.relative(rootDir, file.filePath));
+      const runResults = await runSuite(root, {
+        artifactRoot,
+        defaultTimeoutSeconds: options.defaultTimeoutSeconds,
+        snapshotFilePath: file.filePath,
+        snapshotRootDir: rootDir,
+        updateSnapshots: options.updateSnapshots === true,
+        shouldRunTest: (localId, name) => matchesFilter(`${filePrefix}::${localId}`, name, options.filter),
+      });
       for (const result of runResults) {
-        const fullId = `${normalizePublicTestPath(path.relative(rootDir, file.filePath))}::${result.id}`;
+        const fullId = `${filePrefix}::${result.id}`;
         if (matchesFilter(fullId, result.name, options.filter)) {
           results.push({ ...result, id: fullId });
         }

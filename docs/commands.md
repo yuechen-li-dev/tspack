@@ -86,3 +86,7 @@
   3. `npm:<name>` exact match
 - Non-selected declared npm roots are preserved from the existing lock when possible.
 - `--dry-run` and `--json` compose with targeted update.
+
+### `tspack test --update-snapshots`
+
+Native xTest snapshot update mode writes missing golden files and replaces mismatched golden files for selected tests. It is explicit, native-xTest-only, not forwarded in `--list` mode, and unsupported for the Vitest backend.

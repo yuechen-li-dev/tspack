@@ -1,8 +1,24 @@
 import { isDeepStrictEqual } from 'node:util';
 import { markExpectationActivity } from './activity.js';
+import { assertJsonSnapshot, assertTextSnapshot } from './snapshot.js';
 import type { AssertionFailure } from './types.js';
 
 type PendingExpectation = { because: (reason: string) => void };
+type ExpectFunction = {
+  (actual: unknown): {
+    toBe: (expected: unknown) => PendingExpectation;
+    toEqual: (expected: unknown) => PendingExpectation;
+    not: {
+      toBe: (expected: unknown) => PendingExpectation;
+      toEqual: (expected: unknown) => PendingExpectation;
+    };
+  };
+  error: (subject: unknown, code: string) => PendingExpectation;
+  noErrors: (subject: unknown) => PendingExpectation;
+  noError: (subject: unknown) => PendingExpectation;
+  snapshotText: (value: unknown, name: string) => PendingExpectation;
+  snapshotJson: (value: unknown, name: string) => PendingExpectation;
+};
 const pending = new Set<{ finalize: (reason: string) => void }>();
 
 type DiagnosticLike = { code?: unknown; severity?: unknown };
@@ -77,14 +93,36 @@ function buildNoErrorsExpectation(subject: unknown): PendingExpectation {
   return { because(reason: string): void { markExpectationActivity(); pending.delete(token); token.finalize(reason); } };
 }
 
-export function expect(actual: unknown) {
+
+function buildSnapshotExpectation(
+  value: unknown,
+  name: string,
+  kind: 'text' | 'json',
+): PendingExpectation {
+  const token = { finalize(reason: string): void {
+    requiredReason(reason);
+    if (kind === 'text') {
+      assertTextSnapshot(value, name, reason);
+      return;
+    }
+    assertJsonSnapshot(value, name, reason);
+  } };
+  pending.add(token);
+  return { because(reason: string): void { markExpectationActivity(); pending.delete(token); token.finalize(reason); } };
+}
+
+function baseExpect(actual: unknown) {
   const mk = (negate: boolean) => ({ toBe: (expected: unknown) => buildPending(actual, expected, false, negate), toEqual: (expected: unknown) => buildPending(actual, expected, true, negate) });
   return { ...mk(false), not: mk(true) };
 }
 
+export const expect = baseExpect as ExpectFunction;
+
 expect.error = (subject: unknown, code: string): PendingExpectation => buildErrorExpectation(subject, code);
 expect.noErrors = (subject: unknown): PendingExpectation => buildNoErrorsExpectation(subject);
 expect.noError = (subject: unknown): PendingExpectation => buildNoErrorsExpectation(subject);
+expect.snapshotText = (value: unknown, name: string): PendingExpectation => buildSnapshotExpectation(value, name, 'text');
+expect.snapshotJson = (value: unknown, name: string): PendingExpectation => buildSnapshotExpectation(value, name, 'json');
 
 export function verifyNoPendingExpectations(): void {
   if (pending.size > 0) {

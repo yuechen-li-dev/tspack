@@ -347,3 +347,26 @@ Unsupported:
 Safety: local relative imports must resolve inside run `rootDir`; outside-root resolution is rejected.
 
 Discovery/list mode remains static and non-executing.
+
+## Snapshot and golden assertions
+
+Native xTest supports deterministic source-controlled golden files through expectation helpers:
+
+```tsx
+expect.snapshotText(value, "button-primary-class").because("button primary class output should remain stable");
+expect.snapshotJson(value, "button-class-map").because("button class map should remain stable");
+```
+
+The `.because(reason)` call is mandatory and uses the same expectation-chain enforcement as other `expect` helpers. A test case whose only meaningful action is a snapshot assertion counts as having expectation activity, so it does not fail with `TSPACK_TEST_NO_ASSERTION` when the snapshot assertion executes.
+
+Snapshots are anchored to the source test file, not to a `<Project>` sandbox. For `src/button.xtest.tsx`, snapshots live under `src/__snapshots__/button.xtest.tsx/` with filenames such as `button-primary-class.snap.txt` and `button-class-map.snap.json`. Snapshot names must be explicit safe names using letters, numbers, `_`, `-`, and `.`, must not be empty, must not start with `.`, must not contain `..`, and must not contain path separators. Invalid names fail with `TSPACK_SNAPSHOT_INVALID_NAME`; names are not sanitized.
+
+Default `tspack test` is read-only for snapshots. A missing snapshot fails with `TSPACK_SNAPSHOT_MISSING`, and a changed snapshot fails with `TSPACK_SNAPSHOT_MISMATCH`. Run `tspack test --update-snapshots` to intentionally write missing snapshots or replace mismatched snapshots for the tests that actually run. `--filter` limits which snapshot assertions execute and therefore which files can be updated. List/discovery mode remains static and does not read, write, or execute snapshot assertions.
+
+Text snapshots require a string value. Line endings are normalized to `\n`, and stored/compared content is guaranteed to end with a trailing newline without stripping intentional extra blank lines. Non-string values fail with `TSPACK_SNAPSHOT_TEXT_VALUE_INVALID`.
+
+JSON snapshots use deterministic two-space serialization with sorted object keys, preserved array order, and a trailing newline. Supported values are `null`, booleans, finite numbers, strings, arrays, and plain objects. Unsupported values fail with `TSPACK_SNAPSHOT_JSON_UNSUPPORTED`, including `undefined`, functions, symbols, bigint values, `NaN`/`Infinity`, circular references, and non-plain objects.
+
+Mismatch diagnostics include the snapshot path, reason, expected and actual SHA-256 hashes, and the first differing line with expected and actual line text. Full snapshot contents are not dumped. Compact output still hides passing tests and shows snapshot failures because they are normal failed tests. Snapshot update mode reports update activity and includes a `snapshots updated` summary count.
+
+M34e intentionally does not add TSX `<Snapshot>` elements, inline snapshots, binary snapshots, custom serializers, interactive update prompts, snapshot pruning, Vitest snapshot compatibility, or watch-mode behavior changes.
