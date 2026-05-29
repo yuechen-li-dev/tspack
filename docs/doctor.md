@@ -69,7 +69,7 @@ Text output includes stable detail lines when checks provide structured details.
 
 ## Security scope
 
-`tspack doctor security` is a read-only lifecycle capability audit view for the current project. It loads manifest security acknowledgments and `ts-lock.toml`, then reports a `Security` section in text or JSON. The all-scope `tspack doctor` output also includes this concise `Security` section.
+`tspack doctor security` is a read-only lifecycle capability audit view for the current project. It is part of the Phase 7 security/policy closeout documented in `docs/claude-fooding-phase7.md`. It loads manifest security acknowledgments and `ts-lock.toml`, then reports a `Security` section in text or JSON. The all-scope `tspack doctor` output also includes this concise `Security` section.
 
 The lifecycle summary reports:
 

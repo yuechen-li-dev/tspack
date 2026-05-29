@@ -113,6 +113,13 @@ Claude-fooding Phase 5 closed out the runtime loop with declared RunTargets, rea
 
 Claude-fooding Phase 6 closed out pack and why as publish/audit-grade release-gate surfaces: pack produces deterministic archives, verifies package metadata and package path references structurally, and keeps explicit publish policy authoritative; why provides structured dependency explanations and root-to-transitive reverse dependency paths. See `docs/claude-fooding-phase6.md` for the remediation closeout.
 
+
+## Claude-fooding Phase 7 supply-chain policy
+
+Claude-fooding Phase 7 closed out TSPack's npm lifecycle-script policy as default non-execution plus explicit capability visibility and evidence. `update`, `sync`, and materialization do not execute lifecycle scripts; lifecycle capabilities are recorded in the lockfile, surfaced by `check`, `why`, and `doctor security`, and may be acknowledged only as warning-suppression metadata. Behavior fixtures and reports are evidence links, not execution permission.
+
+Lifecycle execution, if ever added, belongs behind a swappable backend seam. TSPack v1 does not require an OS jail because it does not execute lifecycle scripts by default. See `docs/claude-fooding-phase7.md` for the Phase 7 security/policy closeout.
+
 ## Security guarantees
 
 - Fetch is not execute.

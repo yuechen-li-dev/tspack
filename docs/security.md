@@ -70,6 +70,15 @@ Capabilities are sorted/deduplicated deterministically and round-trip through lo
 
 - `tspack outdated` fetches registry metadata only; it does not fetch tarballs or execute scripts.
 
+
+## Phase 7 lifecycle security closeout
+
+Phase 7 closes the lifecycle-script policy loop around the same core rule: package-manager operations do not grant ambient execution. Lifecycle capabilities are blocked by default during `update`, `sync`, and materialization. Acknowledgments are exact warning-suppression metadata only; they do not approve rebuilds, npm-install compatibility behavior, or any script execution. Behavior evidence links (`behaviorFixture` and `behaviorReport`) are read-only metadata that `check`, `doctor security`, and `why` may validate or display without running probes automatically.
+
+The explicit behavior probe remains native xTest `lifecycle.runScript(...)` / `runLifecycleScript`, which is useful for controlled JavaScript lifecycle fixtures and reports denied network, environment, child-process, and filesystem behavior. That helper is a behavior test harness, not normal package-manager execution and not a kernel sandbox. `tspack doctor security` is the summary/reporting view for lifecycle posture; it reads manifest policy and lockfile metadata without executing scripts.
+
+OS-level jails are deferred. They are not required for TSPack v1's default security model because TSPack does not execute lifecycle scripts by default. If lifecycle execution is ever added, it should sit behind a swappable backend seam instead of becoming an implicit package-manager behavior. See `docs/claude-fooding-phase7.md` for the full closeout, release-gate stance, and non-goals.
+
 ## Run environment overlays
 
 `tspack run --env KEY=VALUE` passes explicit values to the child process environment after inheriting the parent environment. These values are process inputs, not secret-manager entries: TSPack does not redact child output, store secrets, load dotenv files, or provide approval semantics for environment variables.
