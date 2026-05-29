@@ -4,6 +4,7 @@ TSPack provides Biome-backed code formatting and linting orchestration.
 
 - `tspack format [paths...] [--root .] [--check]`
 - `tspack lint [paths...] [--root .] [--fix] [--unsafe]`
+- `tspack check [--root .] [--manifest <path>] [--json] --format`
 
 ## Backend resolution
 
@@ -73,7 +74,11 @@ TSPack streams Biome stdout and stderr directly to the user. When a TSPack diagn
 
 ## Relationship to `tspack check`
 
-`check` remains architecture/manifest/lock/type/boundary validation and does not include linting or formatting.
+`check` remains architecture/manifest/lock/type/boundary validation by default and does not include linting or formatting unless requested.
+
+`tspack check --format` runs normal project validation plus a read-only Biome format check over `.` relative to the selected root. It uses the same backend resolution and config behavior as `tspack format --check`, including the temporary default config and stderr status line when no project `biome.json` or `biome.jsonc` exists. It does not write files and does not pass Biome `--write` or Biome `--check`. Run `tspack format` to apply formatting changes.
+
+With `tspack check --format --json`, Biome stdout/stderr is captured instead of streamed so stdout remains parseable JSON. Format failures are included in the normal check JSON diagnostics as `TSPACK_FORMAT_CHECK_FAILED`.
 
 ## Sync compatibility expectation
 

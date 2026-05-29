@@ -3,7 +3,7 @@
 | Command | Purpose | Mutates manifest/lock? | Notable non-goals | Details |
 |---|---|---|---|---|
 | `tspack init` | Scaffold a starter manifest and entry source for `library` or `app`. | **Yes (files)** / No | Does not install, update lock, sync, or build outputs. | `docs/init.md` |
-| `tspack check` | Validate manifest/frontend, graph, boundaries, type surfaces, and lock consistency when lock exists. Supports `--explain <file>` for boundary debugging. | No / No | Does not resolve, install packages, or mutate project state in explain mode. | `docs/contract.md`, `docs/boundaries.md` |
+| `tspack check [--json] [--format]` | Validate manifest/frontend, graph, boundaries, type surfaces, and lock consistency when lock exists. Supports `--explain <file>` for boundary debugging and optional read-only format validation with `--format`. | No / No | Does not resolve, install packages, or mutate project state in explain mode. | `docs/contract.md`, `docs/boundaries.md` |
 | `tspack update` | Resolve sources, fetch required package artifacts into the content-addressed store, and then write deterministic `ts-lock.toml`. Supports `--dry-run` plan mode and `--quiet` progress suppression. | No / **Yes (lock)** | Does not execute lifecycle scripts or run npm/npx; prepares lock+store for sync. | `docs/lockfile.md`, `docs/source-resolvers.md` |
 | `tspack sync` | Materialize compatibility `node_modules` from lock/store artifacts prepared by `tspack update`. | No / No | Does not re-resolve versions or mutate the lockfile. | `docs/materialization.md` |
 | `tspack why` | Explain why a dependency, target, or lock package is present, with deduplicated lock edges, lock-ID guidance for transitive matches, `--reverse` for root-to-lock-package reverse paths, and `--json` for structured reports. | No / No | Not a resolver/editor command. | `docs/why.md` |
@@ -33,11 +33,21 @@
 - `--explain` requires exactly one file path under the project root and supports `.ts`, `.tsx`, `.js`, and `.jsx` files.
 - `tspack check --explain <file> --json` writes only the explain JSON payload to stdout using two-space indentation.
 
+## `tspack check --format`
+
+- `tspack check --format` runs normal project validation, then runs the same read-only Biome format validation used by `tspack format --check`.
+- The format scope is `.` relative to the selected project root; `check` does not accept format path arguments.
+- `--root <root>` controls both normal project validation paths and Biome backend/config discovery.
+- `--manifest <path>` controls normal manifest loading only; format validation still checks the selected root directory rather than only the manifest file.
+- The command never writes formatting changes. Run `tspack format` to apply formatting.
+- A format failure is reported as `TSPACK_FORMAT_CHECK_FAILED` and makes the overall check exit nonzero.
+- `tspack doctor format` can be used separately to inspect Biome backend and config readiness.
+
 ## `tspack check --json`
 
 - `tspack check --json` writes a machine-readable JSON report to **stdout**.
 - The JSON report includes command metadata, `ok`, summary counts (`errors`, `warnings`, `info`, `total`), and ordered diagnostics.
-- In JSON mode, human-readable diagnostics are not mixed into stdout.
+- In JSON mode, human-readable diagnostics are not mixed into stdout. With `--format`, Biome output is captured so stdout remains JSON-only; format failures are represented as normal check diagnostics.
 - Exit behavior is unchanged:
   - warning diagnostics (including lock version conflicts) keep exit `0` when no errors exist;
   - exit `0` when there are no error diagnostics (warnings-only remains `0`);
