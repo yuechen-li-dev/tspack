@@ -48,3 +48,12 @@ M31d intentionally ships curated diagnostic help entries, not full diagnostic co
 ## Type boundary diagnostics
 
 `TSPACK_BOUNDARY_TYPE_EXPLICIT_DENY` means a type-only external import or re-export matched `denyTypeDeps`. Move the type behind the correct public target, remove the public type leakage, split internal and public type definitions, or adjust the boundary row if the type exposure is intentional. Runtime-only remediation for `denyDeps` is not enough: `denyTypeDeps` is about the public/type surface and scanner-visible type edges.
+
+
+## Native xTest type assertion diagnostics
+
+`TSPACK_TYPE_ASSERTION_FAILED` means an `assert.type<TExpected>(value, reason)` call did not satisfy TypeScript assignability. Read the attached TypeScript diagnostic, compare the actual expression type with the expected type argument, and either fix the implementation return type or change the expected type if the assertion was too narrow. The assertion is static: runtime execution is not evidence that the type proposition is true.
+
+`TSPACK_TYPE_ASSERTION_REASON_REQUIRED` means an `assert.type` call omitted its reason or used an empty literal. Add a concise non-empty reason that explains why the type proposition matters.
+
+`TSPACK_TEST_TYPECHECK_FAILED` means the native xTest typecheck lane could not construct the source program for static assertions. Check that the native test file and local relative imports exist and can be parsed by TypeScript without relying on unsupported M34g features such as tsconfig path aliases.
