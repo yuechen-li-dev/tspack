@@ -1,4 +1,14 @@
 export { assert } from "./assert.js";
+export { inspect, createInspectHelper } from "./inspect.js";
+export type {
+  InspectBounds,
+  InspectCdpOptions,
+  InspectHitTest,
+  InspectNode,
+  InspectOptions,
+  InspectResult,
+  InspectUrlOptions,
+} from "./inspect.js";
 export { lifecycle, runScript as runLifecycleScript } from "./lifecycle.js";
 export type {
   LifecycleProbePolicy,

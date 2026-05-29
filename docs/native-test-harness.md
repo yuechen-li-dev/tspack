@@ -465,3 +465,107 @@ The helper runs with `cwd = packageDir`, a temporary `HOME`, temporary `TMPDIR` 
 Default policy denies network, child processes, common secret environment reads, and filesystem reads/writes outside `package/**` and `tmp/**`. The default denied env list includes `NPM_TOKEN`, `NODE_AUTH_TOKEN`, `GITHUB_TOKEN`, `GITHUB_ACTIONS`, AWS session keys, `VAULT_TOKEN`, `SSH_AUTH_SOCK`, `GOOGLE_APPLICATION_CREDENTIALS`, and `AZURE_CLIENT_SECRET`.
 
 Security limitation: this is a behavior test/probe harness based on Node preload instrumentation. In the Phase 7 closeout (`docs/claude-fooding-phase7.md`), `lifecycle.runScript` is evidence/probe tooling only, not package-manager lifecycle execution or execution permission. It is not a kernel sandbox and must not be treated as safe arbitrary malware execution. Normal `update`, `sync`, and materialization paths still do not execute lifecycle scripts.
+
+## Inspect helpers
+
+Native xTest exposes an `inspect` helper namespace for tests that need browser-computed UI structure instead of source-level guesses. The helper reuses the same inspect backend as `tspack inspect`; it does not shell out to the CLI, take screenshots, run OCR, or mutate source.
+
+```tsx
+export default (
+  <Suite name="UI inspect">
+    <Fact name="home page exposes main landmark">
+      {async () => {
+        const ui = await inspect.url("http://127.0.0.1:5173", {
+          browser: "chromium",
+          selector: "main",
+          viewport: "1280x800",
+          points: [{ x: 100, y: 200 }],
+        });
+
+        assert.equal(
+          ui.root?.role,
+          "main",
+          "main selector should resolve to a main landmark",
+        );
+
+        expect.snapshotJson(ui.root, "home-main-landmark").because(
+          "main landmark structure should remain stable",
+        );
+      }}
+    </Fact>
+  </Suite>
+);
+```
+
+### `inspect.url(url, options?)`
+
+`inspect.url` launches the requested Playwright-backed browser and returns the structured inspect JSON shape used by the CLI:
+
+- `target`
+- `browser`
+- `viewport`
+- `root`
+- `hitTests`
+- `diagnostics`
+
+Supported options mirror the CLI where practical:
+
+```ts
+type InspectUrlOptions = {
+  browser?: "chromium" | "webkit" | "playwright-chromium" | "playwright-webkit";
+  selector?: string;
+  viewport?: string | { width: number; height: number };
+  points?: Array<{ x: number; y: number }>;
+};
+```
+
+Browser executables are runtime dependencies. Tests that require a real browser should use the existing skip convention when Playwright cannot launch the requested browser in the current environment.
+
+### `inspect.cdp(endpoint, options?)`
+
+`inspect.cdp` connects to an existing Chrome DevTools Protocol endpoint, selects a target, and evaluates the shared inspect analyzer in that target without requiring VS Code or Electron in the test process.
+
+```tsx
+const ui = await inspect.cdp("http://127.0.0.1:9229", {
+  target: 0,
+  selector: ".statusbar",
+});
+
+assert.equal(
+  ui.root?.visible,
+  true,
+  "VS Code status bar should be visible",
+);
+```
+
+Supported CDP options are:
+
+```ts
+type InspectCdpOptions = {
+  target?: number | string;
+  targetUrl?: string;
+  selector?: string;
+  viewport?: string | { width: number; height: number };
+  points?: Array<{ x: number; y: number }>;
+};
+```
+
+`inspect.target` and `inspect.cdpTarget` are aliases for `inspect.cdp`.
+
+### Observation is not an assertion
+
+Calling `inspect.url` or `inspect.cdp` is an observation only. It does not count as a meaningful xTest action. A fact that only calls inspect still fails with `TSPACK_TEST_NO_ASSERTION`; use `assert`, `expect`, or `expect.snapshotJson` to make a claim about the returned structure.
+
+### Snapshot guidance
+
+Inspect results are plain JSON and work with `expect.snapshotJson`. Prefer snapshotting a stable selector or subtree such as `ui.root` rather than an entire page when layout, generated IDs, or dynamic content may vary.
+
+### Pure traversal helpers
+
+The namespace also includes deterministic traversal helpers for plain inspect nodes:
+
+```ts
+inspect.flatten(ui.root);
+inspect.findByRole(ui.root, "button", "Save");
+inspect.findByText(ui.root, /Saved/);
+```

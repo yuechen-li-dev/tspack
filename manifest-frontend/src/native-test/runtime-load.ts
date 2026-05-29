@@ -5,19 +5,21 @@ import ts from 'typescript';
 import { assert } from './assert.js';
 import { expect } from './expect.js';
 import { skip } from './skip.js';
+import { inspect } from './inspect.js';
 
 export async function loadRuntimeSuiteForFile(filePath: string, options?: { rootDir?: string }): Promise<any> {
   const rootDir = path.resolve(options?.rootDir ?? path.dirname(filePath));
   const prelude = `const __tspackJsx = (type, props, ...children) => { if (typeof type === 'function') return type(props ?? {}, ...children); return { __tag: String(type), props: props ?? {}, children }; };
 const makeTag = (tag) => (props, ...children) => ({ __tag: tag, props: props ?? {}, children });
 const Suite = makeTag('Suite'); const Fact = makeTag('Fact'); const Theory = makeTag('Theory'); const Case = makeTag('Case'); const Artifact = makeTag('Artifact'); const Valid = makeTag('Valid'); const Invalid = makeTag('Invalid'); const Project = makeTag('Project'); const CycleTime = makeTag('CycleTime'); const Benchmark = makeTag('Benchmark'); const Iterations = makeTag('Iterations'); const Warmup = makeTag('Warmup');
-const assert = globalThis.__tspackAssert; const expect = globalThis.__tspackExpect; const skip = globalThis.__tspackSkip;`;
+const assert = globalThis.__tspackAssert; const expect = globalThis.__tspackExpect; const skip = globalThis.__tspackSkip; const inspect = globalThis.__tspackInspect;`;
   const tempRoot = fs.mkdtempSync(path.join(path.dirname(filePath), '.tspack-runtime-'));
   const generated = materializeLocalModuleClosure(filePath, rootDir, tempRoot);
   const tempFile = generated.entryFile;
   (globalThis as Record<string, unknown>).__tspackAssert = assert;
   (globalThis as Record<string, unknown>).__tspackExpect = expect;
   (globalThis as Record<string, unknown>).__tspackSkip = skip;
+  (globalThis as Record<string, unknown>).__tspackInspect = inspect;
   fs.writeFileSync(tempFile, `${prelude}\n${fs.readFileSync(tempFile, 'utf8')}`);
   try {
     const mod = await import(pathToFileURL(tempFile).href);
