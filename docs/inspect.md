@@ -17,7 +17,7 @@ It is **not** screenshot matching, visual diffing, machine vision, component ren
 - JSON and text output
 - selector filtering and hit-test support
 - platform-webview backend scaffold/probe (intended future default)
-- Playwright-backed inspection path
+- Playwright-backed inspection path for Chromium and WebKit
 - explicit CDP endpoint inspection path
 - explicit installed-host launch path
 - Playwright Core provider probing/resolution, including VS Code-family bundled `playwright-core` candidates
@@ -49,10 +49,11 @@ The analyzer core is shared across backends. Backends are responsible for obtain
    - Electron apps may not behave like generic URL browsers.
    - VS Code/Code-family launch remains environment-dependent.
 
-4. **Playwright backend (`playwright-chromium`)**
-   - Uses Playwright automation.
-   - May require Playwright browser binaries.
+4. **Playwright backends (`playwright-chromium`, `chromium`, `playwright-webkit`, `webkit`)**
+   - Use Playwright automation.
+   - May require matching Playwright browser binaries; the WebKit aliases require Playwright WebKit availability.
    - Useful for controlled browser inspection and CI when browsers are installed.
+   - The browser-side analyzer is shared across Chromium and WebKit.
 
 5. **Playwright Core provider**
    - Automation client provider, not a browser runtime.
@@ -88,16 +89,21 @@ URL inspection:
 
 VS Code/Electron app UI inspection:
 
-- launch the app yourself with remote debugging
-- then use explicit `--cdp` endpoint mode
+- launch the app yourself with remote debugging:
+  - `code --remote-debugging-port=9229`
+- list targets with explicit CDP endpoint mode:
+  - `tspack inspect --cdp http://127.0.0.1:9229 --list-targets`
+- inspect an existing renderer target without navigating it when no URL is supplied:
+  - `tspack inspect --cdp http://127.0.0.1:9229 --target 0 --selector .statusbar --json`
+- Electron hosts can return `[]` from the HTTP `/json` endpoint even when renderer targets exist; `tspack inspect --list-targets` falls back to `Target.getTargets` over the browser CDP WebSocket so VS Code-like `vscode-file://vscode-app/.../workbench.html` targets can still be listed.
 
 ## VS Code / Code-family current status
 
 - Code-family executables may be discoverable.
 - On Linux, `/usr/bin/code` can be a wrapper while `/usr/share/code/code` is the Electron binary.
-- In this container probe environment, both wrapper-resolved and direct binary launch attempts failed due missing dbus, missing X server/`DISPLAY`, and platform initialization/SIGSEGV failures.
-- This is an environment/runtime blocker in containerized headless probes, not proof that desktop-local VS Code inspection is impossible.
-- Additional desktop-local verification is still needed.
+- The most reliable path is to launch Code yourself with `--remote-debugging-port=<port>` and inspect through `--cdp`; when no `--url` is provided, tspack attaches to the selected existing target and does not call `page.goto`.
+- In containerized headless probe environments, wrapper-resolved and direct binary launch attempts may fail due missing dbus, missing X server/`DISPLAY`, and platform initialization failures. This remains an environment/runtime blocker, not proof that desktop-local VS Code inspection is impossible.
+- Xvfb/host-display auto-shimming is deferred; current host/platform-webview diagnostics continue to report display/session blockers instead of silently starting a display server.
 
 ## Command
 
@@ -108,7 +114,7 @@ VS Code/Electron app UI inspection:
 
 ## Options
 
-- `--browser auto|platform-webview|cdp|host-path|browser-path|playwright-chromium|chromium|vscode`
+- `--browser auto|platform-webview|cdp|host-path|browser-path|playwright-chromium|chromium|playwright-webkit|webkit|vscode`
 - `--host-path <path>` (preferred)
 - `--browser-path <path>` (compatibility alias)
 - `--cdp <endpoint>`
