@@ -20,6 +20,7 @@ export type ManifestParseResult = {
 export type ManifestIr = {
   format: 1;
   workspace: { name: string };
+  security?: Record<string, unknown>;
   packages: Array<Record<string, unknown>>;
 };
 
@@ -30,7 +31,7 @@ type InternalDoc = { mode: DocMode; ir: ManifestIr; rows?: PackageRow[] };
 
 const ALLOWED_IMPORT = 'tspack/manifest';
 const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'defineDeps', 'npm', 'git', 'path', 'workspace', 'dep', 'peer', 'tool']);
-const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'Policies', 'Targets', 'RunTargets', 'Tools', 'Boundaries', 'Publish']);
+const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'Policies', 'Targets', 'RunTargets', 'Tools', 'Boundaries', 'Publish', 'Security']);
 
 export function parseManifestFile(filePath: string): ManifestParseResult {
   const parsed = parseManifestDocument(filePath, 'root');
@@ -249,13 +250,25 @@ function jsxToRootDoc(root: unknown): InternalDoc {
   const children = r?.__children ?? [];
   const inlinePackages = children.filter((c: any) => c.__tag === 'Package');
   const packagesNode = children.find((c: any) => c.__tag === 'Packages');
+  const securityNode = children.find((c: any) => c.__tag === 'Security');
+  const baseIr = {
+    format: 1 as const,
+    workspace: { name: r?.name ?? 'workspace' },
+    ...(securityNode ? { security: mapSecurity(securityNode) } : {}),
+  };
   if (packagesNode && inlinePackages.length > 0) {
-    return { mode: 'split', ir: { format: 1, workspace: { name: r?.name ?? 'workspace' }, packages: [] }, rows: [] };
+    return { mode: 'split', ir: { ...baseIr, packages: [] }, rows: [] };
   }
   if (packagesNode) {
-    return { mode: 'split', ir: { format: 1, workspace: { name: r?.name ?? 'workspace' }, packages: [] }, rows: (packagesNode.rows as PackageRow[]) ?? [] };
+    return { mode: 'split', ir: { ...baseIr, packages: [] }, rows: (packagesNode.rows as PackageRow[]) ?? [] };
   }
-  return { mode: 'single', ir: { format: 1, workspace: { name: r?.name ?? 'workspace' }, packages: inlinePackages.map((p: any) => mapPackage(p, false)) } };
+  return { mode: 'single', ir: { ...baseIr, packages: inlinePackages.map((p: any) => mapPackage(p, false)) } };
+}
+
+function mapSecurity(security: any): Record<string, unknown> {
+  return {
+    acknowledgedCapabilities: security.acknowledgedCapabilities ?? [],
+  };
 }
 
 function jsxToPackageDoc(root: unknown): InternalDoc {

@@ -71,6 +71,26 @@ declare module 'tspack/manifest' {
     [key: string]: Primitive | Primitive[] | undefined;
   };
 
+
+  export type LifecycleScriptName =
+    | 'preinstall'
+    | 'install'
+    | 'postinstall'
+    | 'prepack'
+    | 'prepare'
+    | 'postpack'
+    | 'prepublish'
+    | 'prepublishOnly'
+    | 'postpublish';
+
+  export type AcknowledgedCapability = {
+    package: string;
+    kind: 'lifecycleScript';
+    script: LifecycleScriptName;
+    command: string;
+    reason: string;
+  };
+
   export type BoundaryPolicy = {
     mode?: string;
     rows?: BoundaryRow[];
@@ -155,6 +175,10 @@ declare module 'tspack/manifest' {
     rows: RunTargetRow[];
   };
 
+  export type SecurityProps = {
+    acknowledgedCapabilities: AcknowledgedCapability[];
+  };
+
   export type ToolsProps = {
     values: DependencyRefLike[];
   };
@@ -211,6 +235,7 @@ declare module 'tspack/manifest' {
   export const Tools: ManifestComponent<ToolsProps>;
   export const Boundaries: ManifestComponent<BoundariesProps>;
   export const Publish: ManifestComponent<PublishProps>;
+  export const Security: ManifestComponent<SecurityProps>;
 
   export {};
 }

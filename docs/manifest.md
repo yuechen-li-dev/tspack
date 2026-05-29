@@ -119,3 +119,26 @@ Boundary rows may include `allowOnly?: string[]` with either `from` or `transiti
 Boundary rows may include `denyTypeDeps?: string[]` with either `from` or `transitiveFrom`. The list contains exact external package identifiers denied for scanner-visible type-only imports and re-exports. Empty arrays are valid and have no effect. Entries must be non-empty strings.
 
 `denyDeps` and `allowOnly` apply to runtime external imports. `denyTypeDeps` applies only to type-level external imports/re-exports and does not deny runtime imports by itself.
+
+## Security lifecycle capability acknowledgments
+
+Workspace manifests may include a top-level `<Security />` section under `<Workspace />`:
+
+```tsx
+<Workspace name="ws">
+  <Security
+    acknowledgedCapabilities={[
+      {
+        package: "npm:@biomejs/biome@1.9.4",
+        kind: "lifecycleScript",
+        script: "postinstall",
+        command: "node scripts/postinstall.js",
+        reason: "Known lifecycle capability; execution remains blocked by TSPack.",
+      },
+    ]}
+  />
+  <Package name="app" version="1.0.0" kind="library">...</Package>
+</Workspace>
+```
+
+Each acknowledged capability requires `package`, `kind: "lifecycleScript"`, one supported lifecycle `script`, the exact lockfile `command`, and a non-empty `reason`. Acknowledgments suppress the default lifecycle warning only when all fields match. They do not run scripts and are not written to the lockfile.

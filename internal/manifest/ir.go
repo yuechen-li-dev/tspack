@@ -16,11 +16,28 @@ import (
 type ManifestIR struct {
 	Format    int       `json:"format"`
 	Workspace Workspace `json:"workspace"`
+	Security  Security  `json:"security,omitempty"`
 	Packages  []Package `json:"packages"`
 }
 
 type Workspace struct {
 	Name string `json:"name"`
+}
+
+type Security struct {
+	AcknowledgedCapabilities []AcknowledgedCapability `json:"acknowledgedCapabilities,omitempty"`
+}
+
+type AcknowledgedCapability struct {
+	Package string `json:"package"`
+	Kind    string `json:"kind"`
+	Script  string `json:"script"`
+	Command string `json:"command"`
+	Reason  string `json:"reason"`
+}
+
+func (a AcknowledgedCapability) Key() string {
+	return a.Package + "|" + a.Kind + "|" + a.Script + "|" + a.Command
 }
 
 type Package struct {
@@ -160,6 +177,15 @@ var (
 	targetNameRe    = regexp.MustCompile(`^[A-Za-z0-9_/-]+$`)
 )
 
+func isSupportedLifecycleScript(scriptName string) bool {
+	switch scriptName {
+	case "preinstall", "install", "postinstall", "prepack", "prepare", "postpack", "prepublish", "prepublishOnly", "postpublish":
+		return true
+	default:
+		return false
+	}
+}
+
 func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 	var out []diag.Diagnostic
 	add := func(code, msg string, details ...string) {
@@ -175,6 +201,31 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 	}
 	if len(ir.Packages) == 0 {
 		add("TSPACK_IR_NO_PACKAGES", "at least one package is required")
+	}
+
+	seenAcknowledgedCapabilities := map[string]struct{}{}
+	for index, acknowledged := range ir.Security.AcknowledgedCapabilities {
+		prefix := fmt.Sprintf("security.acknowledgedCapabilities[%d]", index)
+		if strings.TrimSpace(acknowledged.Package) == "" {
+			add("TSPACK_SECURITY_INVALID_ACKNOWLEDGED_CAPABILITY", prefix+".package is required")
+		}
+		if acknowledged.Kind != "lifecycleScript" {
+			add("TSPACK_SECURITY_INVALID_ACKNOWLEDGED_CAPABILITY", prefix+".kind must be lifecycleScript")
+		}
+		if !isSupportedLifecycleScript(acknowledged.Script) {
+			add("TSPACK_SECURITY_INVALID_ACKNOWLEDGED_CAPABILITY", prefix+".script is not a supported lifecycle script")
+		}
+		if strings.TrimSpace(acknowledged.Command) == "" {
+			add("TSPACK_SECURITY_INVALID_ACKNOWLEDGED_CAPABILITY", prefix+".command is required")
+		}
+		if strings.TrimSpace(acknowledged.Reason) == "" {
+			add("TSPACK_SECURITY_INVALID_ACKNOWLEDGED_CAPABILITY", prefix+".reason is required")
+		}
+		key := acknowledged.Key()
+		if _, ok := seenAcknowledgedCapabilities[key]; ok {
+			add("TSPACK_SECURITY_DUPLICATE_ACKNOWLEDGED_CAPABILITY", "duplicate acknowledged capability: "+key)
+		}
+		seenAcknowledgedCapabilities[key] = struct{}{}
 	}
 	seenPkg := map[string]struct{}{}
 	for pi, p := range ir.Packages {

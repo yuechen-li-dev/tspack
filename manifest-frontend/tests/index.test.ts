@@ -127,6 +127,47 @@ export default define(
     }
   });
 
+  it('parses lifecycle capability acknowledgements from Security', () => {
+    const tmpDir = fs.mkdtempSync(path.join(root, 'fixtures', 'tmp-security-'));
+    const manifestPath = path.join(tmpDir, 'manifest.tsx');
+    fs.writeFileSync(
+      manifestPath,
+      `import { define } from "tspack/manifest";
+export default define(
+  <Workspace name="ws">
+    <Security acknowledgedCapabilities={[{
+      package: "npm:dep-a@1.0.0",
+      kind: "lifecycleScript",
+      script: "postinstall",
+      command: "node install.js",
+      reason: "Known lifecycle capability; execution remains blocked by TSPack.",
+    }]} />
+    <Package name="app" version="1.0.0" kind="library">
+      <Targets rows={[{ name: "core", export: ".", entry: "src/index.ts", runtime: "dist/index.js", types: "dist/index.d.ts" }]} />
+      <Publish include={["dist/**"]} />
+    </Package>
+  </Workspace>
+);
+`,
+      'utf8',
+    );
+    try {
+      const result = parseManifestFile(manifestPath);
+      expect(result.ok).toBe(true);
+      expect(result.ir?.security?.acknowledgedCapabilities).toEqual([
+        {
+          package: 'npm:dep-a@1.0.0',
+          kind: 'lifecycleScript',
+          script: 'postinstall',
+          command: 'node install.js',
+          reason: 'Known lifecycle capability; execution remains blocked by TSPack.',
+        },
+      ]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('run targets parse deterministically', () => {
     const a = JSON.stringify(parseManifestFile(fixture('valid', 'm22-run-target')).ir);
     const b = JSON.stringify(parseManifestFile(fixture('valid', 'm22-run-target')).ir);

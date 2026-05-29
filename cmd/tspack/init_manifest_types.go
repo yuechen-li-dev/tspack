@@ -74,6 +74,26 @@ const initManifestTypesDTS = "" +
 	"    [key: string]: Primitive | Primitive[] | undefined;\n" +
 	"  };\n" +
 	"\n" +
+	"\n" +
+	"  export type LifecycleScriptName =\n" +
+	"    | 'preinstall'\n" +
+	"    | 'install'\n" +
+	"    | 'postinstall'\n" +
+	"    | 'prepack'\n" +
+	"    | 'prepare'\n" +
+	"    | 'postpack'\n" +
+	"    | 'prepublish'\n" +
+	"    | 'prepublishOnly'\n" +
+	"    | 'postpublish';\n" +
+	"\n" +
+	"  export type AcknowledgedCapability = {\n" +
+	"    package: string;\n" +
+	"    kind: 'lifecycleScript';\n" +
+	"    script: LifecycleScriptName;\n" +
+	"    command: string;\n" +
+	"    reason: string;\n" +
+	"  };\n" +
+	"\n" +
 	"  export type BoundaryPolicy = {\n" +
 	"    mode?: string;\n" +
 	"    rows?: BoundaryRow[];\n" +
@@ -158,6 +178,10 @@ const initManifestTypesDTS = "" +
 	"    rows: RunTargetRow[];\n" +
 	"  };\n" +
 	"\n" +
+	"  export type SecurityProps = {\n" +
+	"    acknowledgedCapabilities: AcknowledgedCapability[];\n" +
+	"  };\n" +
+	"\n" +
 	"  export type ToolsProps = {\n" +
 	"    values: DependencyRefLike[];\n" +
 	"  };\n" +
@@ -214,6 +238,7 @@ const initManifestTypesDTS = "" +
 	"  export const Tools: ManifestComponent<ToolsProps>;\n" +
 	"  export const Boundaries: ManifestComponent<BoundariesProps>;\n" +
 	"  export const Publish: ManifestComponent<PublishProps>;\n" +
+	"  export const Security: ManifestComponent<SecurityProps>;\n" +
 	"\n" +
 	"  export {};\n" +
 	"}\n" +

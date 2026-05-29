@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/tspack/tspack/internal/diag"
 )
 
 func TestLoadValidFixtures(t *testing.T) {
@@ -370,4 +372,50 @@ func TestRunTargetReadyKindValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAcknowledgedCapabilityValidation(t *testing.T) {
+	valid := `{"format":1,"workspace":{"name":"mono"},"security":{"acknowledgedCapabilities":[{"package":"npm:dep-a@1.0.0","kind":"lifecycleScript","script":"postinstall","command":"node install.js","reason":"Known lifecycle capability; blocked by default."}]},"packages":[{"name":"p","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	ir, diags := LoadBytes("valid", []byte(valid))
+	if len(diags) > 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diags)
+	}
+	if len(ir.Security.AcknowledgedCapabilities) != 1 {
+		t.Fatalf("expected acknowledgement in IR: %#v", ir.Security)
+	}
+
+	cases := []struct {
+		name string
+		row  string
+		code string
+	}{
+		{"missing reason", `{"package":"npm:dep-a@1.0.0","kind":"lifecycleScript","script":"postinstall","command":"node install.js","reason":""}`, "TSPACK_SECURITY_INVALID_ACKNOWLEDGED_CAPABILITY"},
+		{"invalid kind", `{"package":"npm:dep-a@1.0.0","kind":"network","script":"postinstall","command":"node install.js","reason":"x"}`, "TSPACK_SECURITY_INVALID_ACKNOWLEDGED_CAPABILITY"},
+		{"invalid script", `{"package":"npm:dep-a@1.0.0","kind":"lifecycleScript","script":"prebad","command":"node install.js","reason":"x"}`, "TSPACK_SECURITY_INVALID_ACKNOWLEDGED_CAPABILITY"},
+		{"empty command", `{"package":"npm:dep-a@1.0.0","kind":"lifecycleScript","script":"postinstall","command":"","reason":"x"}`, "TSPACK_SECURITY_INVALID_ACKNOWLEDGED_CAPABILITY"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			jsonText := `{"format":1,"workspace":{"name":"mono"},"security":{"acknowledgedCapabilities":[` + tc.row + `]},"packages":[{"name":"p","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+			_, diags := LoadBytes(tc.name, []byte(jsonText))
+			if !hasDiag(diags, tc.code) {
+				t.Fatalf("missing %s in %#v", tc.code, diags)
+			}
+		})
+	}
+
+	duplicate := `{"format":1,"workspace":{"name":"mono"},"security":{"acknowledgedCapabilities":[{"package":"npm:dep-a@1.0.0","kind":"lifecycleScript","script":"postinstall","command":"node install.js","reason":"x"},{"package":"npm:dep-a@1.0.0","kind":"lifecycleScript","script":"postinstall","command":"node install.js","reason":"x"}]},"packages":[{"name":"p","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	_, diags = LoadBytes("duplicate", []byte(duplicate))
+	if !hasDiag(diags, "TSPACK_SECURITY_DUPLICATE_ACKNOWLEDGED_CAPABILITY") {
+		t.Fatalf("missing duplicate diagnostic in %#v", diags)
+	}
+}
+
+func hasDiag(diags []diag.Diagnostic, code string) bool {
+	for _, diagnostic := range diags {
+		if diagnostic.Code == code {
+			return true
+		}
+	}
+	return false
 }

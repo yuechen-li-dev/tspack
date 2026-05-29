@@ -227,3 +227,27 @@ These codes are returned by the explicit lifecycle behavior harness and are not 
 - `TSPACK_LIFECYCLE_FS_WRITE_DENIED`: the guarded script attempted to write, remove, rename, copy, or stream outside allowed roots.
 - `TSPACK_LIFECYCLE_GUARD_FAILED`: the Node preload guard reported an internal instrumentation failure.
 - `TSPACK_LIFECYCLE_REPORT_MISSING`: the harness could not read the guard report after process exit.
+
+## TSPACK_SECURITY_INVALID_ACKNOWLEDGED_CAPABILITY
+
+Severity: error.
+
+A manifest `Security.acknowledgedCapabilities` row is malformed. Rows must include a non-empty lock package ID, `kind: "lifecycleScript"`, a supported lifecycle script name, a non-empty command, and a non-empty reason.
+
+## TSPACK_SECURITY_DUPLICATE_ACKNOWLEDGED_CAPABILITY
+
+Severity: error.
+
+The manifest declares the same acknowledged capability more than once. Keep exactly one row for each package/kind/script/command tuple.
+
+## TSPACK_SECURITY_ACKNOWLEDGED_CAPABILITY_STALE
+
+Severity: warning.
+
+A manifest acknowledgment matches a package and lifecycle script, but the lockfile records a different command. The actual lifecycle capability remains blocked and is reported as unacknowledged; review the new command before updating policy.
+
+## TSPACK_SECURITY_ACKNOWLEDGED_CAPABILITY_UNUSED
+
+Severity: warning.
+
+A manifest acknowledgment does not match any lifecycle capability in the lockfile. Remove stale policy after dependency removal or update it to the new exact package/script/command tuple.

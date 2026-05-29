@@ -20,6 +20,15 @@ var lifecycleScriptNames = []string{
 	"postpublish",
 }
 
+func IsSupportedLifecycleScript(scriptName string) bool {
+	for _, supported := range lifecycleScriptNames {
+		if scriptName == supported {
+			return true
+		}
+	}
+	return false
+}
+
 func FromPackageJSONScripts(scripts map[string]string) []lockfile.Capability {
 	if len(scripts) == 0 {
 		return nil

@@ -124,10 +124,12 @@ type WhyJSONLockPackage struct {
 }
 
 type WhyJSONCapability struct {
-	Kind      string `json:"kind"`
-	Script    string `json:"script,omitempty"`
-	Command   string `json:"command,omitempty"`
-	Execution string `json:"execution,omitempty"`
+	Kind                  string `json:"kind"`
+	Script                string `json:"script,omitempty"`
+	Command               string `json:"command,omitempty"`
+	Execution             string `json:"execution,omitempty"`
+	Acknowledged          bool   `json:"acknowledged"`
+	AcknowledgementReason string `json:"acknowledgementReason,omitempty"`
 }
 
 type WhyJSONLockEdge struct {
@@ -1030,6 +1032,14 @@ func printWhyCapabilities(lockPackages []why.LockPackageRef) {
 			}
 			fmt.Printf("  %s %s: %s\n", capability.Kind, capability.Script, capability.Command)
 			fmt.Println("    execution: blocked by default")
+			if capability.Acknowledged {
+				fmt.Println("    acknowledged: true")
+				if capability.AcknowledgementReason != "" {
+					fmt.Printf("    reason: %s\n", capability.AcknowledgementReason)
+				}
+			} else {
+				fmt.Println("    acknowledged: false")
+			}
 		}
 	}
 }
@@ -1276,10 +1286,12 @@ func buildWhyJSONLockPackage(lockPackage why.LockPackageRef) WhyJSONLockPackage 
 	}
 	for _, capability := range lockPackage.Capabilities {
 		jsonPackage.Capabilities = append(jsonPackage.Capabilities, WhyJSONCapability{
-			Kind:      capability.Kind,
-			Script:    capability.Script,
-			Command:   capability.Command,
-			Execution: capability.Execution,
+			Kind:                  capability.Kind,
+			Script:                capability.Script,
+			Command:               capability.Command,
+			Execution:             capability.Execution,
+			Acknowledged:          capability.Acknowledged,
+			AcknowledgementReason: capability.AcknowledgementReason,
 		})
 	}
 	return jsonPackage
