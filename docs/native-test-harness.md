@@ -464,4 +464,4 @@ The helper runs with `cwd = packageDir`, a temporary `HOME`, temporary `TMPDIR` 
 
 Default policy denies network, child processes, common secret environment reads, and filesystem reads/writes outside `package/**` and `tmp/**`. The default denied env list includes `NPM_TOKEN`, `NODE_AUTH_TOKEN`, `GITHUB_TOKEN`, `GITHUB_ACTIONS`, AWS session keys, `VAULT_TOKEN`, `SSH_AUTH_SOCK`, `GOOGLE_APPLICATION_CREDENTIALS`, and `AZURE_CLIENT_SECRET`.
 
-Security limitation: this is a behavior test/probe harness based on Node preload instrumentation. It is not a kernel sandbox and must not be treated as safe arbitrary malware execution. Normal `update`, `sync`, and materialization paths still do not execute lifecycle scripts.
+Security limitation: this is a behavior test/probe harness based on Node preload instrumentation. In the Phase 7 closeout (`docs/claude-fooding-phase7.md`), `lifecycle.runScript` is evidence/probe tooling only, not package-manager lifecycle execution or execution permission. It is not a kernel sandbox and must not be treated as safe arbitrary malware execution. Normal `update`, `sync`, and materialization paths still do not execute lifecycle scripts.

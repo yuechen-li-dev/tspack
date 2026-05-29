@@ -242,3 +242,30 @@ The lifecycle security doctor smoke must cover read-only reporting only:
 - `tspack doctor security --json` writes parseable two-space-indented JSON to stdout only, appends a trailing newline, and is deterministic for stable project paths.
 - All-scope `tspack doctor` includes a concise `Security` section.
 - The smoke must not execute lifecycle scripts, run lifecycle probes, mutate package-manager state, call registries, or run vulnerability scans.
+
+
+### Claude-fooding Phase 7 security/policy smoke
+
+The Phase 7 security smoke must cover the closeout state documented in `docs/claude-fooding-phase7.md`, including default non-execution:
+
+- Fake npm package with `postinstall`: `tspack update` records a `lifecycleScript` capability with the raw script and command.
+- `tspack check` emits `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT` for an unacknowledged lifecycle capability.
+- `tspack sync` and materialization do not execute the script marker.
+- `tspack why npm:<pkg>@<version>` and `tspack why --json` show the capability.
+- `tspack why --reverse <pkg>` shows the capability while explaining reverse reachability.
+- `tspack doctor security` and `tspack doctor security --json` cover no capability, unacknowledged, acknowledged, stale, unused, and missing lock states.
+- Exact `acknowledgedCapabilities` entries suppress only the matching default lifecycle warning.
+- Command drift warns and does not silently trust the stale acknowledgment.
+- `behaviorFixture` present and missing statuses are reported.
+- `behaviorReport` present, missing, and invalid JSON statuses are reported.
+- `lifecycle.runScript` valid fixtures report no violations.
+- `lifecycle.runScript` invalid fixtures report network denied, env denied, child process denied, and fs read/write denied violations.
+- Docs/how entries remain available for `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT`, `TSPACK_LIFECYCLE_NETWORK_DENIED`, `TSPACK_LIFECYCLE_ENV_DENIED`, and behavior fixture/report diagnostics when present.
+
+Expected behavior coverage:
+
+- No lifecycle execution in `update`, `sync`, or materialization.
+- No automatic probe execution in `check`, `doctor security`, or `why`.
+- No package-name trust model or trust-by-popularity whitelist.
+- OS jail support remains deferred; any future lifecycle execution must use a swappable backend seam and fail closed.
+- Acknowledgments and behavior evidence remain metadata, not execution permission.
