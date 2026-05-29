@@ -115,7 +115,41 @@
                   ]
                 },
                 "ready": {
-                  "type": "object"
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "http",
+                        "tcp",
+                        "stdout-match"
+                      ]
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "host": {
+                      "type": "string"
+                    },
+                    "port": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    "pattern": {
+                      "type": "string"
+                    },
+                    "stream": {
+                      "enum": [
+                        "stdout",
+                        "stderr",
+                        "both"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": true
                 }
               },
               "additionalProperties": true

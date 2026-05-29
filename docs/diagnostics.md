@@ -187,3 +187,6 @@ Page/analyzer:
 - `TSPACK_RUN_TARGET_AMBIGUOUS`: the requested target name or default selection matched multiple package-qualified run targets; output includes candidates such as `@prisma-ui/demo:dev` and hints to use `--package <name>`.
 - `TSPACK_RUN_TARGET_NOT_FOUND`: the requested run target does not exist. With `--package`, output includes the selected package and its known targets.
 - `TSPACK_RUN_INVALID_ARGS`: run flags were combined in a contradictory or incomplete way, such as `--list dev`, `--list --once`, or `--package` without a value.
+- `TSPACK_RUN_INVALID_READY`: a RunTarget readiness policy has an invalid shape, such as an unknown `kind`, HTTP readiness without an absolute `path`, TCP readiness without a `1..65535` port, or stdout-match readiness without a non-empty literal `pattern` / with an invalid `stream`.
+- `TSPACK_RUN_READY_TIMEOUT`: the selected HTTP, TCP, or stdout-match readiness check did not succeed before `--ready-timeout`.
+- `TSPACK_RUN_PROCESS_EXITED_EARLY`: the child process exited before the selected readiness check succeeded.

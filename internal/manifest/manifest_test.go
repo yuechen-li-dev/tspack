@@ -320,3 +320,54 @@ func TestBoundaryDenyTypeDepsValidation(t *testing.T) {
 		t.Fatalf("expected TSPACK_BOUNDARY_INVALID_DENY_TYPE_DEPS, got %#v", diags)
 	}
 }
+
+func TestRunTargetReadyKindValidation(t *testing.T) {
+	base := func(ready string) string {
+		return `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"system","command":["node"],"url":"http://127.0.0.1:1","ready":` + ready + `}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	}
+	validCases := []struct {
+		name  string
+		ready string
+	}{
+		{name: "http", ready: `{"kind":"http","path":"/ready"}`},
+		{name: "tcp port", ready: `{"kind":"tcp","port":5432}`},
+		{name: "tcp host port", ready: `{"kind":"tcp","host":"127.0.0.1","port":6379}`},
+		{name: "stdout pattern", ready: `{"kind":"stdout-match","pattern":"Local:"}`},
+		{name: "stdout stream", ready: `{"kind":"stdout-match","pattern":"Local:","stream":"stdout"}`},
+		{name: "stderr stream", ready: `{"kind":"stdout-match","pattern":"Local:","stream":"stderr"}`},
+		{name: "both stream", ready: `{"kind":"stdout-match","pattern":"Local:","stream":"both"}`},
+	}
+	for _, tc := range validCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, diags := LoadBytes("x.json", []byte(base(tc.ready)))
+			if len(diags) != 0 {
+				t.Fatalf("unexpected diagnostics: %#v", diags)
+			}
+		})
+	}
+	invalidCases := []struct {
+		name  string
+		ready string
+	}{
+		{name: "tcp missing port", ready: `{"kind":"tcp"}`},
+		{name: "tcp zero port", ready: `{"kind":"tcp","port":0}`},
+		{name: "tcp large port", ready: `{"kind":"tcp","port":65536}`},
+		{name: "stdout missing pattern", ready: `{"kind":"stdout-match"}`},
+		{name: "stdout empty pattern", ready: `{"kind":"stdout-match","pattern":""}`},
+		{name: "stdout invalid stream", ready: `{"kind":"stdout-match","pattern":"Local:","stream":"stdin"}`},
+	}
+	for _, tc := range invalidCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, diags := LoadBytes("x.json", []byte(base(tc.ready)))
+			found := false
+			for _, d := range diags {
+				if d.Code == "TSPACK_RUN_INVALID_READY" {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("expected TSPACK_RUN_INVALID_READY, got %#v", diags)
+			}
+		})
+	}
+}

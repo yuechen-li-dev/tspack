@@ -83,9 +83,12 @@ A boundary row cannot specify both `from` and `transitiveFrom`. Scope paths must
 Use `<RunTargets rows={[{ name, runtime, command, url, cwd, ready }]} />` inside a `Package`.
 - `runtime`: `system` or `node` in M22.
 - `command`: argv array; no shell string execution.
-- `url`: required HTTP/HTTPS URL.
+- `url`: HTTP/HTTPS URL for status and tools. It is required for HTTP readiness and URL-only readiness; TCP and stdout-match readiness can omit it.
 - `cwd`: optional `"workspace"` or `"package"`; omitted means `"workspace"`.
-- `ready`: optional `{ kind: "http", path: "/" }`.
+- `ready`: optional readiness policy:
+  - `{ kind: "http", path: "/" }` polls `url + path` for a `200-399` response.
+  - `{ kind: "tcp", host?: "127.0.0.1", port: 5432 }` connects to TCP until successful; `host` defaults to `127.0.0.1`.
+  - `{ kind: "stdout-match", pattern: "Local:", stream?: "stdout" | "stderr" | "both" }` watches child output for a literal substring; `stream` defaults to `both`.
 
 
 ## Boundary row `allowOnly`

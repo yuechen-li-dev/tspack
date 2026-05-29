@@ -48,8 +48,12 @@ type RunTarget struct {
 }
 
 type RunReadyCheck struct {
-	Kind string `json:"kind"`
-	Path string `json:"path"`
+	Kind    string `json:"kind"`
+	Path    string `json:"path,omitempty"`
+	Host    string `json:"host,omitempty"`
+	Port    int    `json:"port,omitempty"`
+	Pattern string `json:"pattern,omitempty"`
+	Stream  string `json:"stream,omitempty"`
 }
 
 type Policies struct {
@@ -273,14 +277,19 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 					add("TSPACK_RUN_INVALID_COMMAND", rp+".command entries must be non-empty")
 				}
 			}
-			u, err := url.Parse(rt.URL)
-			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-				add("TSPACK_RUN_INVALID_URL", rp+".url must be valid http/https URL")
-			}
-			if rt.Ready != nil {
-				if rt.Ready.Kind != "http" || !strings.HasPrefix(rt.Ready.Path, "/") {
-					add("TSPACK_RUN_INVALID_READY", rp+".ready is invalid")
+			if !runTargetURLIsOptional(rt) {
+				u, err := url.Parse(rt.URL)
+				if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+					add("TSPACK_RUN_INVALID_URL", rp+".url must be valid http/https URL")
 				}
+			} else if strings.TrimSpace(rt.URL) != "" {
+				u, err := url.Parse(rt.URL)
+				if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+					add("TSPACK_RUN_INVALID_URL", rp+".url must be valid http/https URL")
+				}
+			}
+			if rt.Ready != nil && !validRunReadyCheck(rt.Ready) {
+				add("TSPACK_RUN_INVALID_READY", rp+".ready is invalid")
 			}
 		}
 		for k, v := range p.Policies.Types {
@@ -326,6 +335,32 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 	}
 	diag.SortDiagnostics(out)
 	return out
+}
+
+func runTargetURLIsOptional(rt RunTarget) bool {
+	if rt.Ready == nil {
+		return false
+	}
+	return rt.Ready.Kind == "tcp" || rt.Ready.Kind == "stdout-match"
+}
+
+func validRunReadyCheck(ready *RunReadyCheck) bool {
+	switch ready.Kind {
+	case "http":
+		return strings.HasPrefix(ready.Path, "/")
+	case "tcp":
+		if ready.Port < 1 || ready.Port > 65535 {
+			return false
+		}
+		return strings.TrimSpace(ready.Host) == ready.Host
+	case "stdout-match":
+		if ready.Pattern == "" {
+			return false
+		}
+		return ready.Stream == "" || ready.Stream == "stdout" || ready.Stream == "stderr" || ready.Stream == "both"
+	default:
+		return false
+	}
 }
 
 // depIdentity resolves a deterministic dependency identity for cross-references

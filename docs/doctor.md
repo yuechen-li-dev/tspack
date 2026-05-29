@@ -44,7 +44,7 @@ Environment variables used only for readiness checks:
 
 ## Text details
 
-Text output includes stable detail lines when checks provide structured details. Runtime checks include path/version when available. Run target checks include package, runtime, runtime availability, command first token, command availability, URL, ready kind, and ready path. Detail keys are sorted for deterministic output.
+Text output includes stable detail lines when checks provide structured details. Runtime checks include path/version when available. Run target checks include package, runtime, runtime availability, command first token, command availability, URL, ready kind, and kind-specific readiness details such as ready path, host, port, pattern, and stream. Detail keys are sorted for deterministic output.
 
 ## Status meanings
 

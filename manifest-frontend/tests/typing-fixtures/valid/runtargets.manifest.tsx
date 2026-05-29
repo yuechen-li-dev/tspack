@@ -19,6 +19,20 @@ export default define(
             url: 'http://localhost:3000',
             ready: { kind: 'http', path: '/ready' },
           },
+          {
+            name: 'redis',
+            runtime: 'system',
+            command: ['redis-server', '--port', '6379'],
+            url: 'http://localhost:6379',
+            ready: { kind: 'tcp', host: '127.0.0.1', port: 6379 },
+          },
+          {
+            name: 'vite',
+            runtime: 'system',
+            command: ['vite', '--host', '127.0.0.1'],
+            url: 'http://localhost:5173',
+            ready: { kind: 'stdout-match', pattern: 'Local:', stream: 'stdout' },
+          },
         ]}
       />
     </Package>

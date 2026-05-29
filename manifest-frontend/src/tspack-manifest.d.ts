@@ -91,10 +91,21 @@ declare module 'tspack/manifest' {
     [key: string]: Primitive | Primitive[] | DependencyRefLike[] | undefined;
   };
 
-  export type RunTargetReady = {
-    kind: 'http';
-    path: string;
-  };
+  export type RunTargetReady =
+    | {
+        kind: 'http';
+        path: string;
+      }
+    | {
+        kind: 'tcp';
+        host?: string;
+        port: number;
+      }
+    | {
+        kind: 'stdout-match';
+        pattern: string;
+        stream?: 'stdout' | 'stderr' | 'both';
+      };
 
   export type RunTargetRow = {
     name: string;

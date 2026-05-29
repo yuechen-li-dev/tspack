@@ -71,7 +71,7 @@ Each row supports:
 - `command`: argv array (not shell string)
 - `url`: base URL for status/readiness
 - `cwd`: optional `"workspace"` or `"package"`; omitted means `"workspace"` for compatibility
-- `ready`: optional `{ kind: "http", path: "/" }`
+- `ready`: optional readiness policy. Supported kinds are HTTP, TCP, and literal stdout/stderr substring matching.
 
 
 ## Working directory policy
@@ -125,16 +125,74 @@ Runtimes are process launch backends only. TSPack still owns manifest/lock/packa
 By default, `tspack run` loads `<root>/manifest.tsx`. Pass `--manifest <path>` to load an explicit manifest path; this composes with `--root` but does not change command cwd semantics. Commands execute from the selected RunTarget cwd policy. `--package` selects the declaring package; it does not rewrite command argv paths.
 
 ## Readiness
-M22 readiness is HTTP polling:
-- success on status `200-399`
-- timeout via `--ready-timeout` (default 30s)
-- `--once` exits after ready and terminates child process
+
+Readiness is process readiness only. It is not a long-running healthcheck, lifecycle script, shell interpolation hook, WebSocket probe, or package-manager behavior.
+
+All readiness kinds use `--ready-timeout` (default 30s). `--once` exits after readiness succeeds and terminates the child process.
+
+### HTTP readiness
+
+```json
+{ "kind": "http", "path": "/" }
+```
+
+HTTP readiness preserves the original behavior: TSPack polls `url + ready.path` until it receives a `200-399` response. HTTP readiness requires the RunTarget `url`.
+
+Status output:
+
+```text
+Waiting for: http http://127.0.0.1:5173/
+Ready: http://127.0.0.1:5173/
+```
+
+### TCP readiness
+
+```json
+{ "kind": "tcp", "port": 5432 }
+```
+
+```json
+{ "kind": "tcp", "host": "127.0.0.1", "port": 6379 }
+```
+
+TCP readiness attempts to connect to `host:port` until the connection succeeds or the timeout expires. The default host is `127.0.0.1`. The port must be an integer from `1` through `65535`. A successful connection is closed immediately. TCP readiness does not require `url`, although `url` may still be present for documentation or follow-up tooling.
+
+Status output:
+
+```text
+Waiting for: tcp 127.0.0.1:5432
+Ready: tcp 127.0.0.1:5432
+```
+
+### stdout-match readiness
+
+```json
+{
+  "kind": "stdout-match",
+  "pattern": "Local:",
+  "stream": "stdout"
+}
+```
+
+`stdout-match` readiness succeeds when the configured literal substring appears in the selected child output stream. It is not a regular expression. `stream` may be `stdout`, `stderr`, or `both`; omitted means `both`.
+
+TSPack observes the selected stream while preserving passthrough: child stdout still goes to stdout, child stderr still goes to stderr, and TSPack status remains on stderr. Matching uses a small rolling buffer, so a literal pattern split across output chunks can still be detected.
+
+Status output:
+
+```text
+Waiting for: stdout-match "Local:" on stdout
+Ready: matched "Local:"
+URL: http://127.0.0.1:5173
+```
+
+The `URL:` line is printed when the RunTarget also declares `url`.
 
 ## Inspect integration (M23)
 - `tspack inspect dev`
 - `tspack inspect --run dev`
 
-`inspect` can start a declared run target, wait for HTTP readiness, inspect its URL, then terminate the process.
+`inspect` can start a declared run target, wait for the declared readiness kind, inspect its URL, then terminate the process.
 
 ## Not supported
 - npm scripts (`npm run`)
