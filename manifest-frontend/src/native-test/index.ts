@@ -1,4 +1,11 @@
 export { assert } from "./assert.js";
+export { lifecycle, runScript as runLifecycleScript } from "./lifecycle.js";
+export type {
+  LifecycleProbePolicy,
+  LifecycleRunScriptRequest,
+  LifecycleRunScriptResult,
+  LifecycleViolation,
+} from "./lifecycle.js";
 export { expect, verifyNoPendingExpectations } from "./expect.js";
 export { skip } from "./skip.js";
 export { discoverNativeTestFile, discoverNativeTestFiles } from "./discover.js";

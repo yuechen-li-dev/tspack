@@ -65,3 +65,9 @@ M31d intentionally ships curated diagnostic help entries, not full diagnostic co
 ## TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT
 
 A package in the lockfile declares install-time executable code. TSPack records the script as a capability and blocks lifecycle execution by default during update, sync, and materialization. Investigate with `tspack why <package>`, `tspack why --reverse <package>`, and by inspecting the package capability metadata in `ts-lock.toml`. Remove or replace unexpected dependencies; keep expected ones only with an understanding that execution remains blocked unless future explicit policy support is added.
+
+## Lifecycle probe diagnostics
+
+`TSPACK_LIFECYCLE_NETWORK_DENIED` means the explicit lifecycle behavior harness observed a guarded JavaScript lifecycle script attempting network or DNS access while policy denied it. Treat this as behavior evidence for review; the M37b guard is Node instrumentation, not a kernel sandbox, and normal `update`, `sync`, and materialization still do not execute lifecycle scripts.
+
+`TSPACK_LIFECYCLE_ENV_DENIED` means the explicit lifecycle behavior harness observed access to a denied environment key such as `NPM_TOKEN`, `GITHUB_TOKEN`, AWS credentials, Vault, SSH, Google, or Azure credential keys. Tests may inject sentinel values to prove behavior, but parent secrets are scrubbed by default.

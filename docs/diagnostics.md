@@ -214,3 +214,16 @@ Page/analyzer:
 Severity: warning.
 
 The lockfile records that a package declares an npm lifecycle script such as `preinstall`, `install`, `postinstall`, or `prepare`. Details include the lock package ID, script name, raw command string, `execution: blocked by default`, and any available root path that pulls the package. Use `tspack why <package>` or `tspack why --reverse <package>` to investigate reachability.
+
+## Lifecycle behavior probe violation codes (M37b)
+
+These codes are returned by the explicit lifecycle behavior harness and are not normal package-manager execution diagnostics:
+
+- `TSPACK_LIFECYCLE_UNSUPPORTED_COMMAND`: the probe rejected a lifecycle command outside the MVP `node <script> [args...]` shape.
+- `TSPACK_LIFECYCLE_NETWORK_DENIED`: the guarded script attempted a denied network or DNS API.
+- `TSPACK_LIFECYCLE_CHILD_PROCESS_DENIED`: the guarded script attempted `child_process` execution.
+- `TSPACK_LIFECYCLE_ENV_DENIED`: the guarded script read or checked a denied environment key.
+- `TSPACK_LIFECYCLE_FS_READ_DENIED`: the guarded script attempted to read outside allowed roots.
+- `TSPACK_LIFECYCLE_FS_WRITE_DENIED`: the guarded script attempted to write, remove, rename, copy, or stream outside allowed roots.
+- `TSPACK_LIFECYCLE_GUARD_FAILED`: the Node preload guard reported an internal instrumentation failure.
+- `TSPACK_LIFECYCLE_REPORT_MISSING`: the harness could not read the guard report after process exit.

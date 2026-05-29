@@ -99,3 +99,22 @@ command = "node install.js"
 This is a supply-chain visibility feature: in traditional npm installs, lifecycle scripts can run during installation and may access CI, cloud, npm, or environment credentials. TSPack keeps fetching and syncing separate from execution. Future lifecycle testing, approval policy, and jailed execution are deferred.
 
 `update --dry-run` includes lifecycle capability changes as ordinary package changes when lock metadata differs. A dedicated lifecycle capability diff view is deferred.
+
+## Lifecycle behavior harness (M37b)
+
+Package name trust is not enough: a historically trusted package can be compromised and ship a new lifecycle script. M37b adds an explicit lifecycle behavior probe for JavaScript/Node lifecycle scripts so tests can ask what a script tries to do instead of trusting the package authority or name.
+
+The harness is separate from normal package-manager operations. `tspack update`, `tspack sync`, and materialization still do not execute lifecycle scripts. The probe runs only when test code explicitly calls the native xTest helper.
+
+The M37b probe runs controlled commands of the form `node install.js` or `node ./install.js` with optional script argv. It rejects arbitrary shell lifecycle strings such as `sh -c ...`, `npm run ...`, and `node install.js && curl ...` with `TSPACK_LIFECYCLE_UNSUPPORTED_COMMAND`.
+
+Default probe policy denies common risky behavior:
+
+- network access through common Node `http`, `https`, `net`, `tls`, and `dns` APIs;
+- child process creation through `child_process.spawn`, `exec`, `execFile`, and `fork`;
+- reads of common secret-like environment keys such as `NPM_TOKEN`, `NODE_AUTH_TOKEN`, `GITHUB_TOKEN`, AWS, Vault, SSH, Google, and Azure credential keys;
+- reads and writes outside the package directory and probe temp directory.
+
+Security honesty: the guard is Node preload instrumentation, not a kernel security boundary. It is useful for tests and behavior detection, but it is not an OS jail, network namespace, container sandbox, malware scanner, or vulnerability database. Future hardened execution may use OS-level sandboxes or jails; M37b deliberately does not implement them.
+
+Known MVP limitations: the guard intercepts common Node APIs, not every possible filesystem or native-code path; it supports controlled Node script commands only; it does not implement approval policy, package-manager mutation behavior, `npm install` compatibility, dotenv loading, or public install/rebuild execution.
