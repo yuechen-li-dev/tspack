@@ -68,6 +68,9 @@ export type CDPTargetSummary = {
 };
 
 export type CDPTargetListResult = {
+  command: 'inspect';
+  mode: 'list-targets';
+  cdp: string;
   endpoint: string;
   targets: CDPTargetSummary[];
   diagnostics: Array<{ code: string; message: string }>;

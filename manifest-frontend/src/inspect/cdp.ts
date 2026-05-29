@@ -220,11 +220,25 @@ export async function listCdpTargets(
   if (rawTargets) {
     const targets = summarizeRawTargets(rawTargets);
     if (targets.length > 0) {
-      return { endpoint, targets, diagnostics: [] };
+      return {
+        command: "inspect",
+        mode: "list-targets",
+        cdp: endpoint,
+        endpoint,
+        targets,
+        diagnostics: [],
+      };
     }
   }
 
   const fallback = await listTargetsViaBrowserWebSocket(endpoint);
   const diagnostics = fallback.diagnostic ? [fallback.diagnostic] : [];
-  return { endpoint, targets: fallback.targets, diagnostics };
+  return {
+    command: "inspect",
+    mode: "list-targets",
+    cdp: endpoint,
+    endpoint,
+    targets: fallback.targets,
+    diagnostics,
+  };
 }

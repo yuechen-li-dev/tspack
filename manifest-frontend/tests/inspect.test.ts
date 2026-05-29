@@ -332,6 +332,9 @@ describe("inspect parsing", () => {
     const server = await createFakeCdpServer();
     try {
       const result = await listCdpTargets(server.endpoint);
+      expect(result.command).toBe("inspect");
+      expect(result.mode).toBe("list-targets");
+      expect(result.cdp).toBe(server.endpoint);
       expect(result.targets).toHaveLength(1);
       expect(result.targets[0].id).toBe("vscode-workbench");
       expect(result.targets[0].url).toContain("vscode-file://vscode-app");
@@ -397,6 +400,9 @@ describe("inspect cdp helpers", () => {
 
     try {
       const result = await listCdpTargets(endpoint);
+      expect(result.command).toBe("inspect");
+      expect(result.mode).toBe("list-targets");
+      expect(result.cdp).toBe(endpoint);
       expect(result.targets).toHaveLength(1);
       expect(result.targets[0].index).toBe(0);
       expect(result.targets[0].id).toBe("page-1");

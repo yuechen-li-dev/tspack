@@ -183,3 +183,19 @@ Page/analyzer:
 - `node scripts/inspect-host-probe.mjs`
 - `node scripts/inspect-playwright-core-probe.mjs`
 - `node scripts/inspect-platform-webview-probe.mjs`
+
+## VS Code extension proof of concept
+
+M39b adds a lightweight VS Code extension proof of concept under `extensions/tspack-vscode/`. The extension does not implement a separate inspector and does not attach to CDP directly. It shells out to the TSPack CLI so `tspack inspect` remains the source of truth for runtime inspection.
+
+The extension supports the following proof-of-concept workflow:
+
+1. Start VS Code, Chromium, or another Electron/Chromium host with an explicit remote debugging port, for example `code --remote-debugging-port=9229`.
+2. Configure `tspack.inspect.cdpEndpoint` when the default `http://127.0.0.1:9229` is not the desired endpoint.
+3. Run **TSPack: Inspect CDP Targets** to execute `tspack inspect --cdp <endpoint> --list-targets --json`.
+4. Pick a target and let the extension execute `tspack inspect --cdp <endpoint> --target <index> --json`.
+5. Review the runtime UI tree, selected node details, diagnostics, and copyable selected-node JSON inside VS Code.
+
+The extension is intentionally scoped to observation: target listing, inspect tree rendering, selected-node details, and JSON copy. It does not implement visual editing, source mutation, source mapping, LLM integration, screenshot/OCR/machine vision, framework adapters, or a Code-OSS fork.
+
+See [Runtime-Grounded IDE Vision](runtime-grounded-ide.md) for the broader direction.

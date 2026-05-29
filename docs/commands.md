@@ -108,3 +108,32 @@ Native xTest batch mode runs test files concurrently with an automatic worker co
 ### Lifecycle script visibility
 
 `update` records supported npm lifecycle scripts (`preinstall`, `install`, `postinstall`, `prepare`, and related pack/publish hooks) as lockfile package capabilities without executing them. `check` warns with `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT` for each recorded lifecycle script, and `why`/`why --json` include package capabilities in explanations. `sync` materializes packages without running lifecycle commands.
+
+## Inspect CDP target listing JSON
+
+`inspect` supports machine-readable CDP target listing for tools such as the VS Code extension proof of concept:
+
+```sh
+tspack inspect --cdp http://127.0.0.1:9229 --list-targets --json
+```
+
+The JSON output identifies the command and mode, echoes the CDP endpoint, and includes inspectable targets plus diagnostics:
+
+```json
+{
+  "command": "inspect",
+  "mode": "list-targets",
+  "cdp": "http://127.0.0.1:9229",
+  "endpoint": "http://127.0.0.1:9229",
+  "targets": [
+    {
+      "index": 0,
+      "type": "page",
+      "url": "vscode-file://...",
+      "title": "...",
+      "id": "..."
+    }
+  ],
+  "diagnostics": []
+}
+```
