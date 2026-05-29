@@ -689,6 +689,7 @@ func runCommand(args []string) {
 	explainFile := ""
 	explainSet := false
 	checkPositionals := []string{}
+	checkFormat := false
 	clean := false
 	updateDryRun := false
 	updateQuiet := false
@@ -764,6 +765,12 @@ func runCommand(args []string) {
 			whyOpts.Reverse = true
 		case "--json":
 			jsonOutput = true
+		case "--format":
+			if cmd != "check" {
+				fmt.Fprintf(os.Stderr, "unknown %s flag: --format\n", cmd)
+				os.Exit(1)
+			}
+			checkFormat = true
 		case "--explain":
 			if cmd != "check" {
 				fmt.Fprintf(os.Stderr, "unknown %s flag: --explain\n", cmd)
@@ -853,6 +860,10 @@ func runCommand(args []string) {
 	switch cmd {
 	case "check":
 		result = project.Check(opts)
+		if checkFormat {
+			formatResult := runCheckFormatValidation(opts.RootDir, jsonOutput)
+			result.Diagnostics = append(result.Diagnostics, formatResult.Diagnostics...)
+		}
 	case "update":
 		if updateDryRun {
 			result = project.UpdateDryRunWithOptions(opts, updateOptions)
@@ -1179,6 +1190,18 @@ func buildUpdateDryRunJSONReport(opts project.Options, result project.Result) Up
 		})
 	}
 	return report
+}
+
+func runCheckFormatValidation(root string, jsonOutput bool) biomeCommandResult {
+	options := biomeCommandOptions{
+		Command:                  "format",
+		Root:                     root,
+		Paths:                    []string{},
+		UseCheck:                 true,
+		CaptureOutput:            jsonOutput,
+		PrintDefaultConfigStatus: !jsonOutput,
+	}
+	return runBiomeCommandWithOptions(options)
 }
 
 func buildCheckJSONReport(opts project.Options, result project.Result) CheckJSONReport {

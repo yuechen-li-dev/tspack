@@ -1989,6 +1989,75 @@ type capturedBiomeInvocation struct {
 	ConfigJSON string   `json:"configJSON"`
 }
 
+func writeValidCheckFrontendStub(t *testing.T, repo string) {
+	t.Helper()
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	if err := os.MkdirAll(frontend, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cliPath := filepath.Join(frontend, "cli.js")
+	stub := `#!/usr/bin/env node
+const out = {
+  ok: true,
+  ir: {
+    format: 1,
+    workspace: { name: "ws" },
+    packages: [
+      {
+        name: "app",
+        version: "1.0.0",
+        kind: "library",
+        dependencies: [],
+        targets: [
+          {
+            name: "core",
+            export: ".",
+            entry: "src/index.ts",
+            runtime: "dist/index.js",
+            types: "dist/index.d.ts",
+            deps: [],
+            peers: []
+          }
+        ],
+        tools: [],
+        boundaries: [],
+        publish: { include: ["dist/**"], exclude: [] },
+        policies: { types: {}, boundaries: {} }
+      }
+    ]
+  },
+  diagnostics: []
+};
+process.stdout.write(JSON.stringify(out));`
+	if err := os.WriteFile(cliPath, []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(cliPath) })
+}
+
+func writeValidCheckProject(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, dir := range []string{"src", "dist"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := map[string]string{
+		"manifest.tsx":    "export default {}\n",
+		"src/index.ts":    "export const value = 1;\n",
+		"dist/index.js":   "export const value = 1;\n",
+		"dist/index.d.ts": "export declare const value: number;\n",
+		"ts-lock.toml":    "[lock]\nformat = 1\ntool = \"tspack\"\n\n[[target]]\npackage = \"app\"\nname = \"core\"\nexport = \".\"\nentry = \"src/index.ts\"\nruntime = \"dist/index.js\"\ntypes = \"dist/index.d.ts\"\n",
+	}
+	for path, contents := range files {
+		if err := os.WriteFile(filepath.Join(root, path), []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
 func writeBiomeConfigCaptureBackend(t *testing.T, path string, capture string, stdoutText string, stderrText string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -2099,6 +2168,55 @@ func runTSPackForBiomeSplit(t *testing.T, repo string, root string, args []strin
 	return stdout.String(), stderr.String(), err
 }
 
+func runTSPackBinarySplit(t *testing.T, repo string, binPath string, args []string, pathDir string) (string, string, error) {
+	t.Helper()
+	cmd := exec.Command(binPath, args...)
+	cmd.Dir = repo
+	pathValue := os.Getenv("PATH")
+	if pathDir != "" {
+		pathValue = pathDir + string(os.PathListSeparator) + pathValue
+	}
+	cmd.Env = append(os.Environ(), "PATH="+pathValue)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
+}
+
+func runTSPackBinarySplitWithExactPath(t *testing.T, repo string, binPath string, args []string, pathValue string) (string, string, error) {
+	t.Helper()
+	cmd := exec.Command(binPath, args...)
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "PATH="+pathValue)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
+}
+
+func pathWithNodeOnly(t *testing.T) string {
+	t.Helper()
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Fatalf("node is required for check command tests: %v", err)
+	}
+	pathDir := t.TempDir()
+	linkPath := filepath.Join(pathDir, "node")
+	if runtime.GOOS == "windows" {
+		linkPath = filepath.Join(pathDir, "node.exe")
+	}
+	if err := os.Symlink(nodePath, linkPath); err != nil {
+		t.Fatal(err)
+	}
+	return pathDir
+}
+
 func readCapturedBiomeArgv(t *testing.T, capture string) []string {
 	t.Helper()
 	data, err := os.ReadFile(capture)
@@ -2190,6 +2308,233 @@ func containsExactArg(args []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestCLICheckFormatFlagParsingAndRoot(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	writeValidCheckFrontendStub(t, repo)
+
+	plainRoot := writeValidCheckProject(t)
+	plainCmd := exec.Command("go", "run", "./cmd/tspack", "check", "--root", plainRoot)
+	plainCmd.Dir = repo
+	plainOutput, plainErr := plainCmd.CombinedOutput()
+	if plainErr != nil {
+		t.Fatalf("plain check should not require or invoke Biome: %v\n%s", plainErr, string(plainOutput))
+	}
+
+	root := writeValidCheckProject(t)
+	capture := filepath.Join(root, "capture.json")
+	localBiome := filepath.Join(root, "node_modules", ".bin", "biome")
+	writeBiomeExitBackend(t, localBiome, capture, 0, "", "")
+
+	output, err := runTSPackForBiome(t, repo, root, []string{"check", "--format", "--root", root}, "")
+	if err != nil {
+		t.Fatalf("check --format should succeed: %v\n%s", err, output)
+	}
+	got := readCapturedBiomeArgv(t, capture)
+	assertBiomeArgsInclude(t, got, "format", ".")
+	assertBiomeArgsOmit(t, got, "--write", "--check")
+
+	captured := readCapturedBiomeInvocation(t, capture)
+	if captured.Cwd != root {
+		t.Fatalf("check --format should run Biome in --root directory, got %q want %q", captured.Cwd, root)
+	}
+}
+
+func TestCLICheckFormatPreservesManifestAndReportsTextFailure(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	writeValidCheckFrontendStub(t, repo)
+	root := writeValidCheckProject(t)
+	explicitManifest := filepath.Join(root, "custom-manifest.tsx")
+	if err := os.Rename(filepath.Join(root, "manifest.tsx"), explicitManifest); err != nil {
+		t.Fatal(err)
+	}
+
+	capture := filepath.Join(root, "capture.json")
+	localBiome := filepath.Join(root, "node_modules", ".bin", "biome")
+	writeBiomeExitBackend(t, localBiome, capture, 1, "BIOME_STDOUT", "BIOME_STDERR")
+
+	stdout, stderr, err := runTSPackForBiomeSplit(t, repo, root, []string{"check", "--format", "--manifest", explicitManifest, "--root", root}, "")
+	if err == nil {
+		t.Fatalf("check --format should fail when Biome exits nonzero")
+	}
+	combined := stdout + stderr
+	for _, want := range []string{"BIOME_STDOUT", "BIOME_STDERR", "TSPACK_FORMAT_CHECK_FAILED", "Run `tspack format`"} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("check --format text output missing %q:\nstdout=%s\nstderr=%s", want, stdout, stderr)
+		}
+	}
+
+	got := readCapturedBiomeArgv(t, capture)
+	assertBiomeArgsInclude(t, got, "format", ".")
+	assertBiomeArgsOmit(t, got, "--write", "--check")
+}
+
+func TestCLICheckFormatSuccessNoFailureDiagnostic(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	writeValidCheckFrontendStub(t, repo)
+	root := writeValidCheckProject(t)
+	capture := filepath.Join(root, "capture.json")
+	localBiome := filepath.Join(root, "node_modules", ".bin", "biome")
+	writeBiomeExitBackend(t, localBiome, capture, 0, "BIOME_OK", "")
+
+	output, err := runTSPackForBiome(t, repo, root, []string{"check", "--format", "--root", root}, "")
+	if err != nil {
+		t.Fatalf("check --format should succeed when check and format succeed: %v\n%s", err, output)
+	}
+	if strings.Contains(output, "TSPACK_FORMAT_CHECK_FAILED") {
+		t.Fatalf("successful check --format emitted failure diagnostic:\n%s", output)
+	}
+	if !strings.Contains(output, "BIOME_OK") {
+		t.Fatalf("text check --format should preserve Biome output:\n%s", output)
+	}
+}
+
+func TestCLICheckFormatBackendAndConfigBehavior(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	writeValidCheckFrontendStub(t, repo)
+
+	missingRoot := writeValidCheckProject(t)
+	missingBinPath := buildTspackBinary(t, repo)
+	missingStdout, missingStderr, missingErr := runTSPackBinarySplitWithExactPath(
+		t,
+		repo,
+		missingBinPath,
+		[]string{"check", "--format", "--root", missingRoot},
+		pathWithNodeOnly(t),
+	)
+	missingOutput := missingStdout + missingStderr
+	if missingErr == nil || !strings.Contains(missingOutput, "TSPACK_BIOME_BACKEND_NOT_FOUND") {
+		t.Fatalf("missing backend should fail with diagnostic: %v\nstdout=%s\nstderr=%s", missingErr, missingStdout, missingStderr)
+	}
+
+	defaultRoot := writeValidCheckProject(t)
+	defaultCapture := filepath.Join(defaultRoot, "capture.json")
+	writeBiomeConfigCaptureBackend(t, filepath.Join(defaultRoot, "node_modules", ".bin", "biome"), defaultCapture, "", "")
+	_, defaultStderr, defaultErr := runTSPackForBiomeSplit(t, repo, defaultRoot, []string{"check", "--format", "--root", defaultRoot}, "")
+	if defaultErr != nil {
+		t.Fatalf("check --format with default config should succeed: %v\n%s", defaultErr, defaultStderr)
+	}
+	if !strings.Contains(defaultStderr, defaultBiomeConfigStatusLine) {
+		t.Fatalf("expected default config signal on stderr:\n%s", defaultStderr)
+	}
+	defaultInvocation := readCapturedBiomeInvocation(t, defaultCapture)
+	if defaultInvocation.ConfigPath == "" {
+		t.Fatalf("expected temp default config path: %#v", defaultInvocation)
+	}
+
+	projectRoot := writeValidCheckProject(t)
+	projectCapture := filepath.Join(projectRoot, "capture.json")
+	if err := os.WriteFile(filepath.Join(projectRoot, "biome.jsonc"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeBiomeConfigCaptureBackend(t, filepath.Join(projectRoot, "node_modules", ".bin", "biome"), projectCapture, "", "")
+	projectStdout, projectStderr, projectErr := runTSPackForBiomeSplit(t, repo, projectRoot, []string{"check", "--format", "--root", projectRoot}, "")
+	if projectErr != nil {
+		t.Fatalf("check --format with project config should succeed: %v\nstdout=%s\nstderr=%s", projectErr, projectStdout, projectStderr)
+	}
+	if strings.Contains(projectStderr, defaultBiomeConfigStatusLine) || strings.Contains(projectStdout, defaultBiomeConfigStatusLine) {
+		t.Fatalf("project config should suppress default message:\nstdout=%s\nstderr=%s", projectStdout, projectStderr)
+	}
+	projectInvocation := readCapturedBiomeInvocation(t, projectCapture)
+	if projectInvocation.ConfigPath != "" {
+		t.Fatalf("project config should not pass temp --config-path: %#v", projectInvocation)
+	}
+}
+
+func TestCLICheckFormatJSONSuccessAndFailureAreClean(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	writeValidCheckFrontendStub(t, repo)
+
+	binPath := buildTspackBinary(t, repo)
+
+	successRoot := writeValidCheckProject(t)
+	successCapture := filepath.Join(successRoot, "capture.json")
+	writeBiomeExitBackend(t, filepath.Join(successRoot, "node_modules", ".bin", "biome"), successCapture, 0, "BIOME_STDOUT", "BIOME_STDERR")
+	successStdout, successStderr, successErr := runTSPackBinarySplit(t, repo, binPath, []string{"check", "--format", "--json", "--root", successRoot}, "")
+	if successErr != nil {
+		t.Fatalf("json check --format success should exit zero: %v\nstdout=%s\nstderr=%s", successErr, successStdout, successStderr)
+	}
+	if successStderr != "" {
+		t.Fatalf("json check --format success should keep stderr clean, got %q", successStderr)
+	}
+	if strings.Contains(successStdout, "BIOME_STDOUT") || strings.Contains(successStdout, "BIOME_STDERR") {
+		t.Fatalf("json success should not mix captured Biome human output into stdout:\n%s", successStdout)
+	}
+	var successReport checkJSONReport
+	if err := json.Unmarshal([]byte(successStdout), &successReport); err != nil {
+		t.Fatalf("success stdout should be JSON: %v\n%s", err, successStdout)
+	}
+	if !successReport.OK {
+		t.Fatalf("expected ok=true: %+v", successReport)
+	}
+
+	failureRoot := writeValidCheckProject(t)
+	failureCapture := filepath.Join(failureRoot, "capture.json")
+	writeBiomeExitBackend(t, filepath.Join(failureRoot, "node_modules", ".bin", "biome"), failureCapture, 1, "BIOME_STDOUT", "BIOME_STDERR")
+	failureStdout, failureStderr, failureErr := runTSPackBinarySplit(t, repo, binPath, []string{"check", "--format", "--json", "--root", failureRoot}, "")
+	if failureErr == nil {
+		t.Fatalf("json check --format failure should exit nonzero")
+	}
+	if failureStderr != "" {
+		t.Fatalf("json check --format failure should keep stderr clean, got %q", failureStderr)
+	}
+	var failureReport checkJSONReport
+	if err := json.Unmarshal([]byte(failureStdout), &failureReport); err != nil {
+		t.Fatalf("failure stdout should be JSON: %v\n%s", err, failureStdout)
+	}
+	if failureReport.OK {
+		t.Fatalf("expected ok=false: %+v", failureReport)
+	}
+	formatDiagnosticFound := false
+	for _, diagnostic := range failureReport.Diagnostics {
+		if diagnostic.Code == "TSPACK_FORMAT_CHECK_FAILED" {
+			formatDiagnosticFound = true
+			details := strings.Join(diagnostic.Details, "\n")
+			if !strings.Contains(details, "Run `tspack format`") || !strings.Contains(details, "BIOME_STDOUT") || !strings.Contains(details, "BIOME_STDERR") {
+				t.Fatalf("format diagnostic details should include guidance and captured output: %+v", diagnostic)
+			}
+		}
+	}
+	if !formatDiagnosticFound {
+		t.Fatalf("expected TSPACK_FORMAT_CHECK_FAILED diagnostic: %+v", failureReport.Diagnostics)
+	}
+}
+
+func TestCLICheckFormatJSONMissingBackendIsStructured(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	writeValidCheckFrontendStub(t, repo)
+	root := writeValidCheckProject(t)
+	binPath := buildTspackBinary(t, repo)
+	stdout, stderr, err := runTSPackBinarySplitWithExactPath(
+		t,
+		repo,
+		binPath,
+		[]string{"check", "--format", "--json", "--root", root},
+		pathWithNodeOnly(t),
+	)
+	if err == nil {
+		t.Fatalf("missing backend should fail")
+	}
+	if stderr != "" {
+		t.Fatalf("json missing backend should keep stderr clean, got %q", stderr)
+	}
+	var report checkJSONReport
+	if jsonErr := json.Unmarshal([]byte(stdout), &report); jsonErr != nil {
+		t.Fatalf("missing backend stdout should be JSON: %v\n%s", jsonErr, stdout)
+	}
+	if report.OK {
+		t.Fatalf("missing backend should report ok=false: %+v", report)
+	}
+	found := false
+	for _, diagnostic := range report.Diagnostics {
+		if diagnostic.Code == "TSPACK_BIOME_BACKEND_NOT_FOUND" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected structured missing backend diagnostic: %+v", report.Diagnostics)
+	}
 }
 
 func TestCLIBiomeMissingBackendAndInvalidFlags(t *testing.T) {
