@@ -43,7 +43,7 @@ This inventory groups primary diagnostic families by subsystem to keep command-s
 - Severity is preserved (`error`, `warning`, `info`), and warning diagnostics are included in the report summary.
 - `ok` is `false` when one or more `error` diagnostics exist, otherwise `true`.
 - `TSPACK_LOCK_VERSION_CONFLICT` warns when one source ecosystem/package name appears at multiple locked versions (for example two npm react versions).
-- `TSPACK_WHY_NOT_FOUND` may include detail lines with matching lock package IDs and a suggested `tspack why npm:<name>@<version>` query when a bare package name only matches transitive lock entries.
+- `TSPACK_WHY_NOT_FOUND` may include detail lines with matching lock package IDs and suggested `tspack why npm:<name>@<version>` queries when a bare package name only matches transitive lock entries. Multiple suggestions are sorted and scoped package IDs use the same lock ID form, for example `npm:@scope/pkg@1.2.3`.
 
 ### Boundary validation diagnostics
 

@@ -789,7 +789,6 @@ func runCommand(args []string) {
 		}
 	}
 	if result.WhyResult != nil {
-		printedLockEdges := map[string]bool{}
 		for _, e := range result.WhyResult.Explanations {
 			if e.MatchType == "dependency" {
 				fmt.Printf("%s declared in package %q as %s\n", e.DependencyKey, e.PackageName, e.Kind)
@@ -816,23 +815,9 @@ func runCommand(args []string) {
 			}
 
 			if len(e.LockEdges) > 0 {
-				lines := make([]string, 0, len(e.LockEdges))
+				fmt.Println("lock edges:")
 				for _, edge := range e.LockEdges {
-					key := edge.From + "|" + edge.To + "|" + edge.Kind
-					if edge.Optional {
-						key += "|optional"
-					}
-					if printedLockEdges[key] {
-						continue
-					}
-					printedLockEdges[key] = true
-					lines = append(lines, fmt.Sprintf("  %s -> %s %s", edge.From, edge.To, edge.Kind))
-				}
-				if len(lines) > 0 {
-					fmt.Println("lock edges:")
-					for _, line := range lines {
-						fmt.Println(line)
-					}
+					fmt.Printf("  %s -> %s %s\n", edge.From, edge.To, edge.Kind)
 				}
 			}
 		}

@@ -25,6 +25,25 @@ var entries = []DiagnosticHelp{
 	{Code: "TSPACK_CHECK_LOCKFILE_MISSING", Title: "Lockfile missing during check", Summary: "tspack check did not find ts-lock.toml.", Why: "The lockfile captures resolved dependency state and enables reproducible builds and CI validation.", CommonCauses: []string{"Fresh repository clone without generated lockfile.", "Lockfile was deleted or not committed.", "Running check before running update in a new workspace."}, Fixes: []string{"Run tspack update to create or refresh ts-lock.toml.", "Commit the lockfile when your workflow requires deterministic CI.", "Treat this warning as actionable even if warnings-only mode exits zero."}, RelatedCommands: []string{"tspack update", "tspack check"}},
 	{Code: "TSPACK_LOCK_VERSION_CONFLICT", Title: "Multiple locked versions for one package", Summary: "tspack check found multiple versions for the same package name within one source ecosystem.", Why: "Multiple locked versions can be valid, but often signal duplicated runtime dependencies or peer version drift that increases bundle size and can break singleton assumptions.", CommonCauses: []string{"Different transitive dependency ranges resolved to different versions.", "Gradual upgrades where direct and indirect dependencies are out of alignment.", "Library packages declaring singleton runtime dependencies as dependencies instead of peers."}, Fixes: []string{"Run tspack why <package> to inspect who pulls each version.", "Align dependency ranges across workspace packages and direct dependencies.", "Update lagging packages so transitive ranges converge.", "For libraries, move singleton runtime deps (for example React) to peer dependencies when appropriate.", "Accept the conflict when the versions are intentionally isolated tooling/runtime paths."}, RelatedCommands: []string{"tspack check", "tspack why", "tspack update"}},
 	{
+		Code:    "TSPACK_WHY_NOT_FOUND",
+		Title:   "Why query not found",
+		Summary: "tspack why could not match the query to a declared dependency, target, package declaration, or full lock package ID.",
+		Why:     "Transitive packages may appear in ts-lock.toml without being manifest dependency keys. Those packages need the lock ID form so tspack can distinguish exact resolved versions.",
+		CommonCauses: []string{
+			"Querying a transitive package by bare name, such as loose-envify.",
+			"Omitting the version from a lock package query.",
+			"Misspelling a dependency key, package name, target name, or lock package ID.",
+		},
+		Fixes: []string{
+			"If diagnostic details list matching lock packages, run the suggested command, for example tspack why npm:loose-envify@1.4.0.",
+			"Use the full lock ID form tspack why npm:<name>@<version> for transitive npm packages.",
+			"For scoped packages, keep the scope in the lock ID, such as tspack why npm:@scope/pkg@1.2.3.",
+			"Run tspack update first if the lockfile is missing and you need transitive lock suggestions.",
+		},
+		RelatedDocs:     []string{"docs/why.md"},
+		RelatedCommands: []string{"tspack why npm:<name>@<version>", "tspack update"},
+	},
+	{
 		Code:    "TSPACK_BOUNDARY_TOOL_RUNTIME_IMPORT",
 		Title:   "Tool dependency imported in runtime source",
 		Summary: "Runtime code imported a tool-only dependency.",
