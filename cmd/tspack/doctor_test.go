@@ -183,7 +183,7 @@ func TestDoctorTextRendersSortedDetailsAndRuntimeVersion(t *testing.T) {
 	data, _ := io.ReadAll(r)
 	text := string(data)
 	alpha := strings.Index(text, "alpha: first")
-	items := strings.Index(text, "items: [\"one\",\"two\"]")
+	items := strings.Index(text, "items:\n      one\n      two")
 	zeta := strings.Index(text, "zeta: true")
 	if alpha < 0 || items < 0 || zeta < 0 || !(alpha < items && items < zeta) {
 		t.Fatalf("details not sorted/rendered deterministically:\n%s", text)
@@ -254,5 +254,207 @@ func TestDoctorRunReportsReadyKindSpecificDetails(t *testing.T) {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("doctor text missing %q:\n%s", expected, text)
 		}
+	}
+}
+
+func TestDoctorSecurityNoLifecycleCapabilities(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	writeManifestStubWithIR(t, repo, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{}}]}`)
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "ts-lock.toml"), []byte("[lock]\nformat=1\ntool=\"tspack\"\n"), 0o644)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "security", "--root", root)
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("doctor security text failed: %v\n%s", err, string(b))
+	}
+	text := string(b)
+	for _, expected := range []string{"Security", "lifecycle summary: ok", "no lifecycle script capabilities recorded", "totalLifecycleCapabilities: 0", "lifecycle execution posture: ok"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("doctor security text missing %q:\n%s", expected, text)
+		}
+	}
+	cmd = exec.Command("go", "run", "./cmd/tspack", "doctor", "security", "--root", root, "--json")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("doctor security json failed: %v\n%s", err, string(b))
+	}
+	var report DoctorReport
+	if err := json.Unmarshal(b, &report); err != nil {
+		t.Fatalf("invalid doctor security json: %v\n%s", err, string(b))
+	}
+	checks := flattenDoctorChecks(report)
+	summary := checks["lifecycle summary"]
+	if summary.Status != "ok" || summary.Details["totalLifecycleCapabilities"] != float64(0) || summary.Details["unusedAcknowledgments"] != float64(0) {
+		t.Fatalf("unexpected zero-capability summary: %#v", summary)
+	}
+}
+
+func TestDoctorSecurityLifecycleAcknowledgementStates(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	writeManifestStubWithIR(t, repo, `{format:1,workspace:{name:"ws"},security:{acknowledgedCapabilities:[{package:"npm:ack@1.0.0",kind:"lifecycleScript",script:"postinstall",command:"node install.js",reason:"Known lifecycle capability; execution remains blocked."},{package:"npm:stale@1.0.0",kind:"lifecycleScript",script:"postinstall",command:"node old.js",reason:"Expected package install hook."},{package:"npm:unused@1.0.0",kind:"lifecycleScript",script:"postinstall",command:"node gone.js",reason:"No longer present."}]},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{}}]}`)
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	lockText := `[lock]
+format = 1
+tool = "tspack"
+
+[[package]]
+id = "npm:unack@1.0.0"
+name = "unack"
+version = "1.0.0"
+source = "npm"
+integrity = "sha512-test"
+  [[package.capability]]
+  kind = "lifecycleScript"
+  script = "postinstall"
+  command = "node build.js"
+
+[[package]]
+id = "npm:ack@1.0.0"
+name = "ack"
+version = "1.0.0"
+source = "npm"
+integrity = "sha512-test"
+  [[package.capability]]
+  kind = "lifecycleScript"
+  script = "postinstall"
+  command = "node install.js"
+
+[[package]]
+id = "npm:stale@1.0.0"
+name = "stale"
+version = "1.0.0"
+source = "npm"
+integrity = "sha512-test"
+  [[package.capability]]
+  kind = "lifecycleScript"
+  script = "postinstall"
+  command = "node new.js"
+
+[[edge]]
+from = "app:target:app"
+to = "npm:unack@1.0.0"
+kind = "runtime"
+
+[[edge]]
+from = "app:target:app"
+to = "npm:ack@1.0.0"
+kind = "runtime"
+
+[[edge]]
+from = "app:target:app"
+to = "npm:stale@1.0.0"
+kind = "runtime"
+`
+	_ = os.WriteFile(filepath.Join(root, "ts-lock.toml"), []byte(lockText), 0o644)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "security", "--root", root, "--json")
+	cmd.Dir = repo
+	var stdout strings.Builder
+	var stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("warnings-only doctor security should exit 0: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("doctor security --json wrote stderr: %q", stderr.String())
+	}
+	firstOutput := stdout.String()
+	cmd = exec.Command("go", "run", "./cmd/tspack", "doctor", "security", "--root", root, "--json")
+	cmd.Dir = repo
+	b, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("repeat doctor security json failed: %v", err)
+	}
+	if firstOutput != string(b) {
+		t.Fatalf("doctor security json not deterministic:\nfirst=%s\nsecond=%s", firstOutput, string(b))
+	}
+
+	var report DoctorReport
+	if err := json.Unmarshal([]byte(firstOutput), &report); err != nil {
+		t.Fatalf("invalid doctor security json: %v\n%s", err, firstOutput)
+	}
+	checks := flattenDoctorChecks(report)
+	summary := checks["lifecycle summary"]
+	if summary.Status != "warning" || summary.Details["totalLifecycleCapabilities"] != float64(3) || summary.Details["acknowledged"] != float64(1) || summary.Details["unacknowledged"] != float64(1) || summary.Details["staleAcknowledgments"] != float64(1) || summary.Details["unusedAcknowledgments"] != float64(1) {
+		t.Fatalf("unexpected lifecycle summary: %#v", summary)
+	}
+	unack := checks["lifecycle npm:unack@1.0.0 postinstall"]
+	if unack.Status != "warning" || unack.Details["execution"] != "blocked" || unack.Details["acknowledged"] != false || unack.Details["command"] != "node build.js" {
+		t.Fatalf("unexpected unacknowledged lifecycle check: %#v", unack)
+	}
+	pulledBy, ok := unack.Details["pulledBy"].([]any)
+	if !ok || len(pulledBy) != 1 || pulledBy[0] != "app:target:app -> npm:unack@1.0.0" {
+		t.Fatalf("missing pulled-by path: %#v", unack.Details)
+	}
+	ack := checks["lifecycle npm:ack@1.0.0 postinstall"]
+	if ack.Status != "ok" || ack.Details["acknowledged"] != true || ack.Details["reason"] == "" {
+		t.Fatalf("unexpected acknowledged lifecycle check: %#v", ack)
+	}
+	stale := checks["lifecycle npm:stale@1.0.0 postinstall"]
+	if stale.Status != "warning" || stale.Details["acknowledged"] != false || stale.Details["stale"] != true || stale.Details["acknowledgedCommand"] != "node old.js" || stale.Details["actualCommand"] != "node new.js" {
+		t.Fatalf("unexpected stale lifecycle check: %#v", stale)
+	}
+	unused := checks["unused acknowledgement npm:unused@1.0.0 postinstall"]
+	if unused.Status != "warning" || unused.Details["command"] != "node gone.js" || unused.Details["reason"] == "" {
+		t.Fatalf("unexpected unused acknowledgement check: %#v", unused)
+	}
+}
+
+func TestDoctorSecurityMissingLockfileSuppressesUnusedAcknowledgements(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	writeManifestStubWithIR(t, repo, `{format:1,workspace:{name:"ws"},security:{acknowledgedCapabilities:[{package:"npm:unused@1.0.0",kind:"lifecycleScript",script:"postinstall",command:"node gone.js",reason:"No lock graph yet."}]},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{}}]}`)
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "security", "--root", root, "--json")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("missing-lockfile warning should exit 0: %v\n%s", err, string(b))
+	}
+	var report DoctorReport
+	if err := json.Unmarshal(b, &report); err != nil {
+		t.Fatalf("invalid missing-lockfile json: %v\n%s", err, string(b))
+	}
+	checks := flattenDoctorChecks(report)
+	if checks["security lockfile missing"].Status != "warning" {
+		t.Fatalf("missing lockfile warning not reported: %#v", checks)
+	}
+	if _, ok := checks["unused acknowledgement npm:unused@1.0.0 postinstall"]; ok {
+		t.Fatalf("unused acknowledgement should be suppressed without lockfile: %#v", checks)
+	}
+}
+
+func TestDoctorAllIncludesSecuritySection(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	writeManifestStub(t, repo)
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "ts-lock.toml"), []byte("[lock]\nformat=1\ntool=\"tspack\"\n"), 0o644)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "--root", root, "--json")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("doctor all json failed: %v\n%s", err, string(b))
+	}
+	var report DoctorReport
+	if err := json.Unmarshal(b, &report); err != nil {
+		t.Fatalf("invalid doctor all json: %v\n%s", err, string(b))
+	}
+	foundSecurity := false
+	for _, section := range report.Sections {
+		if section.Name == "Security" {
+			foundSecurity = true
+		}
+	}
+	if !foundSecurity {
+		t.Fatalf("doctor all missing Security section: %#v", report.Sections)
 	}
 }

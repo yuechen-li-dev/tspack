@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,15 +11,21 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/tspack/tspack/internal/capability"
+	"github.com/tspack/tspack/internal/diag"
+	"github.com/tspack/tspack/internal/lockfile"
+	"github.com/tspack/tspack/internal/manifest"
 )
 
 type doctorScope string
 
 const (
-	doctorScopeAll     doctorScope = "all"
-	doctorScopeFormat  doctorScope = "format"
-	doctorScopeRun     doctorScope = "run"
-	doctorScopeInspect doctorScope = "inspect"
+	doctorScopeAll      doctorScope = "all"
+	doctorScopeFormat   doctorScope = "format"
+	doctorScopeRun      doctorScope = "run"
+	doctorScopeInspect  doctorScope = "inspect"
+	doctorScopeSecurity doctorScope = "security"
 )
 
 type DoctorReport struct {
@@ -50,7 +57,7 @@ func runDoctorCommand(args []string) {
 	for i := 1; i < len(args); i++ {
 		a := args[i]
 		switch a {
-		case "format", "run", "inspect":
+		case "format", "run", "inspect", "security":
 			scope = doctorScope(a)
 		case "--root":
 			if i+1 >= len(args) {
@@ -81,7 +88,9 @@ func runDoctorCommand(args []string) {
 	}
 
 	report := DoctorReport{Root: abs}
-	report.Sections = append(report.Sections, doctorProject(abs).toSection("Project"))
+	if scope != doctorScopeSecurity {
+		report.Sections = append(report.Sections, doctorProject(abs).toSection("Project"))
+	}
 	if scope == doctorScopeAll || scope == doctorScopeFormat {
 		report.Sections = append(report.Sections, doctorFormat(abs).toSection("Format/Lint"))
 	}
@@ -90,6 +99,9 @@ func runDoctorCommand(args []string) {
 	}
 	if scope == doctorScopeAll || scope == doctorScopeInspect {
 		report.Sections = append(report.Sections, doctorInspect(abs).toSection("Inspect (experimental)"))
+	}
+	if scope == doctorScopeAll || scope == doctorScopeSecurity {
+		report.Sections = append(report.Sections, doctorSecurity(abs).toSection("Security"))
 	}
 	for _, s := range report.Sections {
 		for _, c := range s.Checks {
@@ -110,7 +122,7 @@ func runDoctorCommand(args []string) {
 	} else {
 		printDoctorText(report)
 	}
-	if (scope == doctorScopeFormat || scope == doctorScopeRun) && report.Summary.Errors > 0 {
+	if (scope == doctorScopeFormat || scope == doctorScopeRun || scope == doctorScopeSecurity) && report.Summary.Errors > 0 {
 		os.Exit(1)
 	}
 }
@@ -456,7 +468,10 @@ func printDoctorText(report DoctorReport) {
 	for _, s := range report.Sections {
 		fmt.Println(s.Name)
 		for _, c := range s.Checks {
-			fmt.Printf("  %s: %s\n", c.Name, c.Message)
+			fmt.Printf("  %s: %s\n", c.Name, c.Status)
+			if c.Message != "" {
+				fmt.Printf("    message: %s\n", c.Message)
+			}
 			printDoctorDetails(c.Details)
 		}
 		fmt.Println()
@@ -475,6 +490,13 @@ func printDoctorDetails(details map[string]any) {
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
+		if values, ok := details[key].([]string); ok {
+			fmt.Printf("    %s:\n", key)
+			for _, value := range values {
+				fmt.Printf("      %s\n", value)
+			}
+			continue
+		}
 		fmt.Printf("    %s: %s\n", key, doctorDetailValue(details[key]))
 	}
 }
@@ -498,5 +520,436 @@ func doctorDetailValue(value any) string {
 			return fmt.Sprint(typed)
 		}
 		return string(b)
+	}
+}
+
+type doctorLifecycleCapability struct {
+	PackageID string
+	Script    string
+	Command   string
+}
+
+func doctorSecurity(root string) doctorBuilder {
+	d := doctorBuilder{}
+	ir, manifestChecks := loadDoctorSecurityManifest(root)
+	d.checks = append(d.checks, manifestChecks...)
+
+	lockfilePath := filepath.Join(root, "ts-lock.toml")
+	lf, lockChecks, lockfileAvailable := loadDoctorSecurityLockfile(lockfilePath)
+	if !lockfileAvailable && ir != nil && len(ir.Security.AcknowledgedCapabilities) > 0 {
+		annotateMissingLockfileAcknowledgements(lockChecks, len(ir.Security.AcknowledgedCapabilities))
+	}
+	d.checks = append(d.checks, lockChecks...)
+	if !lockfileAvailable {
+		d.checks = append(d.checks, doctorSecurityPostureCheck())
+		return d
+	}
+
+	acks := []manifest.AcknowledgedCapability(nil)
+	if ir != nil {
+		acks = append(acks, ir.Security.AcknowledgedCapabilities...)
+	}
+	d.checks = append(d.checks, doctorLifecycleSecurityChecks(lf, acks)...)
+	d.checks = append(d.checks, doctorSecurityPostureCheck())
+	return d
+}
+
+func annotateMissingLockfileAcknowledgements(checks []DoctorCheck, acknowledgementCount int) {
+	for index := range checks {
+		if checks[index].Name != "security lockfile missing" {
+			continue
+		}
+		if checks[index].Details == nil {
+			checks[index].Details = map[string]any{}
+		}
+		checks[index].Details["acknowledgmentsCannotBeEvaluated"] = acknowledgementCount
+	}
+}
+
+func loadDoctorSecurityManifest(root string) (*manifest.ManifestIR, []DoctorCheck) {
+	manifestPath := filepath.Join(root, "manifest.tsx")
+	if _, err := os.Stat(manifestPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil, []DoctorCheck{{Name: "security manifest", Status: "error", Message: "manifest.tsx missing", Recommendation: "Create manifest.tsx before auditing security acknowledgments."}}
+		}
+		return nil, []DoctorCheck{{Name: "security manifest", Status: "error", Message: "manifest.tsx could not be read", Details: map[string]any{"error": err.Error()}}}
+	}
+
+	cliPath := filepath.Join("manifest-frontend", "dist", "src", "cli.js")
+	if _, err := os.Stat(cliPath); err != nil {
+		return nil, []DoctorCheck{{Name: "security manifest", Status: "error", Message: "manifest frontend CLI not found", Details: map[string]any{"path": cliPath}, Recommendation: "Run `cd manifest-frontend && npm run build`."}}
+	}
+
+	cmd := exec.Command("node", cliPath, manifestPath)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, []DoctorCheck{{Name: "security manifest", Status: "error", Message: "manifest frontend failed", Details: map[string]any{"error": err.Error(), "stderr": stderr.String()}}}
+	}
+
+	var parsed struct {
+		OK          bool              `json:"ok"`
+		IR          json.RawMessage   `json:"ir"`
+		Diagnostics []diag.Diagnostic `json:"diagnostics"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &parsed); err != nil {
+		return nil, []DoctorCheck{{Name: "security manifest", Status: "error", Message: "manifest frontend returned invalid JSON", Details: map[string]any{"error": err.Error()}}}
+	}
+	if !parsed.OK {
+		details := map[string]any{}
+		if len(parsed.Diagnostics) > 0 {
+			details["diagnostics"] = parsed.Diagnostics
+		}
+		return nil, []DoctorCheck{{Name: "security manifest", Status: "error", Message: "manifest frontend returned diagnostics", Details: details}}
+	}
+
+	ir, diagnostics := manifest.LoadBytes(manifestPath, parsed.IR)
+	if len(diagnostics) > 0 {
+		return nil, doctorChecksForDiagnostics("security manifest", diagnostics)
+	}
+	return ir, []DoctorCheck{{Name: "security manifest", Status: "ok", Message: "security policy loaded", Details: map[string]any{"acknowledgedCapabilities": len(ir.Security.AcknowledgedCapabilities)}}}
+}
+
+func doctorChecksForDiagnostics(prefix string, diagnostics []diag.Diagnostic) []DoctorCheck {
+	checks := make([]DoctorCheck, 0, len(diagnostics))
+	for index, diagnostic := range diagnostics {
+		status := "warning"
+		if diagnostic.Severity == diag.SeverityError {
+			status = "error"
+		}
+		details := map[string]any{"code": diagnostic.Code}
+		if diagnostic.File != "" {
+			details["file"] = diagnostic.File
+		}
+		if len(diagnostic.Details) > 0 {
+			details["details"] = diagnostic.Details
+		}
+		checks = append(checks, DoctorCheck{
+			Name:    fmt.Sprintf("%s diagnostic %d", prefix, index+1),
+			Status:  status,
+			Message: diagnostic.Message,
+			Details: details,
+		})
+	}
+	return checks
+}
+
+func loadDoctorSecurityLockfile(lockfilePath string) (*lockfile.Lockfile, []DoctorCheck, bool) {
+	lf, diagnostics, err := lockfile.LoadFile(lockfilePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, []DoctorCheck{{
+				Name:    "security lockfile missing",
+				Status:  "warning",
+				Message: "security lockfile missing",
+				Details: map[string]any{
+					"lockfile": filepath.Base(lockfilePath),
+					"nextStep": "run tspack update to resolve and record package capabilities",
+				},
+			}}, false
+		}
+		return nil, []DoctorCheck{{Name: "security lockfile", Status: "error", Message: "failed to read lockfile", Details: map[string]any{"error": err.Error()}}}, false
+	}
+	if len(diagnostics) > 0 {
+		return nil, doctorChecksForDiagnostics("security lockfile", diagnostics), false
+	}
+	return lf, nil, true
+}
+
+func doctorLifecycleSecurityChecks(lf *lockfile.Lockfile, acknowledgements []manifest.AcknowledgedCapability) []DoctorCheck {
+	capabilities := collectDoctorLifecycleCapabilities(lf)
+	ackByExactKey := doctorAcknowledgementsByExactKey(acknowledgements)
+	usedAcknowledgements := map[string]bool{}
+	staleByCapabilityKey := map[string]manifest.AcknowledgedCapability{}
+	pathsByPackage := doctorLifecyclePulledByPathLines(lf)
+
+	acknowledgedCount := 0
+	unacknowledgedCount := 0
+	staleCount := 0
+	packagesWithLifecycle := map[string]bool{}
+
+	checks := []DoctorCheck{}
+	for _, lifecycleCapability := range capabilities {
+		packagesWithLifecycle[lifecycleCapability.PackageID] = true
+		exactKey := doctorLifecycleAcknowledgementKey(lifecycleCapability.PackageID, lifecycleCapability.Script, lifecycleCapability.Command)
+		_, acknowledged := ackByExactKey[exactKey]
+		if acknowledged {
+			usedAcknowledgements[exactKey] = true
+			acknowledgedCount++
+		} else {
+			staleAck, stale := doctorFindStaleAcknowledgement(lifecycleCapability, acknowledgements)
+			if stale {
+				staleKey := doctorLifecycleStaleAcknowledgementKey(lifecycleCapability.PackageID, lifecycleCapability.Script)
+				staleByCapabilityKey[staleKey] = staleAck
+				usedAcknowledgements[doctorLifecycleAcknowledgementKey(staleAck.Package, staleAck.Script, staleAck.Command)] = true
+				staleCount++
+			} else {
+				unacknowledgedCount++
+			}
+		}
+	}
+
+	unusedAcknowledgements := []manifest.AcknowledgedCapability{}
+	for _, acknowledgement := range acknowledgements {
+		if acknowledgement.Kind != capability.LifecycleScriptKind {
+			continue
+		}
+		key := doctorLifecycleAcknowledgementKey(acknowledgement.Package, acknowledgement.Script, acknowledgement.Command)
+		if !usedAcknowledgements[key] {
+			unusedAcknowledgements = append(unusedAcknowledgements, acknowledgement)
+		}
+	}
+	sort.SliceStable(unusedAcknowledgements, func(i, j int) bool {
+		return unusedAcknowledgements[i].Key() < unusedAcknowledgements[j].Key()
+	})
+
+	summaryStatus := "ok"
+	summaryMessage := "no lifecycle script capabilities recorded"
+	if len(capabilities) > 0 {
+		summaryMessage = fmt.Sprintf("%d lifecycle script capabilities found", len(capabilities))
+	}
+	if unacknowledgedCount > 0 || staleCount > 0 || len(unusedAcknowledgements) > 0 {
+		summaryStatus = "warning"
+	}
+	checks = append(checks, DoctorCheck{
+		Name:    "lifecycle summary",
+		Status:  summaryStatus,
+		Message: summaryMessage,
+		Details: map[string]any{
+			"totalLifecycleCapabilities":   len(capabilities),
+			"acknowledged":                 acknowledgedCount,
+			"unacknowledged":               unacknowledgedCount,
+			"staleAcknowledgments":         staleCount,
+			"unusedAcknowledgments":        len(unusedAcknowledgements),
+			"packagesWithLifecycleScripts": len(packagesWithLifecycle),
+		},
+	})
+
+	for _, lifecycleCapability := range capabilities {
+		check := doctorLifecycleCapabilityCheck(lifecycleCapability, ackByExactKey, staleByCapabilityKey, pathsByPackage)
+		checks = append(checks, check)
+	}
+	for _, staleAck := range staleAcknowledgementsSorted(staleByCapabilityKey) {
+		actualCommand := ""
+		for _, lifecycleCapability := range capabilities {
+			if lifecycleCapability.PackageID == staleAck.Package && lifecycleCapability.Script == staleAck.Script {
+				actualCommand = lifecycleCapability.Command
+				break
+			}
+		}
+		checks = append(checks, DoctorCheck{
+			Name:    "stale acknowledgement " + staleAck.Package + " " + staleAck.Script,
+			Status:  "warning",
+			Message: "acknowledged lifecycle capability command no longer matches lockfile",
+			Details: map[string]any{
+				"package":             staleAck.Package,
+				"script":              staleAck.Script,
+				"acknowledgedCommand": staleAck.Command,
+				"actualCommand":       actualCommand,
+				"reason":              staleAck.Reason,
+			},
+		})
+	}
+	for _, acknowledgement := range unusedAcknowledgements {
+		checks = append(checks, DoctorCheck{
+			Name:    "unused acknowledgement " + acknowledgement.Package + " " + acknowledgement.Script,
+			Status:  "warning",
+			Message: "acknowledged lifecycle capability not present in lockfile",
+			Details: map[string]any{
+				"package": acknowledgement.Package,
+				"script":  acknowledgement.Script,
+				"command": acknowledgement.Command,
+				"reason":  acknowledgement.Reason,
+			},
+		})
+	}
+	return checks
+}
+
+func collectDoctorLifecycleCapabilities(lf *lockfile.Lockfile) []doctorLifecycleCapability {
+	if lf == nil {
+		return nil
+	}
+	capabilities := []doctorLifecycleCapability{}
+	for _, pkg := range lf.Packages {
+		for _, pkgCapability := range pkg.Capabilities {
+			if !doctorIsLifecycleCapability(pkgCapability) {
+				continue
+			}
+			script := pkgCapability.Script
+			if script == "" {
+				script = pkgCapability.Detail
+			}
+			capabilities = append(capabilities, doctorLifecycleCapability{
+				PackageID: pkg.ID,
+				Script:    script,
+				Command:   pkgCapability.Command,
+			})
+		}
+	}
+	sort.SliceStable(capabilities, func(i, j int) bool {
+		if capabilities[i].PackageID != capabilities[j].PackageID {
+			return capabilities[i].PackageID < capabilities[j].PackageID
+		}
+		if capabilities[i].Script != capabilities[j].Script {
+			return capabilities[i].Script < capabilities[j].Script
+		}
+		return capabilities[i].Command < capabilities[j].Command
+	})
+	return capabilities
+}
+
+func doctorLifecycleCapabilityCheck(lifecycleCapability doctorLifecycleCapability, ackByExactKey map[string]manifest.AcknowledgedCapability, staleByCapabilityKey map[string]manifest.AcknowledgedCapability, pathsByPackage map[string][]string) DoctorCheck {
+	exactKey := doctorLifecycleAcknowledgementKey(lifecycleCapability.PackageID, lifecycleCapability.Script, lifecycleCapability.Command)
+	acknowledgement, acknowledged := ackByExactKey[exactKey]
+	staleKey := doctorLifecycleStaleAcknowledgementKey(lifecycleCapability.PackageID, lifecycleCapability.Script)
+	staleAck, stale := staleByCapabilityKey[staleKey]
+
+	status := "warning"
+	message := "package declares lifecycle script; execution is blocked by default"
+	details := map[string]any{
+		"package":      lifecycleCapability.PackageID,
+		"script":       lifecycleCapability.Script,
+		"command":      lifecycleCapability.Command,
+		"execution":    "blocked",
+		"acknowledged": acknowledged,
+	}
+	if acknowledged {
+		status = "ok"
+		message = "acknowledged lifecycle script capability; execution remains blocked"
+		details["reason"] = acknowledgement.Reason
+	}
+	if stale {
+		details["stale"] = true
+		details["acknowledgedCommand"] = staleAck.Command
+		details["actualCommand"] = lifecycleCapability.Command
+		details["reason"] = staleAck.Reason
+	}
+	if pulledBy := pathsByPackage[lifecycleCapability.PackageID]; len(pulledBy) > 0 {
+		details["pulledBy"] = pulledBy
+	}
+	return DoctorCheck{
+		Name:    "lifecycle " + lifecycleCapability.PackageID + " " + lifecycleCapability.Script,
+		Status:  status,
+		Message: message,
+		Details: details,
+	}
+}
+
+func doctorAcknowledgementsByExactKey(acknowledgements []manifest.AcknowledgedCapability) map[string]manifest.AcknowledgedCapability {
+	byKey := map[string]manifest.AcknowledgedCapability{}
+	for _, acknowledgement := range acknowledgements {
+		if acknowledgement.Kind != capability.LifecycleScriptKind {
+			continue
+		}
+		key := doctorLifecycleAcknowledgementKey(acknowledgement.Package, acknowledgement.Script, acknowledgement.Command)
+		byKey[key] = acknowledgement
+	}
+	return byKey
+}
+
+func doctorFindStaleAcknowledgement(lifecycleCapability doctorLifecycleCapability, acknowledgements []manifest.AcknowledgedCapability) (manifest.AcknowledgedCapability, bool) {
+	for _, acknowledgement := range acknowledgements {
+		if acknowledgement.Kind != capability.LifecycleScriptKind {
+			continue
+		}
+		if acknowledgement.Package != lifecycleCapability.PackageID {
+			continue
+		}
+		if acknowledgement.Script != lifecycleCapability.Script {
+			continue
+		}
+		if acknowledgement.Command == lifecycleCapability.Command {
+			continue
+		}
+		return acknowledgement, true
+	}
+	return manifest.AcknowledgedCapability{}, false
+}
+
+func staleAcknowledgementsSorted(staleByCapabilityKey map[string]manifest.AcknowledgedCapability) []manifest.AcknowledgedCapability {
+	keys := make([]string, 0, len(staleByCapabilityKey))
+	for key := range staleByCapabilityKey {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]manifest.AcknowledgedCapability, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, staleByCapabilityKey[key])
+	}
+	return out
+}
+
+func doctorIsLifecycleCapability(pkgCapability lockfile.Capability) bool {
+	return pkgCapability.Kind == capability.LifecycleScriptKind || pkgCapability.Kind == "lifecycle-script"
+}
+
+func doctorLifecycleAcknowledgementKey(packageID string, script string, command string) string {
+	return packageID + "|" + capability.LifecycleScriptKind + "|" + script + "|" + command
+}
+
+func doctorLifecycleStaleAcknowledgementKey(packageID string, script string) string {
+	return packageID + "|" + capability.LifecycleScriptKind + "|" + script
+}
+
+func doctorLifecyclePulledByPathLines(lf *lockfile.Lockfile) map[string][]string {
+	edgesByFrom := map[string][]lockfile.Edge{}
+	for _, edge := range lf.Edges {
+		edgesByFrom[edge.From] = append(edgesByFrom[edge.From], edge)
+	}
+	for from := range edgesByFrom {
+		sort.SliceStable(edgesByFrom[from], func(i, j int) bool {
+			if edgesByFrom[from][i].To != edgesByFrom[from][j].To {
+				return edgesByFrom[from][i].To < edgesByFrom[from][j].To
+			}
+			return edgesByFrom[from][i].Kind < edgesByFrom[from][j].Kind
+		})
+	}
+
+	roots := []string{}
+	for from := range edgesByFrom {
+		if strings.Contains(from, ":target:") || strings.HasSuffix(from, ":tool") {
+			roots = append(roots, from)
+		}
+	}
+	sort.Strings(roots)
+
+	pathsByPackage := map[string][]string{}
+	for _, root := range roots {
+		queue := [][]string{{root}}
+		seen := map[string]bool{}
+		for len(queue) > 0 {
+			path := queue[0]
+			queue = queue[1:]
+			current := path[len(path)-1]
+			for _, edge := range edgesByFrom[current] {
+				if seen[edge.To] {
+					continue
+				}
+				seen[edge.To] = true
+				nextPath := append(append([]string(nil), path...), edge.To)
+				pathsByPackage[edge.To] = append(pathsByPackage[edge.To], strings.Join(nextPath, " -> "))
+				queue = append(queue, nextPath)
+			}
+		}
+	}
+	for packageID := range pathsByPackage {
+		sort.Strings(pathsByPackage[packageID])
+	}
+	return pathsByPackage
+}
+
+func doctorSecurityPostureCheck() DoctorCheck {
+	return DoctorCheck{
+		Name:    "lifecycle execution posture",
+		Status:  "ok",
+		Message: "update, sync, and materialization do not execute lifecycle scripts",
+		Details: map[string]any{
+			"execution":        "blocked by default",
+			"normalOperations": "update/sync/materialization do not run lifecycle scripts",
+			"explicitTesting":  "lifecycle behavior probes are available through native xTest lifecycle.runScript; doctor does not run probes",
+		},
 	}
 }

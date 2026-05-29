@@ -26,6 +26,8 @@
 - `tspack format`
 - `tspack lint`
 - `tspack doctor`
+- `tspack doctor security`
+- `tspack doctor security --json`
 
 
 ### Pack safety smoke
@@ -224,3 +226,17 @@ The release gate should keep a dedicated lifecycle behavior smoke separate from 
 - Add a matching `<Security acknowledgedCapabilities={[...]}/>` row and verify `tspack check` no longer reports the default lifecycle warning for that exact package/script/command.
 - Change the lockfile command without changing the manifest acknowledgment and verify `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT` and `TSPACK_SECURITY_ACKNOWLEDGED_CAPABILITY_STALE` are reported.
 - Verify `tspack update`, `tspack sync`, and materialization still do not execute the acknowledged script or create marker files.
+
+
+### Phase 7 doctor security smoke
+
+The lifecycle security doctor smoke must cover read-only reporting only:
+
+- A lockfile with no lifecycle capabilities reports an `ok` lifecycle summary, zero counts in text and JSON, and exits `0`.
+- An unacknowledged lifecycle capability reports a warning row with package, script, command, `execution: blocked`, and pulled-by paths when fixture edges are present; warning-only output exits `0`.
+- An exact acknowledged lifecycle capability reports `ok`, `acknowledged: true`, and the acknowledgment reason without emitting an unacknowledged warning for that capability.
+- A stale acknowledgment reports command drift with both acknowledged and actual commands, and an unused acknowledgment reports a separate warning.
+- A missing lockfile reports a warning that package capabilities cannot be audited, recommends `tspack update`, suppresses unused-acknowledgment warnings, and keeps JSON parseable.
+- `tspack doctor security --json` writes parseable two-space-indented JSON to stdout only, appends a trailing newline, and is deterministic for stable project paths.
+- All-scope `tspack doctor` includes a concise `Security` section.
+- The smoke must not execute lifecycle scripts, run lifecycle probes, mutate package-manager state, call registries, or run vulnerability scans.

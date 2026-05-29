@@ -25,12 +25,14 @@ Forbidden behavior:
 Lockfile package entries include:
 
 - `capability.kind`
-- `capability.detail`
+- `capability.script`
+- `capability.command`
 
 Lifecycle script capability records use:
 
-- `kind = "lifecycle-script"`
-- `detail = "<script-name>"`
+- `kind = "lifecycleScript"`
+- `script = "<script-name>"`
+- `command = "<raw package.json script command>"`
 
 Detected lifecycle script names:
 
@@ -47,7 +49,7 @@ Capabilities are sorted/deduplicated deterministically and round-trip through lo
 ## Visibility
 
 - `tspack update` produces lockfile changes when capabilities change.
-- `tspack check` warns with `TSPACK_CAPABILITY_LIFECYCLE_SCRIPT_PRESENT` when lockfile packages include lifecycle capabilities.
+- `tspack check` warns with `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT` when lockfile packages include lifecycle capabilities.
 - `tspack update` may fetch npm tarballs and populate the store, but it never executes package code or lifecycle scripts.
 - `tspack update --dry-run` may fetch registry metadata for version resolution but does not fetch/store tarballs or materialize `node_modules`.
 - `tspack sync` materializes files only and never executes scripts.
@@ -140,3 +142,19 @@ TSPack records npm lifecycle scripts as package capabilities and blocks lifecycl
 Acknowledgment is not execution permission. It does not cause TSPack to run package scripts, does not approve rebuilds, and does not enable npm-install compatibility behavior. The package ID, script name, and raw command must match the lockfile capability exactly. If the package changes the command, `tspack check` reports command drift with `TSPACK_SECURITY_ACKNOWLEDGED_CAPABILITY_STALE` and still reports the actual unacknowledged lifecycle capability. If an acknowledgment no longer matches any lockfile capability, `tspack check` reports `TSPACK_SECURITY_ACKNOWLEDGED_CAPABILITY_UNUSED`.
 
 Behavior fixtures and jailed execution policies are separate future work. M37c only quiets known capability warnings while preserving audit visibility in `why` and the lockfile.
+
+
+## Lifecycle security audit view (M37d)
+
+`tspack doctor security` is the read-only audit summary for lifecycle capabilities and policy status. It does not execute lifecycle scripts, run lifecycle probes, mutate the manifest or lockfile, generate policy, contact registries, run `npm audit`, scan malware databases, approve rebuilds, or create jailed builds.
+
+The security doctor view summarizes lifecycle capabilities recorded in `ts-lock.toml`, including total, acknowledged, unacknowledged, stale, unused, and package counts. Per-capability rows show the lock package ID, script, command, `execution: blocked`, acknowledgment status and reason, and pulled-by paths when the lock graph has enough edge information. Exact acknowledgments are `ok`; unacknowledged capabilities, stale command drift, and unused acknowledgments are warnings. Warning-only security doctor output exits `0`; error-level findings exit nonzero for the scoped command.
+
+A missing lockfile is reported as a warning because doctor cannot audit locked lifecycle capabilities until `tspack update` records package metadata. In that state, manifest acknowledgments are not treated as unused because there is no lock graph to evaluate. When the lockfile exists and no lifecycle capabilities are recorded, the summary is `ok` with zero counts.
+
+Relationship between security tools:
+
+- `tspack check` is the enforcement-style diagnostics path (`TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT`, stale acknowledgments, unused acknowledgments).
+- `tspack doctor security` is the read-only summary/report view for lifecycle security posture.
+- `tspack why` and `tspack why --reverse` are reachability and investigation views for packages and lock graph paths.
+- `lifecycle.runScript(...)` in native xTest is an explicit behavior probe for tests; doctor does not run probes.
