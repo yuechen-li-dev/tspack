@@ -3,7 +3,7 @@
 TSPack provides Biome-backed code formatting and linting orchestration.
 
 - `tspack format [paths...] [--root .] [--check]`
-- `tspack lint [paths...] [--root .] [--fix]`
+- `tspack lint [paths...] [--root .] [--fix] [--unsafe]`
 
 ## Backend resolution
 
@@ -58,6 +58,12 @@ TSPack's default Biome config is intentionally explicit:
   - It exits `0` when the fix attempt leaves no violations.
   - It emits `TSPACK_LINT_FIX_INCOMPLETE` and exits nonzero when violations remain after the fix attempt.
   - Unsafe fixes are not applied by default.
+- `tspack lint --fix --unsafe` forwards Biome unsafe fixes by invoking Biome lint with `--write --unsafe`.
+  - Unsafe fixes may change runtime semantics or require review. Use this only when you intend to accept Biome's unsafe transformations.
+  - Review the resulting diff after the command completes.
+  - If violations remain, TSPack still emits `TSPACK_LINT_FIX_INCOMPLETE`; the diagnostic notes that unsafe fixes were enabled for the run.
+- `--unsafe` requires `--fix`; `tspack lint --unsafe` and `tspack lint src --unsafe` are invalid.
+- `tspack format` and `tspack format --check` do not support `--unsafe`; format has no unsafe behavior in TSPack.
 
 These commands do not install packages or run package-manager scripts.
 
