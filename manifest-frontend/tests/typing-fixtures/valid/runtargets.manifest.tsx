@@ -9,6 +9,7 @@ export default define(
             name: 'dev-system',
             runtime: 'system',
             command: ['pnpm', 'dev'],
+            cwd: 'package',
             url: 'http://localhost:5173',
           },
           {

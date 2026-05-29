@@ -2385,6 +2385,82 @@ func TestCLIRunPackageSelectionAndAmbiguityDiagnostics(t *testing.T) {
 	}
 }
 
+func TestCLIRunCwdPolicyWorkspaceAndPackage(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	packageDir := filepath.Join(root, "packages", "demo")
+	if err := os.MkdirAll(packageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	server := `const fs=require('fs'); const http=require('http'); const path=require('path');
+const marker=process.argv[2]; const port=Number(process.argv[3]); fs.writeFileSync(marker, process.cwd());
+http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}).listen(port,'127.0.0.1'); setInterval(()=>{},1000);`
+	_ = os.WriteFile(filepath.Join(packageDir, "server.js"), []byte(server), 0o644)
+	workspaceMarker := filepath.Join(root, "workspace-cwd.txt")
+	packageMarker := filepath.Join(root, "package-cwd.txt")
+	workspacePort := reservePort(t)
+	packagePort := reservePort(t)
+	stubIR := fmt.Sprintf(`{format:1,workspace:{name:"ws"},packages:[{name:"@acme/demo",version:"1.0.0",root:"packages/demo",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"workspace-dev",runtime:"system",cwd:"workspace",command:["node","packages/demo/server.js",%q,"%d"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}},{name:"package-dev",runtime:"system",cwd:"package",command:["node","server.js",%q,"%d"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}}]}]}`, workspaceMarker, workspacePort, workspacePort, packageMarker, packagePort, packagePort)
+	writeRunFrontendStub(t, stubIR)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--package", "@acme/demo", "workspace-dev", "--once")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "Cwd: workspace (") {
+		t.Fatalf("workspace cwd run failed: %v\n%s", err, string(b))
+	}
+	workspaceCwd, err := os.ReadFile(workspaceMarker)
+	if err != nil || string(workspaceCwd) != root {
+		t.Fatalf("workspace cwd marker = %q, err=%v, want %q", string(workspaceCwd), err, root)
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--package", "@acme/demo", "package-dev", "--once")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "Cwd: package (") || !strings.Contains(string(b), packageDir) {
+		t.Fatalf("package cwd run failed: %v\n%s", err, string(b))
+	}
+	packageCwd, err := os.ReadFile(packageMarker)
+	if err != nil || string(packageCwd) != packageDir {
+		t.Fatalf("package cwd marker = %q, err=%v, want %q", string(packageCwd), err, packageDir)
+	}
+}
+
+func TestCLIRunOmittedCwdListsAsWorkspace(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	stubIR := `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js"],url:"http://127.0.0.1:5999"}]}]}`
+	writeRunFrontendStub(t, stubIR)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--list")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "cwd: workspace (") {
+		t.Fatalf("list text missing workspace cwd: %v\n%s", err, string(b))
+	}
+
+	cmd = exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--list", "--json")
+	cmd.Dir = repo
+	b, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("list json failed: %v\n%s", err, string(b))
+	}
+	var payload struct {
+		Targets []struct {
+			Cwd     string `json:"cwd"`
+			CwdPath string `json:"cwdPath"`
+		} `json:"targets"`
+	}
+	if err := json.Unmarshal(b, &payload); err != nil {
+		t.Fatalf("invalid json: %v\n%s", err, string(b))
+	}
+	if len(payload.Targets) != 1 || payload.Targets[0].Cwd != "workspace" || payload.Targets[0].CwdPath != root {
+		t.Fatalf("unexpected cwd json: %+v", payload.Targets)
+	}
+}
+
 func TestCLIRunListInvalidArgs(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	root := t.TempDir()

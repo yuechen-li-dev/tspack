@@ -52,3 +52,7 @@ Text output includes stable detail lines when checks provide structured details.
 - `warning`: optional capability missing or experimental limitations.
 - `error`: required capability missing for selected scope.
 - `not_applicable`: check is informational and requires explicit user input.
+
+## Run target cwd details
+
+`tspack doctor run` reports each RunTarget effective `cwd`, resolved `cwdPath`, `commandFirstToken`, and command/runtime availability. For `cwd: "package"`, doctor also reports `packageRoot` when it can be resolved.

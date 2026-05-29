@@ -237,14 +237,23 @@ func runInspectCommand(args []string) {
 	exitCode := 0
 	exitMessage := ""
 	if runTarget != "" {
-		ir := loadManifestForRun(root)
-		rt, ok := findRunTargetByName(ir, runTarget)
+		workspaceRoot := resolveWorkspaceRoot(root)
+		manifestPath := filepath.Join(workspaceRoot, "manifest.tsx")
+		ir := loadManifestPathForRun(workspaceRoot, manifestPath)
+		ref, ok := findRunTargetRefByName(workspaceRoot, manifestPath, ir, runTarget)
 		if !ok {
 			fmt.Fprintf(os.Stderr, "TSPACK_INSPECT_RUN_TARGET_NOT_FOUND: %s\n", runTarget)
 			os.Exit(1)
 		}
+		cwdPath, cwdErr := resolveRunTargetCwd(ref)
+		if cwdErr != nil {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", cwdErr.code, cwdErr.msg)
+			os.Exit(1)
+		}
+		rt := ref.Target
 		fmt.Fprintf(os.Stderr, "Starting run target %q...\n", runTarget)
-		session, readyErr := startRunTarget(root, rt, time.Duration(runReadyTimeout)*time.Second, os.Stderr, os.Stderr)
+		fmt.Fprintf(os.Stderr, "Cwd: %s (%s)\n", effectiveRunTargetCwd(rt), cwdPath)
+		session, readyErr := startRunTargetInDir(workspaceRoot, cwdPath, rt, time.Duration(runReadyTimeout)*time.Second, os.Stderr, os.Stderr)
 		if readyErr != nil {
 			code := "TSPACK_INSPECT_RUN_START_FAILED"
 			switch readyErr.code {
@@ -296,15 +305,13 @@ func runInspectCommand(args []string) {
 	}
 }
 
-func findRunTargetByName(ir *manifest.ManifestIR, name string) (manifest.RunTarget, bool) {
-	for _, pkg := range ir.Packages {
-		for _, target := range pkg.RunTargets {
-			if target.Name == name {
-				return target, true
-			}
+func findRunTargetRefByName(root string, manifestPath string, ir *manifest.ManifestIR, name string) (runTargetRef, bool) {
+	for _, ref := range collectRunTargets(root, manifestPath, ir, "") {
+		if ref.Target.Name == name {
+			return ref, true
 		}
 	}
-	return manifest.RunTarget{}, false
+	return runTargetRef{}, false
 }
 
 func runDoomCommand(args []string) {

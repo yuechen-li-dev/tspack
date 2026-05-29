@@ -91,7 +91,7 @@ func TestDoctorFormatMissingBiomeExitsNonzero(t *testing.T) {
 
 func TestDoctorRunSystemRuntimeAndReservedRuntimeSignal(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	writeManifestStubWithIR(t, repo, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",url:"http://127.0.0.1:5173",command:["node","server.js"],ready:{kind:"http",path:"/"}}]}]}`)
+	writeManifestStubWithIR(t, repo, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",cwd:"package",url:"http://127.0.0.1:5173",command:["node","server.js"],ready:{kind:"http",path:"/"}}]}]}`)
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
 
@@ -112,6 +112,15 @@ func TestDoctorRunSystemRuntimeAndReservedRuntimeSignal(t *testing.T) {
 	}
 	if runTarget.Details["runtimeAvailable"] != true {
 		t.Fatalf("system runtimeAvailable should be true: %#v", runTarget.Details)
+	}
+	if runTarget.Details["cwd"] != "package" {
+		t.Fatalf("missing cwd detail: %#v", runTarget.Details)
+	}
+	if runTarget.Details["cwdPath"] != root {
+		t.Fatalf("missing cwdPath detail: %#v", runTarget.Details)
+	}
+	if runTarget.Details["packageRoot"] != root {
+		t.Fatalf("missing packageRoot detail: %#v", runTarget.Details)
 	}
 	if runTarget.Details["commandFirstToken"] != "node" {
 		t.Fatalf("missing commandFirstToken detail: %#v", runTarget.Details)
@@ -136,7 +145,7 @@ func TestDoctorRunSystemRuntimeAndReservedRuntimeSignal(t *testing.T) {
 		t.Fatalf("doctor run text failed: %v\n%s", err, string(b))
 	}
 	text := string(b)
-	for _, expected := range []string{"runtimeAvailable: true", "commandFirstToken: node", "readyKind: http", "readyPath: /", "reserved runtime backend; not implemented yet"} {
+	for _, expected := range []string{"runtimeAvailable: true", "commandFirstToken: node", "cwd: package", "cwdPath: " + root, "packageRoot: " + root, "readyKind: http", "readyPath: /", "reserved runtime backend; not implemented yet"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("doctor text missing %q:\n%s", expected, text)
 		}

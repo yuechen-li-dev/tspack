@@ -166,6 +166,40 @@ func TestRunTargetValidation(t *testing.T) {
 	}
 }
 
+func TestRunTargetCwdValidation(t *testing.T) {
+	cases := []struct {
+		name string
+		cwd  string
+	}{
+		{name: "omitted", cwd: ""},
+		{name: "workspace", cwd: `,"cwd":"workspace"`},
+		{name: "package", cwd: `,"cwd":"package"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"system","command":["node","server.js"],"url":"http://127.0.0.1:5173"` + tc.cwd + `}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+			_, diags := LoadBytes("x.json", []byte(j))
+			if len(diags) != 0 {
+				t.Fatalf("unexpected diagnostics: %#v", diags)
+			}
+		})
+	}
+}
+
+func TestRunTargetInvalidCwd(t *testing.T) {
+	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"system","command":["node"],"url":"http://127.0.0.1:5173","cwd":"repo"}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	_, diags := LoadBytes("x.json", []byte(j))
+	found := false
+	for _, d := range diags {
+		if d.Code == "TSPACK_RUN_INVALID_CWD" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected TSPACK_RUN_INVALID_CWD, got %#v", diags)
+	}
+}
+
 func TestRunTargetInvalidRuntime(t *testing.T) {
 	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"bun","command":["node"],"url":"http://127.0.0.1:5173"}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
 	_, diags := LoadBytes("x.json", []byte(j))

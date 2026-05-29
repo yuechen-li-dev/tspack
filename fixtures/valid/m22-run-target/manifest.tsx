@@ -10,6 +10,7 @@ export default define(
             name: "dev",
             runtime: "system",
             command: ["node", "server.js"],
+            cwd: "package",
             url: "http://127.0.0.1:5173",
             ready: { kind: "http", path: "/" },
           },

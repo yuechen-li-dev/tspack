@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseManifestFile, parseWorkspace } from '../src/index';
+import { parseManifestFile, parsePackageManifestFile, parseWorkspace } from '../src/index';
 
 const root = path.resolve(process.cwd(), '..');
 
@@ -138,6 +138,14 @@ export default define(
     const b = JSON.stringify(parseManifestFile(fixture('valid', 'minimal-library')).ir);
     expect(a).toBe(b);
   });
+
+  it('parses package manifest files directly', () => {
+    const manifestPath = path.join(root, 'fixtures', 'valid', 'm6b-workspace-split', 'packages', 'core', 'package.manifest.tsx');
+    const result = parsePackageManifestFile(manifestPath);
+    expect(result.ok).toBe(true);
+    expect(result.ir?.packages[0]?.name).toBe('@m6b/core');
+  });
+
   it('parseWorkspace parses split workspace deterministically', () => {
     const manifestPath = fixture('valid', 'm6b-workspace-split');
     const a = JSON.stringify(parseWorkspace(manifestPath).ir);

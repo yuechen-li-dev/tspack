@@ -43,6 +43,7 @@ type RunTarget struct {
 	Runtime string         `json:"runtime"`
 	Command []string       `json:"command"`
 	URL     string         `json:"url"`
+	Cwd     string         `json:"cwd,omitempty"`
 	Ready   *RunReadyCheck `json:"ready,omitempty"`
 }
 
@@ -260,6 +261,9 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 			seenRunTargets[rt.Name] = struct{}{}
 			if rt.Runtime != "system" && rt.Runtime != "node" {
 				add("TSPACK_RUN_INVALID_RUNTIME", rp+".runtime is invalid")
+			}
+			if rt.Cwd != "" && rt.Cwd != "workspace" && rt.Cwd != "package" {
+				add("TSPACK_RUN_INVALID_CWD", rp+".cwd must be workspace or package")
 			}
 			if len(rt.Command) == 0 {
 				add("TSPACK_RUN_INVALID_COMMAND", rp+".command must be non-empty")
