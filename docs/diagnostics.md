@@ -192,3 +192,7 @@ Page/analyzer:
 - `TSPACK_RUN_INVALID_READY`: a RunTarget readiness policy has an invalid shape, such as an unknown `kind`, HTTP readiness without an absolute `path`, TCP readiness without a `1..65535` port, or stdout-match readiness without a non-empty literal `pattern` / with an invalid `stream`.
 - `TSPACK_RUN_READY_TIMEOUT`: the selected HTTP, TCP, or stdout-match readiness check did not succeed before `--ready-timeout`.
 - `TSPACK_RUN_PROCESS_EXITED_EARLY`: the child process exited before the selected readiness check succeeded.
+
+## Pack diagnostics
+
+- `TSPACK_PACK_UNPUBLISHABLE_PEER_DEPENDENCY`: a publishable package target declares a peer dependency from a non-npm source such as `path`, `git`, or `workspace`. Generated npm `peerDependencies` require package names with version ranges, so pack fails instead of silently omitting the peer.

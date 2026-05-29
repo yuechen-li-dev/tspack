@@ -50,6 +50,15 @@ export default define(
 ```
 
 
+
+## Package publish metadata
+
+A package `license` is carried into generated package artifacts. When `tspack pack` generates `package/package.json`, a manifest package with `license="MIT"` emits `"license": "MIT"`; missing or empty licenses are not invented.
+
+Manifest peer dependencies affect generated npm `peerDependencies` for packed library artifacts when the peer source is `npm(name, range)`. Optional peer dependencies are represented in generated `peerDependenciesMeta` when the IR marks the peer dependency optional. Non-npm peer sources cannot be represented as npm `peerDependencies` and fail packing with `TSPACK_PACK_UNPUBLISHABLE_PEER_DEPENDENCY`. Tool dependencies remain build/tooling metadata and are not emitted as runtime package dependencies by pack.
+
+For npm interoperability, the root target (`export: "."`) provides generated package entry metadata: its `runtime` becomes `main` and its `types` output becomes `types`, both normalized to package-relative paths such as `./dist/index.js`. Non-root targets continue to be represented through `exports`; pack does not guess `main` from a non-root target.
+
 ## M6b workspace split mode
 
 TSPack now supports split workspaces:
