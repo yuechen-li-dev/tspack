@@ -189,7 +189,7 @@ func currentBranch(t *testing.T, repo string) string {
 func assertLifecycleCap(t *testing.T, p lockfile.Package, detail string) {
 	t.Helper()
 	for _, c := range p.Capabilities {
-		if c.Kind == "lifecycle-script" && c.Detail == detail {
+		if c.Kind == "lifecycleScript" && c.Script == detail {
 			return
 		}
 	}

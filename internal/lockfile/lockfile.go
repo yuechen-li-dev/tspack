@@ -32,7 +32,12 @@ type Package struct {
 	ID, Name, Version, Source, Integrity, Repo, Rev, TreeHash, Path, Workspace, Hash string
 	Capabilities                                                                     []Capability `toml:"capability,omitempty"`
 }
-type Capability struct{ Kind, Detail string }
+type Capability struct {
+	Kind    string `toml:"kind"`
+	Script  string `toml:"script,omitempty"`
+	Command string `toml:"command,omitempty"`
+	Detail  string `toml:"detail,omitempty"`
+}
 type Edge struct {
 	From, To, Kind string
 	Optional       bool
@@ -353,12 +358,25 @@ func normalize(lf *Lockfile) *Lockfile {
 	n.Targets = append([]Target(nil), lf.Targets...)
 	for i := range n.Packages {
 		n.Packages[i].Capabilities = append([]Capability(nil), n.Packages[i].Capabilities...)
+		for capabilityIndex := range n.Packages[i].Capabilities {
+			capability := &n.Packages[i].Capabilities[capabilityIndex]
+			if capability.Script == "" && capability.Detail != "" {
+				capability.Script = capability.Detail
+			}
+			if capability.Kind == "lifecycle-script" {
+				capability.Kind = "lifecycleScript"
+			}
+			capability.Detail = ""
+		}
 		sort.SliceStable(n.Packages[i].Capabilities, func(a, b int) bool {
 			x, y := n.Packages[i].Capabilities[a], n.Packages[i].Capabilities[b]
 			if x.Kind != y.Kind {
 				return x.Kind < y.Kind
 			}
-			return x.Detail < y.Detail
+			if x.Script != y.Script {
+				return x.Script < y.Script
+			}
+			return x.Command < y.Command
 		})
 	}
 	sort.SliceStable(n.Packages, func(i, j int) bool { return n.Packages[i].ID < n.Packages[j].ID })

@@ -208,3 +208,9 @@ Page/analyzer:
 - `TSPACK_PACK_VERIFY_MISSING_FILE`: `--verify` found a `package.json` path reference such as `main`, `types`, or an `exports` target that does not exist in the archive. Details include package, archive, field, and referenced path.
 - `TSPACK_PACK_VERIFY_INVALID_PACKAGE_PATH`: `--verify` found an unsafe archive entry path or package metadata path reference, such as an absolute path, parent traversal, URL-like target, or backslash-containing path.
 - `TSPACK_PACK_VERIFY_METADATA_MISMATCH`: `--verify` found package metadata that does not match the manifest-derived pack plan, including name/version/license/main/types/exports or peer dependency metadata.
+
+## TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT
+
+Severity: warning.
+
+The lockfile records that a package declares an npm lifecycle script such as `preinstall`, `install`, `postinstall`, or `prepare`. Details include the lock package ID, script name, raw command string, `execution: blocked by default`, and any available root path that pulls the package. Use `tspack why <package>` or `tspack why --reverse <package>` to investigate reachability.

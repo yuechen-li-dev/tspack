@@ -37,7 +37,15 @@ type DeclarationReason struct {
 	SourceKind, SourcePackage, SourceRange              string
 }
 type ReachabilityRef struct{ PackageName, TargetName, Reason string }
-type LockPackageRef struct{ ID, Name, Version, Source, Hash string }
+type LockPackageRef struct {
+	ID, Name, Version, Source, Hash string
+	Capabilities                    []CapabilityRef
+}
+
+type CapabilityRef struct {
+	Kind, Script, Command string
+	Execution             string
+}
 type LockEdgeRef struct {
 	From, To, Kind string
 	Optional       bool
@@ -112,7 +120,7 @@ func Analyze(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, opts Options) Resul
 			}
 			direct := false
 			e := Explanation{Query: q, MatchType: "lock-package"}
-			e.LockPackages = append(e.LockPackages, LockPackageRef{ID: lp.ID, Name: lp.Name, Version: lp.Version, Source: lp.Source, Hash: lp.Hash})
+			e.LockPackages = append(e.LockPackages, lockPackageRef(lp))
 			for _, edge := range lf.Edges {
 				if edge.To == q || edge.From == q {
 					e.LockEdges = append(e.LockEdges, LockEdgeRef(edge))
@@ -311,9 +319,38 @@ func lockPackageIDsByName(lf *lockfile.Lockfile, packageName string) map[string]
 func lockPackageRefsByID(lf *lockfile.Lockfile) map[string]LockPackageRef {
 	refs := map[string]LockPackageRef{}
 	for _, pkg := range lf.Packages {
-		refs[pkg.ID] = LockPackageRef{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, Hash: pkg.Hash}
+		refs[pkg.ID] = lockPackageRef(pkg)
 	}
 	return refs
+}
+
+func lockPackageRef(pkg lockfile.Package) LockPackageRef {
+	ref := LockPackageRef{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, Hash: pkg.Hash}
+	for _, capability := range pkg.Capabilities {
+		if capability.Kind != "lifecycleScript" && capability.Kind != "lifecycle-script" {
+			continue
+		}
+		script := capability.Script
+		if script == "" {
+			script = capability.Detail
+		}
+		ref.Capabilities = append(ref.Capabilities, CapabilityRef{
+			Kind:      "lifecycleScript",
+			Script:    script,
+			Command:   capability.Command,
+			Execution: "blocked",
+		})
+	}
+	sort.SliceStable(ref.Capabilities, func(i, j int) bool {
+		if ref.Capabilities[i].Kind != ref.Capabilities[j].Kind {
+			return ref.Capabilities[i].Kind < ref.Capabilities[j].Kind
+		}
+		if ref.Capabilities[i].Script != ref.Capabilities[j].Script {
+			return ref.Capabilities[i].Script < ref.Capabilities[j].Script
+		}
+		return ref.Capabilities[i].Command < ref.Capabilities[j].Command
+	})
+	return ref
 }
 
 func reachableLockEdges(lf *lockfile.Lockfile, rootEdges []lockfile.Edge) []lockfile.Edge {
@@ -428,13 +465,7 @@ func analyzeReverse(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, opts Options
 	}
 
 	for _, lockPackage := range matchedPackages {
-		out.LockPackages = append(out.LockPackages, LockPackageRef{
-			ID:      lockPackage.ID,
-			Name:    lockPackage.Name,
-			Version: lockPackage.Version,
-			Source:  lockPackage.Source,
-			Hash:    lockPackage.Hash,
-		})
+		out.LockPackages = append(out.LockPackages, lockPackageRef(lockPackage))
 	}
 	sortLockPackages(out.LockPackages)
 

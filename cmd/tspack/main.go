@@ -115,11 +115,19 @@ type WhyJSONReachability struct {
 }
 
 type WhyJSONLockPackage struct {
-	ID      string `json:"id"`
-	Name    string `json:"name,omitempty"`
-	Version string `json:"version,omitempty"`
-	Source  string `json:"source,omitempty"`
-	Hash    string `json:"hash,omitempty"`
+	ID           string              `json:"id"`
+	Name         string              `json:"name,omitempty"`
+	Version      string              `json:"version,omitempty"`
+	Source       string              `json:"source,omitempty"`
+	Hash         string              `json:"hash,omitempty"`
+	Capabilities []WhyJSONCapability `json:"capabilities,omitempty"`
+}
+
+type WhyJSONCapability struct {
+	Kind      string `json:"kind"`
+	Script    string `json:"script,omitempty"`
+	Command   string `json:"command,omitempty"`
+	Execution string `json:"execution,omitempty"`
 }
 
 type WhyJSONLockEdge struct {
@@ -958,6 +966,8 @@ func runCommand(args []string) {
 				}
 			}
 
+			printWhyCapabilities(e.LockPackages)
+
 			if len(e.LockEdges) > 0 {
 				fmt.Println("lock edges:")
 				for _, edge := range e.LockEdges {
@@ -1010,6 +1020,20 @@ func runCommand(args []string) {
 	}
 }
 
+func printWhyCapabilities(lockPackages []why.LockPackageRef) {
+	printedHeader := false
+	for _, lockPackage := range lockPackages {
+		for _, capability := range lockPackage.Capabilities {
+			if !printedHeader {
+				fmt.Println("capabilities:")
+				printedHeader = true
+			}
+			fmt.Printf("  %s %s: %s\n", capability.Kind, capability.Script, capability.Command)
+			fmt.Println("    execution: blocked by default")
+		}
+	}
+}
+
 func printReverseWhyResult(whyOpts project.WhyOptions, result *why.Result) {
 	fmt.Printf("Reverse why: %s\n", whyOpts.Query)
 	fmt.Println()
@@ -1040,6 +1064,7 @@ func printReverseWhyResult(whyOpts project.WhyOptions, result *why.Result) {
 		}
 
 		fmt.Printf("%s is pulled in by:\n", lockPackage.ID)
+		printWhyCapabilities([]why.LockPackageRef{lockPackage})
 		fmt.Println()
 		for _, path := range paths {
 			fmt.Printf("  %s\n", path.Root)
@@ -1242,13 +1267,22 @@ func buildWhyJSONReport(opts project.Options, whyOpts project.WhyOptions, result
 }
 
 func buildWhyJSONLockPackage(lockPackage why.LockPackageRef) WhyJSONLockPackage {
-	return WhyJSONLockPackage{
+	jsonPackage := WhyJSONLockPackage{
 		ID:      lockPackage.ID,
 		Name:    lockPackage.Name,
 		Version: lockPackage.Version,
 		Source:  lockPackage.Source,
 		Hash:    lockPackage.Hash,
 	}
+	for _, capability := range lockPackage.Capabilities {
+		jsonPackage.Capabilities = append(jsonPackage.Capabilities, WhyJSONCapability{
+			Kind:      capability.Kind,
+			Script:    capability.Script,
+			Command:   capability.Command,
+			Execution: capability.Execution,
+		})
+	}
+	return jsonPackage
 }
 
 func buildWhyJSONReversePath(reversePath why.ReversePath) WhyJSONReversePath {
@@ -1310,13 +1344,7 @@ func buildWhyJSONExplanation(explanation why.Explanation) WhyJSONExplanation {
 		jsonExplanation.NotReachableFrom = append(jsonExplanation.NotReachableFrom, buildWhyJSONReachability(unreachable))
 	}
 	for _, lockPackage := range explanation.LockPackages {
-		jsonExplanation.LockPackages = append(jsonExplanation.LockPackages, WhyJSONLockPackage{
-			ID:      lockPackage.ID,
-			Name:    lockPackage.Name,
-			Version: lockPackage.Version,
-			Source:  lockPackage.Source,
-			Hash:    lockPackage.Hash,
-		})
+		jsonExplanation.LockPackages = append(jsonExplanation.LockPackages, buildWhyJSONLockPackage(lockPackage))
 	}
 	for _, edge := range explanation.LockEdges {
 		jsonExplanation.LockEdges = append(jsonExplanation.LockEdges, WhyJSONLockEdge{

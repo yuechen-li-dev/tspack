@@ -142,16 +142,16 @@ func (r *resolverState) localPackageMetadata(root, fallbackName, invalidCode str
 	if err != nil {
 		return localPkgMeta{Name: fallbackName}, true
 	}
-	var pkg packageJSON
-	if err := json.Unmarshal(b, &pkg); err != nil {
+	var raw rawPackageJSON
+	if err := json.Unmarshal(b, &raw); err != nil {
 		r.result.Diagnostics = append(r.result.Diagnostics, dErr(invalidCode, "invalid package.json", root, err.Error()))
 		return localPkgMeta{}, false
 	}
-	name := pkg.Name
+	name := raw.Name
 	if name == "" {
 		name = fallbackName
 	}
-	return localPkgMeta{Name: name, Version: pkg.Version, Scripts: pkg.Scripts}, true
+	return localPkgMeta{Name: name, Version: raw.Version, Scripts: stringScripts(raw.Scripts)}, true
 }
 
 func hashDirectory(root string) (string, bool) {

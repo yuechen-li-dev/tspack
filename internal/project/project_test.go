@@ -173,7 +173,7 @@ func TestCheckWarnsOnLifecycleCapability(t *testing.T) {
 	dir := t.TempDir()
 	irPath := writeIR(t, dir, simpleIR())
 	lf := &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"},
-		Packages: []lockfile.Package{{ID: "npm:dep-a@1.0.0", Name: "dep-a", Version: "1.0.0", Source: "npm", Integrity: "x", Capabilities: []lockfile.Capability{{Kind: "lifecycle-script", Detail: "postinstall"}}}},
+		Packages: []lockfile.Package{{ID: "npm:dep-a@1.0.0", Name: "dep-a", Version: "1.0.0", Source: "npm", Integrity: "x", Capabilities: []lockfile.Capability{{Kind: "lifecycleScript", Script: "postinstall", Command: "node install.js"}}}},
 		Targets:  []lockfile.Target{{Package: "app", Name: "core", Export: ".", Entry: "src/index.ts", Runtime: "src/index.ts", Types: "dist/index.d.ts"}},
 	}
 	b, _ := lockfile.Marshal(lf)
@@ -184,8 +184,22 @@ func TestCheckWarnsOnLifecycleCapability(t *testing.T) {
 	if hasErrors(res.Diagnostics) {
 		t.Fatalf("check failed: %#v", res.Diagnostics)
 	}
-	if !hasErrCode(res.Diagnostics, "TSPACK_CAPABILITY_LIFECYCLE_SCRIPT_PRESENT") {
+	diagnostic := findDiagnostic(res.Diagnostics, "TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT")
+	if diagnostic == nil {
 		t.Fatalf("expected lifecycle capability warning")
+	}
+	details := strings.Join(diagnostic.Details, "\n")
+	for _, expected := range []string{"package: npm:dep-a@1.0.0", "script: postinstall", "command: node install.js", "execution: blocked by default"} {
+		if !strings.Contains(details, expected) {
+			t.Fatalf("missing detail %q in %#v", expected, diagnostic.Details)
+		}
+	}
+	after, err := os.ReadFile(filepath.Join(dir, "ts-lock.toml"))
+	if err != nil {
+		t.Fatalf("read lockfile after check: %v", err)
+	}
+	if !bytes.Equal(b, after) {
+		t.Fatalf("check mutated lockfile")
 	}
 }
 
@@ -202,7 +216,7 @@ func TestSyncDoesNotExecuteLifecycleScripts(t *testing.T) {
 		t.Fatalf("unexpected put artifact diagnostics: %#v", diags)
 	}
 	lf := &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"},
-		Packages: []lockfile.Package{{ID: "npm:dep-a@1.0.0", Name: "dep-a", Version: "1.0.0", Source: "npm", Hash: ref.Hash, Capabilities: []lockfile.Capability{{Kind: "lifecycle-script", Detail: "postinstall"}}}},
+		Packages: []lockfile.Package{{ID: "npm:dep-a@1.0.0", Name: "dep-a", Version: "1.0.0", Source: "npm", Hash: ref.Hash, Capabilities: []lockfile.Capability{{Kind: "lifecycleScript", Script: "postinstall", Command: "node install.js"}}}},
 		Edges:    []lockfile.Edge{{From: "app:target:core", To: "npm:dep-a@1.0.0", Kind: "runtime"}},
 		Targets:  []lockfile.Target{{Package: "app", Name: "core", Export: ".", Entry: "src/index.ts", Runtime: "src/index.ts", Types: "dist/index.d.ts"}},
 	}
@@ -1434,4 +1448,13 @@ func TestPackDryRunVerifyRejected(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "tspack-artifacts")); !os.IsNotExist(err) {
 		t.Fatalf("dry-run verify should not write artifacts")
 	}
+}
+
+func findDiagnostic(diagnostics []diag.Diagnostic, code string) *diag.Diagnostic {
+	for index := range diagnostics {
+		if diagnostics[index].Code == code {
+			return &diagnostics[index]
+		}
+	}
+	return nil
 }

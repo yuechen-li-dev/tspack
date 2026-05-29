@@ -21,6 +21,26 @@ type DiagnosticHelp struct {
 }
 
 var entries = []DiagnosticHelp{
+	{
+		Code:    "TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT",
+		Title:   "Package declares a lifecycle script",
+		Summary: "A locked package declares install-time executable code such as preinstall, install, postinstall, or prepare.",
+		Why:     "Traditional npm installs can run lifecycle scripts with access to CI, cloud, npm, and environment credentials. TSPack records these scripts as explicit capabilities and does not execute them during update, sync, or materialization by default.",
+		CommonCauses: []string{
+			"A native package downloads or selects platform-specific binaries during postinstall.",
+			"A transitive dependency uses prepare or install for build steps.",
+			"A package has an unexpected install-time script and needs supply-chain review.",
+		},
+		Fixes: []string{
+			"Run tspack why <package> to see why the package is present.",
+			"Run tspack why --reverse <package> to inspect root paths that pull the locked package.",
+			"Inspect the lockfile capability metadata and package source before accepting the dependency.",
+			"Remove or replace the dependency if the lifecycle script is unexpected.",
+			"Keep the dependency if expected, understanding that TSPack blocks lifecycle execution by default; future policy and jailed build support may allow explicit acknowledgement or execution.",
+		},
+		RelatedDocs:     []string{"docs/security.md", "docs/lockfile.md", "docs/why.md", "docs/diagnostics.md"},
+		RelatedCommands: []string{"tspack check", "tspack why <package>", "tspack why --reverse <package>"},
+	},
 	{Code: "TSPACK_IR_INVALID_RELATIVE_PATH", Title: "Invalid relative package path", Summary: "A manifest path field is not a safe package-relative path.", Why: "Manifest paths define package boundaries, publish content, and generated artifacts. Escaping package roots breaks reproducibility.", CommonCauses: []string{"Using ../ to escape package root.", "Using absolute paths.", "Leaving required library output path empty.", "Using backslashes in package paths."}, Fixes: []string{"Use package-relative paths such as src/index.ts and dist/index.d.ts.", "For app targets with no type output, set types: \"\".", "For library targets, declare a concrete types output like dist/index.d.ts."}, BadExamples: []Example{{Label: "Bad", Text: "runtime: \"../dist/index.js\"\ntypes: \"/tmp/index.d.ts\""}}, GoodExamples: []Example{{Label: "Good", Text: "runtime: \"dist/index.js\"\ntypes: \"dist/index.d.ts\""}}, RelatedDocs: []string{"docs/manifest.md", "docs/init.md"}, RelatedCommands: []string{"tspack check", "tspack init"}},
 	{Code: "TSPACK_CHECK_LOCKFILE_MISSING", Title: "Lockfile missing during check", Summary: "tspack check did not find ts-lock.toml.", Why: "The lockfile captures resolved dependency state and enables reproducible builds and CI validation.", CommonCauses: []string{"Fresh repository clone without generated lockfile.", "Lockfile was deleted or not committed.", "Running check before running update in a new workspace."}, Fixes: []string{"Run tspack update to create or refresh ts-lock.toml.", "Commit the lockfile when your workflow requires deterministic CI.", "Treat this warning as actionable even if warnings-only mode exits zero."}, RelatedCommands: []string{"tspack update", "tspack check"}},
 	{Code: "TSPACK_LOCK_VERSION_CONFLICT", Title: "Multiple locked versions for one package", Summary: "tspack check found multiple versions for the same package name within one source ecosystem.", Why: "Multiple locked versions can be valid, but often signal duplicated runtime dependencies or peer version drift that increases bundle size and can break singleton assumptions.", CommonCauses: []string{"Different transitive dependency ranges resolved to different versions.", "Gradual upgrades where direct and indirect dependencies are out of alignment.", "Library packages declaring singleton runtime dependencies as dependencies instead of peers."}, Fixes: []string{"Run tspack why <package> to inspect who pulls each version.", "Align dependency ranges across workspace packages and direct dependencies.", "Update lagging packages so transitive ranges converge.", "For libraries, move singleton runtime deps (for example React) to peer dependencies when appropriate.", "Accept the conflict when the versions are intentionally isolated tooling/runtime paths."}, RelatedCommands: []string{"tspack check", "tspack why", "tspack update"}},

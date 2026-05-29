@@ -379,6 +379,9 @@ func sortCaps(c []lockfile.Capability) {
 		if c[i].Kind != c[j].Kind {
 			return c[i].Kind < c[j].Kind
 		}
-		return c[i].Detail < c[j].Detail
+		if c[i].Script != c[j].Script {
+			return c[i].Script < c[j].Script
+		}
+		return c[i].Command < c[j].Command
 	})
 }

@@ -255,7 +255,13 @@ func sortedDeps(m map[string]string) []depEntry {
 type packageJSON struct {
 	Name    string            `json:"name"`
 	Version string            `json:"version"`
-	Scripts map[string]string `json:"scripts"`
+	Scripts map[string]string `json:"-"`
+}
+
+type rawPackageJSON struct {
+	Name    string         `json:"name"`
+	Version string         `json:"version"`
+	Scripts map[string]any `json:"scripts"`
 }
 
 func parseTarballPackageJSON(body []byte) (packageJSON, bool) {
@@ -278,11 +284,11 @@ func parseTarballPackageJSON(body []byte) (packageJSON, bool) {
 			if err != nil {
 				return packageJSON{}, false
 			}
-			var out packageJSON
-			if err := json.Unmarshal(b, &out); err != nil {
+			var raw rawPackageJSON
+			if err := json.Unmarshal(b, &raw); err != nil {
 				return packageJSON{}, false
 			}
-			return out, true
+			return packageJSON{Name: raw.Name, Version: raw.Version, Scripts: stringScripts(raw.Scripts)}, true
 		}
 	}
 	return packageJSON{}, false
@@ -322,4 +328,22 @@ func dErr(code, msg string, details ...string) diag.Diagnostic {
 }
 func dWarn(code, msg string, details ...string) diag.Diagnostic {
 	return diag.Diagnostic{Code: code, Severity: diag.SeverityWarning, Message: msg, Details: details}
+}
+
+func stringScripts(raw map[string]any) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	scripts := map[string]string{}
+	for name, value := range raw {
+		command, ok := value.(string)
+		if !ok {
+			continue
+		}
+		scripts[name] = command
+	}
+	if len(scripts) == 0 {
+		return nil
+	}
+	return scripts
 }
