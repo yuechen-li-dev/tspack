@@ -199,3 +199,7 @@ The extension supports the following proof-of-concept workflow:
 The extension is intentionally scoped to observation: target listing, inspect tree rendering, selected-node details, and JSON copy. It does not implement visual editing, source mutation, source mapping, LLM integration, screenshot/OCR/machine vision, framework adapters, or a Code-OSS fork.
 
 See [Runtime-Grounded IDE Vision](runtime-grounded-ide.md) for the broader direction.
+
+## Native xTest helper
+
+The same runtime inspect backend is available inside native xTest through the `inspect` helper namespace. Tests can call `inspect.url(url, options?)` for a browser-backed page or `inspect.cdp(endpoint, options?)` for an existing CDP target, then assert or snapshot the returned structured inspect JSON. Inspect calls are observations, not assertions, so an inspect-only fact still fails the native harness no-assertion check. See [native-test-harness.md](./native-test-harness.md#inspect-helpers) for examples and option types.

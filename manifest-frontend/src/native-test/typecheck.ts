@@ -37,6 +37,52 @@ export type NativeTypecheckResult = {
 
 const nativeTypecheckGlobals = `
 type TspackNativeChild = unknown;
+
+type TspackInspectBounds = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+type TspackInspectNode = {
+  id: string;
+  tag: string;
+  role?: string;
+  name?: string;
+  text?: string;
+  bounds: TspackInspectBounds;
+  visible: boolean;
+  focusable?: boolean;
+  style?: Record<string, string | undefined>;
+  children: TspackInspectNode[];
+};
+type TspackInspectHitTest = {
+  point: { x: number; y: number };
+  elements: TspackInspectNode[];
+};
+type TspackInspectResult = {
+  target: { url: string };
+  browser: { name: string; backend?: string };
+  viewport: { width: number; height: number; deviceScaleFactor?: number };
+  root: TspackInspectNode | null;
+  hitTests: TspackInspectHitTest[];
+  diagnostics: Array<{ code: string; message: string }>;
+};
+type TspackInspectPoint = { x: number; y: number };
+type TspackInspectViewport = string | { width: number; height: number };
+type TspackInspectUrlOptions = {
+  browser?: "chromium" | "webkit" | "playwright-chromium" | "playwright-webkit";
+  selector?: string;
+  viewport?: TspackInspectViewport;
+  points?: TspackInspectPoint[];
+};
+type TspackInspectCdpOptions = {
+  target?: number | string;
+  targetUrl?: string;
+  selector?: string;
+  viewport?: TspackInspectViewport;
+  points?: TspackInspectPoint[];
+};
 type TspackNativeNode = unknown;
 type TspackNativeProps = Record<string, unknown> | null | undefined;
 type TspackNativeTag = (
@@ -62,6 +108,15 @@ declare const assert: {
 };
 declare const expect: unknown;
 declare const skip: unknown;
+declare const inspect: {
+  url(url: string, options?: TspackInspectUrlOptions): Promise<TspackInspectResult>;
+  cdp(endpoint: string, options?: TspackInspectCdpOptions): Promise<TspackInspectResult>;
+  target(endpoint: string, options?: TspackInspectCdpOptions): Promise<TspackInspectResult>;
+  cdpTarget(endpoint: string, options?: TspackInspectCdpOptions): Promise<TspackInspectResult>;
+  flatten(root: TspackInspectNode | null | undefined): TspackInspectNode[];
+  findByRole(root: TspackInspectNode | null | undefined, role: string, name?: string | RegExp): TspackInspectNode | undefined;
+  findByText(root: TspackInspectNode | null | undefined, text: string | RegExp): TspackInspectNode | undefined;
+};
 declare namespace JSX {
   interface IntrinsicElements {
     Suite: Record<string, unknown>;

@@ -328,3 +328,14 @@ The M39b release gate should cover the VS Code extension proof of concept withou
 - Missing `tspack` binary, unavailable CDP endpoint, no targets, diagnostics, and invalid JSON map to user-facing extension messages or output-channel debug details.
 - `docs/runtime-grounded-ide.md` exists and is linked from `docs/inspect.md`.
 - The proof of concept remains observation-only: no visual editing, source mutation, source mapping, LLM integration, screenshot/OCR/machine vision, framework adapters, Storybook integration, browser extension, xTest helper additions, or Code-OSS fork behavior.
+
+## Inspect helper smoke
+
+Before release, verify the native xTest inspect helper path:
+
+- Run a tiny local HTML fixture with `<main role="main"><button>Save</button></main>`.
+- Call `inspect.url(fixtureUrl, { selector: "main" })` and assert the returned root role/visibility.
+- Snapshot a selected subtree with `expect.snapshotJson(ui.root, "...")` rather than the full dynamic page.
+- Confirm a fact that only calls `await inspect.url(...)` fails with `TSPACK_TEST_NO_ASSERTION`.
+- Confirm browser-unavailable environments skip browser integration tests with a clear reason instead of failing CI.
+- Confirm `inspect.cdp(endpoint, { target: 0, selector: "..." })` option mapping without requiring VS Code or Electron.

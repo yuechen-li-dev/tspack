@@ -72,9 +72,9 @@ Connect inspected nodes to source locations without making runtime inspection fr
 
 Package selected runtime facts, source mappings, diagnostics, and test intent into explicit context instead of relying on broad source scraping.
 
-### Future: xTest inspect assertions
+### Native xTest inspect assertions
 
-Use inspect facts for test assertions such as role/name, visibility, bounds, and hit-test order.
+Use inspect facts for test assertions such as role/name, visibility, bounds, and hit-test order through the native `inspect` helper.
 
 ### Future: visual overlay
 
@@ -83,3 +83,14 @@ Add overlays for observation and review while keeping source text and diffs auth
 ### Future: optional Code-OSS fork
 
 Only consider a fork after the extension path proves the workflow and hits concrete API limits.
+
+## xTest inspect helper in the runtime-grounded loop
+
+Native xTest can now participate directly in the runtime-grounded workflow:
+
+1. **Observe** with `inspect.url` or `inspect.cdp`, reusing the same backend as `tspack inspect`.
+2. **Assert** semantic structure such as roles, names, visibility, and selected hit-test results.
+3. **Snapshot** stable subtrees with `expect.snapshotJson` when structural regressions should be reviewed.
+4. **Provide context later** by handing exact inspect JSON to higher-level tools instead of guessing from CSS or source.
+
+This step is intentionally limited to observation plus test assertions. It does not add source mapping, visual editing handles, screenshots, OCR, or LLM context bundles.
