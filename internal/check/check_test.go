@@ -124,6 +124,32 @@ func TestM33AWorkspaceDependencyAndTsEsmAliasFixturePasses(t *testing.T) {
 	}
 }
 
+func TestNodejsRuntimeBaselineCheckEquivalence(t *testing.T) {
+	fixtures := []string{
+		"runtime-baseline-omitted",
+		"runtime-baseline-nodejs",
+	}
+
+	var first []diag.Diagnostic
+	for _, fixtureName := range fixtures {
+		t.Run(fixtureName, func(t *testing.T) {
+			fixturePath := "../../fixtures/valid/" + fixtureName + "/manifest.ir.golden.json"
+			rootDir := "../../fixtures/valid/" + fixtureName
+			res := CheckRuntimeBoundaries(CheckOptions{RootDir: rootDir, Graph: loadGraph(t, fixturePath)})
+			if len(res.Diagnostics) != 0 {
+				t.Fatalf("runtime baseline check diagnostics=%#v", res.Diagnostics)
+			}
+			if first == nil {
+				first = append([]diag.Diagnostic(nil), res.Diagnostics...)
+				return
+			}
+			if !reflect.DeepEqual(first, res.Diagnostics) {
+				t.Fatalf("diagnostics differ: first=%#v current=%#v", first, res.Diagnostics)
+			}
+		})
+	}
+}
+
 func TestM33ATsEsmAliasTraceFindsTransitiveViolation(t *testing.T) {
 	fixture := "../../fixtures/invalid/m33a-ts-esm-alias-violation/manifest.ir.golden.json"
 	res := CheckRuntimeBoundaries(CheckOptions{RootDir: "../../fixtures/invalid/m33a-ts-esm-alias-violation", Graph: loadGraph(t, fixture)})

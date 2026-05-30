@@ -240,6 +240,41 @@ func TestDoctorRuntimeReportsSelectedNodejsProfile(t *testing.T) {
 	}
 }
 
+func TestDoctorRuntimeReportsOmittedAndExplicitNodejsEquivalently(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+
+	omitted := doctorRuntimeDetailsForIR(t, repo, root, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{}}]}`)
+	explicit := doctorRuntimeDetailsForIR(t, repo, root, `{format:1,workspace:{name:"ws",runtime:"nodejs"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{}}]}`)
+
+	if !reflect.DeepEqual(omitted, explicit) {
+		t.Fatalf("doctor runtime nodejs details differ:\nomitted=%#v\nexplicit=%#v", omitted, explicit)
+	}
+	if explicit["selected"] != "nodejs" || explicit["executable"] != "node" {
+		t.Fatalf("unexpected explicit nodejs details: %#v", explicit)
+	}
+	if explicit["lifecycleOwner"] != "tspack" || explicit["packageManagerDelegated"] != false {
+		t.Fatalf("unexpected ownership details: %#v", explicit)
+	}
+}
+
+func doctorRuntimeDetailsForIR(t *testing.T, repo string, root string, irJSON string) map[string]any {
+	t.Helper()
+	writeManifestStubWithIR(t, repo, irJSON)
+	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "runtime", "--root", root, "--json")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("doctor runtime json failed: %v\n%s", err, string(b))
+	}
+	var report DoctorReport
+	if err := json.Unmarshal(b, &report); err != nil {
+		t.Fatalf("invalid doctor runtime json: %v\n%s", err, string(b))
+	}
+	return flattenDoctorChecks(report)["runtime profile"].Details
+}
+
 func TestDoctorRuntimeReportsSelectedBunWithoutDenoNoise(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	writeManifestStubWithIR(t, repo, `{format:1,workspace:{name:"ws",runtime:"bun"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{}}]}`)

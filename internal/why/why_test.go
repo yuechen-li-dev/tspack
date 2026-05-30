@@ -2,6 +2,7 @@ package why
 
 import (
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -11,6 +12,50 @@ import (
 	"github.com/tspack/tspack/internal/lockfile"
 	"github.com/tspack/tspack/internal/manifest"
 )
+
+func TestNodejsRuntimeBaselineWhyEquivalence(t *testing.T) {
+	omitted := analyzeRuntimeBaselineFixture(t, "runtime-baseline-omitted")
+	explicit := analyzeRuntimeBaselineFixture(t, "runtime-baseline-nodejs")
+
+	if !reflect.DeepEqual(omitted, explicit) {
+		t.Fatalf("why analysis changed for explicit nodejs runtime:\nomitted=%#v\nexplicit=%#v", omitted, explicit)
+	}
+	if len(explicit.Diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", explicit.Diagnostics)
+	}
+	dep := mustFindExplanation(t, explicit, "dependency", "runtime-baseline", "left-pad", "")
+	if dep.Kind != "dep" {
+		t.Fatalf("expected dep explanation, got %q", dep.Kind)
+	}
+	if len(dep.LockPackages) != 1 || dep.LockPackages[0].ID != "npm:left-pad@1.3.0" {
+		t.Fatalf("expected left-pad lock package, got %#v", dep.LockPackages)
+	}
+}
+
+func analyzeRuntimeBaselineFixture(t *testing.T, name string) Result {
+	t.Helper()
+	root := filepath.Join("..", "..", "fixtures", "valid", name)
+	irBytes, err := os.ReadFile(filepath.Join(root, "manifest.ir.golden.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ir, manifestDiags := manifest.LoadBytes(filepath.Join(root, "manifest.ir.golden.json"), irBytes)
+	if len(manifestDiags) != 0 {
+		t.Fatalf("manifest diagnostics: %#v", manifestDiags)
+	}
+	g, graphDiags := graph.Build(ir)
+	if len(graphDiags) != 0 {
+		t.Fatalf("graph diagnostics: %#v", graphDiags)
+	}
+	lf, lockDiags, err := lockfile.LoadFile(filepath.Join(root, "ts-lock.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lockDiags) != 0 {
+		t.Fatalf("lock diagnostics: %#v", lockDiags)
+	}
+	return Analyze(g, lf, Options{Query: "left-pad"})
+}
 
 func TestWhyMatrix(t *testing.T) {
 	g := buildGraph(t)

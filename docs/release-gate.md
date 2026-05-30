@@ -137,6 +137,23 @@ Phase 6 expected behavior coverage should verify:
 - Reverse why paths are printed and encoded root-to-query.
 - Lock edges in normal why are declaration-scoped and deduplicated.
 
+### M42b Node.js runtime baseline smoke
+
+The M42b runtime portability release smoke must prove the Node.js profile is the explicit behavior-preserving baseline before any Bun/Deno execution milestone lands:
+
+- Omitted workspace runtime and `runtime="nodejs"` normalize to the same `nodejs` IR/default.
+- `tspack check` passes for omitted-runtime and explicit-`nodejs` fixtures with equivalent diagnostics.
+- `tspack pack` and `tspack pack --verify` remain deterministic, and generated npm `package.json` output does not include workspace runtime profile metadata.
+- `tspack why`, `tspack why --json`, and `tspack why --reverse` explain dependencies the same way under explicit `nodejs`.
+- Explicit `RunTarget.runtime` and `RunTarget.cwd` values are not overridden by workspace `runtime="nodejs"`; omitted RunTarget defaults remain unchanged and no inheritance is introduced.
+- Native xTest still uses the existing Node bridge path; `runtime="nodejs"`, `runtime="bun"`, and `runtime="deno"` do not switch the xTest bridge in M42b.
+- `tspack format`, `tspack lint`, and `tspack check --format` keep the same Biome backend resolution and arguments under the Node.js baseline.
+- Inspect helper/CLI behavior remains unchanged by workspace runtime profile where feasible to smoke.
+- `tspack doctor runtime --json` reports selected `nodejs`, executable `node`, `lifecycleOwner: tspack`, and `packageManagerDelegated: false` for both omitted and explicit Node.js fixtures.
+- No command delegates package-manager work to npm, Bun, or Deno because of workspace runtime profile.
+- Lockfile semantics, materialization, update/sync, and pack metadata stay unchanged.
+- `tspack migrate` keeps generated drafts quiet by omitting `runtime="nodejs"`; future runtime clues may be documented separately, but M42b must not infer Bun/Deno from `packageManager`.
+
 ### Claude-fooding Phase 2 package-manager smoke
 
 The Phase 2 package-manager smoke must cover the validated update→store→sync loop and read-only UX commands:

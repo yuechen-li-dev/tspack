@@ -176,6 +176,84 @@ func TestPackRejectsNonNPMPeerDependencies(t *testing.T) {
 	}
 }
 
+func TestNodejsRuntimeBaselinePackDoesNotLeakWorkspaceRuntime(t *testing.T) {
+	omitted := packRuntimeBaselineFixture(t, "runtime-baseline-omitted")
+	explicit := packRuntimeBaselineFixture(t, "runtime-baseline-nodejs")
+
+	if omitted.hash != explicit.hash {
+		t.Fatalf("omitted and explicit nodejs pack hashes differ: %s != %s", omitted.hash, explicit.hash)
+	}
+	if !bytes.Equal(omitted.packageJSON, explicit.packageJSON) {
+		t.Fatalf("omitted and explicit nodejs package.json differ:\nomitted=%s\nexplicit=%s", string(omitted.packageJSON), string(explicit.packageJSON))
+	}
+	if bytes.Contains(explicit.packageJSON, []byte("runtime\"")) || bytes.Contains(explicit.packageJSON, []byte("nodejs")) {
+		t.Fatalf("workspace runtime profile leaked into package.json: %s", string(explicit.packageJSON))
+	}
+}
+
+type runtimeBaselinePackResult struct {
+	hash        string
+	packageJSON []byte
+}
+
+func packRuntimeBaselineFixture(t *testing.T, name string) runtimeBaselinePackResult {
+	t.Helper()
+	root := filepath.Join("..", "..", "fixtures", "valid", name)
+	irBytes, err := os.ReadFile(filepath.Join(root, "manifest.ir.golden.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ir, diags := manifest.LoadBytes(filepath.Join(root, "manifest.ir.golden.json"), irBytes)
+	if len(diags) != 0 {
+		t.Fatalf("manifest diagnostics: %#v", diags)
+	}
+	g, graphDiags := graph.Build(ir)
+	if len(graphDiags) != 0 {
+		t.Fatalf("graph diagnostics: %#v", graphDiags)
+	}
+	result := Pack(root, g.Packages[0], Options{})
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("pack diagnostics: %#v", result.Diagnostics)
+	}
+	if len(result.Artifacts) != 1 {
+		t.Fatalf("expected one artifact, got %#v", result.Artifacts)
+	}
+	packageJSON := readPackageJSONFromArtifact(t, result.Artifacts[0].Path)
+	return runtimeBaselinePackResult{hash: result.Artifacts[0].Hash, packageJSON: packageJSON}
+}
+
+func readPackageJSONFromArtifact(t *testing.T, artifactPath string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(artifactPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz, err := gzip.NewReader(bytes.NewReader(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = gz.Close() }()
+	tarReader := tar.NewReader(gz)
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if header.Name == "package/package.json" {
+			content, readErr := io.ReadAll(tarReader)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			return content
+		}
+	}
+	t.Fatalf("package/package.json missing from %s", artifactPath)
+	return nil
+}
+
 func TestPackArchiveMetadataAndGeneratedPackageJSON(t *testing.T) {
 	d := t.TempDir()
 	_ = os.MkdirAll(filepath.Join(d, "dist"), 0o755)

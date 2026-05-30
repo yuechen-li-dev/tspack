@@ -3,6 +3,7 @@ package manifest
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/tspack/tspack/internal/diag"
@@ -110,6 +111,35 @@ func TestWorkspaceRuntimeProfileDefaultsToNodejs(t *testing.T) {
 	if ir.Workspace.Runtime != "nodejs" {
 		t.Fatalf("runtime=%q", ir.Workspace.Runtime)
 	}
+}
+
+func TestNodejsRuntimeBaselineFixtureEquivalence(t *testing.T) {
+	omitted := loadRuntimeBaselineFixture(t, "runtime-baseline-omitted")
+	explicit := loadRuntimeBaselineFixture(t, "runtime-baseline-nodejs")
+
+	if omitted.Workspace.Runtime != "nodejs" {
+		t.Fatalf("omitted runtime normalized to %q", omitted.Workspace.Runtime)
+	}
+	if explicit.Workspace.Runtime != "nodejs" {
+		t.Fatalf("explicit runtime normalized to %q", explicit.Workspace.Runtime)
+	}
+	if !reflect.DeepEqual(omitted, explicit) {
+		t.Fatalf("omitted and explicit nodejs IR differ:\nomitted=%#v\nexplicit=%#v", omitted, explicit)
+	}
+}
+
+func loadRuntimeBaselineFixture(t *testing.T, name string) *ManifestIR {
+	t.Helper()
+	path := filepath.Join("..", "..", "fixtures", "valid", name, "manifest.ir.golden.json")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ir, diags := LoadBytes(path, b)
+	if len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics for %s: %#v", name, diags)
+	}
+	return ir
 }
 
 func TestWorkspaceRuntimeProfileRejectsInvalidValues(t *testing.T) {
