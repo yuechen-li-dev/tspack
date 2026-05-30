@@ -40,7 +40,7 @@
 
 ### Migrate smoke
 
-The migrate release smoke should cover the package.json-to-draft onboarding path:
+The migrate release smoke should cover source import evidence (default scan plus `--no-source-scan`) and the package.json-to-draft onboarding path:
 
 - `tspack migrate --root <fixture>` prints planned paths and writes no files.
 - `tspack migrate --root <fixture> --write` writes `manifest.migrated.tsx` and `tspack-migration.md`.

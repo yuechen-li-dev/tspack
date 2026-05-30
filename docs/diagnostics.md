@@ -318,3 +318,9 @@ A manifest acknowledgment matches a package and lifecycle script, but the lockfi
 Severity: warning.
 
 A manifest acknowledgment does not match any lifecycle capability in the lockfile. Remove stale policy after dependency removal or update it to the new exact package/script/command tuple.
+
+## Source scan migration diagnostics
+
+- `TSPACK_MIGRATE_SOURCE_SCAN_TRUNCATED`: `tspack migrate` hit conservative source scan limits. Migration continues with partial evidence; review imports manually if classification evidence is important.
+- `TSPACK_MIGRATE_SOURCE_PARSE_WARNING`: a source file or source root could not be read or was skipped by a recoverable scan warning. Migration continues and the report lists the affected path.
+- `TSPACK_MIGRATE_SOURCE_SCAN_FAILED`: source roots were discovered but no source files could be read. Migration continues so package.json migration can still produce a draft; use `--no-source-scan` to skip source evidence or review file permissions.

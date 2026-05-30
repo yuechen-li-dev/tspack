@@ -426,6 +426,122 @@ func TestMigrateWriteWithLockEvidenceDoesNotWriteTsLock(t *testing.T) {
 	assertFileMissing(t, filepath.Join(root, "ts-lock.toml"))
 }
 
+func TestMigrateSourceImportEvidence(t *testing.T) {
+	root := t.TempDir()
+	writePackageJSON(t, root, `{
+  "name": "source-evidence",
+  "version": "1.0.0",
+  "dependencies": { "clsx": "^2.0.0", "zod": "^3.0.0" },
+  "peerDependencies": { "react": "^19.0.0" },
+  "devDependencies": { "lodash": "^4.17.21" }
+}`)
+	writeTestFile(t, filepath.Join(root, "src", "index.ts"), `import clsx from "clsx";
+import type { ZodType } from "zod";
+import { debounce } from "lodash";
+import "./local";
+import("left-pad");
+export { jsx } from "react/jsx-runtime";
+`)
+	writeTestFile(t, filepath.Join(root, "src", "Button.tsx"), `import React, { type ReactNode } from "react";
+import scoped from "@scope/pkg/subpath";
+import fs from "node:fs";
+import path from "path";
+void scoped;
+void fs;
+void path;
+export type { ButtonHTMLAttributes } from "react";
+`)
+	writeTestFile(t, filepath.Join(root, "dist", "ignored.js"), `import ignored from "ignored-dist"; void ignored;`)
+	writeTestFile(t, filepath.Join(root, "node_modules", "ignored", "index.js"), `import ignored from "ignored-node-modules"; void ignored;`)
+
+	cfg, _ := parseMigrateArgs([]string{"migrate", "--root", root})
+	draft, diagnostic := buildMigrationDraft(cfg)
+	if diagnostic != nil {
+		t.Fatalf("unexpected diagnostic: %#v", diagnostic)
+	}
+
+	for _, want := range []string{
+		"## Source import evidence",
+		"- status: enabled",
+		"- roots scanned: `src`",
+		"| `clsx` | `runtime` | `dependency` | `src/index.ts` | `clsx` |",
+		"| `react` | `runtime+type+mixed` | `peerDependency` |",
+		"| `lodash` | `runtime` | `devDependency` | `src/index.ts` | `lodash` |",
+		"| `zod` | `type` | `dependency` | `src/index.ts` | `zod` |",
+		"| `left-pad` | `runtime+dynamic` | `missing` | `src/index.ts` | `left-pad` |",
+		"| `@scope/pkg` | `runtime` | `missing` | `src/Button.tsx` | `@scope/pkg/subpath` |",
+		"runtime imports declared only as devDependencies: `lodash`",
+		"packages observed only through type-only imports: `zod`",
+		"imported packages missing from direct package.json declarations: `@scope/pkg`, `left-pad`",
+		"Node builtin imports observed: `fs` (1), `path` (1)",
+	} {
+		if !strings.Contains(draft.Report, want) {
+			t.Fatalf("report missing %q:\n%s", want, draft.Report)
+		}
+	}
+	for _, unwanted := range []string{"ignored-dist", "ignored-node-modules", "./local"} {
+		if strings.Contains(draft.Report, unwanted) {
+			t.Fatalf("report should not contain %q:\n%s", unwanted, draft.Report)
+		}
+	}
+	for _, want := range []string{
+		"Source scan observed undeclared external imports: `@scope/pkg`, `left-pad`",
+		"Source scan found runtime imports while package.json declares this as a devDependency.",
+		"Source evidence: runtime imports found in src/index.ts.",
+		"MIGRATION_TODO_TYPES: Source scan only found type-only imports; verify type dependency intent.",
+	} {
+		if !strings.Contains(draft.Manifest, want) {
+			t.Fatalf("manifest missing %q:\n%s", want, draft.Manifest)
+		}
+	}
+}
+
+func TestMigrateNoSourceScanSkipsSourceEvidence(t *testing.T) {
+	root := t.TempDir()
+	writePackageJSON(t, root, `{"name":"skip-source","version":"1.0.0","dependencies":{"clsx":"^2"}}`)
+	writeTestFile(t, filepath.Join(root, "src", "index.ts"), `import clsx from "clsx";`)
+
+	cfg, diags := parseMigrateArgs([]string{"migrate", "--root", root, "--no-source-scan"})
+	if len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diags)
+	}
+	draft, diagnostic := buildMigrationDraft(cfg)
+	if diagnostic != nil {
+		t.Fatalf("unexpected diagnostic: %#v", diagnostic)
+	}
+	if !strings.Contains(draft.Report, "- source scan: skipped by `--no-source-scan`") {
+		t.Fatalf("report should mention skipped source scan:\n%s", draft.Report)
+	}
+	if strings.Contains(draft.Report, "| `clsx` | `runtime`") {
+		t.Fatalf("report should not include observed source imports when skipped:\n%s", draft.Report)
+	}
+
+	_, diags = parseMigrateArgs([]string{"migrate", "--root", root, "--scan-source", "--no-source-scan"})
+	if len(diags) != 1 || diags[0].Code != "TSPACK_MIGRATE_INVALID_ARGS" {
+		t.Fatalf("expected invalid args diagnostic: %#v", diags)
+	}
+}
+
+func TestMigrateSourceScanStableReport(t *testing.T) {
+	root := t.TempDir()
+	writePackageJSON(t, root, `{"name":"stable-source","version":"1.0.0","dependencies":{"a":"1.0.0","b":"1.0.0"}}`)
+	writeTestFile(t, filepath.Join(root, "src", "b.ts"), `import b from "b"; void b;`)
+	writeTestFile(t, filepath.Join(root, "src", "a.ts"), `import a from "a"; void a;`)
+
+	cfg, _ := parseMigrateArgs([]string{"migrate", "--root", root})
+	first, diagnostic := buildMigrationDraft(cfg)
+	if diagnostic != nil {
+		t.Fatalf("unexpected diagnostic: %#v", diagnostic)
+	}
+	second, diagnostic := buildMigrationDraft(cfg)
+	if diagnostic != nil {
+		t.Fatalf("unexpected diagnostic: %#v", diagnostic)
+	}
+	if first.Report != second.Report {
+		t.Fatalf("source scan report should be stable\nfirst:\n%s\nsecond:\n%s", first.Report, second.Report)
+	}
+}
+
 func writePackageJSON(t *testing.T, root string, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(content), 0o644); err != nil {
@@ -436,6 +552,16 @@ func writePackageJSON(t *testing.T, root string, content string) {
 func writePackageLock(t *testing.T, root string, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(root, "package-lock.json"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeTestFile(t *testing.T, path string, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

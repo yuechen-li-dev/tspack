@@ -45,6 +45,8 @@ Without `--force`, any existing output file causes the command to fail before wr
 | `--package-json <path>` | Read an explicit package.json path. Relative paths are resolved from `--root`. |
 | `--package-lock <path>` | Read an explicit npm package-lock path for migration report evidence. Relative paths are resolved from `--root`. |
 | `--no-lock-evidence` | Skip package-lock evidence even when `package-lock.json` exists. |
+| `--scan-source` | Enable source import evidence scanning. This is the default for conservative source roots, and the flag is accepted for explicitness. |
+| `--no-source-scan` | Skip source import evidence scanning. |
 | `--out-manifest <path>` | Write the manifest draft to a custom path. Relative paths are resolved from `--root`. |
 | `--out-report <path>` | Write the migration report to a custom path. Relative paths are resolved from `--root`. |
 | `--force` | Overwrite migration output files. Does not permit overwriting `manifest.tsx` unless that exact custom output path is explicitly requested. |
@@ -85,6 +87,29 @@ The lock evidence section reports:
 - mismatches such as missing direct lock entries, root lock declarations not represented in package.json fields consumed by migrate, duplicate versions, and `@types/*` evidence
 
 Lifecycle scripts from the lockfile add `MIGRATION_TODO_SECURITY` report guidance. Binary packages, lifecycle capabilities, and large approximate fanout add dependency-classification review guidance. Detailed lock evidence stays in `tspack-migration.md`; the manifest draft remains package.json-driven.
+
+## Source import evidence
+
+By default, `tspack migrate` scans common source roots when they exist: `src`, `lib`, and `app`. If `package.json` has a string `source` field under the project root, that path is also scanned. The scan is read-only and is used only as migration evidence. Pass `--no-source-scan` to skip this work.
+
+The source scan recognizes simple static imports, re-exports, `import("pkg")`, and `require("pkg")` string literals in `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, and `.cjs` files. It maps subpath imports such as `react/jsx-runtime` to `react` and `@scope/pkg/subpath` to `@scope/pkg`. Relative imports are ignored for dependency classification. Node builtins such as `node:fs` and `path` are reported separately and never converted to npm dependencies.
+
+The report includes:
+
+- scan status, roots, file counts, warnings, and truncation status
+- observed external packages with runtime/type-only/mixed/dynamic evidence
+- package.json declaration status for each observed package
+- runtime imports declared only in `devDependencies`
+- type-only-only import candidates for `MIGRATION_TODO_TYPES` review
+- imported packages missing from direct package.json dependency fields
+- declared packages not observed in scanned source
+- Node builtin evidence for runtime/environment review
+
+The manifest stays conservative. Source evidence may add short comments and `MIGRATION_TODO_DEP_CLASSIFICATION` / `MIGRATION_TODO_TYPES` notes, but migrate does not move dependencies between fields, remove unobserved dependencies, infer exact target boundaries, or mutate source/package files based on the scan.
+
+Source scanning uses conservative guardrails: at most 2,000 files and at most 1 MiB per file. If evidence is incomplete, migration continues and the report/diagnostics mark the scan as truncated or warn about unreadable files.
+
+Limitations: the scan does not run TypeScript semantic checking, perform full module resolution, resolve `tsconfig` path aliases, analyze bundler/framework configuration, execute scripts, install packages, or call LLMs. Human/LLM review should use the evidence to resolve `MIGRATION_TODO_DEP_CLASSIFICATION`, `MIGRATION_TODO_TYPES`, and `MIGRATION_TODO_TARGETS` rather than treating it as architectural truth.
 
 If no implicit `<root>/package-lock.json` exists, migration continues and the report says lock evidence was not found. If the implicit lock exists but cannot be parsed, migration continues with a warning diagnostic and the report says lock evidence was invalid and ignored. If `--package-lock <path>` is provided, missing or invalid lock files fail the command because the user explicitly requested that evidence. `--package-lock` and `--no-lock-evidence` cannot be combined.
 
@@ -146,6 +171,7 @@ Scripts are listed in `tspack-migration.md` but are not migrated to RunTargets a
 
 - inputs and output paths
 - package-lock evidence status and report-only lock evidence when available
+- source import evidence status and report-only dependency classification hints when available
 - package summary and inferred kind
 - dependency counts and target count
 - mechanical mapping table
@@ -194,7 +220,8 @@ tspack migrate --write --force
 
 - translate `package-lock.json` to `ts-lock.toml`
 - translate package-lock graphs into TSPack lock data
-- scan source imports
+- mutate source files or package.json based on source scan evidence
+- infer exact target boundaries from source file locations
 - infer target boundaries from source code
 - overwrite `manifest.tsx` automatically
 - mutate `package.json`
