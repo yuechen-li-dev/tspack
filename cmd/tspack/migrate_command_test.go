@@ -68,6 +68,10 @@ func TestMigrateMinimalPackageDraftAndReport(t *testing.T) {
 			t.Fatalf("manifest missing %q:\n%s", want, draft.Manifest)
 		}
 	}
+	if strings.Contains(draft.Manifest, `runtime="nodejs"`) {
+		t.Fatalf("migration draft should omit workspace runtime because nodejs is the default:\n%s", draft.Manifest)
+	}
+
 	for _, want := range []string{
 		"# TSPack Migration Report",
 		"## Inputs",

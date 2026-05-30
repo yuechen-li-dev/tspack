@@ -70,6 +70,19 @@ export default define(
     expect(result.ir?.workspace.runtime).toBe('nodejs');
   });
 
+  it('treats omitted runtime and explicit nodejs as equivalent baseline manifests', () => {
+    const omitted = parseManifestFile(fixture('valid', 'runtime-baseline-omitted'));
+    const explicit = parseManifestFile(fixture('valid', 'runtime-baseline-nodejs'));
+
+    expect(omitted.ok).toBe(true);
+    expect(explicit.ok).toBe(true);
+    expect(omitted.ir?.workspace.runtime).toBe('nodejs');
+    expect(explicit.ir?.workspace.runtime).toBe('nodejs');
+    expect(omitted.ir).toEqual(explicit.ir);
+    expect(JSON.stringify(omitted.ir)).toBe(golden('valid', 'runtime-baseline-omitted'));
+    expect(JSON.stringify(explicit.ir)).toBe(golden('valid', 'runtime-baseline-nodejs'));
+  });
+
   it('rejects invalid workspace runtime profiles', () => {
     const tmpDir = fs.mkdtempSync(path.join(root, 'fixtures', 'tmp-invalid-runtime-'));
     const manifestPath = path.join(tmpDir, 'manifest.tsx');

@@ -3614,6 +3614,57 @@ process.exit(0);
 	}
 }
 
+func TestCLITestNativeBridgeIgnoresWorkspaceRuntimeProfile(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	bridge := filepath.Join(root, "native-test-cli.js")
+	recordPath := filepath.Join(root, "bridge-args.txt")
+	stub := `#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync(process.env.TSPACK_BRIDGE_ARGS, process.argv.slice(2).join('\t'));
+console.log('Native xTest results');
+console.log('');
+console.log('PASS src/runtime.xtest.tsx::runtime/pass');
+`
+	if err := os.WriteFile(bridge, []byte(stub), 0o755); err != nil {
+		t.Fatalf("write bridge: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	manifestText := `import { define } from "tspack/manifest";
+export default define(
+  <Workspace name="runtime-test" runtime="deno">
+    <Package name="runtime-test" version="1.0.0" kind="library" />
+  </Workspace>,
+);
+`
+	if err := os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte(manifestText), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "runtime.xtest.tsx"), []byte("export default null\n"), 0o644); err != nil {
+		t.Fatalf("write xtest: %v", err)
+	}
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "test", "--root", root, "--xtest-bridge", bridge)
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "TSPACK_BRIDGE_ARGS="+recordPath)
+	b, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), "PASS src/runtime.xtest.tsx::runtime/pass") {
+		t.Fatalf("native xTest bridge failed: %v\n%s", err, string(b))
+	}
+	recorded, err := os.ReadFile(recordPath)
+	if err != nil {
+		t.Fatalf("read bridge args: %v", err)
+	}
+	recordedText := string(recorded)
+	for _, forbidden := range []string{"deno", "bun", "nodejs", "--runtime"} {
+		if strings.Contains(recordedText, forbidden) {
+			t.Fatalf("workspace runtime leaked into native xTest bridge args: %q", recordedText)
+		}
+	}
+}
+
 func TestCLITestXTestBridgeMissingDiagnostic(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	root := t.TempDir()
@@ -3919,6 +3970,47 @@ http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}).listen(port,'127.
 	if err != nil || string(packageCwd) != packageDir {
 		t.Fatalf("package cwd marker = %q, err=%v, want %q", string(packageCwd), err, packageDir)
 	}
+}
+
+func TestCLIRunWorkspaceNodejsDoesNotOverrideRunTargetRuntime(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	omittedIR := `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",cwd:"workspace",command:["node","server.js"],url:"http://127.0.0.1:5999"}]}]}`
+	explicitIR := `{format:1,workspace:{name:"ws",runtime:"nodejs"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",cwd:"workspace",command:["node","server.js"],url:"http://127.0.0.1:5999"}]}]}`
+	omitted := runListJSONForIR(t, repo, root, omittedIR)
+	explicit := runListJSONForIR(t, repo, root, explicitIR)
+
+	if !reflect.DeepEqual(omitted, explicit) {
+		t.Fatalf("run --list --json changed under explicit nodejs:\nomitted=%#v\nexplicit=%#v", omitted, explicit)
+	}
+	if len(explicit.Targets) != 1 || explicit.Targets[0].Runtime != "system" {
+		t.Fatalf("workspace runtime must not override explicit RunTarget runtime: %#v", explicit.Targets)
+	}
+}
+
+type runListJSONPayload struct {
+	Targets []struct {
+		Runtime string `json:"runtime"`
+		Cwd     string `json:"cwd"`
+		CwdPath string `json:"cwdPath"`
+	} `json:"targets"`
+}
+
+func runListJSONForIR(t *testing.T, repo string, root string, irJSON string) runListJSONPayload {
+	t.Helper()
+	writeRunFrontendStub(t, irJSON)
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--list", "--json")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run --list --json failed: %v\n%s", err, string(b))
+	}
+	var payload runListJSONPayload
+	if err := json.Unmarshal(b, &payload); err != nil {
+		t.Fatalf("invalid run list json: %v\n%s", err, string(b))
+	}
+	return payload
 }
 
 func TestCLIRunOmittedCwdListsAsWorkspace(t *testing.T) {

@@ -93,6 +93,8 @@ The manifest draft uses the current `tspack/manifest` authoring API and includes
 - publish includes from `files`, or conservative defaults when `files` is absent
 - comments with stable `MIGRATION_TODO_*` tags for every important uncertainty
 
+The generated workspace intentionally omits `runtime="nodejs"` because Node.js is the default runtime profile. M42b does not infer Bun or Deno from `packageManager` or other package-manager fields; future runtime clues can be reviewed explicitly without changing migration's current behavior-preserving baseline.
+
 The draft is meant to be readable TypeScript/TSX. Source entry paths are guesses, usually mapping `dist/index.js` to `src/index.ts`; they are marked with TODO comments because package.json generally does not declare source entry files.
 
 

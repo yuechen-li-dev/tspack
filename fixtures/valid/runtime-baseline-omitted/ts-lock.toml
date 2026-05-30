@@ -1,0 +1,23 @@
+[lock]
+format = 1
+tool = "tspack"
+
+[[package]]
+id = "npm:left-pad@1.3.0"
+name = "left-pad"
+version = "1.3.0"
+source = "npm"
+hash = "fixture-left-pad"
+
+[[edge]]
+from = "runtime-baseline:target:core"
+to = "npm:left-pad@1.3.0"
+kind = "runtime"
+
+[[target]]
+package = "runtime-baseline"
+name = "core"
+export = "."
+entry = "src/index.ts"
+runtime = "dist/index.js"
+types = "dist/index.d.ts"
