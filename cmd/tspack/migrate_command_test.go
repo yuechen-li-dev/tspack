@@ -258,9 +258,184 @@ func TestMigrateReportStableAcrossRepeatedRuns(t *testing.T) {
 	}
 }
 
+func TestMigratePackageLockEvidenceReport(t *testing.T) {
+	root := t.TempDir()
+	writePackageJSON(t, root, `{
+  "name": "locked",
+  "version": "1.0.0",
+  "dependencies": { "react": "^18.3.1" },
+  "devDependencies": { "vite": "^5.0.0" },
+  "peerDependencies": { "@types/react": "^18.3.0" }
+}`)
+	writePackageLock(t, root, `{
+  "name": "locked",
+  "lockfileVersion": 3,
+  "packages": {
+    "": {
+      "name": "locked",
+      "dependencies": { "react": "^18.3.1", "left-pad": "^1.3.0" },
+      "devDependencies": { "vite": "^5.0.0" },
+      "peerDependencies": { "@types/react": "^18.3.0" }
+    },
+    "node_modules/react": {
+      "version": "18.3.1",
+      "resolved": "https://registry.npmjs.org/react/-/react-18.3.1.tgz",
+      "integrity": "sha512-reactintegritylongvalue",
+      "peerDependencies": { "loose-envify": "^1.1.0" }
+    },
+    "node_modules/vite": {
+      "version": "5.4.0",
+      "resolved": "https://registry.npmjs.org/vite/-/vite-5.4.0.tgz",
+      "integrity": "sha512-viteintegritylongvalue",
+      "dependencies": { "esbuild": "^0.21.0" },
+      "bin": { "vite": "bin/openChrome.applescript" }
+    },
+    "node_modules/esbuild": {
+      "version": "0.21.5",
+      "dependencies": { "@esbuild/linux-x64": "0.21.5" },
+      "bin": { "esbuild": "bin/esbuild" },
+      "scripts": { "postinstall": "node install.js" }
+    },
+    "node_modules/@esbuild/linux-x64": {
+      "version": "0.21.5",
+      "os": ["linux"],
+      "cpu": ["x64"]
+    },
+    "node_modules/@types/react": {
+      "version": "18.3.3"
+    },
+    "node_modules/a/node_modules/react": {
+      "name": "react",
+      "version": "17.0.2"
+    }
+  }
+}`)
+
+	cfg, diags := parseMigrateArgs([]string{"migrate", "--root", root})
+	if len(diags) != 0 {
+		t.Fatalf("unexpected parse diagnostics: %#v", diags)
+	}
+	draft, diagnostic := buildMigrationDraft(cfg)
+	if diagnostic != nil {
+		t.Fatalf("unexpected diagnostic: %#v", diagnostic)
+	}
+
+	for _, want := range []string{
+		"## Lockfile evidence",
+		"lockfileVersion: `3`",
+		"| `react` | `^18.3.1` | `18.3.1` | `dep` |",
+		"| `vite` | `^5.0.0` | `5.4.0` | `tool` |",
+		"### Lifecycle capabilities",
+		"`esbuild@0.21.5` | `postinstall` | `node install.js`",
+		"### Binary packages",
+		"`vite@5.4.0`",
+		"### Peer evidence",
+		"`react@18.3.1`",
+		"### Platform/native package evidence",
+		"`@esbuild/linux-x64@0.21.5`",
+		"duplicate locked versions for `react`",
+		"lock root dependencies not declared in package.json fields consumed by migrate: `left-pad`",
+		"lock evidence includes type packages needing type-policy review: `@types/react`",
+		"Lock evidence detected 1 dependency lifecycle script capabilities",
+	} {
+		if !strings.Contains(draft.Report, want) {
+			t.Fatalf("report missing %q:\n%s", want, draft.Report)
+		}
+	}
+	if strings.Contains(draft.Manifest, "node install.js") {
+		t.Fatalf("manifest should not include detailed lock script commands:\n%s", draft.Manifest)
+	}
+}
+
+func TestMigrateImplicitPackageLockInvalidWarnsAndContinues(t *testing.T) {
+	root := t.TempDir()
+	writePackageJSON(t, root, `{"name":"badlock","version":"1.0.0"}`)
+	writePackageLock(t, root, `{"lockfileVersion":3,`)
+
+	cfg, _ := parseMigrateArgs([]string{"migrate", "--root", root})
+	draft, diagnostic := buildMigrationDraft(cfg)
+	if diagnostic != nil {
+		t.Fatalf("implicit invalid lock should not fail: %#v", diagnostic)
+	}
+	if len(draft.Diagnostics) != 1 || draft.Diagnostics[0].Code != "TSPACK_MIGRATE_PACKAGE_LOCK_INVALID" {
+		t.Fatalf("expected warning diagnostic: %#v", draft.Diagnostics)
+	}
+	if !strings.Contains(draft.Report, "lock evidence: invalid; ignored") {
+		t.Fatalf("report should mention invalid ignored lock:\n%s", draft.Report)
+	}
+}
+
+func TestMigrateExplicitPackageLockMissingAndInvalidFail(t *testing.T) {
+	root := t.TempDir()
+	writePackageJSON(t, root, `{"name":"explicit","version":"1.0.0"}`)
+
+	cfg, _ := parseMigrateArgs([]string{"migrate", "--root", root, "--package-lock", "missing-lock.json"})
+	_, diagnostic := buildMigrationDraft(cfg)
+	if diagnostic == nil || diagnostic.Code != "TSPACK_MIGRATE_PACKAGE_LOCK_MISSING" {
+		t.Fatalf("expected explicit missing lock diagnostic: %#v", diagnostic)
+	}
+
+	badPath := filepath.Join(root, "bad-lock.json")
+	if err := os.WriteFile(badPath, []byte(`{"lockfileVersion":3,`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ = parseMigrateArgs([]string{"migrate", "--root", root, "--package-lock", badPath})
+	_, diagnostic = buildMigrationDraft(cfg)
+	if diagnostic == nil || diagnostic.Code != "TSPACK_MIGRATE_PACKAGE_LOCK_INVALID" {
+		t.Fatalf("expected explicit invalid lock diagnostic: %#v", diagnostic)
+	}
+}
+
+func TestMigrateNoLockEvidenceSkipsExistingLock(t *testing.T) {
+	root := t.TempDir()
+	writePackageJSON(t, root, `{"name":"skiplock","version":"1.0.0","dependencies":{"react":"^18"}}`)
+	writePackageLock(t, root, `{"lockfileVersion":3,"packages":{"node_modules/react":{"version":"18.3.1"}}}`)
+
+	cfg, diags := parseMigrateArgs([]string{"migrate", "--root", root, "--no-lock-evidence"})
+	if len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diags)
+	}
+	draft, diagnostic := buildMigrationDraft(cfg)
+	if diagnostic != nil {
+		t.Fatalf("unexpected diagnostic: %#v", diagnostic)
+	}
+	if !strings.Contains(draft.Report, "lock evidence: skipped by `--no-lock-evidence`") {
+		t.Fatalf("report should mention skipped lock evidence:\n%s", draft.Report)
+	}
+
+	_, diags = parseMigrateArgs([]string{"migrate", "--root", root, "--package-lock", "package-lock.json", "--no-lock-evidence"})
+	if len(diags) != 1 || diags[0].Code != "TSPACK_MIGRATE_INVALID_ARGS" {
+		t.Fatalf("expected invalid args diagnostic: %#v", diags)
+	}
+}
+
+func TestMigrateWriteWithLockEvidenceDoesNotWriteTsLock(t *testing.T) {
+	root := t.TempDir()
+	writePackageJSON(t, root, `{"name":"writelock","version":"1.0.0","dependencies":{"react":"^18"}}`)
+	writePackageLock(t, root, `{"lockfileVersion":3,"packages":{"node_modules/react":{"version":"18.3.1"}}}`)
+	repo := repoRootForMigrateTest(t)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "migrate", "--root", root, "--write")
+	cmd.Dir = repo
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("write with lock failed: %v\n%s", err, string(output))
+	}
+	assertFileContains(t, filepath.Join(root, "tspack-migration.md"), "## Lockfile evidence")
+	assertFileContains(t, filepath.Join(root, "tspack-migration.md"), "| `react` | `^18` | `18.3.1` | `dep` |")
+	assertFileMissing(t, filepath.Join(root, "ts-lock.toml"))
+}
+
 func writePackageJSON(t *testing.T, root string, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writePackageLock(t *testing.T, root string, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(root, "package-lock.json"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

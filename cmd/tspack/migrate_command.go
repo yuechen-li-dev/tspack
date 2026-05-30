@@ -67,10 +67,12 @@ var lifecycleScriptNames = map[string]bool{
 type migrateConfig struct {
 	root            string
 	packageJSONPath string
+	packageLockPath string
 	outManifestPath string
 	outReportPath   string
 	write           bool
 	force           bool
+	noLockEvidence  bool
 }
 
 type packageJSONModel struct {
@@ -118,7 +120,8 @@ type migrationDraft struct {
 	SkippedRanges        []string
 	SubpathTodos         []string
 	LifecycleScripts     []string
-	LockfilePath         string
+	LockEvidence         packageLockEvidence
+	Diagnostics          []migrationDiagnostic
 	TodoCounts           map[string]int
 	TotalTodos           int
 }
@@ -169,6 +172,9 @@ func runMigrateCommand(args []string) {
 	if diagnostic != nil {
 		printMigrationDiagnostic(*diagnostic)
 		os.Exit(1)
+	}
+	for _, diagnostic := range draft.Diagnostics {
+		printMigrationDiagnostic(diagnostic)
 	}
 
 	if !cfg.write {
@@ -244,6 +250,15 @@ func parseMigrateArgs(args []string) (migrateConfig, []migrationDiagnostic) {
 				continue
 			}
 			cfg.packageJSONPath = value
+		case "--package-lock":
+			value, ok := readFlagValue(args, &i)
+			if !ok {
+				diags = append(diags, migrationFlagDiagnostic(arg))
+				continue
+			}
+			cfg.packageLockPath = value
+		case "--no-lock-evidence":
+			cfg.noLockEvidence = true
 		case "--out-manifest":
 			value, ok := readFlagValue(args, &i)
 			if !ok {
@@ -260,7 +275,7 @@ func parseMigrateArgs(args []string) (migrateConfig, []migrationDiagnostic) {
 			cfg.outReportPath = value
 		default:
 			diags = append(diags, migrationDiagnostic{
-				Code:    "TSPACK_MIGRATE_UNSUPPORTED_PACKAGE_SHAPE",
+				Code:    "TSPACK_MIGRATE_INVALID_ARGS",
 				Message: "unknown migrate flag: " + arg,
 				Fixes:   []string{"Run `tspack migrate --write` or `tspack migrate --root <root>`."},
 			})
@@ -276,6 +291,13 @@ func parseMigrateArgs(args []string) (migrateConfig, []migrationDiagnostic) {
 	} else if !filepath.IsAbs(cfg.packageJSONPath) {
 		cfg.packageJSONPath = filepath.Join(cfg.root, cfg.packageJSONPath)
 	}
+	if cfg.packageLockPath != "" && cfg.noLockEvidence {
+		diags = append(diags, migrationDiagnostic{
+			Code:    "TSPACK_MIGRATE_INVALID_ARGS",
+			Message: "--package-lock cannot be combined with --no-lock-evidence",
+			Fixes:   []string{"Remove --package-lock or remove --no-lock-evidence."},
+		})
+	}
 	if cfg.outManifestPath == "" {
 		cfg.outManifestPath = filepath.Join(cfg.root, "manifest.migrated.tsx")
 	} else if !filepath.IsAbs(cfg.outManifestPath) {
@@ -286,8 +308,14 @@ func parseMigrateArgs(args []string) (migrateConfig, []migrationDiagnostic) {
 	} else if !filepath.IsAbs(cfg.outReportPath) {
 		cfg.outReportPath = filepath.Join(cfg.root, cfg.outReportPath)
 	}
+	if cfg.packageLockPath != "" && !filepath.IsAbs(cfg.packageLockPath) {
+		cfg.packageLockPath = filepath.Join(cfg.root, cfg.packageLockPath)
+	}
 
 	cfg.packageJSONPath = filepath.Clean(cfg.packageJSONPath)
+	if cfg.packageLockPath != "" {
+		cfg.packageLockPath = filepath.Clean(cfg.packageLockPath)
+	}
 	cfg.outManifestPath = filepath.Clean(cfg.outManifestPath)
 	cfg.outReportPath = filepath.Clean(cfg.outReportPath)
 
@@ -305,7 +333,7 @@ func readFlagValue(args []string, index *int) (string, bool) {
 
 func migrationFlagDiagnostic(flag string) migrationDiagnostic {
 	return migrationDiagnostic{
-		Code:    "TSPACK_MIGRATE_UNSUPPORTED_PACKAGE_SHAPE",
+		Code:    "TSPACK_MIGRATE_INVALID_ARGS",
 		Message: flag + " requires a value",
 		Fixes:   []string{"Provide a value for " + flag + "."},
 	}
@@ -322,10 +350,15 @@ func buildMigrationDraft(cfg migrateConfig) (migrationDraft, *migrationDiagnosti
 		Package:       pkg,
 		Kind:          inferMigrationKind(pkg),
 		WorkspaceName: workspaceNameFromPackage(defaultString(pkg.Name, "migrated")),
-		LockfilePath:  detectMigrationLockfile(cfg.root),
 		TodoCounts:    map[string]int{},
 	}
 	draft.Dependencies = migrateDependencies(pkg, &draft)
+	lockEvidence, lockDiagnostic := loadPackageLockEvidence(cfg, draft.Dependencies)
+	if lockDiagnostic != nil {
+		return migrationDraft{}, lockDiagnostic
+	}
+	draft.LockEvidence = lockEvidence
+	draft.Diagnostics = migrationDiagnosticsFromLockEvidence(lockEvidence)
 	draft.Targets = inferMigrationTargets(pkg, draft.Kind, &draft)
 	draft.PublishInclude = inferMigrationPublishInclude(pkg, &draft)
 	draft.LifecycleScripts = findMigrationLifecycleScripts(pkg.Scripts)
@@ -977,11 +1010,7 @@ func renderMigrationReport(draft *migrationDraft) string {
 	builder.WriteString("## Inputs\n")
 	builder.WriteString("- root: `" + draft.Config.root + "`\n")
 	builder.WriteString("- package.json path: `" + draft.Config.packageJSONPath + "`\n")
-	if draft.LockfilePath != "" {
-		builder.WriteString("- lockfile path detected but not consumed in M41a: `" + draft.LockfilePath + "`\n")
-	} else {
-		builder.WriteString("- lockfile path detected but not consumed in M41a: none\n")
-	}
+	builder.WriteString("- package-lock evidence: " + migrationLockInputSummary(draft.LockEvidence) + "\n")
 	builder.WriteString("- generated manifest path: `" + draft.Config.outManifestPath + "`\n")
 	builder.WriteString("- generated report path: `" + draft.Config.outReportPath + "`\n\n")
 
@@ -1028,6 +1057,7 @@ func renderMigrationReport(draft *migrationDraft) string {
 		builder.WriteString("\n")
 	}
 
+	renderPackageLockEvidenceSection(&builder, draft.LockEvidence)
 	builder.WriteString("## TODOs for human/LLM review\n")
 	for _, todo := range migrationTodoOrder {
 		builder.WriteString("### " + todo + "\n")
@@ -1047,9 +1077,15 @@ func renderMigrationReport(draft *migrationDraft) string {
 		builder.WriteString("\nDev/preview/server scripts may become `<RunTargets>` after review. Build/test/lint scripts should not be blindly converted to RunTargets. No scripts were executed.\n\n")
 	}
 
-	if len(draft.LifecycleScripts) > 0 {
+	if len(draft.LifecycleScripts) > 0 || len(draft.LockEvidence.LifecycleScripts) > 0 {
 		builder.WriteString("## Security\n")
-		builder.WriteString("Lifecycle scripts detected and not executed: `" + strings.Join(draft.LifecycleScripts, "`, `") + "`. Review before acknowledging capabilities.\n\n")
+		if len(draft.LifecycleScripts) > 0 {
+			builder.WriteString("package.json lifecycle scripts detected and not executed: `" + strings.Join(draft.LifecycleScripts, "`, `") + "`. Review before acknowledging capabilities.\n")
+		}
+		if len(draft.LockEvidence.LifecycleScripts) > 0 {
+			builder.WriteString(fmt.Sprintf("Lock evidence detected %d dependency lifecycle script capabilities. TSPack will not execute them by default.\n", len(draft.LockEvidence.LifecycleScripts)))
+		}
+		builder.WriteString("\n")
 	}
 
 	builder.WriteString("## Suggested next steps\n")
@@ -1080,11 +1116,14 @@ func countMigrationTodos(draft *migrationDraft) {
 	if len(draft.DuplicatePeerDeps) > 0 || len(draft.IdentifierCollisions) > 0 || len(draft.Package.InvalidFields) > 0 {
 		counts[migrationTodoDepClassification]++
 	}
+	if len(draft.LockEvidence.LifecycleScripts) > 0 || len(draft.LockEvidence.Binaries) > 0 || hasLargeFanoutEvidence(draft.LockEvidence.Fanout) {
+		counts[migrationTodoDepClassification]++
+	}
 	counts[migrationTodoRunTargets] = boolToCount(len(draft.Package.Scripts) > 0)
 	counts[migrationTodoPublish] = 1
 	counts[migrationTodoBoundaries] = 1
 	counts[migrationTodoTypes] = 1
-	counts[migrationTodoSecurity] = boolToCount(len(draft.LifecycleScripts) > 0)
+	counts[migrationTodoSecurity] = boolToCount(len(draft.LifecycleScripts) > 0 || len(draft.LockEvidence.LifecycleScripts) > 0)
 	if counts[migrationTodoTargets] == 0 {
 		counts[migrationTodoTargets] = 1
 	}
@@ -1115,6 +1154,12 @@ func todoMessagesForReport(todo string, draft *migrationDraft) []string {
 		if len(draft.Package.InvalidFields) > 0 {
 			messages = append(messages, "Some malformed dependency/script fields were skipped: "+strings.Join(draft.Package.InvalidFields, "; ")+".")
 		}
+		if hasLargeFanoutEvidence(draft.LockEvidence.Fanout) {
+			messages = append(messages, "Lock evidence shows large transitive fanout for one or more direct dependencies. Review dependency classification before treating tool/runtime boundaries as final.")
+		}
+		if len(draft.LockEvidence.Binaries) > 0 || len(draft.LockEvidence.LifecycleScripts) > 0 {
+			messages = append(messages, "Lock evidence includes binary or lifecycle capabilities. Review whether these packages are tooling, runtime dependencies, or security-sensitive setup dependencies.")
+		}
 		return messages
 	case migrationTodoRunTargets:
 		return []string{"package.json scripts are listed below but not migrated. RunTargets describe runtime processes, not arbitrary build/test/lint scripts."}
@@ -1123,12 +1168,23 @@ func todoMessagesForReport(todo string, draft *migrationDraft) []string {
 	case migrationTodoBoundaries:
 		return []string{"Strict boundary defaults were emitted. Review target/source-specific policy before relying on them."}
 	case migrationTodoTypes:
-		return []string{"Type policy was generated from package kind, not from source analysis. Verify declarations and type leakage expectations."}
-	case migrationTodoSecurity:
-		if len(draft.LifecycleScripts) > 0 {
-			return []string{"Lifecycle scripts were detected and not executed: `" + strings.Join(draft.LifecycleScripts, "`, `") + "`."}
+		messages := []string{"Type policy was generated from package kind, not from source analysis. Verify declarations and type leakage expectations."}
+		if len(draft.LockEvidence.TypePackageNames) > 0 {
+			messages = append(messages, "Lock evidence includes @types packages: `"+strings.Join(draft.LockEvidence.TypePackageNames, "`, `")+"`.")
 		}
-		return []string{"No package.json lifecycle scripts were detected. Continue to review dependency lifecycle capabilities during update/check."}
+		return messages
+	case migrationTodoSecurity:
+		var messages []string
+		if len(draft.LifecycleScripts) > 0 {
+			messages = append(messages, "package.json lifecycle scripts were detected and not executed: `"+strings.Join(draft.LifecycleScripts, "`, `")+"`.")
+		}
+		if len(draft.LockEvidence.LifecycleScripts) > 0 {
+			messages = append(messages, fmt.Sprintf("Lock evidence detected %d dependency lifecycle script capabilities. TSPack will not execute them by default and migrate did not execute them.", len(draft.LockEvidence.LifecycleScripts)))
+		}
+		if len(messages) > 0 {
+			return messages
+		}
+		return []string{"No package.json or lockfile lifecycle scripts were detected. Continue to review dependency lifecycle capabilities during update/check."}
 	default:
 		return []string{"Review required."}
 	}
@@ -1151,6 +1207,8 @@ func printMigrationDryRun(draft migrationDraft) {
 	fmt.Printf("  targets: %d inferred\n", len(draft.Targets))
 	fmt.Printf("  TODOs: %d\n", draft.TotalTodos)
 	fmt.Println()
+	printMigrationLockDryRun(draft.LockEvidence)
+	fmt.Println()
 	fmt.Println("Run with --write to create migration files.")
 }
 
@@ -1172,16 +1230,6 @@ func printMigrationDiagnostic(diagnostic migrationDiagnostic) {
 	for _, fix := range diagnostic.Fixes {
 		fmt.Fprintln(os.Stderr, "  suggested fix: "+fix)
 	}
-}
-
-func detectMigrationLockfile(root string) string {
-	for _, name := range []string{"package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock"} {
-		candidate := filepath.Join(root, name)
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
-		}
-	}
-	return ""
 }
 
 func sortedMapKeys(values map[string]string) []string {

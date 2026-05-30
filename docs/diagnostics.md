@@ -20,7 +20,11 @@ This inventory groups primary diagnostic families by subsystem to keep command-s
 - `TSPACK_MIGRATE_PACKAGE_JSON_INVALID`: package.json could not be read or parsed as JSON. Details include `root`, `packageJsonPath`, and the parse/read error.
 - `TSPACK_MIGRATE_OUTPUT_EXISTS`: an output path exists and `--force` was not passed. Details include `root`, `packageJsonPath`, and `outputPath`; no migration output is written.
 - `TSPACK_MIGRATE_WRITE_FAILED`: writing a migration output failed. Details include `root`, `packageJsonPath`, `outputPath`, and the filesystem error.
-- `TSPACK_MIGRATE_UNSUPPORTED_PACKAGE_SHAPE`: migrate arguments or package shapes are unsupported by the M41a package.json-only draft generator. Prefer TODOs in the generated draft/report when a partial mechanical draft is possible.
+- `TSPACK_MIGRATE_INVALID_ARGS`: migrate flags are invalid, unknown, missing required values, or combine incompatible options such as `--package-lock` with `--no-lock-evidence`.
+- `TSPACK_MIGRATE_PACKAGE_LOCK_MISSING`: an explicit `--package-lock` path does not exist. Implicit missing `<root>/package-lock.json` is not an error.
+- `TSPACK_MIGRATE_PACKAGE_LOCK_INVALID`: package-lock evidence could not be parsed. An implicit invalid lock is reported as a warning and ignored; an explicit invalid `--package-lock` path fails migration.
+- `TSPACK_MIGRATE_PACKAGE_LOCK_UNSUPPORTED_VERSION`: package-lock evidence used a lockfileVersion outside npm v2/v3. Migrate continues best-effort when a `packages` object is readable.
+- `TSPACK_MIGRATE_UNSUPPORTED_PACKAGE_SHAPE`: package shapes are unsupported by the package.json draft generator. Prefer TODOs in the generated draft/report when a partial mechanical draft is possible.
 
 ## Package/core diagnostics
 
