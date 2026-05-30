@@ -7,6 +7,8 @@
 declare module 'tspack/manifest' {
   export type Primitive = string | number | boolean | null;
 
+  export type RuntimeProfile = 'nodejs' | 'bun' | 'deno';
+
   export type NpmSource = {
     kind: 'npm';
     package: string;
@@ -157,6 +159,7 @@ declare module 'tspack/manifest' {
 
   export type WorkspaceProps = {
     name: string;
+    runtime?: RuntimeProfile;
     children?: ManifestNode;
   };
 

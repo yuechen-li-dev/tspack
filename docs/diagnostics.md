@@ -33,6 +33,7 @@ This inventory groups primary diagnostic families by subsystem to keep command-s
 
 - `TSPACK_FRONTEND_*`
 - `TSPACK_IR_*`
+- `TSPACK_MANIFEST_INVALID_RUNTIME_PROFILE`: workspace `runtime` was not one of `nodejs`, `bun`, or `deno`; package manager names such as `npm`, `pnpm`, and `yarn` are not runtime profiles.
 - `TSPACK_GRAPH_*`
 - `TSPACK_IMPORTSCAN_*`
 - `TSPACK_BOUNDARY_*`

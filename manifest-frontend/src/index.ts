@@ -19,11 +19,12 @@ export type ManifestParseResult = {
 
 export type ManifestIr = {
   format: 1;
-  workspace: { name: string };
+  workspace: { name: string; runtime: RuntimeProfile };
   security?: Record<string, unknown>;
   packages: Array<Record<string, unknown>>;
 };
 
+type RuntimeProfile = 'nodejs' | 'bun' | 'deno';
 type ParseMode = 'root' | 'package';
 type DocMode = 'single' | 'split' | 'package';
 type PackageRow = { name: string; root: string; manifest: string };
@@ -231,7 +232,7 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
   if (ts.isCallExpression(node)) {
     const name = node.expression.getText(sf);
     const args = node.arguments.map((a) => evalNode(a, sf, diags, file, env));
-    if (name === 'define' || name === 'defineWorkspace') return jsxToRootDoc(args[0]);
+    if (name === 'define' || name === 'defineWorkspace') return jsxToRootDoc(args[0], diags, file);
     if (name === 'definePackage') return jsxToPackageDoc(args[0]);
     if (name === 'defineDeps') return attachDependencyKeys(args[0]);
     if (name === 'npm') return { kind: 'npm', package: args[0], range: args[1] };
@@ -245,7 +246,7 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
   return undefined;
 }
 
-function jsxToRootDoc(root: unknown): InternalDoc {
+function jsxToRootDoc(root: unknown, diags: Diagnostic[], file: string): InternalDoc {
   const r = root as any;
   const children = r?.__children ?? [];
   const inlinePackages = children.filter((c: any) => c.__tag === 'Package');
@@ -253,7 +254,7 @@ function jsxToRootDoc(root: unknown): InternalDoc {
   const securityNode = children.find((c: any) => c.__tag === 'Security');
   const baseIr = {
     format: 1 as const,
-    workspace: { name: r?.name ?? 'workspace' },
+    workspace: { name: r?.name ?? 'workspace', runtime: runtimeProfile(r?.runtime, diags, file) },
     ...(securityNode ? { security: mapSecurity(securityNode) } : {}),
   };
   if (packagesNode && inlinePackages.length > 0) {
@@ -265,6 +266,25 @@ function jsxToRootDoc(root: unknown): InternalDoc {
   return { mode: 'single', ir: { ...baseIr, packages: inlinePackages.map((p: any) => mapPackage(p, false)) } };
 }
 
+
+function runtimeProfile(value: unknown, diags: Diagnostic[], file: string): RuntimeProfile {
+  if (value === undefined) {
+    return 'nodejs';
+  }
+
+  if (value === 'nodejs' || value === 'bun' || value === 'deno') {
+    return value;
+  }
+
+  diags.push({
+    code: 'TSPACK_MANIFEST_INVALID_RUNTIME_PROFILE',
+    severity: 'error',
+    message: 'runtime profile must be nodejs, bun, or deno; package manager names such as npm/pnpm/yarn are not runtime profiles',
+    file,
+  });
+  return 'nodejs';
+}
+
 function mapSecurity(security: any): Record<string, unknown> {
   return {
     acknowledgedCapabilities: security.acknowledgedCapabilities ?? [],
@@ -273,7 +293,7 @@ function mapSecurity(security: any): Record<string, unknown> {
 
 function jsxToPackageDoc(root: unknown): InternalDoc {
   const p = root as any;
-  return { mode: 'package', ir: { format: 1, workspace: { name: 'workspace' }, packages: [mapPackage(p, false)] } };
+  return { mode: 'package', ir: { format: 1, workspace: { name: 'workspace', runtime: 'nodejs' }, packages: [mapPackage(p, false)] } };
 }
 
 function mapPackage(p: any, includeRoot: boolean): Record<string, unknown> {

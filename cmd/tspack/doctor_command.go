@@ -25,6 +25,7 @@ const (
 	doctorScopeAll      doctorScope = "all"
 	doctorScopeFormat   doctorScope = "format"
 	doctorScopeRun      doctorScope = "run"
+	doctorScopeRuntime  doctorScope = "runtime"
 	doctorScopeInspect  doctorScope = "inspect"
 	doctorScopeSecurity doctorScope = "security"
 )
@@ -58,7 +59,7 @@ func runDoctorCommand(args []string) {
 	for i := 1; i < len(args); i++ {
 		a := args[i]
 		switch a {
-		case "format", "run", "inspect", "security":
+		case "format", "run", "runtime", "inspect", "security":
 			scope = doctorScope(a)
 		case "--root":
 			if i+1 >= len(args) {
@@ -97,6 +98,9 @@ func runDoctorCommand(args []string) {
 	}
 	if scope == doctorScopeAll || scope == doctorScopeRun {
 		report.Sections = append(report.Sections, doctorRun(abs).toSection("Run"))
+	}
+	if scope == doctorScopeAll || scope == doctorScopeRuntime {
+		report.Sections = append(report.Sections, doctorRuntime(abs).toSection("Runtime profile"))
 	}
 	if scope == doctorScopeAll || scope == doctorScopeInspect {
 		report.Sections = append(report.Sections, doctorInspect(abs).toSection("Inspect (experimental)"))
@@ -310,6 +314,70 @@ func doctorRun(root string) doctorBuilder {
 		d.checks = append(d.checks, DoctorCheck{Name: "runTargets", Status: "error", Message: "no run targets declared"})
 	}
 	return d
+}
+
+func doctorRuntime(root string) doctorBuilder {
+	d := doctorBuilder{}
+	selected := "nodejs"
+	if _, err := os.Stat(filepath.Join(root, "manifest.tsx")); err != nil {
+		d.checks = append(d.checks, DoctorCheck{Name: "runtime profile", Status: "warning", Message: "manifest.tsx missing; defaulting runtime profile to nodejs", Details: runtimeProfileDetails(selected)})
+		return d
+	}
+
+	manifestPath := filepath.Join(root, "manifest.tsx")
+	ir := loadManifestPathForRun(root, manifestPath)
+	if ir.Workspace.Runtime != "" {
+		selected = ir.Workspace.Runtime
+	}
+
+	details := runtimeProfileDetails(selected)
+	status := "ok"
+	message := "selected runtime profile: " + selected
+	if available, _ := details["available"].(bool); !available {
+		status = "warning"
+		message = "selected runtime executable not found: " + runtimeProfileExecutable(selected)
+	}
+	d.checks = append(d.checks, DoctorCheck{Name: "runtime profile", Status: status, Message: message, Details: details})
+	return d
+}
+
+func runtimeProfileDetails(selected string) map[string]any {
+	executable := runtimeProfileExecutable(selected)
+	_, err := exec.LookPath(executable)
+	return map[string]any{
+		"selected":                selected,
+		"executable":              executable,
+		"available":               err == nil,
+		"status":                  runtimeProfileSupportStatus(selected),
+		"lifecycleOwner":          "tspack",
+		"packageManagerDelegated": false,
+		"dependencyResolution":    "TSPack",
+		"lockfile":                "ts-lock.toml",
+		"materialization":         "TSPack",
+		"securityPolicy":          "TSPack",
+		"lifecyclePolicy":         "TSPack",
+		"ownershipNote":           "TSPack owns package resolution, lockfiles, sync/materialization, check, pack, and lifecycle policy; runtime profile does not delegate those to npm/bun/deno.",
+	}
+}
+
+func runtimeProfileExecutable(selected string) string {
+	switch selected {
+	case "bun":
+		return "bun"
+	case "deno":
+		return "deno"
+	default:
+		return "node"
+	}
+}
+
+func runtimeProfileSupportStatus(selected string) string {
+	switch selected {
+	case "bun", "deno":
+		return "experimental"
+	default:
+		return "supported"
+	}
 }
 
 func doctorInspect(root string) doctorBuilder {
@@ -607,7 +675,7 @@ func loadDoctorSecurityManifest(root string) (*manifest.ManifestIR, []DoctorChec
 		return nil, []DoctorCheck{{Name: "security manifest", Status: "error", Message: "manifest.tsx could not be read", Details: map[string]any{"error": err.Error()}}}
 	}
 
-	cliPath := filepath.Join("manifest-frontend", "dist", "src", "cli.js")
+	cliPath := manifestFrontendCLIPath()
 	if _, err := os.Stat(cliPath); err != nil {
 		return nil, []DoctorCheck{{Name: "security manifest", Status: "error", Message: "manifest frontend CLI not found", Details: map[string]any{"path": cliPath}, Recommendation: "Run `cd manifest-frontend && npm run build`."}}
 	}

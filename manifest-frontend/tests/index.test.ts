@@ -38,6 +38,63 @@ describe('manifest frontend parser', () => {
     expect(JSON.stringify(result.ir)).toBe(golden('valid', 'm22-run-target'));
   });
 
+
+  it.each(['nodejs', 'bun', 'deno'] as const)('parses workspace runtime profile %s', (runtime) => {
+    const tmpDir = fs.mkdtempSync(path.join(root, 'fixtures', `tmp-runtime-${runtime}-`));
+    const manifestPath = path.join(tmpDir, 'manifest.tsx');
+    fs.writeFileSync(
+      manifestPath,
+      `import { define } from "tspack/manifest";
+export default define(
+  <Workspace name="ws" runtime="${runtime}">
+    <Package name="app" version="1.0.0" kind="app">
+      <Targets rows={[{ name: "web", entry: "src/main.ts", runtime: "dist/main.js", types: "" }]} />
+    </Package>
+  </Workspace>
+);
+`,
+      'utf8',
+    );
+    try {
+      const result = parseManifestFile(manifestPath);
+      expect(result.ok).toBe(true);
+      expect(result.ir?.workspace.runtime).toBe(runtime);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('defaults omitted workspace runtime profile to nodejs', () => {
+    const result = parseManifestFile(fixture('valid', 'minimal-library'));
+    expect(result.ok).toBe(true);
+    expect(result.ir?.workspace.runtime).toBe('nodejs');
+  });
+
+  it('rejects invalid workspace runtime profiles', () => {
+    const tmpDir = fs.mkdtempSync(path.join(root, 'fixtures', 'tmp-invalid-runtime-'));
+    const manifestPath = path.join(tmpDir, 'manifest.tsx');
+    fs.writeFileSync(
+      manifestPath,
+      `import { define } from "tspack/manifest";
+export default define(
+  <Workspace name="ws" runtime="npm">
+    <Package name="app" version="1.0.0" kind="app">
+      <Targets rows={[{ name: "web", entry: "src/main.ts", runtime: "dist/main.js", types: "" }]} />
+    </Package>
+  </Workspace>
+);
+`,
+      'utf8',
+    );
+    try {
+      const result = parseManifestFile(manifestPath);
+      expect(result.ok).toBe(false);
+      expect(result.diagnostics.some((d) => d.code === 'TSPACK_MANIFEST_INVALID_RUNTIME_PROFILE')).toBe(true);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('workspace helper emits workspace source.name', () => {
     const tmpDir = fs.mkdtempSync(path.join(root, 'fixtures', 'tmp-workspace-helper-'));
     const manifestPath = path.join(tmpDir, 'manifest.tsx');

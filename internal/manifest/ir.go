@@ -21,7 +21,24 @@ type ManifestIR struct {
 }
 
 type Workspace struct {
-	Name string `json:"name"`
+	Name             string `json:"name"`
+	Runtime          string `json:"runtime"`
+	RuntimeSpecified bool   `json:"-"`
+}
+
+func (w *Workspace) UnmarshalJSON(data []byte) error {
+	type workspaceAlias Workspace
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	var alias workspaceAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+	*w = Workspace(alias)
+	_, w.RuntimeSpecified = raw["runtime"]
+	return nil
 }
 
 type Security struct {
@@ -179,6 +196,15 @@ var (
 	targetNameRe    = regexp.MustCompile(`^[A-Za-z0-9_/-]+$`)
 )
 
+func isValidRuntimeProfile(value string) bool {
+	switch value {
+	case "nodejs", "bun", "deno":
+		return true
+	default:
+		return false
+	}
+}
+
 func isSupportedLifecycleScript(scriptName string) bool {
 	switch scriptName {
 	case "preinstall", "install", "postinstall", "prepack", "prepare", "postpack", "prepublish", "prepublishOnly", "postpublish":
@@ -221,6 +247,18 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 		add("TSPACK_IR_MISSING_WORKSPACE", "workspace.name is required")
 	} else if !workspaceNameRe.MatchString(ir.Workspace.Name) || strings.Contains(ir.Workspace.Name, "/") || strings.Contains(ir.Workspace.Name, `\\`) {
 		add("TSPACK_IR_INVALID_WORKSPACE_NAME", "invalid workspace.name")
+	}
+	if strings.TrimSpace(ir.Workspace.Runtime) == "" {
+		ir.Workspace.Runtime = "nodejs"
+	}
+	if !isValidRuntimeProfile(ir.Workspace.Runtime) {
+		add(
+			"TSPACK_MANIFEST_INVALID_RUNTIME_PROFILE",
+			"runtime profile must be nodejs, bun, or deno",
+			"value="+ir.Workspace.Runtime,
+			"allowed=nodejs,bun,deno",
+			"package manager names such as npm/pnpm/yarn are not runtime profiles",
+		)
 	}
 	if len(ir.Packages) == 0 {
 		add("TSPACK_IR_NO_PACKAGES", "at least one package is required")
