@@ -78,7 +78,7 @@ Package selected runtime facts, source mappings, diagnostics, and test intent in
 
 ### Native xTest inspect assertions
 
-Use inspect facts for test assertions such as role/name, visibility, bounds, and hit-test order through the native `inspect` helper.
+Use `assert.inspect.*` as the validation layer over inspect facts. The helpers assert role/name, visibility, bounds, hit-test membership, and source-hint fields from already-collected inspect JSON. They count as native xTest assertions but do not perform browser actions, retries, re-inspection, source mutation, screenshot/OCR work, or IDE behavior.
 
 ### Future: visual overlay
 
@@ -93,7 +93,7 @@ Only consider a fork after the extension path proves the workflow and hits concr
 Native xTest can now participate directly in the runtime-grounded workflow:
 
 1. **Observe** with `inspect.url` or `inspect.cdp`, reusing the same backend as `tspack inspect`.
-2. **Assert** semantic structure such as roles, names, visibility, and selected hit-test results.
+2. **Assert** semantic structure with `assert.inspect.*`, such as roles, names, visibility, usable bounds, source hints, and selected hit-test results.
 3. **Snapshot** stable subtrees with `expect.snapshotJson` when structural regressions should be reviewed.
 4. **Provide context later** by handing exact inspect JSON to higher-level tools instead of guessing from CSS or source.
 

@@ -183,6 +183,19 @@ Page/analyzer:
 - `TSPACK_BOUNDARY_TYPE_EXPLICIT_DENY`: a scanner-visible type-only external import or re-export matched a boundary row's `denyTypeDeps`. Details include `package`, `import`, `boundary`, `denyTypeDeps`, and `path`; transitive rows also include `transitiveFrom` and `seed`.
 - `TSPACK_BOUNDARY_INVALID_DENY_TYPE_DEPS`: a manifest IR boundary row contained an invalid `denyTypeDeps` value, such as an empty string entry.
 
+## Native xTest inspect assertions
+
+- `TSPACK_ASSERT_INSPECT_EXISTS_FAILED`: `assert.inspect.exists` received a null or undefined node.
+- `TSPACK_ASSERT_INSPECT_VISIBLE_FAILED`: `assert.inspect.visible` received a missing node or a node whose browser-computed `visible` field is not `true`.
+- `TSPACK_ASSERT_INSPECT_HIDDEN_FAILED`: `assert.inspect.hidden` received a missing node or a node whose browser-computed `visible` field is not `false`.
+- `TSPACK_ASSERT_INSPECT_ROLE_FAILED`: `assert.inspect.role` found a role different from the expected role.
+- `TSPACK_ASSERT_INSPECT_NAME_FAILED`: `assert.inspect.name` found an accessible name different from the expected name.
+- `TSPACK_ASSERT_INSPECT_BOUNDS_FAILED`: `assert.inspect.boundsWithin` received missing bounds or bounds that violate one or more supplied min/max `x`, `y`, `width`, or `height` constraints.
+- `TSPACK_ASSERT_INSPECT_HIT_FAILED`: `assert.inspect.hitIncludes` did not find an element in the collected hit-test stack matching all supplied `role`, `name`, and `tag` fields.
+- `TSPACK_ASSERT_INSPECT_SOURCE_FAILED`: `assert.inspect.source` received missing source metadata or source fields that differ from the expected `file`, `component`, or `symbol` fields. This assertion does not validate files on disk.
+
+Inspect assertion diagnostics include the assertion reason, expected condition, compact actual node or hit-test facts, and details such as failed bounds constraints or source fields without dumping the full inspect subtree.
+
 ## Native xTest snapshots
 
 - `TSPACK_SNAPSHOT_INVALID_NAME`: a snapshot name is empty, path-like, traversal-like, starts with `.`, contains separators, or contains characters outside letters, numbers, `_`, `-`, and `.`.

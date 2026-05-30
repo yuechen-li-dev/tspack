@@ -93,6 +93,26 @@ type TspackInspectCdpOptions = {
   viewport?: TspackInspectViewport;
   points?: TspackInspectPoint[];
 };
+type TspackInspectBoundsConstraints = {
+  minWidth?: number;
+  minHeight?: number;
+  maxWidth?: number;
+  maxHeight?: number;
+  minX?: number;
+  minY?: number;
+  maxX?: number;
+  maxY?: number;
+};
+type TspackInspectHitExpected = {
+  role?: string;
+  name?: string;
+  tag?: string;
+};
+type TspackInspectSourceExpected = {
+  file?: string;
+  component?: string;
+  symbol?: string;
+};
 type TspackNativeNode = unknown;
 type TspackNativeProps = Record<string, unknown> | null | undefined;
 type TspackNativeTag = (
@@ -115,6 +135,16 @@ declare const Prophecy: TspackNativeTag;
 declare const Foretell: TspackNativeTag;
 declare const assert: {
   type<TExpected>(value: TExpected, reason: string): void;
+  inspect: {
+    exists(node: TspackInspectNode | null | undefined, reason: string): void;
+    visible(node: TspackInspectNode | null | undefined, reason: string): void;
+    hidden(node: TspackInspectNode | null | undefined, reason: string): void;
+    role(node: TspackInspectNode | null | undefined, role: string, reason: string): void;
+    name(node: TspackInspectNode | null | undefined, name: string, reason: string): void;
+    boundsWithin(node: TspackInspectNode | null | undefined, constraints: TspackInspectBoundsConstraints, reason: string): void;
+    hitIncludes(hitTest: TspackInspectHitTest | null | undefined, expected: TspackInspectHitExpected, reason: string): void;
+    source(node: TspackInspectNode | null | undefined, expected: TspackInspectSourceExpected, reason: string): void;
+  };
 };
 declare const expect: unknown;
 declare const skip: unknown;

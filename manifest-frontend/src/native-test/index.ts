@@ -1,4 +1,9 @@
 export { assert } from "./assert.js";
+export type {
+  InspectBoundsConstraints,
+  InspectHitExpected,
+  InspectSourceExpected,
+} from "./assert.js";
 export { inspect, createInspectHelper } from "./inspect.js";
 export type {
   InspectBounds,

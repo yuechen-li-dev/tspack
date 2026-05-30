@@ -348,7 +348,10 @@ Before release, verify the native xTest inspect helper path:
 - Run a tiny local HTML fixture with `<main role="main"><button>Save</button></main>`.
 - Call `inspect.url(fixtureUrl, { selector: "main" })` and assert the returned root role/visibility.
 - Snapshot a selected subtree with `expect.snapshotJson(ui.root, "...")` rather than the full dynamic page.
+- Confirm `assert.inspect.role`, `assert.inspect.visible`, `assert.inspect.boundsWithin`, `assert.inspect.source`, and `assert.inspect.hitIncludes` pass against the fixture's inspect JSON.
 - Confirm a fact that only calls `await inspect.url(...)` fails with `TSPACK_TEST_NO_ASSERTION`.
+- Confirm a fact whose only assertion is `assert.inspect.visible(...)` satisfies no-assertion enforcement.
+- Confirm inspect assertion failures include the diagnostic code, reason, compact expected/actual facts, and useful details in compact text output and JSON reports when reporting is enabled.
 - Confirm browser-unavailable environments skip browser integration tests with a clear reason instead of failing CI.
 - Confirm `inspect.cdp(endpoint, { target: 0, selector: "..." })` option mapping without requiring VS Code or Electron.
 
