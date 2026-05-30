@@ -73,6 +73,8 @@ type migrateConfig struct {
 	write           bool
 	force           bool
 	noLockEvidence  bool
+	noSourceScan    bool
+	scanSource      bool
 }
 
 type packageJSONModel struct {
@@ -97,6 +99,7 @@ type packageJSONModel struct {
 	Bin                  any
 	Repository           any
 	Homepage             string
+	Source               string
 	Bugs                 any
 	InvalidFields        []string
 }
@@ -121,6 +124,7 @@ type migrationDraft struct {
 	SubpathTodos         []string
 	LifecycleScripts     []string
 	LockEvidence         packageLockEvidence
+	SourceEvidence       sourceScanEvidence
 	Diagnostics          []migrationDiagnostic
 	TodoCounts           map[string]int
 	TotalTodos           int
@@ -259,6 +263,10 @@ func parseMigrateArgs(args []string) (migrateConfig, []migrationDiagnostic) {
 			cfg.packageLockPath = value
 		case "--no-lock-evidence":
 			cfg.noLockEvidence = true
+		case "--scan-source":
+			cfg.scanSource = true
+		case "--no-source-scan":
+			cfg.noSourceScan = true
 		case "--out-manifest":
 			value, ok := readFlagValue(args, &i)
 			if !ok {
@@ -290,6 +298,13 @@ func parseMigrateArgs(args []string) (migrateConfig, []migrationDiagnostic) {
 		cfg.packageJSONPath = filepath.Join(cfg.root, "package.json")
 	} else if !filepath.IsAbs(cfg.packageJSONPath) {
 		cfg.packageJSONPath = filepath.Join(cfg.root, cfg.packageJSONPath)
+	}
+	if cfg.scanSource && cfg.noSourceScan {
+		diags = append(diags, migrationDiagnostic{
+			Code:    "TSPACK_MIGRATE_INVALID_ARGS",
+			Message: "--scan-source cannot be combined with --no-source-scan",
+			Fixes:   []string{"Remove --scan-source or remove --no-source-scan."},
+		})
 	}
 	if cfg.packageLockPath != "" && cfg.noLockEvidence {
 		diags = append(diags, migrationDiagnostic{
@@ -358,7 +373,9 @@ func buildMigrationDraft(cfg migrateConfig) (migrationDraft, *migrationDiagnosti
 		return migrationDraft{}, lockDiagnostic
 	}
 	draft.LockEvidence = lockEvidence
+	draft.SourceEvidence = loadSourceScanEvidence(cfg, pkg)
 	draft.Diagnostics = migrationDiagnosticsFromLockEvidence(lockEvidence)
+	draft.Diagnostics = append(draft.Diagnostics, migrationDiagnosticsFromSourceEvidence(draft.SourceEvidence)...)
 	draft.Targets = inferMigrationTargets(pkg, draft.Kind, &draft)
 	draft.PublishInclude = inferMigrationPublishInclude(pkg, &draft)
 	draft.LifecycleScripts = findMigrationLifecycleScripts(pkg.Scripts)
@@ -429,6 +446,7 @@ func loadPackageJSONForMigration(cfg migrateConfig) (packageJSONModel, *migratio
 		Bin:                  raw["bin"],
 		Repository:           raw["repository"],
 		Homepage:             readStringField(raw, "homepage"),
+		Source:               readStringField(raw, "source"),
 		Bugs:                 raw["bugs"],
 	}
 	if privateValue, ok := raw["private"].(bool); ok {
@@ -846,17 +864,38 @@ func renderMigrationManifest(draft *migrationDraft) string {
 	builder.WriteString(" * Review all MIGRATION_TODO_* comments before treating it as authoritative.\n")
 	builder.WriteString(" */\n\n")
 
+	if len(sourceMissingPackages(draft.SourceEvidence)) > 0 {
+		builder.WriteString("// MIGRATION_TODO_DEP_CLASSIFICATION:\n")
+		builder.WriteString("// Source scan observed undeclared external imports: ")
+		builder.WriteString(formatSourcePackageList(sourceMissingPackages(draft.SourceEvidence)))
+		builder.WriteString(". Add dependencies or verify aliases/internal resolution.\n\n")
+	}
+
 	builder.WriteString("const deps = defineDeps({\n")
 	for _, dep := range draft.Dependencies {
-		if dep.NeedsTODO {
+		sourcePkg, hasSourceEvidence := sourceEvidenceForDependency(draft, dep.PackageName)
+		if dep.NeedsTODO || sourceDependencyNeedsTODO(sourcePkg, hasSourceEvidence) {
 			builder.WriteString("  // MIGRATION_TODO_DEP_CLASSIFICATION:\n")
-			if dep.SourceField == "optionalDependencies" {
+			if hasSourceEvidence && dep.SourceField == "devDependencies" && sourcePackageHasRuntimeUse(sourcePkg) {
+				builder.WriteString("  // Source scan found runtime imports while package.json declares this as a devDependency.\n")
+				builder.WriteString("  // Review whether this should be runtime dep, peer, or tool-only.\n")
+			} else if dep.SourceField == "optionalDependencies" {
 				builder.WriteString("  // optionalDependency semantics require review; TSPack dependency intent is explicit.\n")
 			} else if dep.SourceField == "devDependencies" {
 				builder.WriteString("  // devDependency classified as tool mechanically; verify if this should be test/build-only policy.\n")
 			} else {
 				builder.WriteString("  // This dependency was classified mechanically from package.json.\n")
 				builder.WriteString("  // Verify whether it belongs to a specific target.\n")
+			}
+		}
+		if hasSourceEvidence {
+			builder.WriteString("  // Source evidence: ")
+			builder.WriteString(sourceObservedUsage(sourcePkg))
+			builder.WriteString(" imports found in ")
+			builder.WriteString(sourceFileListForComment(sourcePkg.Files))
+			builder.WriteString(".\n")
+			if sourcePackageIsTypeOnly(sourcePkg) {
+				builder.WriteString("  // MIGRATION_TODO_TYPES: Source scan only found type-only imports; verify type dependency intent.\n")
 			}
 		}
 		builder.WriteString("  ")
@@ -1011,6 +1050,7 @@ func renderMigrationReport(draft *migrationDraft) string {
 	builder.WriteString("- root: `" + draft.Config.root + "`\n")
 	builder.WriteString("- package.json path: `" + draft.Config.packageJSONPath + "`\n")
 	builder.WriteString("- package-lock evidence: " + migrationLockInputSummary(draft.LockEvidence) + "\n")
+	builder.WriteString("- source scan: " + migrationSourceInputSummary(draft.SourceEvidence) + "\n")
 	builder.WriteString("- generated manifest path: `" + draft.Config.outManifestPath + "`\n")
 	builder.WriteString("- generated report path: `" + draft.Config.outReportPath + "`\n\n")
 
@@ -1058,6 +1098,7 @@ func renderMigrationReport(draft *migrationDraft) string {
 	}
 
 	renderPackageLockEvidenceSection(&builder, draft.LockEvidence)
+	renderSourceImportEvidenceSection(&builder, draft)
 	builder.WriteString("## TODOs for human/LLM review\n")
 	for _, todo := range migrationTodoOrder {
 		builder.WriteString("### " + todo + "\n")
@@ -1119,10 +1160,12 @@ func countMigrationTodos(draft *migrationDraft) {
 	if len(draft.LockEvidence.LifecycleScripts) > 0 || len(draft.LockEvidence.Binaries) > 0 || hasLargeFanoutEvidence(draft.LockEvidence.Fanout) {
 		counts[migrationTodoDepClassification]++
 	}
+	counts[migrationTodoDepClassification] += sourceScanDevRuntimeMismatchCount(draft.SourceEvidence)
+	counts[migrationTodoDepClassification] += sourceScanMissingDeclarationCount(draft.SourceEvidence)
 	counts[migrationTodoRunTargets] = boolToCount(len(draft.Package.Scripts) > 0)
 	counts[migrationTodoPublish] = 1
 	counts[migrationTodoBoundaries] = 1
-	counts[migrationTodoTypes] = 1
+	counts[migrationTodoTypes] = 1 + sourceScanTypeOnlyCandidateCount(draft.SourceEvidence)
 	counts[migrationTodoSecurity] = boolToCount(len(draft.LifecycleScripts) > 0 || len(draft.LockEvidence.LifecycleScripts) > 0)
 	if counts[migrationTodoTargets] == 0 {
 		counts[migrationTodoTargets] = 1
@@ -1142,6 +1185,9 @@ func todoMessagesForReport(todo string, draft *migrationDraft) []string {
 		for _, exportName := range draft.SubpathTodos {
 			messages = append(messages, "Complex subpath export `"+exportName+"` was reported but not converted.")
 		}
+		for _, hint := range sourceTargetHints(draft) {
+			messages = append(messages, hint)
+		}
 		return messages
 	case migrationTodoDepClassification:
 		messages := []string{"Dependency kind and target scope were classified mechanically from package.json fields."}
@@ -1160,6 +1206,12 @@ func todoMessagesForReport(todo string, draft *migrationDraft) []string {
 		if len(draft.LockEvidence.Binaries) > 0 || len(draft.LockEvidence.LifecycleScripts) > 0 {
 			messages = append(messages, "Lock evidence includes binary or lifecycle capabilities. Review whether these packages are tooling, runtime dependencies, or security-sensitive setup dependencies.")
 		}
+		if packages := sourceRuntimeDevPackages(draft.SourceEvidence); len(packages) > 0 {
+			messages = append(messages, "Source scan found runtime imports declared only in devDependencies: "+formatSourcePackageList(packages)+". Review whether each is runtime, peer, or tool-only.")
+		}
+		if packages := sourceMissingPackages(draft.SourceEvidence); len(packages) > 0 {
+			messages = append(messages, "Source scan found imported packages missing from direct package.json declarations: "+formatSourcePackageList(packages)+". Add dependencies or verify alias/internal resolution.")
+		}
 		return messages
 	case migrationTodoRunTargets:
 		return []string{"package.json scripts are listed below but not migrated. RunTargets describe runtime processes, not arbitrary build/test/lint scripts."}
@@ -1171,6 +1223,9 @@ func todoMessagesForReport(todo string, draft *migrationDraft) []string {
 		messages := []string{"Type policy was generated from package kind, not from source analysis. Verify declarations and type leakage expectations."}
 		if len(draft.LockEvidence.TypePackageNames) > 0 {
 			messages = append(messages, "Lock evidence includes @types packages: `"+strings.Join(draft.LockEvidence.TypePackageNames, "`, `")+"`.")
+		}
+		if packages := sourceTypeOnlyPackages(draft.SourceEvidence); len(packages) > 0 {
+			messages = append(messages, "Source scan observed only type-only imports for: "+formatSourcePackageList(packages)+". Review whether these can be treated as type-only dependencies.")
 		}
 		return messages
 	case migrationTodoSecurity:
@@ -1208,6 +1263,8 @@ func printMigrationDryRun(draft migrationDraft) {
 	fmt.Printf("  TODOs: %d\n", draft.TotalTodos)
 	fmt.Println()
 	printMigrationLockDryRun(draft.LockEvidence)
+	fmt.Println()
+	printMigrationSourceDryRun(draft.SourceEvidence)
 	fmt.Println()
 	fmt.Println("Run with --write to create migration files.")
 }
