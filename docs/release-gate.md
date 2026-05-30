@@ -154,6 +154,18 @@ The M42b runtime portability release smoke must prove the Node.js profile is the
 - Lockfile semantics, materialization, update/sync, and pack metadata stay unchanged.
 - `tspack migrate` keeps generated drafts quiet by omitting `runtime="nodejs"`; future runtime clues may be documented separately, but M42b must not infer Bun/Deno from `packageManager`.
 
+### M42c Bun runtime proof smoke
+
+The M42c runtime portability release smoke must prove Bun as a runtime profile without changing package-manager semantics:
+
+- `tspack doctor runtime --json` for `<Workspace runtime="bun">` reports `selected: bun`, `executable: bun`, `status: experimental`, `lifecycleOwner: tspack`, `packageManagerDelegated: false`, `dependencyResolution: TSPack`, `lockfile: ts-lock.toml`, `materialization: TSPack`, and `securityPolicy: TSPack`.
+- A PATH-controlled missing-Bun smoke reports `available: false` deterministically without warning noise for non-selected runtimes.
+- A fake Bun executable smoke for `RunTarget.runtime: "bun"` proves `tspack run --once` invokes `bun` with the declared argv payload, preserves cwd, preserves `--env` overlays, passes stdout/stderr through, and satisfies stdout-match readiness.
+- Missing Bun for an explicit Bun RunTarget fails before execution with `TSPACK_RUN_RUNTIME_NOT_FOUND` and does not fall back to Node.js, system execution, npm, npx, or package scripts.
+- Workspace `runtime="bun"` does not override explicit `runtime: "system"` or existing Node RunTarget behavior; omitted RunTarget runtime behavior remains unchanged.
+- Native xTest and JavaScript bridge paths still use the existing Node bridge seams.
+- Guardrail review/tests verify no `bun install`, `bun add`, `bun pm`, `bun.lockb`, Bun dependency resolution, Bun materialization, or Bun package-manager command path was introduced.
+
 ### Claude-fooding Phase 2 package-manager smoke
 
 The Phase 2 package-manager smoke must cover the validated update→store→sync loop and read-only UX commands:

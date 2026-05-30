@@ -33,6 +33,13 @@ export default define(
             url: 'http://localhost:5173',
             ready: { kind: 'stdout-match', pattern: 'Local:', stream: 'stdout' },
           },
+          {
+            name: 'dev-bun',
+            runtime: 'bun',
+            command: ['server.js'],
+            url: 'http://localhost:3001',
+            ready: { kind: 'stdout-match', pattern: 'ready', stream: 'stdout' },
+          },
         ]}
       />
     </Package>

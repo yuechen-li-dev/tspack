@@ -30,7 +30,7 @@ describe('manifest API type surface', () => {
   it('invalid fixtures fail typecheck with expected errors', () => {
     const result = runTypecheck('tsconfig.invalid.json');
     expect(result.status).toBe(1);
-    expect(result.output).toContain(`Type '"bun"' is not assignable to type '"system" | "node"'`);
+    expect(result.output).toContain(`Type '"deno"' is not assignable to type '"bun" | "system" | "node"'`);
     expect(result.output).toContain("missing the following properties from type 'PackageProps': name, version");
     expect(result.output).toContain("missing the following properties from type 'TargetRow': entry, runtime");
   });

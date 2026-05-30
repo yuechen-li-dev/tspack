@@ -3972,6 +3972,116 @@ http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}).listen(port,'127.
 	}
 }
 
+func TestCLIRunExplicitBunRuntimeUsesBunExecutable(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	packageDir := filepath.Join(root, "packages", "demo")
+	if err := os.MkdirAll(packageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	capture := filepath.Join(root, "bun-capture.json")
+	bunBin := filepath.Join(root, "fake-bin")
+	writeFakeBunRuntime(t, filepath.Join(bunBin, "bun"), capture)
+	stubIR := `{format:1,workspace:{name:"ws",runtime:"bun"},packages:[{name:"@acme/demo",version:"1.0.0",root:"packages/demo",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"hello",runtime:"bun",cwd:"package",command:["hello.js"],ready:{kind:"stdout-match",pattern:"ready",stream:"stdout"}}]}]}`
+	writeRunFrontendStub(t, stubIR)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--package", "@acme/demo", "hello", "--once", "--env", "FOO=bar")
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "PATH="+bunBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	b, err := cmd.CombinedOutput()
+	output := string(b)
+	if err != nil {
+		t.Fatalf("bun run target failed: %v\n%s", err, output)
+	}
+	for _, expected := range []string{"Runtime: bun", "Command: bun hello.js", "Cwd: package (" + packageDir + ")", "ready from fake bun", "stderr from fake bun", "Ready: matched \"ready\""} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("bun run output missing %q:\n%s", expected, output)
+		}
+	}
+	captured := readCapturedBunInvocation(t, capture)
+	if !reflect.DeepEqual(captured.Argv, []string{"hello.js"}) {
+		t.Fatalf("fake bun argv = %#v", captured.Argv)
+	}
+	if captured.Cwd != packageDir {
+		t.Fatalf("fake bun cwd = %q, want %q", captured.Cwd, packageDir)
+	}
+	if captured.EnvFOO != "bar" {
+		t.Fatalf("fake bun did not receive env overlay: %#v", captured)
+	}
+}
+
+func TestCLIRunBunRuntimeMissingFailsBeforeFallback(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws",runtime:"bun"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"hello",runtime:"bun",command:["hello.js"],ready:{kind:"stdout-match",pattern:"ready",stream:"stdout"}}]}]}`)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "hello", "--once")
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "PATH="+pathWithNodeOnly(t))
+	b, err := cmd.CombinedOutput()
+	output := string(b)
+	if err == nil {
+		t.Fatalf("expected missing bun failure:\n%s", output)
+	}
+	for _, expected := range []string{"TSPACK_RUN_RUNTIME_NOT_FOUND", "runtime: bun", "executable: bun", "target: hello", "install Bun or change the RunTarget runtime"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing bun output missing %q:\n%s", expected, output)
+		}
+	}
+	if strings.Contains(output, "Cannot find module") || strings.Contains(output, "sh -c") || strings.Contains(output, "npm") {
+		t.Fatalf("missing bun path appears to have fallen back unexpectedly:\n%s", output)
+	}
+}
+
+type capturedBunInvocation struct {
+	Argv   []string `json:"argv"`
+	Cwd    string   `json:"cwd"`
+	EnvFOO string   `json:"envFOO"`
+}
+
+func writeFakeBunRuntime(t *testing.T, path string, capture string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	backend := fmt.Sprintf(`#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync(%q, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), envFOO: process.env.FOO || '' }));
+process.stdout.write('ready from fake bun\n');
+process.stderr.write('stderr from fake bun\n');
+setInterval(() => {}, 1000);
+`, capture)
+	if err := os.WriteFile(path, []byte(backend), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readCapturedBunInvocation(t *testing.T, capture string) capturedBunInvocation {
+	t.Helper()
+	data, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got capturedBunInvocation
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+func TestCLIRunWorkspaceBunDoesNotOverrideSystemRunTarget(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	stubIR := `{format:1,workspace:{name:"ws",runtime:"bun"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",cwd:"workspace",command:["node","server.js"],url:"http://127.0.0.1:5999"}]}]}`
+	payload := runListJSONForIR(t, repo, root, stubIR)
+	if len(payload.Targets) != 1 || payload.Targets[0].Runtime != "system" {
+		t.Fatalf("workspace bun runtime must not override explicit system RunTarget: %#v", payload.Targets)
+	}
+}
+
 func TestCLIRunWorkspaceNodejsDoesNotOverrideRunTargetRuntime(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	root := t.TempDir()

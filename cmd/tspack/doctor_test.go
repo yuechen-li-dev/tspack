@@ -302,6 +302,37 @@ func TestDoctorRuntimeReportsSelectedBunWithoutDenoNoise(t *testing.T) {
 	}
 }
 
+func TestDoctorRuntimeReportsSelectedBunAvailableWithStub(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	writeManifestStubWithIR(t, repo, `{format:1,workspace:{name:"ws",runtime:"bun"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{}}]}`)
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	binDir := t.TempDir()
+	bunPath := filepath.Join(binDir, "bun")
+	if err := os.WriteFile(bunPath, []byte("#!/bin/sh\necho bun-stub\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "runtime", "--root", root, "--json")
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "PATH="+binDir+string(os.PathListSeparator)+doctorPathWithNodeOnly(t))
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("doctor runtime json failed: %v\n%s", err, string(b))
+	}
+	var report DoctorReport
+	if err := json.Unmarshal(b, &report); err != nil {
+		t.Fatalf("invalid doctor runtime json: %v\n%s", err, string(b))
+	}
+	check := flattenDoctorChecks(report)["runtime profile"]
+	if check.Details["selected"] != "bun" || check.Details["executable"] != "bun" || check.Details["available"] != true {
+		t.Fatalf("unexpected available bun runtime profile details: %#v", check.Details)
+	}
+	if check.Details["packageManagerDelegated"] != false || check.Details["lifecycleOwner"] != "tspack" {
+		t.Fatalf("unexpected bun ownership details: %#v", check.Details)
+	}
+}
+
 func TestDoctorRuntimeReportsSelectedDeno(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	writeManifestStubWithIR(t, repo, `{format:1,workspace:{name:"ws",runtime:"deno"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{}}]}`)
@@ -391,14 +422,15 @@ func TestDoctorRunSystemRuntimeAndReservedRuntimeSignal(t *testing.T) {
 	if _, ok := runTarget.Details["commandAvailable"]; !ok {
 		t.Fatalf("missing commandAvailable detail: %#v", runTarget.Details)
 	}
-	for _, name := range []string{"bun", "deno"} {
-		check := checks[name]
-		if check.Status == "warning" {
-			t.Fatalf("%s should not warn while reserved: %#v", name, check)
-		}
-		if check.Status != "not_applicable" {
-			t.Fatalf("%s should be not_applicable while reserved: %#v", name, check)
-		}
+	denoCheck := checks["deno"]
+	if denoCheck.Status == "warning" {
+		t.Fatalf("deno should not warn while reserved: %#v", denoCheck)
+	}
+	if denoCheck.Status != "not_applicable" {
+		t.Fatalf("deno should be not_applicable while reserved: %#v", denoCheck)
+	}
+	if _, ok := checks["bun"]; !ok {
+		t.Fatalf("doctor run should report Bun runtime availability")
 	}
 
 	cmd = exec.Command("go", "run", "./cmd/tspack", "doctor", "run", "--root", root)

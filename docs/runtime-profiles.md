@@ -54,3 +54,29 @@ TSPack owns:
 M42a only records, validates, typechecks, and reports the selected runtime profile. It does not delegate installs to npm/Bun/Deno, change lockfile semantics, change materialization, switch the native xTest bridge, or make workspace runtime profile override explicit RunTarget runtime declarations.
 
 One-line thesis: **Change runtime profile, keep project contract.**
+
+## Bun runtime proof (M42c)
+
+`runtime="bun"` is a supported workspace runtime profile. `tspack doctor runtime` reports the selected profile as `bun`, the profile executable as `bun`, PATH availability for that executable, `status: experimental`, `lifecycleOwner: tspack`, and `packageManagerDelegated: false`.
+
+Bun support in M42c is intentionally constrained to runtime reporting and explicitly declared RunTargets. A RunTarget with `runtime: "bun"` is launched by TSPack as `bun` plus the declared argv payload:
+
+```tsx
+<RunTargets
+  rows={[
+    {
+      name: "hello",
+      runtime: "bun",
+      cwd: "package",
+      command: ["hello.js"],
+      ready: { kind: "stdout-match", pattern: "ready", stream: "stdout" },
+    },
+  ]}
+/>
+```
+
+The example above runs `bun hello.js`. TSPack does not run `bun run hello`, does not read package scripts, and does not call npm/npx as a fallback. If `bun` is missing, `tspack run` fails before child execution with `TSPACK_RUN_RUNTIME_NOT_FOUND` and a hint to install Bun or change the RunTarget runtime.
+
+Workspace `runtime="bun"` does not automatically inherit into RunTargets in M42c. A RunTarget with `runtime: "system"` keeps system argv semantics, `runtime: "node"` keeps the existing Node/local-bin semantics, and omitted RunTarget runtime behavior is unchanged.
+
+TSPack still owns dependency resolution, `ts-lock.toml`, materialization, checks, pack, lifecycle security policy, and package-manager semantics. M42c does not implement `bun install`, `bun add`, `bun pm`, `bun.lockb`, Bun dependency resolution, Bun materialization, Bun lifecycle ownership, native xTest runtime switching, or JavaScript bridge runtime switching.

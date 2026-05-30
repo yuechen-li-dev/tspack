@@ -67,11 +67,23 @@ Use `<RunTargets rows={[...]} />` under a package.
 
 Each row supports:
 - `name`
-- `runtime`: `system` or `node` (M22)
+- `runtime`: `system`, `node`, or `bun`
 - `command`: argv array (not shell string)
 - `url`: base URL for status/readiness
 - `cwd`: optional `"workspace"` or `"package"`; omitted means `"workspace"` for compatibility
 - `ready`: optional readiness policy. Supported kinds are HTTP, TCP, and literal stdout/stderr substring matching.
+
+### Bun RunTarget runtime
+
+A RunTarget with `runtime: "bun"` treats `command` as the Bun argv payload. TSPack prefixes the executable, so `command: ["server.js"]` runs as:
+
+```text
+bun server.js
+```
+
+This is runtime execution only. TSPack does not call `bun run`, does not read `package.json` scripts, does not run lifecycle hooks, and does not delegate package-manager operations to Bun. `runtime: "system"` continues to execute the declared argv directly, and workspace `runtime="bun"` does not automatically rewrite or inherit into RunTargets.
+
+If Bun is not on `PATH`, `tspack run` fails before execution with `TSPACK_RUN_RUNTIME_NOT_FOUND`, including `runtime: bun`, `executable: bun`, the target name, and a hint to install Bun or change the RunTarget runtime. TSPack does not fall back to Node.js, system execution, npm, or npx.
 
 
 ## Working directory policy

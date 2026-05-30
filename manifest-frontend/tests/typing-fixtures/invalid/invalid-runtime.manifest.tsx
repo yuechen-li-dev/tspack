@@ -7,8 +7,8 @@ export default define(
         rows={[
           {
             name: 'dev',
-            runtime: 'bun',
-            command: ['bun', 'run', 'dev'],
+            runtime: 'deno',
+            command: ['server.ts'],
             url: 'http://localhost:3000',
           },
         ]}
