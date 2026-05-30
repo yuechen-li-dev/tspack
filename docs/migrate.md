@@ -66,6 +66,43 @@ The manifest draft uses the current `tspack/manifest` authoring API and includes
 The draft is meant to be readable TypeScript/TSX. Source entry paths are guesses, usually mapping `dist/index.js` to `src/index.ts`; they are marked with TODO comments because package.json generally does not declare source entry files.
 
 
+
+## Script classification and RunTarget suggestions
+
+`tspack migrate` classifies `package.json` scripts as migration evidence, but it does not run them and does not convert them into active manifest rows. The generated manifest only receives a `MIGRATION_TODO_RUN_TARGETS` comment. Detailed script evidence and any suggested runtime targets are written to `tspack-migration.md`.
+
+RunTargets are declared runtime processes. They are not a compatibility layer for arbitrary npm script soup. This means:
+
+- dev-server/runtime scripts such as `dev: vite`, `dev: next dev`, `storybook: storybook dev -p 6006`, `serve: vite preview`, or `start: node server.js` may be reported as RunTarget candidates
+- build scripts such as `vite build`, `tsc`, `tsup`, `rollup -c`, or `next build` stay as report evidence
+- test scripts such as `vitest`, `jest`, `playwright test`, or `node --test` stay as report evidence
+- lint/format scripts such as `eslint .`, `biome lint .`, `prettier --write .`, or `biome format --write .` stay as report evidence
+- package/release scripts such as `pack`, `prepack`, `prepublishOnly`, `release`, or `changeset` stay as report evidence
+- lifecycle scripts such as `preinstall`, `install`, `postinstall`, `prepare`, `prepack`, and publish hooks remain security-relevant executable capabilities and are not executed
+
+The report includes a `## Scripts and RunTarget suggestions` section with:
+
+- a complete scripts-not-migrated table containing script name, category, command, and suggested action
+- a RunTarget candidates table for likely long-running runtime/dev-server scripts only
+- a non-RunTarget scripts list for build/test/lint/format/package/maintenance scripts
+- a shell/env review list for commands that need manual handling before any target is enabled
+
+For simple commands, migrate records a best-effort argv suggestion. Example report row:
+
+```md
+| dev | dev | high | ["vite", "--host", "127.0.0.1"] | http://127.0.0.1:5173 | http / | verify cwd/url |
+```
+
+Known default readiness hints are conservative:
+
+- Vite dev/preview defaults to `http://127.0.0.1:5173` with HTTP `/` readiness
+- Next dev defaults to `http://127.0.0.1:3000` with HTTP `/` readiness
+- Storybook defaults to `http://127.0.0.1:6006` with HTTP `/` readiness
+- `--port` and `-p` are used when easy to read from a simple argv
+- commands such as `node server.js` get command argv evidence but keep readiness as a TODO
+
+Shell features intentionally stop short of conversion. Commands containing `&&`, `||`, `;`, redirection, pipes, command substitution, or backticks are marked for review. Environment prefixes such as `PORT=3000 vite` and `cross-env PORT=3000 vite` are also marked for review; M41d does not add manifest env fields.
+
 ## Package-lock evidence
 
 By default, `tspack migrate` looks for `<root>/package-lock.json`. When present, it parses npm lockfile v2/v3 fields enough to enrich `tspack-migration.md` with review evidence. This evidence is intentionally report-only:

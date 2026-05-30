@@ -594,3 +594,168 @@ func repoRootForMigrateTest(t *testing.T) string {
 	}
 	return filepath.Clean(filepath.Join(wd, "..", ".."))
 }
+
+func TestMigrateScriptClassificationAndRunTargetSuggestions(t *testing.T) {
+	cases := []struct {
+		name       string
+		scriptName string
+		command    string
+		category   string
+		confidence string
+		url        string
+		ready      string
+	}{
+		{
+			name:       "vite dev",
+			scriptName: "dev",
+			command:    "vite",
+			category:   "runtime-target-candidate",
+			confidence: "high",
+			url:        "http://127.0.0.1:5173",
+			ready:      "http /",
+		},
+		{
+			name:       "next dev",
+			scriptName: "dev",
+			command:    "next dev",
+			category:   "runtime-target-candidate",
+			confidence: "high",
+			url:        "http://127.0.0.1:3000",
+			ready:      "http /",
+		},
+		{
+			name:       "storybook",
+			scriptName: "storybook",
+			command:    "storybook dev -p 6006",
+			category:   "runtime-target-candidate",
+			confidence: "high",
+			url:        "http://127.0.0.1:6006",
+			ready:      "http /",
+		},
+		{
+			name:       "node start",
+			scriptName: "start",
+			command:    "node server.js",
+			category:   "runtime-target-candidate",
+			confidence: "high",
+			ready:      "TODO",
+		},
+		{
+			name:       "custom port",
+			scriptName: "dev",
+			command:    "vite --port 4000",
+			category:   "runtime-target-candidate",
+			confidence: "high",
+			url:        "http://127.0.0.1:4000",
+			ready:      "http /",
+		},
+		{name: "build", scriptName: "build", command: "vite build", category: "build", confidence: "high"},
+		{name: "test", scriptName: "test", command: "vitest", category: "test", confidence: "high"},
+		{name: "lint", scriptName: "lint", command: "biome lint .", category: "lint", confidence: "high"},
+		{name: "format", scriptName: "format", command: "biome format --write .", category: "format", confidence: "high"},
+		{name: "lifecycle", scriptName: "postinstall", command: "node install.js", category: "lifecycle", confidence: "high"},
+		{name: "clean", scriptName: "clean", command: "rimraf dist", category: "maintenance", confidence: "medium"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			analysis := analyzePackageScript(tc.scriptName, tc.command)
+			if analysis.Category != tc.category {
+				t.Fatalf("category = %q, want %q", analysis.Category, tc.category)
+			}
+			if analysis.Confidence != tc.confidence {
+				t.Fatalf("confidence = %q, want %q", analysis.Confidence, tc.confidence)
+			}
+			if tc.category == "runtime-target-candidate" {
+				if analysis.Suggestion == nil {
+					t.Fatalf("missing suggestion")
+				}
+				if len(analysis.Suggestion.Command) == 0 {
+					t.Fatalf("missing suggestion command")
+				}
+				if analysis.Suggestion.URL != tc.url {
+					t.Fatalf("url = %q, want %q", analysis.Suggestion.URL, tc.url)
+				}
+				if analysis.Suggestion.Ready != tc.ready {
+					t.Fatalf("ready = %q, want %q", analysis.Suggestion.Ready, tc.ready)
+				}
+			}
+		})
+	}
+}
+
+func TestMigrateScriptComplexShellAndEnvReview(t *testing.T) {
+	cases := []struct {
+		name    string
+		command string
+		want    string
+	}{
+		{name: "shell composite", command: "vite && node foo.js", want: "shell-composite"},
+		{name: "env prefix", command: "PORT=3001 vite", want: "environment prefix"},
+		{name: "cross env", command: "cross-env PORT=3001 vite", want: "environment prefix"},
+		{name: "redirection", command: "vite > out.log", want: "shell-composite"},
+		{name: "backticks", command: "echo `date`", want: "shell-composite"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			analysis := analyzePackageScript("dev", tc.command)
+			if !analysis.NeedsReview {
+				t.Fatalf("expected review for %q", tc.command)
+			}
+			if !strings.Contains(strings.Join(analysis.ReviewNotes, "; "), tc.want) {
+				t.Fatalf("notes missing %q: %#v", tc.want, analysis.ReviewNotes)
+			}
+		})
+	}
+}
+
+func TestMigrateScriptReportManifestAndSafety(t *testing.T) {
+	root := t.TempDir()
+	marker := filepath.Join(root, "marker")
+	writePackageJSON(t, root, `{
+  "name": "scripts-app",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "test": "vitest",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "postinstall": "node -e \"require('fs').writeFileSync('marker','bad')\"",
+    "weird": "echo $(date)"
+  }
+}`)
+	cfg, _ := parseMigrateArgs([]string{"migrate", "--root", root})
+	draft, diagnostic := buildMigrationDraft(cfg)
+	if diagnostic != nil {
+		t.Fatalf("unexpected diagnostic: %#v", diagnostic)
+	}
+
+	for _, want := range []string{
+		"## Scripts and RunTarget suggestions",
+		"### Suggested RunTarget candidates",
+		"| `dev` | `dev` | `high` | `[\"vite\", \"--host\", \"127.0.0.1\"]`",
+		"### Non-RunTarget scripts",
+		"`build` (`build`)",
+		"`test` (`test`)",
+		"`lint` (`lint`)",
+		"`format` (`format`)",
+		"### Shell/Env review",
+		"`weird`",
+		"## Security",
+		"postinstall",
+	} {
+		if !strings.Contains(draft.Report, want) {
+			t.Fatalf("report missing %q:\n%s", want, draft.Report)
+		}
+	}
+	if !strings.Contains(draft.Manifest, "MIGRATION_TODO_RUN_TARGETS") {
+		t.Fatalf("manifest missing run target TODO:\n%s", draft.Manifest)
+	}
+	if strings.Contains(draft.Manifest, "<RunTargets") {
+		t.Fatalf("manifest should not include active RunTargets:\n%s", draft.Manifest)
+	}
+	assertFileMissing(t, marker)
+}
