@@ -41,6 +41,7 @@ Without `--force`, any existing output file causes the command to fail before wr
 | Flag | Meaning |
 |---|---|
 | `--write` | Create output files. Omitted means preview only. |
+| `--check` | Validate the generated draft with the manifest frontend, Go manifest IR validation, and TODO accounting. Dry-run check writes nothing. With `--write`, validation errors block output writes. |
 | `--root <root>` | Set the project root. Defaults to the current directory. |
 | `--package-json <path>` | Read an explicit package.json path. Relative paths are resolved from `--root`. |
 | `--package-lock <path>` | Read an explicit npm package-lock path for migration report evidence. Relative paths are resolved from `--root`. |
@@ -50,6 +51,33 @@ Without `--force`, any existing output file causes the command to fail before wr
 | `--out-manifest <path>` | Write the manifest draft to a custom path. Relative paths are resolved from `--root`. |
 | `--out-report <path>` | Write the migration report to a custom path. Relative paths are resolved from `--root`. |
 | `--force` | Overwrite migration output files. Does not permit overwriting `manifest.tsx` unless that exact custom output path is explicitly requested. |
+
+## Validation loop
+
+```sh
+tspack migrate --check
+```
+
+`--check` validates the generated migration draft without running update/sync, resolving packages, installing dependencies, materializing `node_modules`, creating `ts-lock.toml`, mutating source/package files, or executing package scripts. In dry-run mode it writes the draft to a temporary file outside the project, validates that temporary draft, cleans it up, and leaves the project tree unchanged.
+
+Validation is layered:
+
+1. **Manifest frontend validation** parses the generated TSX with the current `tspack/manifest` authoring subset. This catches syntax, unsupported helpers/components, forbidden dynamic expressions, and generated API incompatibilities.
+2. **Go manifest IR validation** validates the manifest shape emitted by the frontend, including workspace/package metadata, dependency intent, targets, publish policy, security shape, and policy shape. It intentionally does not validate or require a lockfile.
+3. **TODO accounting** counts remaining `MIGRATION_TODO_*` groups and reports them. TODOs are review work, not validation errors.
+
+A passed check means the draft is structurally valid and accepted by the current manifest frontend and Go IR validator. It does **not** mean the migration is semantically complete, dependencies are resolved, targets are correct, scripts are migrated, or publish contents are verified.
+
+With `--write --check`, TSPack validates first. If validation fails, no migration outputs are written. If validation passes, it writes the manifest draft and migration report. Existing output collisions are still checked before validation unless `--force` is passed.
+
+Examples:
+
+```sh
+tspack migrate --check
+tspack migrate --write --check
+tspack migrate --check --no-lock-evidence --no-source-scan
+tspack migrate --check --out-manifest ./tmp/manifest.review.tsx --out-report ./tmp/tspack-migration.md
+```
 
 ## Generated manifest draft
 
@@ -217,11 +245,18 @@ Scripts are listed in `tspack-migration.md` but are not migrated to RunTargets a
 - grouped TODO sections
 - scripts not migrated
 - lifecycle, binary, peer, platform/native, duplicate-version, and mismatch evidence from package-lock when available
+- validation status: not run by default, or passed/failed when `--check` is used
 - suggested next steps
 
 The report does not claim migration is complete.
 
 ## Examples
+
+Preview and validate without writing:
+
+```sh
+tspack migrate --root packages/components --check
+```
 
 Preview only:
 
@@ -229,7 +264,13 @@ Preview only:
 tspack migrate --root packages/components
 ```
 
-Write the default draft and report:
+Write the default draft and report after validation:
+
+```sh
+tspack migrate --root packages/components --write --check
+```
+
+Write the default draft and report without validation:
 
 ```sh
 tspack migrate --root packages/components --write
@@ -263,7 +304,7 @@ tspack migrate --write --force
 - overwrite `manifest.tsx` automatically
 - mutate `package.json`
 - install dependencies
-- run `tspack update`, `tspack sync`, `tspack check`, `tspack pack`, or package scripts
+- run `tspack update`, `tspack sync`, `tspack check`, `tspack pack`, dependency resolution, package installation, materialization, or package scripts
 - call LLM APIs
 - provide framework adapters
 - perform full monorepo workspace discovery beyond the current package.json root

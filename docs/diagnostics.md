@@ -25,6 +25,9 @@ This inventory groups primary diagnostic families by subsystem to keep command-s
 - `TSPACK_MIGRATE_PACKAGE_LOCK_INVALID`: package-lock evidence could not be parsed. An implicit invalid lock is reported as a warning and ignored; an explicit invalid `--package-lock` path fails migration.
 - `TSPACK_MIGRATE_PACKAGE_LOCK_UNSUPPORTED_VERSION`: package-lock evidence used a lockfileVersion outside npm v2/v3. Migrate continues best-effort when a `packages` object is readable.
 - `TSPACK_MIGRATE_UNSUPPORTED_PACKAGE_SHAPE`: package shapes are unsupported by the package.json draft generator. Prefer TODOs in the generated draft/report when a partial mechanical draft is possible.
+- `TSPACK_MIGRATE_CHECK_TEMP_WRITE_FAILED`: `tspack migrate --check` could not create or write the temporary manifest used for validation. No migration outputs are written.
+- `TSPACK_MIGRATE_GENERATED_MANIFEST_INVALID`: the generated draft did not pass manifest frontend parsing/API validation. Details include frontend diagnostics and remaining TODO counts. With `--write --check`, no outputs are written.
+- `TSPACK_MIGRATE_GENERATED_IR_INVALID`: the generated draft frontend IR did not pass Go manifest/IR validation. Details include IR diagnostics and remaining TODO counts. With `--write --check`, no outputs are written.
 
 ## Package/core diagnostics
 

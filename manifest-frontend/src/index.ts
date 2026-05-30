@@ -233,7 +233,7 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
     const args = node.arguments.map((a) => evalNode(a, sf, diags, file, env));
     if (name === 'define' || name === 'defineWorkspace') return jsxToRootDoc(args[0]);
     if (name === 'definePackage') return jsxToPackageDoc(args[0]);
-    if (name === 'defineDeps') return args[0];
+    if (name === 'defineDeps') return attachDependencyKeys(args[0]);
     if (name === 'npm') return { kind: 'npm', package: args[0], range: args[1] };
     if (name === 'git') return { kind: 'git', ref: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'path') return { kind: 'path', path: args[0] };
@@ -283,14 +283,77 @@ function mapPackage(p: any, includeRoot: boolean): Record<string, unknown> {
     ...(includeRoot ? { root: '.' } : {}),
     license: p.license,
     kind: p.kind,
-    dependencies: p.dependencies?.values ?? [],
-    targets: p.__children?.find((x: any) => x.__tag === 'Targets')?.rows ?? [],
+    dependencies: mapDependencies(p.dependencies?.values ?? []),
+    targets: mapTargets(p.__children?.find((x: any) => x.__tag === 'Targets')?.rows ?? []),
     ...(p.__children?.find((x: any) => x.__tag === 'RunTargets') ? { runTargets: p.__children?.find((x: any) => x.__tag === 'RunTargets')?.rows ?? [] } : {}),
-    tools: p.__children?.find((x: any) => x.__tag === 'Tools')?.values?.map((v: any) => v?.source?.package ?? v?.source?.ref ?? v?.source?.path ?? v?.kind) ?? [],
+    tools: mapDependencyRefs(p.__children?.find((x: any) => x.__tag === 'Tools')?.values ?? []),
     boundaries: p.__children?.find((x: any) => x.__tag === 'Boundaries')?.rows ?? [],
     publish: { include: p.__children?.find((x: any) => x.__tag === 'Publish')?.include ?? [], exclude: p.__children?.find((x: any) => x.__tag === 'Publish')?.exclude ?? [] },
     policies: p.__children?.find((x: any) => x.__tag === 'Policies') ?? {},
   };
+}
+
+function mapDependencies(values: any[]): any[] {
+  return values.map((value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return value;
+    }
+
+    const { __key: _key, ...dependency } = value;
+    return dependency;
+  });
+}
+
+function mapTargets(rows: any[]): any[] {
+  return rows.map((row) => {
+    const deps = Array.isArray(row?.deps) ? row.deps : [];
+    const peers = Array.isArray(row?.peers) ? row.peers : [];
+
+    return {
+      ...row,
+      deps: mapDependencyRefs(deps),
+      peers: mapDependencyRefs(peers),
+    };
+  });
+}
+
+function mapDependencyRefs(values: any[]): string[] {
+  return values.map((value) => dependencyRefKey(value));
+}
+
+function dependencyRefKey(value: any): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (typeof value?.__key === 'string') {
+    return value.__key;
+  }
+  if (typeof value?.source?.package === 'string') {
+    return value.source.package;
+  }
+  if (typeof value?.source?.ref === 'string') {
+    return value.source.ref;
+  }
+  if (typeof value?.source?.path === 'string') {
+    return value.source.path;
+  }
+  return value?.kind;
+}
+
+function attachDependencyKeys(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return value;
+  }
+
+  const out: Record<string, unknown> = {};
+  for (const [key, dependency] of Object.entries(value as Record<string, unknown>)) {
+    if (dependency && typeof dependency === 'object' && !Array.isArray(dependency)) {
+      out[key] = { ...(dependency as Record<string, unknown>), __key: key };
+    } else {
+      out[key] = dependency;
+    }
+  }
+  return out;
 }
 
 function jsxEval(node: ts.JsxElement | ts.JsxSelfClosingElement, sf: ts.SourceFile, diags: Diagnostic[], file: string, env: Map<string, unknown>): unknown {

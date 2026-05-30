@@ -141,6 +141,9 @@ func loadPackageLockEvidence(cfg migrateConfig, deps []migratedDependency) (pack
 		}
 		return packageLockEvidence{Status: packageLockEvidenceMissing, StatusReason: "not found"}, nil
 	}
+	if path == "" {
+		return packageLockEvidence{Status: packageLockEvidenceMissing, StatusReason: "not found"}, nil
+	}
 
 	content, err := os.ReadFile(path)
 	if err != nil {

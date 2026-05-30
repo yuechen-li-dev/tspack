@@ -6,11 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/tspack/tspack/internal/diag"
+	"github.com/tspack/tspack/internal/manifest"
 )
 
 const (
@@ -71,6 +75,7 @@ type migrateConfig struct {
 	outManifestPath string
 	outReportPath   string
 	write           bool
+	check           bool
 	force           bool
 	noLockEvidence  bool
 	noSourceScan    bool
@@ -127,6 +132,7 @@ type migrationDraft struct {
 	LockEvidence         packageLockEvidence
 	SourceEvidence       sourceScanEvidence
 	Diagnostics          []migrationDiagnostic
+	Validation           migrationValidationResult
 	TodoCounts           map[string]int
 	TotalTodos           int
 }
@@ -187,6 +193,20 @@ type migrationDiagnostic struct {
 	Fixes   []string
 }
 
+type migrationValidationResult struct {
+	Ran                 bool
+	Passed              bool
+	ManifestFrontend    string
+	ManifestIR          string
+	RemainingTodos      int
+	TodoCounts          map[string]int
+	FrontendDiagnostics []diag.Diagnostic
+	IRDiagnostics       []diag.Diagnostic
+	TempPath            string
+}
+
+var runMigrationValidation = validateMigrationDraft
+
 func runMigrateCommand(args []string) {
 	cfg, parseDiags := parseMigrateArgs(args)
 	if len(parseDiags) > 0 {
@@ -205,17 +225,12 @@ func runMigrateCommand(args []string) {
 		printMigrationDiagnostic(diagnostic)
 	}
 
-	if !cfg.write {
-		printMigrationDryRun(draft)
-		return
-	}
-
 	outputs := []plannedFile{
 		{path: cfg.outManifestPath, content: draft.Manifest},
 		{path: cfg.outReportPath, content: draft.Report},
 	}
 
-	if !cfg.force {
+	if cfg.write && !cfg.force {
 		for _, output := range outputs {
 			if _, err := os.Stat(output.path); err == nil {
 				printMigrationDiagnostic(migrationDiagnostic{
@@ -231,6 +246,33 @@ func runMigrateCommand(args []string) {
 				os.Exit(1)
 			}
 		}
+	}
+
+	var validationDiagnostic *migrationDiagnostic
+	if cfg.check {
+		result, validationErr := runMigrationValidation(draft)
+		draft.Validation = result
+		draft.Report = renderMigrationReport(&draft)
+		outputs[0].content = draft.Manifest
+		outputs[1].content = draft.Report
+		validationDiagnostic = validationErr
+	}
+
+	if !cfg.write {
+		printMigrationDryRun(draft)
+		if validationDiagnostic != nil {
+			printMigrationDiagnostic(*validationDiagnostic)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if validationDiagnostic != nil {
+		fmt.Println("Migration validation failed; no files were written.")
+		fmt.Println()
+		printMigrationValidationSummary(draft.Validation)
+		printMigrationDiagnostic(*validationDiagnostic)
+		os.Exit(1)
 	}
 
 	for _, output := range outputs {
@@ -253,6 +295,222 @@ func runMigrateCommand(args []string) {
 	printMigrationWriteSummary(draft)
 }
 
+func validateMigrationDraft(draft migrationDraft) (migrationValidationResult, *migrationDiagnostic) {
+	result := migrationValidationResult{
+		Ran:              true,
+		ManifestFrontend: "not run",
+		ManifestIR:       "not run",
+		RemainingTodos:   draft.TotalTodos,
+		TodoCounts:       copyTodoCounts(draft.TodoCounts),
+	}
+
+	tempDir, err := os.MkdirTemp("", "tspack-migrate-check-*")
+	if err != nil {
+		result.ManifestFrontend = "failed"
+		return result, &migrationDiagnostic{
+			Code:    "TSPACK_MIGRATE_CHECK_TEMP_WRITE_FAILED",
+			Message: "failed to create temporary manifest validation directory",
+			Details: []string{"error: " + err.Error()},
+			Fixes:   []string{"Check temporary directory permissions and retry."},
+		}
+	}
+	defer os.RemoveAll(tempDir)
+
+	tempManifestPath := filepath.Join(tempDir, "manifest.tsx")
+	result.TempPath = tempManifestPath
+	if err := os.WriteFile(tempManifestPath, []byte(draft.Manifest), 0o644); err != nil {
+		result.ManifestFrontend = "failed"
+		return result, &migrationDiagnostic{
+			Code:    "TSPACK_MIGRATE_CHECK_TEMP_WRITE_FAILED",
+			Message: "failed to write temporary manifest validation file",
+			Details: []string{
+				"manifestDraftPath: " + tempManifestPath,
+				"error: " + err.Error(),
+			},
+			Fixes: []string{"Check temporary directory permissions and retry."},
+		}
+	}
+
+	frontendCLIPath := migrationFrontendCLIPath(repoRootForMigrateRuntime())
+	frontendResult := runMigrationManifestFrontend(frontendCLIPath, tempManifestPath)
+	result.FrontendDiagnostics = frontendResult.Diagnostics
+	if !frontendResult.OK || len(frontendResult.Diagnostics) > 0 {
+		result.ManifestFrontend = "failed"
+		return result, migrationManifestInvalidDiagnostic(result, frontendResult.Diagnostics)
+	}
+	result.ManifestFrontend = "passed"
+
+	_, irDiagnostics := manifest.LoadBytes(tempManifestPath, frontendResult.IR)
+	result.IRDiagnostics = irDiagnostics
+	if hasMigrationErrorDiagnostics(irDiagnostics) {
+		result.ManifestIR = "failed"
+		return result, migrationIRInvalidDiagnostic(result, irDiagnostics)
+	}
+	result.ManifestIR = "passed"
+	result.Passed = true
+	return result, nil
+}
+
+type migrationFrontendResult struct {
+	OK          bool              `json:"ok"`
+	IR          json.RawMessage   `json:"ir"`
+	Diagnostics []diag.Diagnostic `json:"diagnostics"`
+}
+
+func migrationFrontendCLIPath(repoRoot string) string {
+	candidates := []string{
+		filepath.Join(repoRoot, "manifest-frontend", "dist", "src", "cli.js"),
+		filepath.Join(repoRoot, "manifest-frontend", "dist", "cli.js"),
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return candidates[0]
+}
+
+func runMigrationManifestFrontend(frontendCLIPath string, manifestPath string) migrationFrontendResult {
+	if _, err := os.Stat(frontendCLIPath); err != nil {
+		return migrationFrontendResult{
+			OK: false,
+			Diagnostics: []diag.Diagnostic{{
+				Code:     "TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED",
+				Severity: diag.SeverityError,
+				Message:  "manifest frontend CLI not found; run `cd manifest-frontend && npm run build`",
+				File:     manifestPath,
+				Details:  []string{frontendCLIPath},
+			}},
+		}
+	}
+
+	cmd := exec.Command("node", frontendCLIPath, manifestPath)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil && stdout.Len() == 0 {
+		return migrationFrontendResult{
+			OK: false,
+			Diagnostics: []diag.Diagnostic{{
+				Code:     "TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED",
+				Severity: diag.SeverityError,
+				Message:  "manifest frontend failed",
+				File:     manifestPath,
+				Details:  []string{err.Error(), strings.TrimSpace(stderr.String())},
+			}},
+		}
+	}
+
+	var parsed migrationFrontendResult
+	if err := json.Unmarshal(stdout.Bytes(), &parsed); err != nil {
+		return migrationFrontendResult{
+			OK: false,
+			Diagnostics: []diag.Diagnostic{{
+				Code:     "TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED",
+				Severity: diag.SeverityError,
+				Message:  "invalid frontend JSON",
+				File:     manifestPath,
+				Details:  []string{err.Error(), strings.TrimSpace(stderr.String())},
+			}},
+		}
+	}
+	return parsed
+}
+
+func migrationManifestInvalidDiagnostic(result migrationValidationResult, diagnostics []diag.Diagnostic) *migrationDiagnostic {
+	details := []string{
+		"manifestDraftPath: " + result.TempPath,
+		fmt.Sprintf("remainingTodos: %d", result.RemainingTodos),
+	}
+	details = append(details, migrationDiagnosticDetails("frontend diagnostic", diagnostics)...)
+	return &migrationDiagnostic{
+		Code:    "TSPACK_MIGRATE_GENERATED_MANIFEST_INVALID",
+		Message: "generated manifest draft did not pass manifest frontend validation",
+		Details: details,
+		Fixes: []string{
+			"Review the generated manifest and MIGRATION_TODO_* comments.",
+			"If this came from ordinary package.json input, treat it as a tspack migrate bug.",
+		},
+	}
+}
+
+func migrationIRInvalidDiagnostic(result migrationValidationResult, diagnostics []diag.Diagnostic) *migrationDiagnostic {
+	details := []string{
+		"manifestDraftPath: " + result.TempPath,
+		fmt.Sprintf("remainingTodos: %d", result.RemainingTodos),
+	}
+	details = append(details, migrationDiagnosticDetails("IR diagnostic", diagnostics)...)
+	return &migrationDiagnostic{
+		Code:    "TSPACK_MIGRATE_GENERATED_IR_INVALID",
+		Message: "generated manifest draft frontend IR did not pass Go manifest validation",
+		Details: details,
+		Fixes: []string{
+			"Review the generated manifest and MIGRATION_TODO_* comments.",
+			"If this came from ordinary package.json input, treat it as a tspack migrate bug.",
+		},
+	}
+}
+
+func migrationDiagnosticDetails(prefix string, diagnostics []diag.Diagnostic) []string {
+	var details []string
+	for _, diagnostic := range diagnostics {
+		message := strings.TrimSpace(diagnostic.Message)
+		if message == "" {
+			message = string(diagnostic.Severity)
+		}
+		detail := prefix + ": " + diagnostic.Code + " " + message
+		if diagnostic.File != "" {
+			detail += " (" + diagnostic.File + ")"
+		}
+		details = append(details, detail)
+		for _, nested := range diagnostic.Details {
+			if strings.TrimSpace(nested) != "" {
+				details = append(details, "  "+nested)
+			}
+		}
+	}
+	if len(details) == 0 {
+		return []string{prefix + ": no structured diagnostics returned"}
+	}
+	return details
+}
+
+func hasMigrationErrorDiagnostics(diagnostics []diag.Diagnostic) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == diag.SeverityError || diagnostic.Severity == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func copyTodoCounts(counts map[string]int) map[string]int {
+	out := map[string]int{}
+	for key, value := range counts {
+		out[key] = value
+	}
+	return out
+}
+
+func repoRootForMigrateRuntime() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	for dir := wd; ; dir = filepath.Dir(dir) {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			if _, frontendErr := os.Stat(filepath.Join(dir, "manifest-frontend")); frontendErr == nil {
+				return dir
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return wd
+		}
+	}
+}
+
 func parseMigrateArgs(args []string) (migrateConfig, []migrationDiagnostic) {
 	cfg := migrateConfig{root: "."}
 	var diags []migrationDiagnostic
@@ -262,6 +520,8 @@ func parseMigrateArgs(args []string) (migrateConfig, []migrationDiagnostic) {
 		switch arg {
 		case "--write":
 			cfg.write = true
+		case "--check":
+			cfg.check = true
 		case "--force":
 			cfg.force = true
 		case "--root":
@@ -1505,6 +1765,7 @@ func renderMigrationReport(draft *migrationDraft) string {
 
 	renderPackageLockEvidenceSection(&builder, draft.LockEvidence)
 	renderSourceImportEvidenceSection(&builder, draft)
+	renderMigrationValidationSection(&builder, draft)
 	builder.WriteString("## TODOs for human/LLM review\n")
 	for _, todo := range migrationTodoOrder {
 		builder.WriteString("### " + todo + "\n")
@@ -1528,6 +1789,9 @@ func renderMigrationReport(draft *migrationDraft) string {
 	}
 
 	builder.WriteString("## Suggested next steps\n")
+	if !draft.Config.check {
+		builder.WriteString("- Run: `tspack migrate --check`.\n")
+	}
 	builder.WriteString("- Review `" + filepath.Base(draft.Config.outManifestPath) + "`.\n")
 	builder.WriteString("- Resolve `MIGRATION_TODO_*` comments.\n")
 	builder.WriteString("- Run: `tspack check --manifest " + filepath.Base(draft.Config.outManifestPath) + "`.\n")
@@ -1535,6 +1799,40 @@ func renderMigrationReport(draft *migrationDraft) string {
 	builder.WriteString("- Run: `tspack pack --dry-run --manifest " + filepath.Base(draft.Config.outManifestPath) + "`.\n")
 	builder.WriteString("\nThis report does not claim migration is complete. It is a mechanical draft for human/LLM review.\n")
 	return builder.String()
+}
+
+func renderMigrationValidationSection(builder *strings.Builder, draft *migrationDraft) {
+	builder.WriteString("## Validation\n\n")
+	if !draft.Validation.Ran {
+		builder.WriteString("Status: not run\n\n")
+		builder.WriteString("- Manifest frontend: not run\n")
+		builder.WriteString("- Manifest IR validation: not run\n")
+		builder.WriteString(fmt.Sprintf("- Remaining TODOs: %d\n\n", draft.TotalTodos))
+		builder.WriteString("Run `tspack migrate --check` to validate the generated draft. Validation means the draft is structurally valid, not semantically complete.\n\n")
+		return
+	}
+
+	status := "failed"
+	if draft.Validation.Passed {
+		status = "passed"
+	}
+	builder.WriteString("Status: " + status + "\n\n")
+	builder.WriteString("- Manifest frontend: " + draft.Validation.ManifestFrontend + "\n")
+	appendValidationDiagnostics(builder, draft.Validation.FrontendDiagnostics)
+	builder.WriteString("- Manifest IR validation: " + draft.Validation.ManifestIR + "\n")
+	appendValidationDiagnostics(builder, draft.Validation.IRDiagnostics)
+	builder.WriteString(fmt.Sprintf("- Remaining TODOs: %d\n\n", draft.Validation.RemainingTodos))
+	builder.WriteString("This means the draft is structurally valid, not semantically complete. Review MIGRATION_TODO_* comments before using it as authoritative.\n\n")
+}
+
+func appendValidationDiagnostics(builder *strings.Builder, diagnostics []diag.Diagnostic) {
+	for _, diagnostic := range diagnostics {
+		message := strings.TrimSpace(diagnostic.Message)
+		if message == "" {
+			message = string(diagnostic.Severity)
+		}
+		builder.WriteString("  - `" + diagnostic.Code + "`: " + escapeMarkdownTable(message) + "\n")
+	}
 }
 
 func renderScriptSuggestionsSection(builder *strings.Builder, draft *migrationDraft) {
@@ -1839,6 +2137,10 @@ func printMigrationDryRun(draft migrationDraft) {
 	fmt.Printf("    shell/complex: %d\n", countScriptAnalysesNeedingReview(draft.ScriptAnalyses))
 	fmt.Printf("    lifecycle: %d\n", countScriptAnalysesByCategory(draft.ScriptAnalyses, "lifecycle"))
 	fmt.Printf("  TODOs: %d\n", draft.TotalTodos)
+	if draft.Validation.Ran {
+		fmt.Println()
+		printMigrationValidationSummary(draft.Validation)
+	}
 	fmt.Println()
 	printMigrationLockDryRun(draft.LockEvidence)
 	fmt.Println()
@@ -1854,7 +2156,26 @@ func printMigrationWriteSummary(draft migrationDraft) {
 	fmt.Println()
 	fmt.Println("Next:")
 	fmt.Println("  Review MIGRATION_TODO_* comments.")
+	if draft.Validation.Ran {
+		fmt.Println()
+		printMigrationValidationSummary(draft.Validation)
+	}
 	fmt.Println("  Run tspack check --manifest " + draft.Config.outManifestPath)
+}
+
+func printMigrationValidationSummary(result migrationValidationResult) {
+	if !result.Ran {
+		return
+	}
+	fmt.Println("Validation:")
+	fmt.Println("  manifest frontend: " + result.ManifestFrontend)
+	fmt.Println("  manifest IR: " + result.ManifestIR)
+	fmt.Printf("  TODOs: %d\n", result.RemainingTodos)
+	if result.Passed {
+		fmt.Println("  result: structurally valid draft")
+	} else {
+		fmt.Println("  result: generated draft needs manual repair")
+	}
 }
 
 func printMigrationDiagnostic(diagnostic migrationDiagnostic) {
