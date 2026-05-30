@@ -145,6 +145,12 @@ Any heuristic result should include evidence, confidence, and ambiguity rather t
 ## Future milestones
 
 - **M40c**: add a safe VS Code reveal-source command for workspace-contained source hints.
-- **M40d**: refine source hint analyzer support and add more fixture coverage if the source hint prototype proves too narrow.
-- **M40e**: define an explicit LLM context bundle shape that can include source hints.
+- **M40d**: define a runtime-grounded LLM context bundle shape that can include validated source excerpts.
+- **M40e**: expose context bundle helpers outside the extension if the prototype proves useful.
 - **M40f**: expand inspect UI assertions around source metadata and runtime facts.
+
+## Relationship to LLM context bundles
+
+Source hints feed the M40d UI context bundle only after workspace validation. The bundle builder preserves the raw hint, validates the hinted file with the same source-safety rules used by the VS Code reveal command, and includes a bounded read-only excerpt only when the file exists inside the workspace without traversal, absolute paths, URL-like schemes, or symlink escapes.
+
+This keeps `data-tspack-source`, `data-tspack-component`, and `data-tspack-symbol` useful for author/reviewer context without treating page-provided metadata as authority. Unsafe or missing hints remain visible as validation errors and do not produce source excerpts.
