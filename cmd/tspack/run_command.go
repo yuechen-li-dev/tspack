@@ -824,17 +824,14 @@ func isValidRunEnvKey(key string) bool {
 }
 
 func resolveRunTargetLaunchCommand(root string, target manifest.RunTarget) ([]string, *runErr) {
-	if target.Runtime == "bun" {
-		if _, err := exec.LookPath("bun"); err != nil {
+	if executable, ok := directRuntimeExecutable(target.Runtime); ok {
+		if _, err := exec.LookPath(executable); err != nil {
 			return nil, &runErr{
 				code: "TSPACK_RUN_RUNTIME_NOT_FOUND",
-				msg:  "runtime: bun; executable: bun; target: " + target.Name + "; hint: install Bun or change the RunTarget runtime",
+				msg:  missingRuntimeMessage(target.Runtime, executable, target.Name),
 			}
 		}
-		command := make([]string, 0, len(target.Command)+1)
-		command = append(command, "bun")
-		command = append(command, target.Command...)
-		return command, nil
+		return prependRunTargetExecutable(executable, target.Command), nil
 	}
 	if target.Runtime == "node" {
 		return resolveNodeLocalCommand(root, target.Command), nil
@@ -842,12 +839,39 @@ func resolveRunTargetLaunchCommand(root string, target manifest.RunTarget) ([]st
 	return target.Command, nil
 }
 
+func directRuntimeExecutable(runtime string) (string, bool) {
+	switch runtime {
+	case "bun":
+		return "bun", true
+	case "deno":
+		return "deno", true
+	default:
+		return "", false
+	}
+}
+
+func missingRuntimeMessage(runtime string, executable string, targetName string) string {
+	runtimeName := runtime
+	if runtime == "bun" {
+		runtimeName = "Bun"
+	}
+	if runtime == "deno" {
+		runtimeName = "Deno"
+	}
+	return "runtime: " + runtime + "; executable: " + executable + "; target: " + targetName + "; hint: install " + runtimeName + " or change the RunTarget runtime"
+}
+
+func prependRunTargetExecutable(executable string, argv []string) []string {
+	command := make([]string, 0, len(argv)+1)
+	command = append(command, executable)
+	command = append(command, argv...)
+	return command
+}
+
 func formatRunTargetCommand(target manifest.RunTarget) string {
 	parts := target.Command
-	if target.Runtime == "bun" {
-		parts = make([]string, 0, len(target.Command)+1)
-		parts = append(parts, "bun")
-		parts = append(parts, target.Command...)
+	if executable, ok := directRuntimeExecutable(target.Runtime); ok {
+		parts = prependRunTargetExecutable(executable, target.Command)
 	}
 	return string(bytes.Join(stringSliceBytes(parts), []byte(" ")))
 }

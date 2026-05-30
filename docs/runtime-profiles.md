@@ -80,3 +80,31 @@ The example above runs `bun hello.js`. TSPack does not run `bun run hello`, does
 Workspace `runtime="bun"` does not automatically inherit into RunTargets in M42c. A RunTarget with `runtime: "system"` keeps system argv semantics, `runtime: "node"` keeps the existing Node/local-bin semantics, and omitted RunTarget runtime behavior is unchanged.
 
 TSPack still owns dependency resolution, `ts-lock.toml`, materialization, checks, pack, lifecycle security policy, and package-manager semantics. M42c does not implement `bun install`, `bun add`, `bun pm`, `bun.lockb`, Bun dependency resolution, Bun materialization, Bun lifecycle ownership, native xTest runtime switching, or JavaScript bridge runtime switching.
+
+## Deno runtime proof (M42d)
+
+`runtime="deno"` is a supported workspace runtime profile. `tspack doctor runtime` reports the selected profile as `deno`, the profile executable as `deno`, PATH availability for that executable, `status: experimental`, `lifecycleOwner: tspack`, and `packageManagerDelegated: false`. The doctor runtime details continue to state that dependency resolution is `TSPack`, the lockfile is `ts-lock.toml`, materialization is `TSPack`, and security policy is `TSPack`.
+
+Deno support in M42d is intentionally constrained to runtime reporting and explicitly declared RunTargets. A RunTarget with `runtime: "deno"` is launched by TSPack as `deno` plus the declared argv payload:
+
+```tsx
+<RunTargets
+  rows={[
+    {
+      name: "hello",
+      runtime: "deno",
+      cwd: "package",
+      command: ["run", "--allow-net=127.0.0.1:8080", "server.ts"],
+      ready: { kind: "stdout-match", pattern: "ready", stream: "stdout" },
+    },
+  ]}
+/>
+```
+
+The example above runs `deno run --allow-net=127.0.0.1:8080 server.ts`. Deno permission flags stay explicit manifest command arguments in M42d. TSPack does not infer permissions and does not add a Deno permission DSL.
+
+TSPack does not run `deno task hello`, does not read package scripts, does not call `deno install`, `deno add`, `deno cache`, or `deno vendor`, and does not parse `deno.json`, `deno.lock`, import maps, JSR metadata, or `npm:` specifiers. If `deno` is missing, `tspack run` fails before child execution with `TSPACK_RUN_RUNTIME_NOT_FOUND` and a hint to install Deno or change the RunTarget runtime. There is no fallback to Node.js, Bun, system execution, npm, npx, or package scripts.
+
+Workspace `runtime="deno"` does not automatically inherit into RunTargets in M42d. A RunTarget with `runtime: "system"` keeps system argv semantics, `runtime: "node"` keeps the existing Node/local-bin semantics, `runtime: "bun"` keeps the existing Bun launch adapter, and omitted RunTarget runtime behavior is unchanged.
+
+TSPack still owns dependency resolution, `ts-lock.toml`, materialization, checks, pack, lifecycle security policy, and package-manager semantics. M42d does not implement Deno task/package/tooling delegation, native xTest runtime switching, JavaScript bridge runtime switching, or package-manager mutation.

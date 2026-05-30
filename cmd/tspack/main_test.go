@@ -4011,6 +4011,70 @@ func TestCLIRunExplicitBunRuntimeUsesBunExecutable(t *testing.T) {
 	}
 }
 
+func TestCLIRunExplicitDenoRuntimeUsesDenoExecutable(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	packageDir := filepath.Join(root, "packages", "demo")
+	if err := os.MkdirAll(packageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	capture := filepath.Join(root, "deno-capture.json")
+	denoBin := filepath.Join(root, "fake-bin")
+	writeFakeDenoRuntime(t, filepath.Join(denoBin, "deno"), capture)
+	stubIR := `{format:1,workspace:{name:"ws",runtime:"deno"},packages:[{name:"@acme/demo",version:"1.0.0",root:"packages/demo",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"hello",runtime:"deno",cwd:"package",command:["run","--allow-net=127.0.0.1:8080","server.ts"],ready:{kind:"stdout-match",pattern:"ready",stream:"stdout"}}]}]}`
+	writeRunFrontendStub(t, stubIR)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--package", "@acme/demo", "hello", "--once", "--env", "FOO=bar")
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "PATH="+denoBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	b, err := cmd.CombinedOutput()
+	output := string(b)
+	if err != nil {
+		t.Fatalf("deno run target failed: %v\n%s", err, output)
+	}
+	for _, expected := range []string{"Runtime: deno", "Command: deno run --allow-net=127.0.0.1:8080 server.ts", "Cwd: package (" + packageDir + ")", "ready from fake deno", "stderr from fake deno", "Ready: matched \"ready\""} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("deno run output missing %q:\n%s", expected, output)
+		}
+	}
+	captured := readCapturedDenoInvocation(t, capture)
+	wantArgv := []string{"run", "--allow-net=127.0.0.1:8080", "server.ts"}
+	if !reflect.DeepEqual(captured.Argv, wantArgv) {
+		t.Fatalf("fake deno argv = %#v", captured.Argv)
+	}
+	if captured.Cwd != packageDir {
+		t.Fatalf("fake deno cwd = %q, want %q", captured.Cwd, packageDir)
+	}
+	if captured.EnvFOO != "bar" {
+		t.Fatalf("fake deno did not receive env overlay: %#v", captured)
+	}
+}
+
+func TestCLIRunDenoRuntimeMissingFailsBeforeFallback(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws",runtime:"deno"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"hello",runtime:"deno",command:["run","server.ts"],ready:{kind:"stdout-match",pattern:"ready",stream:"stdout"}}]}]}`)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "hello", "--once")
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "PATH="+pathWithNodeOnly(t))
+	b, err := cmd.CombinedOutput()
+	output := string(b)
+	if err == nil {
+		t.Fatalf("expected missing deno failure:\n%s", output)
+	}
+	for _, expected := range []string{"TSPACK_RUN_RUNTIME_NOT_FOUND", "runtime: deno", "executable: deno", "target: hello", "install Deno or change the RunTarget runtime"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing deno output missing %q:\n%s", expected, output)
+		}
+	}
+	if strings.Contains(output, "Cannot find module") || strings.Contains(output, "sh -c") || strings.Contains(output, "npm") || strings.Contains(output, "bun ") {
+		t.Fatalf("missing deno path appears to have fallen back unexpectedly:\n%s", output)
+	}
+}
+
 func TestCLIRunBunRuntimeMissingFailsBeforeFallback(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	root := t.TempDir()
@@ -4071,6 +4135,42 @@ func readCapturedBunInvocation(t *testing.T, capture string) capturedBunInvocati
 	return got
 }
 
+type capturedDenoInvocation struct {
+	Argv   []string `json:"argv"`
+	Cwd    string   `json:"cwd"`
+	EnvFOO string   `json:"envFOO"`
+}
+
+func writeFakeDenoRuntime(t *testing.T, path string, capture string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	backend := fmt.Sprintf(`#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync(%q, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), envFOO: process.env.FOO || '' }));
+process.stdout.write('ready from fake deno\n');
+process.stderr.write('stderr from fake deno\n');
+setInterval(() => {}, 1000);
+`, capture)
+	if err := os.WriteFile(path, []byte(backend), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readCapturedDenoInvocation(t *testing.T, capture string) capturedDenoInvocation {
+	t.Helper()
+	data, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got capturedDenoInvocation
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
 func TestCLIRunWorkspaceBunDoesNotOverrideSystemRunTarget(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	root := t.TempDir()
@@ -4079,6 +4179,20 @@ func TestCLIRunWorkspaceBunDoesNotOverrideSystemRunTarget(t *testing.T) {
 	payload := runListJSONForIR(t, repo, root, stubIR)
 	if len(payload.Targets) != 1 || payload.Targets[0].Runtime != "system" {
 		t.Fatalf("workspace bun runtime must not override explicit system RunTarget: %#v", payload.Targets)
+	}
+}
+
+func TestCLIRunWorkspaceDenoDoesNotOverrideRunTargetRuntime(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	stubIR := `{format:1,workspace:{name:"ws",runtime:"deno"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"system-dev",runtime:"system",cwd:"workspace",command:["node","server.js"],url:"http://127.0.0.1:5999"},{name:"bun-dev",runtime:"bun",cwd:"workspace",command:["server.js"],url:"http://127.0.0.1:5998"}]}]}`
+	payload := runListJSONForIR(t, repo, root, stubIR)
+	if len(payload.Targets) != 2 {
+		t.Fatalf("expected two run targets: %#v", payload.Targets)
+	}
+	if payload.Targets[0].Runtime != "system" || payload.Targets[1].Runtime != "bun" {
+		t.Fatalf("workspace deno runtime must not override explicit RunTarget runtimes: %#v", payload.Targets)
 	}
 }
 
@@ -4519,5 +4633,38 @@ func TestCLIRunListShowsNewReadyKinds(t *testing.T) {
 	b, err = cmd.CombinedOutput()
 	if err != nil || !strings.Contains(string(b), `"kind": "tcp"`) || !strings.Contains(string(b), `"port": 5432`) || !strings.Contains(string(b), `"kind": "stdout-match"`) || !strings.Contains(string(b), `"pattern": "Local:"`) {
 		t.Fatalf("run --list --json missing new ready details: %v\n%s", err, string(b))
+	}
+}
+
+func TestCLIRunDenoDoesNotIntroduceToolingDelegation(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	forbidden := []string{
+		"deno " + "task",
+		"deno " + "install",
+		"deno " + "add",
+		"deno " + "cache",
+		"deno " + "vendor",
+		"deno." + "lock",
+		"deno." + "json",
+		"import" + " map",
+		"J" + "SR",
+	}
+
+	goFiles, err := filepath.Glob(filepath.Join(repo, "cmd", "tspack", "*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	goFiles = append(goFiles, filepath.Join(repo, "internal", "manifest", "ir.go"))
+	for _, goFile := range goFiles {
+		data, err := os.ReadFile(goFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(data)
+		for _, blocked := range forbidden {
+			if strings.Contains(text, blocked) {
+				t.Fatalf("Deno tooling delegation marker %q found in %s", blocked, goFile)
+			}
+		}
 	}
 }

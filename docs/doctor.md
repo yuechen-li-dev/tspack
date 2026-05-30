@@ -17,7 +17,7 @@
 
 - Project basics: root, `manifest.tsx`, `ts-lock.toml`, `node_modules`.
 - Format/lint readiness: Biome backend resolution and config source. Backend details include the selected path, source (`local`, `direct-package`, or `path`), the root `.bin` candidate, and the direct `@biomejs/biome` package candidate. Config details report `configSource: project` with `configPath` when `biome.json`/`biome.jsonc` exists, or `configSource: tspack-default` with the default style summary when TSPack would use its temporary default config.
-- Run readiness: runtime executables and declared run targets. Declared targets are reported with package-qualified IDs such as `runTarget:@scope/pkg:dev`. The `system` runtime is built in and means “execute declared argv directly,” so it is available even though there is no `system` executable. `bun` is now reported as an experimental runtime executable for explicit Bun RunTargets. `deno` remains reserved/future RunTarget runtime work and is reported as not applicable rather than a warning until implemented.
+- Run readiness: runtime executables and declared run targets. Declared targets are reported with package-qualified IDs such as `runTarget:@scope/pkg:dev`. The `system` runtime is built in and means “execute declared argv directly,” so it is available even though there is no `system` executable. `bun` and `deno` are reported as experimental runtime executables for explicit RunTargets.
 - Inspect readiness (**experimental**): environment suitability and explicit-backend requirements.
   - platform-webview candidate and session env checks (`DISPLAY`, `WAYLAND_DISPLAY`, `DBUS_SESSION_BUS_ADDRESS`).
   - CDP explicit endpoint policy readiness (`TSPACK_INSPECT_CDP_ENDPOINT` if set).
@@ -100,4 +100,4 @@ Text output includes a `Runtime profile` section with:
 
 `doctor runtime --json` emits the same section as structured doctor checks. The runtime profile check includes `selected`, `executable`, `available`, `status`, `lifecycleOwner: "tspack"`, and `packageManagerDelegated: false`.
 
-Only the selected runtime profile is checked prominently. Missing non-selected Bun or Deno executables do not create warning noise. For a Bun workspace profile, the runtime profile check reports `selected: bun`, `executable: bun`, `status: experimental`, `lifecycleOwner: tspack`, `packageManagerDelegated: false`, `dependencyResolution: TSPack`, `lockfile: ts-lock.toml`, `materialization: TSPack`, and `securityPolicy: TSPack`.
+Only the selected runtime profile is checked prominently. Missing non-selected Bun or Deno executables do not create warning noise. For a Bun or Deno workspace profile, the runtime profile check reports the selected profile, executable, `status: experimental`, `lifecycleOwner: tspack`, `packageManagerDelegated: false`, `dependencyResolution: TSPack`, `lockfile: ts-lock.toml`, `materialization: TSPack`, and `securityPolicy: TSPack`.

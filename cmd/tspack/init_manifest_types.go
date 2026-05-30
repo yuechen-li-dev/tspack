@@ -136,7 +136,7 @@ const initManifestTypesDTS = "" +
 	"\n" +
 	"  export type RunTargetRow = {\n" +
 	"    name: string;\n" +
-	"    runtime: 'system' | 'node' | 'bun';\n" +
+	"    runtime: 'system' | 'node' | 'bun' | 'deno';\n" +
 	"    command: string[];\n" +
 	"    url: string;\n" +
 	"    cwd?: 'workspace' | 'package';\n" +

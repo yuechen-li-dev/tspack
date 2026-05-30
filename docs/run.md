@@ -67,7 +67,7 @@ Use `<RunTargets rows={[...]} />` under a package.
 
 Each row supports:
 - `name`
-- `runtime`: `system`, `node`, or `bun`
+- `runtime`: `system`, `node`, `bun`, or `deno`
 - `command`: argv array (not shell string)
 - `url`: base URL for status/readiness
 - `cwd`: optional `"workspace"` or `"package"`; omitted means `"workspace"` for compatibility
@@ -124,7 +124,14 @@ Status output includes the effective cwd, for example `Cwd: workspace (/repo)` o
 ## Runtime notes
 - `system`: built-in runtime support that executes the declared argv directly. `tspack doctor run` reports this runtime as available without looking for a binary named `system`.
 - `node`: execute argv directly and prefer local `node_modules/.bin` before PATH.
-- Future reserved backends: `bun`, `deno` (not implemented yet and not launched by `tspack run`).
+- `bun`: invoke `bun` with the declared argv payload. TSPack does not run `bun run`, package scripts, npm, or npx as a fallback.
+- `deno`: invoke `deno` with the declared argv payload. For example, `command: ["run", "--allow-net=127.0.0.1:8080", "server.ts"]` runs as `deno run --allow-net=127.0.0.1:8080 server.ts`.
+
+Deno permission flags are explicit command arguments for now. TSPack does not infer permissions, define a Deno permission DSL, run `deno task`, read Deno package scripts, parse `deno.json` or `deno.lock`, generate import maps, or call `deno install`, `deno add`, `deno cache`, or `deno vendor`.
+
+If `deno` is missing for an explicit `runtime: "deno"` RunTarget, `tspack run` fails before execution with `TSPACK_RUN_RUNTIME_NOT_FOUND`, including `runtime: deno`, `executable: deno`, the target name, and a hint to install Deno or change the RunTarget runtime. TSPack does not fall back to Node.js, Bun, system execution, npm, npx, or package scripts.
+
+Workspace runtime profiles do not automatically inherit into RunTargets. A workspace with `runtime="deno"` still requires an explicit RunTarget `runtime: "deno"` to use Deno.
 
 Runtimes are process launch backends only. TSPack still owns manifest/lock/package/test lifecycle.
 

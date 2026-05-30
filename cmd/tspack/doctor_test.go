@@ -350,9 +350,44 @@ func TestDoctorRuntimeReportsSelectedDeno(t *testing.T) {
 	if err := json.Unmarshal(b, &report); err != nil {
 		t.Fatalf("invalid doctor runtime json: %v\n%s", err, string(b))
 	}
-	check := flattenDoctorChecks(report)["runtime profile"]
-	if check.Details["selected"] != "deno" || check.Details["executable"] != "deno" || check.Details["available"] != false {
+	checks := flattenDoctorChecks(report)
+	check := checks["runtime profile"]
+	if check.Details["selected"] != "deno" || check.Details["executable"] != "deno" || check.Details["available"] != false || check.Details["status"] != "experimental" {
 		t.Fatalf("unexpected deno runtime profile details: %#v", check.Details)
+	}
+	if check.Details["packageManagerDelegated"] != false || check.Details["lifecycleOwner"] != "tspack" {
+		t.Fatalf("unexpected deno ownership details: %#v", check.Details)
+	}
+	if _, ok := checks["bun"]; ok {
+		t.Fatalf("non-selected bun should not create warning noise: %#v", checks["bun"])
+	}
+}
+
+func TestDoctorRuntimeReportsSelectedDenoAvailableWithStub(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	writeManifestStubWithIR(t, repo, `{format:1,workspace:{name:"ws",runtime:"deno"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{}}]}`)
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	binDir := t.TempDir()
+	denoPath := filepath.Join(binDir, "deno")
+	if err := os.WriteFile(denoPath, []byte("#!/bin/sh\necho deno-stub\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "runtime", "--root", root, "--json")
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "PATH="+binDir+string(os.PathListSeparator)+doctorPathWithNodeOnly(t))
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("doctor runtime json failed: %v\n%s", err, string(b))
+	}
+	var report DoctorReport
+	if err := json.Unmarshal(b, &report); err != nil {
+		t.Fatalf("invalid doctor runtime json: %v\n%s", err, string(b))
+	}
+	check := flattenDoctorChecks(report)["runtime profile"]
+	if check.Details["selected"] != "deno" || check.Details["executable"] != "deno" || check.Details["available"] != true {
+		t.Fatalf("unexpected available deno runtime profile details: %#v", check.Details)
 	}
 }
 
@@ -423,11 +458,8 @@ func TestDoctorRunSystemRuntimeAndReservedRuntimeSignal(t *testing.T) {
 		t.Fatalf("missing commandAvailable detail: %#v", runTarget.Details)
 	}
 	denoCheck := checks["deno"]
-	if denoCheck.Status == "warning" {
-		t.Fatalf("deno should not warn while reserved: %#v", denoCheck)
-	}
-	if denoCheck.Status != "not_applicable" {
-		t.Fatalf("deno should be not_applicable while reserved: %#v", denoCheck)
+	if denoCheck.Name != "deno" {
+		t.Fatalf("doctor run should report Deno runtime availability")
 	}
 	if _, ok := checks["bun"]; !ok {
 		t.Fatalf("doctor run should report Bun runtime availability")
@@ -440,7 +472,7 @@ func TestDoctorRunSystemRuntimeAndReservedRuntimeSignal(t *testing.T) {
 		t.Fatalf("doctor run text failed: %v\n%s", err, string(b))
 	}
 	text := string(b)
-	for _, expected := range []string{"runtimeAvailable: true", "commandFirstToken: node", "cwd: package", "cwdPath: " + root, "packageRoot: " + root, "readyKind: http", "readyPath: /", "reserved runtime backend; not implemented yet"} {
+	for _, expected := range []string{"runtimeAvailable: true", "commandFirstToken: node", "cwd: package", "cwdPath: " + root, "packageRoot: " + root, "readyKind: http", "readyPath: /", "deno"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("doctor text missing %q:\n%s", expected, text)
 		}
