@@ -323,7 +323,23 @@ The M39b release gate should cover the VS Code extension proof of concept withou
 - CLI command construction uses `tspack inspect --cdp <endpoint> --target <index> --json` for target inspection.
 - Missing `tspack` binary, unavailable CDP endpoint, no targets, diagnostics, and invalid JSON map to user-facing extension messages or output-channel debug details.
 - `docs/runtime-grounded-ide.md` exists and is linked from `docs/inspect.md`.
-- The proof of concept remains observation-only: no visual editing, source mutation, reveal-source command, LLM integration, screenshot/OCR/machine vision, framework adapters, Storybook integration, browser extension, additional xTest helper semantics, or Code-OSS fork behavior. Source hint display is allowed because it serializes existing inspect JSON only.
+- The proof of concept remains observation-first and source-safe: no visual editing, source mutation, LLM integration, screenshot/OCR/machine vision, framework adapters, Storybook integration, browser extension, additional xTest helper semantics, or Code-OSS fork behavior. Source hint display and safe read-only reveal are allowed because they serialize existing inspect JSON and open only validated workspace-contained files.
+
+
+
+### M40c VS Code reveal-source smoke
+
+Before release, verify safe reveal-source behavior remains narrow and read-only:
+
+- The extension registers `tspack.inspect.revealSource` with the title **TSPack: Reveal Source for Selected Inspect Node**.
+- Tree items with parsed `source.file` use the `inspectNodeWithSource` context value and expose the reveal command in the inspect tree context menu.
+- A relative source hint such as `src/components/Button.tsx:42:7` opens an existing file under the selected workspace and reveals the corresponding zero-based VS Code position.
+- A source hint without line/column opens the existing file at the top.
+- Malformed `source.raw` with `source.parseError`, nodes with no `source`, and no selected node produce warning messages.
+- Absolute paths, URL-like schemes, parent traversal, paths outside the workspace, and symlink escapes are rejected before opening.
+- Missing files warn with the hinted path and are not created.
+- Zero-workspace reveal warns that a workspace folder is required; multi-root reveal asks the user to choose the workspace root.
+- Reveal remains read-only: no file creation, no file mutation, no visual editing, no source-map lookup, no framework adapter, and no use of `component` or `symbol` for path resolution.
 
 ## Inspect helper smoke
 
@@ -346,4 +362,4 @@ Before release, verify the source mapping probe remains narrow and deterministic
 - `<file>`, `<file>:<line>`, and `<file>:<line>:<column>` source hint forms parse into stable JSON fields.
 - Malformed source hints preserve `source.raw` and report `source.parseError` without failing inspect.
 - Nodes without source hints omit `source`.
-- Extension tree conversion may display source hint metadata but must not implement reveal-source or filesystem access.
+- Extension tree conversion displays source hint metadata but must not mutate source or trust page-provided paths as authority.

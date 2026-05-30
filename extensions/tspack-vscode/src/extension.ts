@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import {
   buildInspectTree,
+  getInspectNodeContextValue,
   serializeInspectNode,
   type InspectTreeNode,
 } from './inspectTree';
@@ -11,6 +12,11 @@ import type {
   InspectNode,
   InspectResult,
 } from './inspectTypes';
+import {
+  buildRevealTarget,
+  isSourceHintMalformed,
+  resolveSourceHintPath,
+} from './revealSource';
 
 class InspectTreeItem extends vscode.TreeItem {
   readonly inspectNode: InspectNode;
@@ -23,7 +29,7 @@ class InspectTreeItem extends vscode.TreeItem {
     this.id = model.id;
     this.description = model.description;
     this.tooltip = model.tooltip;
-    this.contextValue = 'inspectNode';
+    this.contextValue = getInspectNodeContextValue(model.node);
     this.inspectNode = model.node;
   }
 }
@@ -205,6 +211,112 @@ async function inspectTargetsCommand(
   }
 }
 
+async function chooseWorkspaceRoot(): Promise<vscode.WorkspaceFolder | undefined> {
+  const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+  if (workspaceFolders.length === 0) {
+    vscode.window.showWarningMessage(
+      'Open a workspace folder before revealing source hints.',
+    );
+    return undefined;
+  }
+  if (workspaceFolders.length === 1) {
+    return workspaceFolders[0];
+  }
+
+  const picked = await vscode.window.showQuickPick(
+    workspaceFolders.map((folder) => ({
+      label: folder.name,
+      description: folder.uri.fsPath,
+      folder,
+    })),
+    { placeHolder: 'Select the workspace root for this source hint' },
+  );
+  return picked?.folder;
+}
+
+function clampDocumentPosition(
+  document: vscode.TextDocument,
+  target: { line: number; column: number },
+): vscode.Position {
+  const lastLine = Math.max(0, document.lineCount - 1);
+  const line = Math.min(Math.max(0, target.line), lastLine);
+  const lineText = document.lineAt(line).text;
+  const column = Math.min(Math.max(0, target.column), lineText.length);
+  return new vscode.Position(line, column);
+}
+
+async function revealSourceForNode(node: InspectNode | undefined): Promise<void> {
+  if (!node) {
+    vscode.window.showWarningMessage('No inspect node selected.');
+    return;
+  }
+
+  const source = node.source;
+  if (!source) {
+    vscode.window.showWarningMessage(
+      'Selected inspect node has no TSPack source hint.',
+    );
+    return;
+  }
+  if (isSourceHintMalformed(source)) {
+    vscode.window.showWarningMessage(
+      'Source hint is malformed and cannot be revealed.',
+    );
+    return;
+  }
+  if (!source.file) {
+    vscode.window.showWarningMessage(
+      'Selected inspect node has no TSPack source hint.',
+    );
+    return;
+  }
+
+  const workspaceRoot = await chooseWorkspaceRoot();
+  if (!workspaceRoot) {
+    return;
+  }
+
+  const resolution = await resolveSourceHintPath(
+    workspaceRoot.uri.fsPath,
+    source.file,
+  );
+  if (!resolution.ok) {
+    if (resolution.reason === 'notFound') {
+      vscode.window.showWarningMessage(
+        `Source hint file was not found: ${resolution.displayPath ?? source.file}`,
+      );
+      return;
+    }
+    if (
+      resolution.reason === 'unsafePath'
+      || resolution.reason === 'outsideWorkspace'
+    ) {
+      vscode.window.showWarningMessage(
+        'Refusing to open source hint outside workspace.',
+      );
+      return;
+    }
+    vscode.window.showWarningMessage(
+      'Selected inspect node has no TSPack source hint.',
+    );
+    return;
+  }
+
+  const target = buildRevealTarget(resolution.realPath, source);
+  const document = await vscode.workspace.openTextDocument(
+    vscode.Uri.file(target.file),
+  );
+  const editor = await vscode.window.showTextDocument(document, {
+    preview: false,
+  });
+  const position = clampDocumentPosition(document, target);
+  editor.selection = new vscode.Selection(position, position);
+  editor.revealRange(
+    new vscode.Range(position, position),
+    vscode.TextEditorRevealType.InCenterIfOutsideViewport,
+  );
+}
+
 function showSelectedNode(channel: vscode.OutputChannel, node: InspectNode): void {
   channel.clear();
   channel.appendLine('Selected TSPack inspect node JSON:');
@@ -262,6 +374,16 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       await vscode.env.clipboard.writeText(serializeInspectNode(node));
       vscode.window.showInformationMessage('Copied TSPack inspect node JSON.');
+    },
+  ));
+
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'tspack.inspect.revealSource',
+    async (item?: InspectTreeItem | InspectTreeNode) => {
+      const node = item instanceof InspectTreeItem
+        ? item.inspectNode
+        : item?.node ?? selectedNode;
+      await revealSourceForNode(node);
     },
   ));
 

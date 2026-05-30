@@ -15,6 +15,7 @@
     "onCommand:tspack.inspect.targets",
     "onCommand:tspack.inspect.refresh",
     "onCommand:tspack.inspect.copyNodeJson",
+    "onCommand:tspack.inspect.revealSource",
     "onCommand:tspack.inspect.setCdpEndpoint",
     "onView:tspackInspectTree"
   ],
@@ -52,6 +53,10 @@
       {
         "command": "tspack.inspect.copyNodeJson",
         "title": "TSPack: Copy Selected Inspect Node JSON"
+      },
+      {
+        "command": "tspack.inspect.revealSource",
+        "title": "TSPack: Reveal Source for Selected Inspect Node"
       },
       {
         "command": "tspack.inspect.setCdpEndpoint",
@@ -92,6 +97,16 @@
         {
           "command": "tspack.inspect.copyNodeJson",
           "when": "view == tspackInspectTree && viewItem == inspectNode",
+          "group": "inline"
+        },
+        {
+          "command": "tspack.inspect.copyNodeJson",
+          "when": "view == tspackInspectTree && viewItem == inspectNodeWithSource",
+          "group": "inline"
+        },
+        {
+          "command": "tspack.inspect.revealSource",
+          "when": "view == tspackInspectTree && viewItem == inspectNodeWithSource",
           "group": "inline"
         }
       ]

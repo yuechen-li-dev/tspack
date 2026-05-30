@@ -108,6 +108,13 @@ export function buildInspectNodeTooltip(node: InspectNode): string {
   return lines.join('\n');
 }
 
+export function getInspectNodeContextValue(node: InspectNode): string {
+  if (node.source?.file) {
+    return 'inspectNodeWithSource';
+  }
+  return 'inspectNode';
+}
+
 function buildTreeNode(node: InspectNode, path: string): InspectTreeNode {
   const children = Array.isArray(node.children) ? node.children : [];
   return {

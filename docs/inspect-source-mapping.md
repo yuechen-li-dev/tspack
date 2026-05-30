@@ -13,7 +13,6 @@ M40b does not implement or require:
 - perfect framework-agnostic source mapping
 - visual editing or drag handles
 - source mutation
-- VS Code reveal-source commands
 - framework adapters or compiler plugins
 - React internals or React DevTools protocol integration
 - source-map generation or build-pipeline integration
@@ -43,8 +42,8 @@ Text remains the source of truth. Browser/runtime state remains the layout truth
    - Adapters should feed the same source model rather than replacing inspect output with framework-specific shapes.
 
 5. **IDE reveal**
-   - A later VS Code command can validate project-relative source hints and open a file/line/column.
-   - Reveal-source should consume hints as navigation suggestions, not as trusted filesystem paths.
+   - M40c adds a VS Code command that validates project-relative source hints and opens an existing file/line/column when the path stays inside the selected workspace.
+   - Reveal-source consumes hints as navigation suggestions, not as trusted filesystem paths.
 
 ## Source hint contract
 
@@ -114,9 +113,11 @@ If `data-tspack-source` is malformed, inspect does not fail. The node preserves 
 
 ## Trust and security
 
-Source hints are untrusted page data. TSPack must treat them as hints for display, assertions, snapshots, and future navigation. They are not authority to read files or mutate source.
+Source hints are untrusted page data. TSPack must treat them as hints for display, assertions, snapshots, and navigation. They are not authority to read files or mutate source.
 
-Before any future IDE reveal opens a file, the consumer must validate that the path is a safe project-relative path under the intended workspace. M40b intentionally does not perform filesystem access from source hints.
+The M40c VS Code reveal command is read-only. Before opening a file, it rejects absolute paths, URL-like schemes, and any `..` parent traversal segment after normalizing backslashes to slashes. It resolves the remaining relative path against the selected workspace root, requires the file to exist, resolves real paths for both workspace root and target, and rejects symlinks that escape the workspace. It never creates files, edits files, or uses `component` or `symbol` values for filesystem resolution.
+
+`data-tspack-source` line and column values are one-based. VS Code editor positions are zero-based, so reveal converts `42:7` to line `41`, column `6`. Missing line or column values reveal the top of the file, and out-of-range editor positions are clamped to a valid document position.
 
 ## LLM context
 
@@ -143,7 +144,7 @@ Any heuristic result should include evidence, confidence, and ambiguity rather t
 
 ## Future milestones
 
-- **M40c**: refine source hint analyzer support and add more fixture coverage if the M40b prototype proves too narrow.
-- **M40d**: add a VS Code reveal-source command that validates workspace-relative hints before opening files.
+- **M40c**: add a safe VS Code reveal-source command for workspace-contained source hints.
+- **M40d**: refine source hint analyzer support and add more fixture coverage if the source hint prototype proves too narrow.
 - **M40e**: define an explicit LLM context bundle shape that can include source hints.
 - **M40f**: expand inspect UI assertions around source metadata and runtime facts.

@@ -31,7 +31,7 @@ A runtime-grounded IDE should preserve normal code review and source-control wor
 - `tspack run` starts declared runtime targets.
 - `tspack inspect` extracts DOM, layout, accessibility, style, visibility, and hit-test structure.
 - CDP mode can inspect browser, Electron, and VS Code-family targets when an explicit remote-debugging endpoint is provided.
-- The M39b VS Code extension proof of concept wraps `tspack inspect` output in an IDE panel without reimplementing CDP inspection.
+- The M39b/M40c VS Code extension proof of concept wraps `tspack inspect` output in an IDE panel, displays source hints, and can reveal safe workspace-contained source locations without reimplementing CDP inspection or mutating source.
 
 ## Future capabilities
 
@@ -66,7 +66,11 @@ Future editing workflows should still become text diffs. The IDE can observe and
 
 ### M40b: inspect source mapping design probe
 
-Connect inspected nodes to probable source locations without making runtime inspection framework-specific. The staged design starts with optional `data-tspack-source`, `data-tspack-component`, and `data-tspack-symbol` hints, then leaves transforms, heuristics, framework adapters, and IDE reveal commands for later milestones. See [Inspect Source Mapping Design](inspect-source-mapping.md).
+Connect inspected nodes to probable source locations without making runtime inspection framework-specific. The staged design starts with optional `data-tspack-source`, `data-tspack-component`, and `data-tspack-symbol` hints, then leaves transforms, heuristics, and framework adapters for later milestones. See [Inspect Source Mapping Design](inspect-source-mapping.md).
+
+### M40c: safe VS Code reveal-source
+
+The VS Code extension adds **TSPack: Reveal Source for Selected Inspect Node**. The command treats source hints as untrusted navigation suggestions: it opens only existing workspace-contained files, rejects absolute paths, parent traversal, URL-like schemes, and symlink escapes, and never creates or mutates files. Line and column hints use the one-based `data-tspack-source` contract and are converted to VS Code's zero-based editor positions.
 
 ### Future: LLM context bundles
 
