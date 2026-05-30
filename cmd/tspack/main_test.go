@@ -719,6 +719,32 @@ func TestDocsCommandsInventoryIncludesCurrentSurface(t *testing.T) {
 	}
 }
 
+func TestDocsReleaseGateIncludesMigrationCloseoutSmoke(t *testing.T) {
+	closeoutDoc := filepath.Join("..", "..", "docs", "claude-fooding-migration.md")
+	if _, err := os.Stat(closeoutDoc); err != nil {
+		t.Fatalf("migration closeout doc missing: %v", err)
+	}
+
+	doc, err := os.ReadFile(filepath.Join("..", "..", "docs", "release-gate.md"))
+	if err != nil {
+		t.Fatalf("read release gate doc: %v", err)
+	}
+
+	text := string(doc)
+	for _, phrase := range []string{
+		"tspack migrate --check",
+		"MIGRATION_TODO_TARGETS",
+		"package-lock evidence",
+		"source scan evidence",
+		"RunTarget suggestions",
+		"no script execution",
+	} {
+		if !strings.Contains(text, phrase) {
+			t.Fatalf("release gate doc missing migration closeout smoke phrase %q", phrase)
+		}
+	}
+}
+
 func TestDocsReleaseGateIncludesPhase3BoundarySmoke(t *testing.T) {
 	phase3Doc := filepath.Join("..", "..", "docs", "claude-fooding-phase3.md")
 	if _, err := os.Stat(phase3Doc); err != nil {
