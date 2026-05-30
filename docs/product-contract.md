@@ -24,6 +24,7 @@ Scope:
 
 Primary commands:
 - `tspack init`
+- `tspack migrate`
 - `tspack check`
 - `tspack update`
 - `tspack sync`
@@ -70,6 +71,7 @@ Primary commands:
 
 ## Command responsibility boundaries
 
+- **migrate** is an onboarding/draft generator. It translates mechanical package.json, package-lock, source import, and script evidence into a reviewable manifest/report, but it is not semantic migration completion.
 - **check** validates contract consistency (including suspicious lock graph conditions like duplicate locked versions); no lock mutation.
 - **update** resolves dependencies, populates required content-addressed store artifacts, and writes the lockfile.
 - **sync** materializes from lock/store state; no lock mutation.
@@ -84,6 +86,7 @@ Primary commands:
 ## Mutation guarantees
 
 Unless explicitly documented otherwise:
+- `migrate` may write only explicit migration outputs such as `manifest.migrated.tsx` and `tspack-migration.md` when `--write` is passed. It must not mutate package.json, source files, package-manager state, or `ts-lock.toml`.
 - `check`, `sync`, `pack`, `why`, `how`, `outdated`, `run`, and `inspect` must not mutate `ts-lock.toml`.
 - `run` and `inspect --run` must not mutate manifest intent (`manifest.tsx` / `package.manifest.tsx`).
 - `update` is the lock mutation command.
@@ -121,6 +124,11 @@ Claude-fooding Phase 6 closed out pack and why as publish/audit-grade release-ga
 Claude-fooding Phase 7 closed out TSPack's npm lifecycle-script policy as default non-execution plus explicit capability visibility and evidence. `update`, `sync`, and materialization do not execute lifecycle scripts; lifecycle capabilities are recorded in the lockfile, surfaced by `check`, `why`, and `doctor security`, and may be acknowledged only as warning-suppression metadata. Behavior fixtures and reports are evidence links, not execution permission.
 
 Lifecycle execution, if ever added, belongs behind a swappable backend seam. TSPack v1 does not require an OS jail because it does not execute lifecycle scripts by default. See `docs/claude-fooding-phase7.md` for the Phase 7 security/policy closeout.
+
+
+## Migration onboarding model
+
+`tspack migrate` is an onboarding bridge for existing npm-style projects. It translates mechanical evidence into a reviewable `manifest.migrated.tsx` draft and `tspack-migration.md` report, with stable TODO markers for human or LLM review. It is not a semantic migration-completion oracle: package-lock data is evidence rather than TSPack lock truth, source scans are observed usage rather than architecture truth, script classifications are RunTarget suggestions rather than active command migration, and `--check` proves structural compatibility rather than project correctness. See `docs/migrate.md` and `docs/claude-fooding-migration.md`.
 
 ## Security guarantees
 

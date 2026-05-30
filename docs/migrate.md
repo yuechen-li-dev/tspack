@@ -4,6 +4,8 @@
 
 `tspack migrate` intentionally assumes that a human or LLM reviews the result. Existing npm projects often mix package metadata, build scripts, framework conventions, and dependency intent in ways that cannot be safely inferred from `package.json` alone.
 
+For the migration track closeout, thesis, TODO taxonomy, and golden review workflow, see [Migration Closeout](claude-fooding-migration.md).
+
 ## Default safety behavior
 
 By default, `tspack migrate` is a dry-run/preview:

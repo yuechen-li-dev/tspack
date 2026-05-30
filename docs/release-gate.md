@@ -40,20 +40,63 @@
 
 ### Migrate smoke
 
-The migrate release smoke should cover source import evidence (default scan plus `--no-source-scan`) and the package.json-to-draft onboarding path:
+The migrate release smoke should cover the package.json-to-draft onboarding path, report-only evidence model, `--check` structural validation loop, and safety posture documented in `docs/migrate.md` and `docs/claude-fooding-migration.md`.
 
-- `tspack migrate --root <fixture>` prints planned paths and writes no files.
-- `tspack migrate --root <fixture> --check` validates the generated draft, reports frontend/IR pass/fail and TODO counts, writes no files, does not execute scripts, and does not create `ts-lock.toml`.
+#### Output and collision behavior
+
+- `tspack migrate --root <fixture>` is a dry-run preview, prints planned paths and summary information, and writes nothing.
 - `tspack migrate --root <fixture> --write` writes `manifest.migrated.tsx` and `tspack-migration.md`.
-- `tspack migrate --root <fixture> --write --check` writes `manifest.migrated.tsx` and `tspack-migration.md` only when validation passes.
-- A validation-failure fixture exits nonzero and writes no migration outputs; TODO-only fixtures still exit zero.
-- Existing output files fail without `--force` and preserve all-or-nothing output behavior.
-- The generated manifest maps package metadata, dependencies, peer dependencies, dev tools, targets, publish includes, and `MIGRATION_TODO_*` comments.
-- The migration report includes inputs, summary, mechanical mappings, lockfile evidence, validation status, grouped TODOs, scripts not migrated, security notes for lifecycle scripts, and next steps.
-- The migrate smoke fixture with `package-lock.json` reports direct resolved package evidence, lifecycle/bin/platform/duplicate evidence, and writes no `ts-lock.toml`.
-- A fixture without `package-lock.json` succeeds and reports lock evidence as not found; an implicit invalid lock warns and continues; explicit missing/invalid `--package-lock` fails.
-- Scripts are listed but not executed.
+- Existing migration outputs fail without `--force` and preserve all-or-nothing output behavior.
+- `tspack migrate --root <fixture> --write --force` overwrites the migration output files only.
 - `manifest.tsx`, `package.json`, lockfiles, source files, and dependency installations are not mutated.
+
+#### Package mapping and TODO taxonomy
+
+- The generated manifest maps package metadata, dependencies, peer dependencies, optional peer metadata, optional dependencies, dev tools, targets, and publish includes.
+- The generated manifest and report include the stable TODO taxonomy, including `MIGRATION_TODO_TARGETS`, `MIGRATION_TODO_DEP_CLASSIFICATION`, `MIGRATION_TODO_RUN_TARGETS`, `MIGRATION_TODO_PUBLISH`, `MIGRATION_TODO_BOUNDARIES`, `MIGRATION_TODO_TYPES`, and `MIGRATION_TODO_SECURITY`.
+- TODO-only fixtures still exit zero when validation passes; TODOs are review markers, not validation failures.
+
+#### package-lock evidence
+
+- A fixture with `package-lock.json` reports package-lock evidence for direct resolved versions.
+- The same smoke should cover lifecycle script, bin, platform/native, peer, duplicate-version, `@types`, and approximate fanout evidence where fixtures expose those cases.
+- A fixture without `package-lock.json` succeeds and reports lock evidence as not found.
+- An implicit invalid lock warns and continues; explicit missing or invalid `--package-lock` fails.
+- No `ts-lock.toml` is generated from package-lock evidence.
+
+#### Source scan evidence
+
+- Default source scan evidence reports runtime imports.
+- Source scan evidence reports type-only imports.
+- Source scan evidence reports imported packages missing from package.json declarations.
+- Source scan evidence reports runtime imports declared only in `devDependencies` as dev-runtime mismatch evidence.
+- Source scan evidence reports Node builtins separately from npm dependencies.
+- `tspack migrate --root <fixture> --no-source-scan` skips source scan evidence and continues migration.
+
+#### Scripts and RunTarget suggestions
+
+- Script classification reports runtime target suggestions / RunTarget suggestions for likely runtime or dev-server scripts.
+- Build, test, lint, format, package, maintenance, and lifecycle scripts are listed as report-only evidence and are not migrated into active RunTargets.
+- Shell syntax, environment assignment, and command-shape review notes are visible in the report when applicable.
+- Scripts are listed but not executed; no script execution is permitted during migrate smoke.
+
+#### `migrate --check` validation
+
+- `tspack migrate --check` validates a generated draft from the current root without writing migration outputs.
+- `tspack migrate --root <fixture> --check` validates the generated draft, reports frontend/IR pass/fail and TODO counts, writes no files, does not execute scripts, and does not create `ts-lock.toml`.
+- `tspack migrate --root <fixture> --write --check` validates before writing and writes `manifest.migrated.tsx` and `tspack-migration.md` only when validation passes.
+- A validation-failure fixture exits nonzero and writes no migration outputs.
+- TODOs are counted but are not failures.
+- `migrate --check` does not run update, sync, package installation, package materialization, or package script execution.
+
+#### Safety posture
+
+- No npm install or package-manager install is run.
+- No package scripts are run.
+- No source files are mutated.
+- No package.json files are mutated.
+- No lockfiles are mutated or generated.
+- No LLM calls are made.
 
 ### Pack safety smoke
 
