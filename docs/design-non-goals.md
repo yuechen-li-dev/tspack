@@ -23,10 +23,12 @@ TSPack is still not:
 - screenshot visual testing system
 - machine vision product
 - automatic app attach / local port scanner
+- complete semantic migration from package.json/script/config soup
 
 ## Clarifying boundaries
 
 - `run` executes declared `RunTargets` from manifest contract, not `package.json` scripts.
+- `migrate` is an onboarding draft generator. It translates mechanical package.json facts and marks uncertainty; it is not a lockfile translator, source scanner, build runner, script executor, or architectural inference engine.
 - `inspect` is an experimental inspection loop, not a stable browser automation API.
 
 

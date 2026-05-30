@@ -9,6 +9,7 @@ Core thesis: **Declare targets. Resolve sources. Enforce boundaries. Lock realit
 | Group | Command | Purpose | Mutation / Stability |
 |---|---|---|---|
 | Core package | `tspack init` | Scaffold a starter `manifest.tsx` + entry source. | No install/update/sync/build side effects. |
+| Core package | `tspack migrate` | Generate a package.json-based `manifest.migrated.tsx` draft and migration report for human/LLM review. | Dry-run by default; `--write` writes migration outputs only and never runs scripts. |
 | Core package | `tspack check` | Validate manifest/frontend, graph, boundaries, and lock consistency. Supports `--json`, `--explain <file>`, and optional `--format` read-only formatting validation. | Does not mutate lock. |
 | Core package | `tspack update` | Resolve and write deterministic `ts-lock.toml` (or plan-only with `--dry-run`); text mode reports plain progress on stderr and supports `--quiet`. | Mutates lock (except `--dry-run`). |
 | Core package | `tspack sync` | Materialize compatibility `node_modules` from lock/store. | Does not mutate lock. |
