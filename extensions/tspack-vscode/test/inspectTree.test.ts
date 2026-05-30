@@ -4,6 +4,7 @@ import {
   buildInspectNodeLabel,
   buildInspectNodeTooltip,
   buildInspectTree,
+  getInspectNodeContextValue,
   serializeInspectNode,
 } from '../src/inspectTree';
 import {
@@ -93,6 +94,17 @@ describe('inspect tree conversion', () => {
       throw new Error('missing fixture node');
     }
     expect(JSON.parse(serializeInspectNode(node))).toEqual(node);
+  });
+
+  it('sets source-aware context values for tree menu commands', () => {
+    const sourceNode = fixture.root?.children?.[0];
+    const plainNode = fixture.root?.children?.[1];
+    if (!sourceNode || !plainNode) {
+      throw new Error('missing fixture nodes');
+    }
+
+    expect(getInspectNodeContextValue(sourceNode)).toBe('inspectNodeWithSource');
+    expect(getInspectNodeContextValue(plainNode)).toBe('inspectNode');
   });
 
   it('includes source hint metadata in tooltips', () => {

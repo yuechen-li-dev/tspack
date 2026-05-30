@@ -16,7 +16,7 @@ It is **not** screenshot matching, visual diffing, machine vision, component ren
 - structural DOM/layout/style/text/role extraction
 - JSON and text output
 - selector filtering and hit-test support
-- optional source hint extraction through `data-tspack-source`, `data-tspack-component`, and `data-tspack-symbol`
+- optional source hint extraction through `data-tspack-source`, `data-tspack-component`, and `data-tspack-symbol`; the VS Code extension can reveal existing workspace-contained files from those hints after safety validation
 - platform-webview backend scaffold/probe (intended future default)
 - Playwright-backed inspection path for Chromium and WebKit
 - explicit CDP endpoint inspection path
@@ -97,6 +97,13 @@ VS Code/Electron app UI inspection:
 - inspect an existing renderer target without navigating it when no URL is supplied:
   - `tspack inspect --cdp http://127.0.0.1:9229 --target 0 --selector .statusbar --json`
 - Electron hosts can return `[]` from the HTTP `/json` endpoint even when renderer targets exist; `tspack inspect --list-targets` falls back to `Target.getTargets` over the browser CDP WebSocket so VS Code-like `vscode-file://vscode-app/.../workbench.html` targets can still be listed.
+
+
+## VS Code source reveal from source hints
+
+The TSPack Inspect VS Code extension includes **TSPack: Reveal Source for Selected Inspect Node**. After inspecting a CDP target and selecting a node with parsed `source.file` metadata, the command opens the hinted file at the one-based line/column from `data-tspack-source` after converting to VS Code's zero-based editor position.
+
+Reveal is read-only and workspace-bound. The extension treats page-provided source hints as untrusted data, rejects absolute paths, URL-like schemes, parent traversal, and symlink escapes, requires the target file to already exist under the selected workspace folder, and never creates or mutates source files. Component and symbol hint fields are displayed as metadata only; they are not used for filesystem resolution.
 
 ## VS Code / Code-family current status
 
