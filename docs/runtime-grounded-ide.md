@@ -6,6 +6,8 @@ Modern AI editors are mostly text editors with chat beside them. TSPack's direct
 
 The source tree remains the durable system of record. The browser or application runtime remains authoritative for layout, accessibility, focus, visibility, hit-testing, and rendered structure. `tspack inspect` is the bridge that extracts those runtime facts into structured data that IDEs, tests, and future assistants can consume without guessing from CSS and source fragments alone.
 
+See [Runtime-Grounded IDE / Inspect Closeout](claude-fooding-runtime-grounded-ide.md) for the M39a through M40f closeout state and release-gate posture.
+
 ## Non-goals
 
 - Not visual programming as the source of truth.
@@ -31,14 +33,14 @@ A runtime-grounded IDE should preserve normal code review and source-control wor
 - `tspack run` starts declared runtime targets.
 - `tspack inspect` extracts DOM, layout, accessibility, style, visibility, and hit-test structure.
 - CDP mode can inspect browser, Electron, and VS Code-family targets when an explicit remote-debugging endpoint is provided.
-- The M39b/M40c VS Code extension proof of concept wraps `tspack inspect` output in an IDE panel, displays source hints, and can reveal safe workspace-contained source locations without reimplementing CDP inspection or mutating source.
+- The M39b/M40c/M40d VS Code extension proof of concept wraps `tspack inspect` output in an IDE panel, displays source hints, can reveal safe workspace-contained source locations, and can copy a deterministic selected-node LLM context bundle without reimplementing CDP inspection, calling a model, or mutating source.
 
 ## Future capabilities
 
 - Click a UI node and inspect its structural runtime facts.
 - Map an inspected node back to probable source files and framework/component locations through optional source hints first.
 - Build an LLM context bundle containing the selected node, bounds, role/name/text, computed styles, source file, and diagnostics.
-- Add xTest UI assertions for role, name, visibility, bounds, and hit-test behavior.
+- Expand xTest inspect assertion libraries around role, name, visibility, bounds, source hints, and hit-test behavior.
 - Add a visual overlay or design-surface observer that remains backed by text diffs.
 - Consider a Code-OSS fork only if extension APIs become the limiting factor after the runtime-grounded workflow has proven useful.
 
@@ -72,9 +74,9 @@ Connect inspected nodes to probable source locations without making runtime insp
 
 The VS Code extension adds **TSPack: Reveal Source for Selected Inspect Node**. The command treats source hints as untrusted navigation suggestions: it opens only existing workspace-contained files, rejects absolute paths, parent traversal, URL-like schemes, and symlink escapes, and never creates or mutates files. Line and column hints use the one-based `data-tspack-source` contract and are converted to VS Code's zero-based editor positions.
 
-### Future: LLM context bundles
+### M40d: LLM context bundle copy
 
-Package selected runtime facts, source mappings, diagnostics, and test intent into explicit context instead of relying on broad source scraping.
+Package selected runtime facts, source mappings, diagnostics, and test intent into explicit context instead of relying on broad source scraping. The current extension command copies a deterministic selected-node bundle; provider integration, prompt orchestration, and source mutation remain deferred.
 
 ### Native xTest inspect assertions
 

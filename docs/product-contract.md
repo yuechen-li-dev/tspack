@@ -62,6 +62,8 @@ Scope:
 - `tspack inspect` (experimental)
 - run-target inspection (`tspack inspect dev` / `tspack inspect --run dev`)
 
+`tspack inspect` is TSPack's runtime-observation layer. It extracts browser-computed structure for tests, IDEs, and future LLM context while keeping source as text and the runtime as layout truth. It is not visual programming, source mutation, or screenshot analysis.
+
 Primary commands:
 - `tspack run`
 - `tspack inspect` (**experimental**)

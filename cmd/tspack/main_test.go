@@ -870,6 +870,33 @@ func TestDocsReleaseGateIncludesPhase8FormatLintSmoke(t *testing.T) {
 	}
 }
 
+func TestDocsReleaseGateIncludesRuntimeGroundedInspectCloseoutSmoke(t *testing.T) {
+	closeoutDoc := filepath.Join("..", "..", "docs", "claude-fooding-runtime-grounded-ide.md")
+	if _, err := os.Stat(closeoutDoc); err != nil {
+		t.Fatalf("runtime-grounded IDE closeout doc missing: %v", err)
+	}
+
+	doc, err := os.ReadFile(filepath.Join("..", "..", "docs", "release-gate.md"))
+	if err != nil {
+		t.Fatalf("read release gate doc: %v", err)
+	}
+
+	text := string(doc)
+	for _, phrase := range []string{
+		"runtime-grounded",
+		"inspect.url",
+		"assert.inspect",
+		"Copy Selected Inspect Node LLM Context",
+		"Reveal Source",
+		"Target.getTargets",
+		"No screenshots",
+	} {
+		if !strings.Contains(text, phrase) {
+			t.Fatalf("release gate doc missing runtime-grounded inspect smoke phrase %q", phrase)
+		}
+	}
+}
+
 func TestCheckJSONWarningOnlyLockfileMissing(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")

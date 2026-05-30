@@ -30,7 +30,7 @@ npm test
 7. Use **TSPack: Copy Selected Inspect Node LLM Context** to copy a deterministic JSON context bundle for the selected node. The bundle includes runtime facts, compact surrounding tree context, constraints, and a workspace-validated source excerpt when safe. It does not call a model.
 8. If the selected node has a parsed source hint, use **TSPack: Reveal Source for Selected Inspect Node** to open the existing workspace file at the hinted location.
 
-The extension intentionally shells out to `tspack inspect` and does not reimplement CDP inspection.
+The extension intentionally shells out to `tspack inspect` and does not reimplement CDP inspection. Its scope is observation-only: target listing, inspect tree display, selected-node details, selected-node JSON copy, safe source reveal, and LLM context bundle copy. It does not mutate source, perform visual editing, use screenshots/OCR/machine vision, or call an LLM provider.
 
 
 ## Reveal source from inspect hints

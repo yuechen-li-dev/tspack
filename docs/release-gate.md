@@ -323,7 +323,7 @@ The M39b release gate should cover the VS Code extension proof of concept withou
 - CLI command construction uses `tspack inspect --cdp <endpoint> --target <index> --json` for target inspection.
 - Missing `tspack` binary, unavailable CDP endpoint, no targets, diagnostics, and invalid JSON map to user-facing extension messages or output-channel debug details.
 - `docs/runtime-grounded-ide.md` exists and is linked from `docs/inspect.md`.
-- The proof of concept remains observation-first and source-safe: no visual editing, source mutation, LLM integration, screenshot/OCR/machine vision, framework adapters, Storybook integration, browser extension, additional xTest helper semantics, or Code-OSS fork behavior. Source hint display and safe read-only reveal are allowed because they serialize existing inspect JSON and open only validated workspace-contained files.
+- The proof of concept remains observation-first and source-safe: no visual editing, source mutation, screenshot/OCR/machine vision, framework adapters, Storybook integration, browser extension, or Code-OSS fork behavior. Source hint display, safe read-only reveal, and deterministic LLM context bundle copy are allowed because they consume existing inspect JSON and validated workspace-contained source excerpts without provider calls.
 
 
 
@@ -381,3 +381,25 @@ Before release, verify the runtime-grounded LLM context bundle remains a design/
 - The extension registers `tspack.inspect.copyLlmContext` with the title **TSPack: Copy Selected Inspect Node LLM Context** when the copy command is enabled.
 - The copy command copies parseable JSON, uses workspace validation for source excerpts, and does not call a model, mutate source, open network connections, run `tspack check`, or perform prompt orchestration.
 - Existing copy-node JSON, reveal-source, and inspect tree conversion tests continue to pass.
+
+### M40f runtime-grounded IDE / inspect closeout smoke
+
+The M40f release gate should cover the closeout state documented in `docs/claude-fooding-runtime-grounded-ide.md`:
+
+- `docs/claude-fooding-runtime-grounded-ide.md` exists and summarizes the original motivation, M39a through M40e remediation, current inspect model, current VS Code extension model, current xTest inspect model, LLM context model, golden workflow, non-goals, and future ladder.
+- Inspect CLI smoke verifies selector and point arguments reach the analyzer.
+- CDP target discovery smoke verifies fallback through `Target.getTargets` when the HTTP target list is empty but browser-level CDP targets exist.
+- WebKit smoke verifies the `playwright-webkit` or `webkit` backend alias is accepted and that browser-unavailable environments skip cleanly.
+- VS Code extension smoke covers inspect JSON fixture to tree conversion, CDP target command construction, selected-node JSON copy, safe reveal-source for workspace-contained paths, unsafe path rejection, and **TSPack: Copy Selected Inspect Node LLM Context** clipboard behavior.
+- Source-hint smoke covers `data-tspack-source` file/line/column parsing, malformed hints preserving parse errors without failing inspect, and no filesystem trust in the CLI analyzer.
+- xTest smoke covers `inspect.url` option mapping, `inspect.cdp` option mapping, inspect-only `TSPACK_TEST_NO_ASSERTION` behavior, inspect plus assertion success, `assert.inspect.visible`, `assert.inspect.role`, `assert.inspect.boundsWithin`, `assert.inspect.source`, `assert.inspect.hitIncludes`, and `expect.snapshotJson` over a selected subtree.
+- Documentation smoke verifies the runtime-grounded IDE closeout, source mapping design, and LLM context bundle design documents all exist.
+
+Expected behavior coverage:
+
+- No screenshots, OCR, or machine vision.
+- No source mutation.
+- No visual editing.
+- No LLM or network call.
+- No framework adapter dependency.
+- Browser-backed tests skip cleanly when browsers are unavailable.

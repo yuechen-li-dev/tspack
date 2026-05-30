@@ -228,11 +228,13 @@ The extension supports the following proof-of-concept workflow:
 3. Run **TSPack: Inspect CDP Targets** to execute `tspack inspect --cdp <endpoint> --list-targets --json`.
 4. Pick a target and let the extension execute `tspack inspect --cdp <endpoint> --target <index> --json`.
 5. Review the runtime UI tree, selected node details, diagnostics, and copyable selected-node JSON inside VS Code.
+6. Use **TSPack: Reveal Source for Selected Inspect Node** for read-only navigation from safe workspace-contained source hints.
+7. Use **TSPack: Copy Selected Inspect Node LLM Context** to copy a deterministic selected-node bundle for future author/reviewer workflows.
 
-The extension is intentionally scoped to observation: target listing, inspect tree rendering, selected-node details, and JSON copy. It does not implement visual editing, source mutation, reveal-source navigation, LLM integration, screenshot/OCR/machine vision, framework adapters, or a Code-OSS fork. The tree can display source hint metadata that the CLI already reports, but it does not open files from those hints.
+The extension is intentionally scoped to observation: target listing, inspect tree rendering, selected-node details, JSON copy, safe source reveal, and context bundle copy. It does not implement visual editing, source mutation, LLM provider integration, screenshot/OCR/machine vision, framework adapters, or a Code-OSS fork.
 
-See [Runtime-Grounded IDE Vision](runtime-grounded-ide.md) for the broader direction.
+See [Runtime-Grounded IDE Vision](runtime-grounded-ide.md) and [Runtime-Grounded IDE / Inspect Closeout](claude-fooding-runtime-grounded-ide.md) for the broader direction and closeout state.
 
 ## Native xTest helper
 
-The same runtime inspect backend is available inside native xTest through the `inspect` helper namespace. Tests can call `inspect.url(url, options?)` for a browser-backed page or `inspect.cdp(endpoint, options?)` for an existing CDP target, then assert or snapshot the returned structured inspect JSON. Inspect calls are observations, not assertions, so an inspect-only fact still fails the native harness no-assertion check. See [native-test-harness.md](./native-test-harness.md#inspect-helpers) for examples and option types.
+The same runtime inspect backend is available inside native xTest through the `inspect` helper namespace. Tests can call `inspect.url(url, options?)` for a browser-backed page or `inspect.cdp(endpoint, options?)` for an existing CDP target, then assert or snapshot the returned structured inspect JSON. Inspect calls are observations, not assertions, so an inspect-only fact still fails the native harness no-assertion check. Use `assert.inspect.*` for role, name, visibility, bounds, hit-test, and source-hint facts over already-collected JSON. See [native-test-harness.md](./native-test-harness.md#inspect-helpers) for examples and option types.
