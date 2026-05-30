@@ -420,3 +420,14 @@ Expected behavior coverage:
 - No LLM or network call.
 - No framework adapter dependency.
 - Browser-backed tests skip cleanly when browsers are unavailable.
+
+### Migrate script classification smoke
+
+The migrate release smoke must cover package.json script classification without executing scripts:
+
+- `tspack migrate --write --root <fixture>` on a fixture containing runtime, build, test, lint, format, lifecycle, env-prefix, and shell-composite scripts.
+- Verify `tspack-migration.md` contains `## Scripts and RunTarget suggestions`.
+- Verify likely runtime/dev-server scripts appear in `### Suggested RunTarget candidates` with argv/readiness TODO evidence.
+- Verify build/test/lint/format/package scripts appear only as non-RunTarget evidence.
+- Verify lifecycle scripts appear in the security section and no marker-file script is executed.
+- Verify `manifest.migrated.tsx` contains `MIGRATION_TODO_RUN_TARGETS` but no active `<RunTargets>` rows by default.

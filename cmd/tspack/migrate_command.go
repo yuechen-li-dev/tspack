@@ -123,6 +123,7 @@ type migrationDraft struct {
 	SkippedRanges        []string
 	SubpathTodos         []string
 	LifecycleScripts     []string
+	ScriptAnalyses       []scriptAnalysis
 	LockEvidence         packageLockEvidence
 	SourceEvidence       sourceScanEvidence
 	Diagnostics          []migrationDiagnostic
@@ -149,6 +150,29 @@ type migratedTarget struct {
 	Types       string
 	NeedsTODO   bool
 	Description string
+}
+
+type scriptAnalysis struct {
+	Name        string
+	Command     string
+	Category    string
+	Confidence  string
+	Rationale   string
+	Action      string
+	NeedsReview bool
+	ReviewNotes []string
+	Argv        []string
+	Suggestion  *runTargetSuggestion
+}
+
+type runTargetSuggestion struct {
+	Name       string
+	Command    []string
+	Cwd        string
+	URL        string
+	Ready      string
+	Confidence string
+	Notes      []string
 }
 
 type simpleExportInfo struct {
@@ -379,6 +403,7 @@ func buildMigrationDraft(cfg migrateConfig) (migrationDraft, *migrationDiagnosti
 	draft.Targets = inferMigrationTargets(pkg, draft.Kind, &draft)
 	draft.PublishInclude = inferMigrationPublishInclude(pkg, &draft)
 	draft.LifecycleScripts = findMigrationLifecycleScripts(pkg.Scripts)
+	draft.ScriptAnalyses = analyzePackageScripts(pkg.Scripts)
 	draft.Manifest = renderMigrationManifest(&draft)
 	draft.Report = renderMigrationReport(&draft)
 	return draft, nil
@@ -838,6 +863,382 @@ func findMigrationLifecycleScripts(scripts map[string]string) []string {
 	return names
 }
 
+func analyzePackageScripts(scripts map[string]string) []scriptAnalysis {
+	var analyses []scriptAnalysis
+	for _, name := range sortedMapKeys(scripts) {
+		analysis := analyzePackageScript(name, scripts[name])
+		analyses = append(analyses, analysis)
+	}
+	return analyses
+}
+
+func analyzePackageScript(name string, command string) scriptAnalysis {
+	analysis := scriptAnalysis{
+		Name:       name,
+		Command:    command,
+		Category:   "unknown",
+		Confidence: "low",
+		Action:     "review manually; not migrated",
+	}
+
+	argv, simple := splitSimpleShellCommand(command)
+	analysis.Argv = argv
+	if !simple {
+		analysis.NeedsReview = true
+		analysis.ReviewNotes = append(analysis.ReviewNotes, "shell-composite or shell metacharacters detected")
+	}
+	if hasEnvPrefix(argv) || hasCrossEnvPrefix(argv) {
+		analysis.NeedsReview = true
+		analysis.ReviewNotes = append(analysis.ReviewNotes, "environment prefix detected; review RunTarget environment separately")
+	}
+
+	commandArgv := scriptCommandArgv(argv)
+	commandName := ""
+	if len(commandArgv) > 0 {
+		commandName = commandArgv[0]
+	}
+
+	analysis.Category, analysis.Confidence, analysis.Rationale = classifyScript(name, command, commandArgv)
+	analysis.Action = actionForScriptCategory(analysis.Category, analysis.NeedsReview)
+	if analysis.Category == "runtime-target-candidate" {
+		analysis.Suggestion = suggestRunTargetForScript(name, commandArgv, simple, analysis.ReviewNotes)
+		if analysis.Suggestion == nil {
+			analysis.NeedsReview = true
+			analysis.ReviewNotes = append(analysis.ReviewNotes, "command argv could not be inferred safely")
+		}
+	}
+	if commandName == "" && command != "" {
+		analysis.NeedsReview = true
+	}
+	return analysis
+}
+
+func classifyScript(name string, command string, argv []string) (string, string, string) {
+	lowerName := strings.ToLower(name)
+	commandText := strings.ToLower(command)
+	commandName := ""
+	secondArg := ""
+	if len(argv) > 0 {
+		commandName = strings.ToLower(argv[0])
+	}
+	if len(argv) > 1 {
+		secondArg = strings.ToLower(argv[1])
+	}
+
+	if lifecycleScriptNames[name] {
+		return "lifecycle", "high", "package.json lifecycle script name"
+	}
+	if isBuildScript(lowerName, commandName, secondArg, commandText) {
+		return "build", "high", "build-oriented script name or command"
+	}
+	if isTestScript(lowerName, commandName, secondArg, commandText) {
+		return "test", "high", "test-oriented script name or command"
+	}
+	if isLintScript(lowerName, commandName, commandText) {
+		return "lint", "high", "lint-oriented script name or command"
+	}
+	if isFormatScript(lowerName, commandName, commandText) {
+		return "format", "high", "format-oriented script name or command"
+	}
+	if isPackageScript(lowerName, commandName, commandText) {
+		return "package/publish", "medium", "package or release-oriented script"
+	}
+	if isRuntimeTargetCandidate(lowerName, commandName, secondArg, commandText) {
+		confidence := "medium"
+		if commandLooksRuntime(commandName, secondArg, commandText) {
+			confidence = "high"
+		}
+		return "runtime-target-candidate", confidence, "long-running runtime or dev-server command pattern"
+	}
+	if isMaintenanceScript(lowerName, commandName, commandText) {
+		return "maintenance", "medium", "maintenance-oriented script name or command"
+	}
+	return "unknown", "low", "no conservative RunTarget classification matched"
+}
+
+func isBuildScript(name string, commandName string, secondArg string, commandText string) bool {
+	if name == "build" || strings.HasPrefix(name, "build:") || strings.HasSuffix(name, ":build") {
+		return true
+	}
+	if commandName == "tsc" || commandName == "tsup" || commandName == "rollup" {
+		return true
+	}
+	if commandName == "webpack" || commandName == "esbuild" {
+		return true
+	}
+	if commandName == "vite" && secondArg == "build" {
+		return true
+	}
+	if commandName == "next" && secondArg == "build" {
+		return true
+	}
+	return strings.Contains(commandText, " build")
+}
+
+func isTestScript(name string, commandName string, secondArg string, commandText string) bool {
+	if name == "test" || strings.HasPrefix(name, "test:") || strings.Contains(name, ":test") {
+		return true
+	}
+	if commandName == "vitest" || commandName == "jest" || commandName == "playwright" {
+		return true
+	}
+	if commandName == "node" && secondArg == "--test" {
+		return true
+	}
+	return strings.Contains(commandText, " test")
+}
+
+func isLintScript(name string, commandName string, commandText string) bool {
+	if name == "lint" || strings.HasPrefix(name, "lint:") || strings.Contains(name, ":lint") {
+		return true
+	}
+	return commandName == "eslint" || strings.Contains(commandText, " lint")
+}
+
+func isFormatScript(name string, commandName string, commandText string) bool {
+	if name == "format" || strings.HasPrefix(name, "format:") || strings.Contains(name, ":format") {
+		return true
+	}
+	return commandName == "prettier" || strings.Contains(commandText, " format")
+}
+
+func isPackageScript(name string, commandName string, commandText string) bool {
+	if name == "pack" || name == "release" || strings.Contains(name, "publish") {
+		return true
+	}
+	return commandName == "changeset" || strings.Contains(commandText, " changeset") || strings.Contains(commandText, " npm publish")
+}
+
+func isRuntimeTargetCandidate(name string, commandName string, secondArg string, commandText string) bool {
+	if commandLooksRuntime(commandName, secondArg, commandText) {
+		return true
+	}
+	return name == "dev" || name == "start" || name == "serve" || name == "preview" || name == "storybook" || name == "docs"
+}
+
+func commandLooksRuntime(commandName string, secondArg string, commandText string) bool {
+	switch commandName {
+	case "vite":
+		return secondArg != "build"
+	case "next", "astro", "remix", "nuxt":
+		return secondArg == "dev" || secondArg == "start"
+	case "svelte-kit":
+		return secondArg == "dev"
+	case "storybook":
+		return true
+	case "vitepress":
+		return secondArg == "dev"
+	case "docusaurus":
+		return secondArg == "start"
+	case "node":
+		return secondArg != "" && secondArg != "--test"
+	default:
+		return strings.Contains(commandText, "storybook dev") || strings.Contains(commandText, "vite preview")
+	}
+}
+
+func isMaintenanceScript(name string, commandName string, commandText string) bool {
+	if name == "clean" || name == "typecheck" || name == "check" || name == "generate" || name == "codegen" || name == "docs:build" {
+		return true
+	}
+	return commandName == "rimraf" || strings.Contains(commandText, " typecheck") || strings.Contains(commandText, " codegen")
+}
+
+func actionForScriptCategory(category string, needsReview bool) string {
+	if category == "runtime-target-candidate" {
+		if needsReview {
+			return "review as possible RunTarget; shell/env syntax prevents automatic argv confidence"
+		}
+		return "review suggested RunTarget before enabling"
+	}
+	if category == "build" || category == "test" || category == "lint" || category == "format" {
+		return "keep as non-RunTarget evidence; map to TSPack checks only when explicit support exists"
+	}
+	if category == "lifecycle" {
+		return "security review; not executed by tspack migrate"
+	}
+	return "review manually; not migrated"
+}
+
+func suggestRunTargetForScript(name string, argv []string, simple bool, reviewNotes []string) *runTargetSuggestion {
+	if len(argv) == 0 {
+		return nil
+	}
+	suggestion := &runTargetSuggestion{
+		Name:       name,
+		Command:    append([]string{}, argv...),
+		Cwd:        "workspace",
+		Confidence: "medium",
+		Notes:      []string{"verify command argv, cwd, url, and readiness before enabling"},
+	}
+	if !simple {
+		suggestion.Command = nil
+		suggestion.Confidence = "low"
+	}
+	suggestion.Notes = append(suggestion.Notes, reviewNotes...)
+
+	commandName := strings.ToLower(argv[0])
+	secondArg := ""
+	if len(argv) > 1 {
+		secondArg = strings.ToLower(argv[1])
+	}
+	port := inferPortFromArgv(argv)
+	if port == "" {
+		switch {
+		case commandName == "vite" && secondArg != "build":
+			port = "5173"
+		case commandName == "next" && secondArg == "dev":
+			port = "3000"
+		case commandName == "storybook" || strings.Contains(strings.Join(argv, " "), "storybook"):
+			port = "6006"
+		}
+	}
+	if port != "" {
+		suggestion.URL = "http://127.0.0.1:" + port
+		suggestion.Ready = "http /"
+	} else {
+		suggestion.Ready = "TODO"
+		suggestion.Notes = append(suggestion.Notes, "readiness is unknown without executing the script")
+	}
+	if commandLooksRuntime(commandName, secondArg, strings.ToLower(strings.Join(argv, " "))) && simple {
+		suggestion.Confidence = "high"
+	}
+	return suggestion
+}
+
+func inferPortFromArgv(argv []string) string {
+	for index, arg := range argv {
+		if arg == "--port" || arg == "-p" {
+			if index+1 < len(argv) && isDecimalPort(argv[index+1]) {
+				return argv[index+1]
+			}
+		}
+		if strings.HasPrefix(arg, "--port=") {
+			value := strings.TrimPrefix(arg, "--port=")
+			if isDecimalPort(value) {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
+func isDecimalPort(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, ch := range value {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func splitSimpleShellCommand(command string) ([]string, bool) {
+	var argv []string
+	var current strings.Builder
+	quote := rune(0)
+	escaped := false
+	simple := true
+	for _, ch := range command {
+		if escaped {
+			current.WriteRune(ch)
+			escaped = false
+			continue
+		}
+		if ch == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if ch == quote {
+				quote = 0
+			} else {
+				current.WriteRune(ch)
+			}
+			continue
+		}
+		if ch == '\'' || ch == '"' {
+			quote = ch
+			continue
+		}
+		if ch == '&' || ch == '|' || ch == ';' || ch == '>' || ch == '<' || ch == '`' {
+			simple = false
+		}
+		if ch == '$' {
+			simple = false
+		}
+		if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+			if current.Len() > 0 {
+				argv = append(argv, current.String())
+				current.Reset()
+			}
+			continue
+		}
+		current.WriteRune(ch)
+	}
+	if quote != 0 || escaped {
+		simple = false
+	}
+	if current.Len() > 0 {
+		argv = append(argv, current.String())
+	}
+	return argv, simple
+}
+
+func scriptCommandArgv(argv []string) []string {
+	index := 0
+	if index < len(argv) && argv[index] == "cross-env" {
+		index++
+	}
+	for index < len(argv) && isEnvAssignment(argv[index]) {
+		index++
+	}
+	if index >= len(argv) {
+		return nil
+	}
+	return append([]string{}, argv[index:]...)
+}
+
+func hasEnvPrefix(argv []string) bool {
+	return len(argv) > 0 && isEnvAssignment(argv[0])
+}
+
+func hasCrossEnvPrefix(argv []string) bool {
+	return len(argv) > 0 && argv[0] == "cross-env"
+}
+
+func isEnvAssignment(value string) bool {
+	parts := strings.SplitN(value, "=", 2)
+	if len(parts) != 2 || parts[0] == "" {
+		return false
+	}
+	for index, ch := range parts[0] {
+		if index == 0 && ch >= '0' && ch <= '9' {
+			return false
+		}
+		if isEnvNameRune(ch) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func isEnvNameRune(ch rune) bool {
+	if ch == '_' {
+		return true
+	}
+	if ch >= 'A' && ch <= 'Z' {
+		return true
+	}
+	if ch >= 'a' && ch <= 'z' {
+		return true
+	}
+	return ch >= '0' && ch <= '9'
+}
+
 func renderMigrationManifest(draft *migrationDraft) string {
 	countMigrationTodos(draft)
 	var builder strings.Builder
@@ -932,7 +1333,12 @@ func renderMigrationManifest(draft *migrationDraft) string {
 	if len(draft.Package.Scripts) > 0 {
 		builder.WriteString("// MIGRATION_TODO_RUN_TARGETS:\n")
 		builder.WriteString("// package.json scripts are not migrated automatically.\n")
-		builder.WriteString("// TSPack RunTargets are runtime targets, not arbitrary scripts.\n\n")
+		builder.WriteString("// TSPack RunTargets are runtime targets, not arbitrary scripts.\n")
+		builder.WriteString("// Review ")
+		builder.WriteString(strconv.Itoa(countScriptAnalysesByCategory(draft.ScriptAnalyses, "runtime-target-candidate")))
+		builder.WriteString(" runtime candidate(s) and ")
+		builder.WriteString(strconv.Itoa(countScriptAnalysesNeedingReview(draft.ScriptAnalyses)))
+		builder.WriteString(" shell/env/unknown script(s) in tspack-migration.md.\n\n")
 	}
 	if len(draft.LifecycleScripts) > 0 {
 		builder.WriteString("// MIGRATION_TODO_SECURITY:\n")
@@ -1108,15 +1514,7 @@ func renderMigrationReport(draft *migrationDraft) string {
 		builder.WriteString("\n")
 	}
 
-	builder.WriteString("## Scripts not migrated\n")
-	if len(draft.Package.Scripts) == 0 {
-		builder.WriteString("No package.json scripts were present.\n\n")
-	} else {
-		for _, name := range sortedMapKeys(draft.Package.Scripts) {
-			builder.WriteString("- `" + name + "`: `" + draft.Package.Scripts[name] + "`\n")
-		}
-		builder.WriteString("\nDev/preview/server scripts may become `<RunTargets>` after review. Build/test/lint scripts should not be blindly converted to RunTargets. No scripts were executed.\n\n")
-	}
+	renderScriptSuggestionsSection(&builder, draft)
 
 	if len(draft.LifecycleScripts) > 0 || len(draft.LockEvidence.LifecycleScripts) > 0 {
 		builder.WriteString("## Security\n")
@@ -1137,6 +1535,181 @@ func renderMigrationReport(draft *migrationDraft) string {
 	builder.WriteString("- Run: `tspack pack --dry-run --manifest " + filepath.Base(draft.Config.outManifestPath) + "`.\n")
 	builder.WriteString("\nThis report does not claim migration is complete. It is a mechanical draft for human/LLM review.\n")
 	return builder.String()
+}
+
+func renderScriptSuggestionsSection(builder *strings.Builder, draft *migrationDraft) {
+	builder.WriteString("## Scripts and RunTarget suggestions\n\n")
+	builder.WriteString("`tspack migrate` did not execute scripts and did not convert npm scripts into active RunTargets. RunTargets describe declared runtime processes, not arbitrary build/test/lint/package commands.\n\n")
+
+	builder.WriteString("### Scripts not migrated\n\n")
+	if len(draft.ScriptAnalyses) == 0 {
+		builder.WriteString("No package.json scripts were present.\n\n")
+	} else {
+		builder.WriteString("| script | category | command | action |\n")
+		builder.WriteString("|---|---|---|---|\n")
+		for _, analysis := range draft.ScriptAnalyses {
+			builder.WriteString("| `" + escapeMarkdownTable(analysis.Name) + "` | `" + analysis.Category + "` | `" + escapeMarkdownTable(analysis.Command) + "` | " + escapeMarkdownTable(analysis.Action) + " |\n")
+		}
+		builder.WriteString("\nRaw script evidence:\n")
+		for _, analysis := range draft.ScriptAnalyses {
+			builder.WriteString("- `" + analysis.Name + "`: `" + analysis.Command + "`\n")
+		}
+		builder.WriteString("\n")
+	}
+
+	builder.WriteString("### Suggested RunTarget candidates\n\n")
+	candidates := runtimeScriptCandidates(draft.ScriptAnalyses)
+	if len(candidates) == 0 {
+		builder.WriteString("No likely long-running runtime/dev-server scripts were classified as RunTarget candidates.\n\n")
+	} else {
+		builder.WriteString("| script | suggested target | confidence | command argv | url | ready | notes |\n")
+		builder.WriteString("|---|---|---|---|---|---|---|\n")
+		for _, analysis := range candidates {
+			suggestion := analysis.Suggestion
+			argv := "TODO review command string"
+			url := "TODO"
+			ready := "TODO"
+			notes := []string{"review cwd/url/readiness"}
+			name := analysis.Name
+			confidence := analysis.Confidence
+			if suggestion != nil {
+				name = suggestion.Name
+				confidence = suggestion.Confidence
+				if len(suggestion.Command) > 0 {
+					argv = renderJSONLikeStringArray(suggestion.Command)
+				}
+				if suggestion.URL != "" {
+					url = suggestion.URL
+				}
+				if suggestion.Ready != "" {
+					ready = suggestion.Ready
+				}
+				notes = suggestion.Notes
+			}
+			builder.WriteString("| `" + escapeMarkdownTable(analysis.Name) + "` | `" + escapeMarkdownTable(name) + "` | `" + confidence + "` | `" + escapeMarkdownTable(argv) + "` | `" + escapeMarkdownTable(url) + "` | `" + escapeMarkdownTable(ready) + "` | " + escapeMarkdownTable(strings.Join(uniqueStrings(notes), "; ")) + " |\n")
+		}
+		builder.WriteString("\n")
+	}
+
+	builder.WriteString("### Non-RunTarget scripts\n\n")
+	nonRuntime := nonRuntimeScriptAnalyses(draft.ScriptAnalyses)
+	if len(nonRuntime) == 0 {
+		builder.WriteString("No build/test/lint/format/package/maintenance scripts were classified.\n\n")
+	} else {
+		builder.WriteString("Build/test/lint/format/package scripts are not RunTargets. Use TSPack check/format/lint/test surfaces where appropriate, and keep external tooling until an explicit TSPack command exists.\n\n")
+		for _, analysis := range nonRuntime {
+			builder.WriteString("- `" + analysis.Name + "` (`" + analysis.Category + "`): `" + analysis.Command + "`\n")
+		}
+		builder.WriteString("\n")
+	}
+
+	builder.WriteString("### Shell/Env review\n\n")
+	reviewScripts := reviewScriptAnalyses(draft.ScriptAnalyses)
+	if len(reviewScripts) == 0 {
+		builder.WriteString("No shell-composite or environment-prefix script review items were detected.\n\n")
+	} else {
+		for _, analysis := range reviewScripts {
+			builder.WriteString("- `" + analysis.Name + "`: `" + analysis.Command + "` — " + strings.Join(uniqueStrings(analysis.ReviewNotes), "; ") + "\n")
+		}
+		builder.WriteString("\n")
+	}
+}
+
+func runtimeScriptCandidates(analyses []scriptAnalysis) []scriptAnalysis {
+	var out []scriptAnalysis
+	for _, analysis := range analyses {
+		if analysis.Category == "runtime-target-candidate" {
+			out = append(out, analysis)
+		}
+	}
+	return out
+}
+
+func nonRuntimeScriptAnalyses(analyses []scriptAnalysis) []scriptAnalysis {
+	var out []scriptAnalysis
+	for _, analysis := range analyses {
+		if analysis.Category != "runtime-target-candidate" && analysis.Category != "unknown" && analysis.Category != "lifecycle" {
+			out = append(out, analysis)
+		}
+	}
+	return out
+}
+
+func reviewScriptAnalyses(analyses []scriptAnalysis) []scriptAnalysis {
+	var out []scriptAnalysis
+	for _, analysis := range analyses {
+		if analysis.NeedsReview || analysis.Category == "unknown" {
+			out = append(out, analysis)
+		}
+	}
+	return out
+}
+
+func countScriptAnalysesByCategory(analyses []scriptAnalysis, category string) int {
+	count := 0
+	for _, analysis := range analyses {
+		if analysis.Category == category {
+			count++
+		}
+	}
+	return count
+}
+
+func countScriptAnalysesNeedingReview(analyses []scriptAnalysis) int {
+	return len(reviewScriptAnalyses(analyses))
+}
+
+func countRunTargetTodos(analyses []scriptAnalysis) int {
+	if len(analyses) == 0 {
+		return 0
+	}
+	count := countScriptAnalysesByCategory(analyses, "runtime-target-candidate")
+	count += countScriptAnalysesByCategory(analyses, "unknown")
+	count += countScriptAnalysesNeedingReview(analyses)
+	if count == 0 {
+		return 1
+	}
+	return count
+}
+
+func runTargetTodoMessages(draft *migrationDraft) []string {
+	if len(draft.ScriptAnalyses) == 0 {
+		return []string{"No package.json scripts were present."}
+	}
+	messages := []string{
+		fmt.Sprintf("package.json scripts are classified below but not migrated. RunTargets describe runtime processes, not arbitrary build/test/lint scripts. Runtime candidates: %d. Shell/env/unknown review items: %d.", countScriptAnalysesByCategory(draft.ScriptAnalyses, "runtime-target-candidate"), countScriptAnalysesNeedingReview(draft.ScriptAnalyses)),
+	}
+	if countScriptAnalysesByCategory(draft.ScriptAnalyses, "runtime-target-candidate") > 0 {
+		messages = append(messages, "Review suggested RunTarget command argv, cwd, url, and readiness before enabling any target.")
+	}
+	return messages
+}
+
+func renderJSONLikeStringArray(values []string) string {
+	var parts []string
+	for _, value := range values {
+		parts = append(parts, strconv.Quote(value))
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+func escapeMarkdownTable(value string) string {
+	value = strings.ReplaceAll(value, "|", "\\|")
+	value = strings.ReplaceAll(value, "\n", " ")
+	return value
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 func countMigrationTodos(draft *migrationDraft) {
@@ -1162,7 +1735,7 @@ func countMigrationTodos(draft *migrationDraft) {
 	}
 	counts[migrationTodoDepClassification] += sourceScanDevRuntimeMismatchCount(draft.SourceEvidence)
 	counts[migrationTodoDepClassification] += sourceScanMissingDeclarationCount(draft.SourceEvidence)
-	counts[migrationTodoRunTargets] = boolToCount(len(draft.Package.Scripts) > 0)
+	counts[migrationTodoRunTargets] = countRunTargetTodos(draft.ScriptAnalyses)
 	counts[migrationTodoPublish] = 1
 	counts[migrationTodoBoundaries] = 1
 	counts[migrationTodoTypes] = 1 + sourceScanTypeOnlyCandidateCount(draft.SourceEvidence)
@@ -1214,7 +1787,7 @@ func todoMessagesForReport(todo string, draft *migrationDraft) []string {
 		}
 		return messages
 	case migrationTodoRunTargets:
-		return []string{"package.json scripts are listed below but not migrated. RunTargets describe runtime processes, not arbitrary build/test/lint scripts."}
+		return runTargetTodoMessages(draft)
 	case migrationTodoPublish:
 		return []string{"Publish include was inferred from package.json files or a conservative default. Verify with `tspack pack --dry-run`."}
 	case migrationTodoBoundaries:
@@ -1260,6 +1833,11 @@ func printMigrationDryRun(draft migrationDraft) {
 	fmt.Println("  inferred kind: " + draft.Kind)
 	fmt.Printf("  dependencies: %d runtime, %d peer, %d tool\n", countDepsByKind(draft.Dependencies, "dep"), countDepsByKind(draft.Dependencies, "peer"), countDepsByKind(draft.Dependencies, "tool"))
 	fmt.Printf("  targets: %d inferred\n", len(draft.Targets))
+	fmt.Println("  scripts:")
+	fmt.Printf("    total: %d\n", len(draft.Package.Scripts))
+	fmt.Printf("    runtime target candidates: %d\n", countScriptAnalysesByCategory(draft.ScriptAnalyses, "runtime-target-candidate"))
+	fmt.Printf("    shell/complex: %d\n", countScriptAnalysesNeedingReview(draft.ScriptAnalyses))
+	fmt.Printf("    lifecycle: %d\n", countScriptAnalysesByCategory(draft.ScriptAnalyses, "lifecycle"))
 	fmt.Printf("  TODOs: %d\n", draft.TotalTodos)
 	fmt.Println()
 	printMigrationLockDryRun(draft.LockEvidence)

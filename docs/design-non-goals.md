@@ -24,11 +24,12 @@ TSPack is still not:
 - machine vision product
 - automatic app attach / local port scanner
 - complete semantic migration from package.json/script/config soup
+- automatic conversion of package.json scripts into TSPack command soup or active RunTargets
 
 ## Clarifying boundaries
 
 - `run` executes declared `RunTargets` from manifest contract, not `package.json` scripts.
-- `migrate` is an onboarding draft generator. It translates mechanical package.json facts and marks uncertainty; it is not a lockfile translator, build runner, script executor, or architectural inference engine; its source scan is report-only evidence, not semantic module resolution or target inference.
+- `migrate` is an onboarding draft generator. It translates mechanical package.json facts and marks uncertainty; it is not a lockfile translator, build runner, script executor, or architectural inference engine; its source scan and script classification are report-only evidence, not semantic module resolution, target inference, or npm script conversion.
 - `inspect` is an experimental inspection loop, not a stable browser automation API.
 
 
