@@ -13,6 +13,15 @@ This inventory groups primary diagnostic families by subsystem to keep command-s
 - `TSPACK_INIT_WRITE_FAILED`
 - `TSPACK_INIT_UNSAFE_ROOT`
 
+
+## Migrate diagnostics
+
+- `TSPACK_MIGRATE_PACKAGE_JSON_MISSING`: the selected package.json path does not exist. Details include `root` and `packageJsonPath`, with a suggested `--root`/`--package-json` fix.
+- `TSPACK_MIGRATE_PACKAGE_JSON_INVALID`: package.json could not be read or parsed as JSON. Details include `root`, `packageJsonPath`, and the parse/read error.
+- `TSPACK_MIGRATE_OUTPUT_EXISTS`: an output path exists and `--force` was not passed. Details include `root`, `packageJsonPath`, and `outputPath`; no migration output is written.
+- `TSPACK_MIGRATE_WRITE_FAILED`: writing a migration output failed. Details include `root`, `packageJsonPath`, `outputPath`, and the filesystem error.
+- `TSPACK_MIGRATE_UNSUPPORTED_PACKAGE_SHAPE`: migrate arguments or package shapes are unsupported by the M41a package.json-only draft generator. Prefer TODOs in the generated draft/report when a partial mechanical draft is possible.
+
 ## Package/core diagnostics
 
 - `TSPACK_FRONTEND_*`

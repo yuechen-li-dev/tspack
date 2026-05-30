@@ -5,6 +5,8 @@
 ### Core command surface
 
 - `tspack init --kind <library|app> --name <package-name>`
+- `tspack migrate`
+- `tspack migrate --write`
 - `tspack check`
 - `tspack update`
 - `tspack update --dry-run`
@@ -34,6 +36,19 @@
 - `tspack doctor`
 - `tspack doctor security`
 - `tspack doctor security --json`
+
+
+### Migrate smoke
+
+The migrate release smoke should cover the package.json-to-draft onboarding path:
+
+- `tspack migrate --root <fixture>` prints planned paths and writes no files.
+- `tspack migrate --root <fixture> --write` writes `manifest.migrated.tsx` and `tspack-migration.md`.
+- Existing output files fail without `--force` and preserve all-or-nothing output behavior.
+- The generated manifest maps package metadata, dependencies, peer dependencies, dev tools, targets, publish includes, and `MIGRATION_TODO_*` comments.
+- The migration report includes inputs, summary, mechanical mappings, grouped TODOs, scripts not migrated, security notes for lifecycle scripts, and next steps.
+- Scripts are listed but not executed.
+- `manifest.tsx`, `package.json`, lockfiles, source files, and dependency installations are not mutated.
 
 ### Pack safety smoke
 
