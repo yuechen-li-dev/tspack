@@ -29,7 +29,7 @@ TSPack is still not:
 ## Clarifying boundaries
 
 - `run` executes declared `RunTargets` from manifest contract, not `package.json` scripts.
-- `migrate` is an onboarding draft generator. It translates mechanical package.json facts and marks uncertainty; it is not a lockfile translator, build runner, script executor, or architectural inference engine; its source scan and script classification are report-only evidence, not semantic module resolution, target inference, or npm script conversion.
+- `migrate` is an onboarding draft generator. It translates mechanical package.json facts and marks uncertainty; it is not a lockfile translator, build runner, script executor, package installer, dependency resolver, materializer, or architectural inference engine; its source scan, script classification, and `--check` validation are report-only/structural evidence, not semantic module resolution, target inference, npm script conversion, or proof that migration is complete.
 - `inspect` is an experimental inspection loop, not a stable browser automation API.
 
 
