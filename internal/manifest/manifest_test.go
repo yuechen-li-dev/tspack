@@ -273,8 +273,16 @@ func TestRunTargetInvalidCwd(t *testing.T) {
 	}
 }
 
+func TestRunTargetBunRuntimeValidation(t *testing.T) {
+	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"bun","command":["server.js"],"url":"http://127.0.0.1:5173"}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	_, diags := LoadBytes("x.json", []byte(j))
+	if len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics for bun runtime: %#v", diags)
+	}
+}
+
 func TestRunTargetInvalidRuntime(t *testing.T) {
-	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"bun","command":["node"],"url":"http://127.0.0.1:5173"}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"deno","command":["server.ts"],"url":"http://127.0.0.1:5173"}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
 	_, diags := LoadBytes("x.json", []byte(j))
 	found := false
 	for _, d := range diags {

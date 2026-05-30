@@ -93,10 +93,11 @@ func startRunTarget(root string, target manifest.RunTarget, timeout time.Duratio
 
 func startRunTargetInDir(root string, cwdPath string, target manifest.RunTarget, timeout time.Duration, stdout io.Writer, stderr io.Writer, envOverlay runEnvOverlay) (*RunTargetSession, *runErr) {
 	resolved := target
-	if resolved.Runtime == "node" {
-		resolved.Command = resolveNodeLocalCommand(root, resolved.Command)
+	launchCommand, launchErr := resolveRunTargetLaunchCommand(root, resolved)
+	if launchErr != nil {
+		return nil, launchErr
 	}
-	cmd := exec.Command(resolved.Command[0], resolved.Command[1:]...)
+	cmd := exec.Command(launchCommand[0], launchCommand[1:]...)
 	cmd.Dir = cwdPath
 	readyCheck := newReadyCheck(resolved)
 	stdoutMatcher, stderrMatcher := readyCheck.outputMatchers()
@@ -163,7 +164,7 @@ func runRunCommand(args []string) {
 	fmt.Fprintf(os.Stderr, "Starting run target %q\n", selected.ID())
 	fmt.Fprintf(os.Stderr, "Package: %s\n", selected.PackageName)
 	fmt.Fprintf(os.Stderr, "Runtime: %s\n", rt.Runtime)
-	fmt.Fprintf(os.Stderr, "Command: %s\n", bytes.Join(stringSliceBytes(rt.Command), []byte(" ")))
+	fmt.Fprintf(os.Stderr, "Command: %s\n", formatRunTargetCommand(rt))
 	fmt.Fprintf(os.Stderr, "Cwd: %s (%s)\n", cwdPolicy, cwdPath)
 	if len(opts.Env.Keys) > 0 {
 		fmt.Fprintf(os.Stderr, "Env: %s\n", strings.Join(opts.Env.Keys, ", "))
@@ -820,6 +821,35 @@ func isValidRunEnvKey(key string) bool {
 		return false
 	}
 	return true
+}
+
+func resolveRunTargetLaunchCommand(root string, target manifest.RunTarget) ([]string, *runErr) {
+	if target.Runtime == "bun" {
+		if _, err := exec.LookPath("bun"); err != nil {
+			return nil, &runErr{
+				code: "TSPACK_RUN_RUNTIME_NOT_FOUND",
+				msg:  "runtime: bun; executable: bun; target: " + target.Name + "; hint: install Bun or change the RunTarget runtime",
+			}
+		}
+		command := make([]string, 0, len(target.Command)+1)
+		command = append(command, "bun")
+		command = append(command, target.Command...)
+		return command, nil
+	}
+	if target.Runtime == "node" {
+		return resolveNodeLocalCommand(root, target.Command), nil
+	}
+	return target.Command, nil
+}
+
+func formatRunTargetCommand(target manifest.RunTarget) string {
+	parts := target.Command
+	if target.Runtime == "bun" {
+		parts = make([]string, 0, len(target.Command)+1)
+		parts = append(parts, "bun")
+		parts = append(parts, target.Command...)
+	}
+	return string(bytes.Join(stringSliceBytes(parts), []byte(" ")))
 }
 
 func buildRunCommandEnv(runtime string, root string, overlay runEnvOverlay) []string {

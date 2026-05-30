@@ -228,7 +228,7 @@ func biomeBackendSource(root string, selected string) string {
 func doctorRun(root string) doctorBuilder {
 	d := doctorBuilder{}
 	d.checks = append(d.checks, runtimeCheck("node", "--version"))
-	d.checks = append(d.checks, reservedRuntimeCheck("bun"))
+	d.checks = append(d.checks, runtimeCheck("bun", "--version"))
 	d.checks = append(d.checks, reservedRuntimeCheck("deno"))
 	d.checks = append(d.checks, DoctorCheck{
 		Name:    "runtime:system",
@@ -270,7 +270,7 @@ func doctorRun(root string) doctorBuilder {
 				readyStream = "both"
 			}
 		}
-		commandToken := firstToken(rt.Command)
+		commandToken := runTargetCommandFirstToken(rt)
 		targetID := ref.PackageName + ":" + rt.Name
 		cwdPath, cwdErr := resolveRunTargetCwd(ref)
 		status := "ok"
@@ -441,6 +441,13 @@ func runCommandWithTimeout(cmd *exec.Cmd, timeout time.Duration) ([]byte, error)
 	return cmd.Output()
 }
 
+func runTargetCommandFirstToken(target manifest.RunTarget) string {
+	if target.Runtime == "bun" {
+		return "bun"
+	}
+	return firstToken(target.Command)
+}
+
 func firstToken(parts []string) string {
 	if len(parts) == 0 {
 		return ""
@@ -449,11 +456,16 @@ func firstToken(parts []string) string {
 }
 
 func runtimeAvailable(name string) bool {
-	if name == "system" {
+	switch name {
+	case "system":
 		return true
+	case "bun":
+		_, err := exec.LookPath("bun")
+		return err == nil
+	default:
+		_, err := exec.LookPath(name)
+		return err == nil
 	}
-	_, err := exec.LookPath(name)
-	return err == nil
 }
 
 func commandAvailable(name string) bool {

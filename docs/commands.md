@@ -141,4 +141,4 @@ The JSON output identifies the command and mode, echoes the CDP endpoint, and in
 
 ## Runtime profile doctor
 
-`tspack doctor runtime [--root .] [--json]` reports the workspace runtime profile selected by `<Workspace runtime="...">`, the executable that would represent that profile (`node`, `bun`, or `deno`), PATH availability for the selected runtime only, and the TSPack lifecycle ownership note. It does not install dependencies, delegate to package managers, or alter RunTarget behavior.
+`tspack doctor runtime [--root .] [--json]` reports the workspace runtime profile selected by `<Workspace runtime="...">`, the executable that would represent that profile (`node`, `bun`, or `deno`), PATH availability for the selected runtime only, and the TSPack lifecycle ownership note. It does not install dependencies or delegate to package managers. Explicit `RunTarget.runtime: "bun"` is a separate run-command launch adapter that invokes `bun <declared argv>`; workspace runtime profiles do not automatically rewrite RunTargets.
