@@ -468,7 +468,7 @@ Security limitation: this is a behavior test/probe harness based on Node preload
 
 ## Inspect helpers
 
-Native xTest exposes an `inspect` helper namespace for tests that need browser-computed UI structure instead of source-level guesses. The helper reuses the same inspect backend as `tspack inspect`; it does not shell out to the CLI, take screenshots, run OCR, or mutate source.
+Native xTest exposes an `inspect` helper namespace for tests that need browser-computed UI structure instead of source-level guesses. The helper reuses the same inspect backend as `tspack inspect`; it does not shell out to the CLI, take screenshots, run OCR, or mutate source. The current closeout state is summarized in [Runtime-Grounded IDE / Inspect Closeout](claude-fooding-runtime-grounded-ide.md).
 
 ```tsx
 export default (
