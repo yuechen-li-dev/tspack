@@ -22,6 +22,7 @@ Core thesis: **Declare targets. Resolve sources. Enforce boundaries. Lock realit
 | Native harness | `tspack doom` | Run quarantined prophecy/doom units (`*.prophecy.tsx`). | May write doom outputs; no lock/manifest mutation. |
 | Runtime / inspection | `tspack run [target]` | Start, list (`--list [--json]`), or package-scope (`--package <name>`) declared manifest `RunTargets`. | **Not npm scripts**; no lock/manifest mutation. |
 | Runtime / inspection | `tspack inspect <url\|target>` | Structural UI inspection; supports declared run target inspection. | **Experimental**; backend surface may evolve. |
+| Runtime / inspection | `tspack doctor runtime` | Report the selected workspace runtime profile and executable availability. | Read-only; no package-manager delegation. |
 
 ## Core contracts
 
@@ -29,6 +30,7 @@ Core thesis: **Declare targets. Resolve sources. Enforce boundaries. Lock realit
 - `ts-lock.toml` is resolved truth.
 - `node_modules` is a generated compatibility artifact, not source of truth.
 - Fetch is not execute: dependency lifecycle scripts are not run by default.
+- Workspace `runtime` selects `nodejs`, `bun`, or `deno` as a runtime profile; TSPack still owns dependency resolution, lockfiles, materialization, checks, packing, and lifecycle policy.
 
 ## Non-goals (current)
 

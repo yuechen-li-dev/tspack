@@ -158,3 +158,13 @@ Lifecycle execution, if ever added, belongs behind a swappable backend seam. TSP
 - `tspack doctor` adds non-mutating environment diagnostics. See `docs/doctor.md`.
 
 - `outdated` is a read-only freshness query (current/wanted/latest) and does not mutate lock/store/node_modules.
+
+## Runtime profile portability seam
+
+The workspace runtime profile is the portability seam for JavaScript runtime selection:
+
+```tsx
+<Workspace name="demo" runtime="nodejs">
+```
+
+`nodejs`, `bun`, and `deno` are the supported profile names; omitted runtime defaults to `nodejs`. The product contract is to change the runtime profile while keeping the project contract stable. Runtime profile selection does not mean package-manager delegation: TSPack still owns dependency resolution, lockfiles, materialization, checks, packaging, and lifecycle security policy.

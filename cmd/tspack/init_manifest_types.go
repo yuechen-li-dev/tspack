@@ -10,6 +10,8 @@ const initManifestTypesDTS = "" +
 	"declare module 'tspack/manifest' {\n" +
 	"  export type Primitive = string | number | boolean | null;\n" +
 	"\n" +
+	"  export type RuntimeProfile = 'nodejs' | 'bun' | 'deno';\n" +
+	"\n" +
 	"  export type NpmSource = {\n" +
 	"    kind: 'npm';\n" +
 	"    package: string;\n" +
@@ -160,6 +162,7 @@ const initManifestTypesDTS = "" +
 	"\n" +
 	"  export type WorkspaceProps = {\n" +
 	"    name: string;\n" +
+	"    runtime?: RuntimeProfile;\n" +
 	"    children?: ManifestNode;\n" +
 	"  };\n" +
 	"\n" +
@@ -257,4 +260,5 @@ const initManifestTypesDTS = "" +
 	"  interface IntrinsicElements {\n" +
 	"    [elemName: string]: never;\n" +
 	"  }\n" +
-	"}\n"
+	"}\n" +
+	""

@@ -477,3 +477,14 @@ The migrate release smoke must cover package.json script classification without 
 - Verify build/test/lint/format/package scripts appear only as non-RunTarget evidence.
 - Verify lifecycle scripts appear in the security section and no marker-file script is executed.
 - Verify `manifest.migrated.tsx` contains `MIGRATION_TODO_RUN_TARGETS` but no active `<RunTargets>` rows by default.
+
+### Runtime profile smoke
+
+Release gate smoke should cover the M42a runtime profile seam:
+
+- `<Workspace runtime="nodejs">`, `<Workspace runtime="bun">`, and `<Workspace runtime="deno">` parse and validate.
+- Omitted workspace runtime defaults to `nodejs` in normalized IR / Go model.
+- Invalid runtime profile values such as `npm`, `pnpm`, and `yarn` are rejected with `TSPACK_MANIFEST_INVALID_RUNTIME_PROFILE` or the manifest validation equivalent.
+- `tspack doctor runtime --json` reports `selected`, `executable`, `available`, `status`, `lifecycleOwner: "tspack"`, and `packageManagerDelegated: false`.
+- Missing non-selected Bun/Deno executables do not create warning noise.
+- `update`, `sync`, `check`, `pack`, native xTest, inspect bridge, and explicit RunTarget runtime behavior remain unchanged.

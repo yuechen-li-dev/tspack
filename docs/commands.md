@@ -138,3 +138,7 @@ The JSON output identifies the command and mode, echoes the CDP endpoint, and in
   "diagnostics": []
 }
 ```
+
+## Runtime profile doctor
+
+`tspack doctor runtime [--root .] [--json]` reports the workspace runtime profile selected by `<Workspace runtime="...">`, the executable that would represent that profile (`node`, `bun`, or `deno`), PATH availability for the selected runtime only, and the TSPack lifecycle ownership note. It does not install dependencies, delegate to package managers, or alter RunTarget behavior.

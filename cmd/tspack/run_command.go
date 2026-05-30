@@ -302,9 +302,22 @@ func loadManifestForRun(root string) *manifest.ManifestIR {
 	return loadManifestPathForRun(root, filepath.Join(root, "manifest.tsx"))
 }
 
+func manifestFrontendCLIPath() string {
+	candidates := []string{
+		filepath.Join("manifest-frontend", "dist", "src", "cli.js"),
+		filepath.Join("manifest-frontend", "dist", "cli.js"),
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return candidates[0]
+}
+
 func loadManifestPathForRun(root string, manifestPath string) *manifest.ManifestIR {
 	_ = root
-	cliPath := filepath.Join("manifest-frontend", "dist", "src", "cli.js")
+	cliPath := manifestFrontendCLIPath()
 	cmd := exec.Command("node", cliPath, manifestPath)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

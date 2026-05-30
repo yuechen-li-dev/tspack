@@ -149,3 +149,17 @@ Optional evidence fields may be added to a row:
 - `behaviorReport?: string` — safe project-relative path to a `.json` behavior report from a previous explicit probe.
 
 These fields are evidence metadata, not execution permission. `tspack check`, `tspack doctor security`, and `tspack why` validate and surface the references without running fixtures or lifecycle scripts. Missing references warn; omitted evidence is allowed.
+
+## Workspace runtime profile
+
+`<Workspace>` accepts an optional `runtime` prop:
+
+```tsx
+<Workspace name="demo" runtime="nodejs">
+  ...
+</Workspace>
+```
+
+Allowed values are `nodejs`, `bun`, and `deno`. Omitted runtime defaults to `nodejs` in the normalized IR and Go model.
+
+The runtime profile selects the JavaScript runtime profile for future runtime-portability seams. It is not package-manager switching: `npm`, `pnpm`, `yarn`, `bun-npm`, and `deno-npm` are invalid runtime profiles. TSPack continues to own dependency resolution, `ts-lock.toml`, materialization, checks, packing, and lifecycle security policy.

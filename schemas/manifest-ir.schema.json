@@ -20,6 +20,13 @@
       "properties": {
         "name": {
           "type": "string"
+        },
+        "runtime": {
+          "enum": [
+            "nodejs",
+            "bun",
+            "deno"
+          ]
         }
       },
       "additionalProperties": true

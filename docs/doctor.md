@@ -85,3 +85,19 @@ Each lifecycle capability check includes the lock package ID, script, command, `
 Doctor security never runs behavior fixtures or probes. If `ts-lock.toml` is missing, doctor security still validates manifest evidence paths, warns that locked lifecycle capabilities cannot be audited, and recommends `tspack update` to resolve and record package capabilities. It does not fabricate zero capabilities, and it does not report unused acknowledgments because there is no lock graph to compare against. If a lockfile exists and records no lifecycle capabilities, the lifecycle summary is `ok` with zero counts.
 
 `--json` writes only parseable JSON to stdout, uses two-space indentation, appends a trailing newline, and keeps check ordering deterministic. Human text uses the same sections, checks, statuses, and sorted detail keys.
+
+## `tspack doctor runtime`
+
+`doctor runtime` reports the selected workspace runtime profile without changing command behavior.
+
+Text output includes a `Runtime profile` section with:
+
+- `selected`: `nodejs`, `bun`, or `deno`
+- `executable`: `node`, `bun`, or `deno`
+- `available`: whether the selected executable is found on `PATH`
+- `status`: `supported` for `nodejs`, `experimental` for `bun` and `deno`
+- lifecycle ownership details showing TSPack as the owner of dependency resolution, `ts-lock.toml`, materialization, security policy, and lifecycle policy
+
+`doctor runtime --json` emits the same section as structured doctor checks. The runtime profile check includes `selected`, `executable`, `available`, `status`, `lifecycleOwner: "tspack"`, and `packageManagerDelegated: false`.
+
+Only the selected runtime profile is checked prominently. Missing non-selected Bun or Deno executables do not create warning noise.

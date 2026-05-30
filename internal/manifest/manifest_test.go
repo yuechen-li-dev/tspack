@@ -85,6 +85,47 @@ func TestInvalidCases(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRuntimeProfiles(t *testing.T) {
+	cases := []string{"nodejs", "bun", "deno"}
+	for _, runtimeProfile := range cases {
+		t.Run(runtimeProfile, func(t *testing.T) {
+			j := `{"format":1,"workspace":{"name":"mono","runtime":"` + runtimeProfile + `"},"packages":[{"name":"ok","version":"1.0.0","kind":"app","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+			ir, diags := LoadBytes("x.json", []byte(j))
+			if len(diags) != 0 {
+				t.Fatalf("unexpected diagnostics: %#v", diags)
+			}
+			if ir.Workspace.Runtime != runtimeProfile {
+				t.Fatalf("runtime=%q", ir.Workspace.Runtime)
+			}
+		})
+	}
+}
+
+func TestWorkspaceRuntimeProfileDefaultsToNodejs(t *testing.T) {
+	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"app","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	ir, diags := LoadBytes("x.json", []byte(j))
+	if len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diags)
+	}
+	if ir.Workspace.Runtime != "nodejs" {
+		t.Fatalf("runtime=%q", ir.Workspace.Runtime)
+	}
+}
+
+func TestWorkspaceRuntimeProfileRejectsInvalidValues(t *testing.T) {
+	j := `{"format":1,"workspace":{"name":"mono","runtime":"npm"},"packages":[{"name":"ok","version":"1.0.0","kind":"app","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	_, diags := LoadBytes("x.json", []byte(j))
+	found := false
+	for _, d := range diags {
+		if d.Code == "TSPACK_MANIFEST_INVALID_RUNTIME_PROFILE" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected TSPACK_MANIFEST_INVALID_RUNTIME_PROFILE, got %#v", diags)
+	}
+}
+
 func TestDeterministicDiagnostics(t *testing.T) {
 	j := `{"format":2,"workspace":{"name":""},"packages":[]}`
 	_, d1 := LoadBytes("x.json", []byte(j))

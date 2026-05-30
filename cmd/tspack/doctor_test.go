@@ -110,7 +110,7 @@ func TestDoctorFormatReportsDefaultBiomeConfigSource(t *testing.T) {
 	before := tempBiomeConfigFiles(t)
 	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "format", "--root", root, "--json")
 	cmd.Dir = repo
-	cmd.Env = append(os.Environ(), "PATH="+t.TempDir())
+	cmd.Env = append(os.Environ(), "PATH="+doctorPathWithNodeOnly(t))
 	b, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("doctor format json failed: %v\n%s", err, string(b))
@@ -156,7 +156,7 @@ func TestDoctorFormatReportsProjectBiomeConfigSource(t *testing.T) {
 
 	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "format", "--root", root, "--json")
 	cmd.Dir = repo
-	cmd.Env = append(os.Environ(), "PATH="+t.TempDir())
+	cmd.Env = append(os.Environ(), "PATH="+doctorPathWithNodeOnly(t))
 	b, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("doctor format json failed: %v\n%s", err, string(b))
@@ -212,6 +212,108 @@ func TestDoctorFormatReportsDirectPackageBiomeBackend(t *testing.T) {
 	}
 	if biome.Details["directPackagePath"] != backend {
 		t.Fatalf("expected direct package path detail: %#v", biome.Details)
+	}
+}
+
+func TestDoctorRuntimeReportsSelectedNodejsProfile(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	writeManifestStubWithIR(t, repo, `{format:1,workspace:{name:"ws",runtime:"nodejs"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{}}]}`)
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "runtime", "--root", root, "--json")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("doctor runtime json failed: %v\n%s", err, string(b))
+	}
+	var report DoctorReport
+	if err := json.Unmarshal(b, &report); err != nil {
+		t.Fatalf("invalid doctor runtime json: %v\n%s", err, string(b))
+	}
+	check := flattenDoctorChecks(report)["runtime profile"]
+	if check.Details["selected"] != "nodejs" || check.Details["executable"] != "node" || check.Details["lifecycleOwner"] != "tspack" {
+		t.Fatalf("unexpected runtime profile details: %#v", check.Details)
+	}
+	if check.Details["packageManagerDelegated"] != false {
+		t.Fatalf("runtime profile must not delegate package managers: %#v", check.Details)
+	}
+}
+
+func TestDoctorRuntimeReportsSelectedBunWithoutDenoNoise(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	writeManifestStubWithIR(t, repo, `{format:1,workspace:{name:"ws",runtime:"bun"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{}}]}`)
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "runtime", "--root", root, "--json")
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "PATH="+doctorPathWithNodeOnly(t))
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("doctor runtime json failed: %v\n%s", err, string(b))
+	}
+	var report DoctorReport
+	if err := json.Unmarshal(b, &report); err != nil {
+		t.Fatalf("invalid doctor runtime json: %v\n%s", err, string(b))
+	}
+	checks := flattenDoctorChecks(report)
+	check := checks["runtime profile"]
+	if check.Details["selected"] != "bun" || check.Details["executable"] != "bun" || check.Details["status"] != "experimental" {
+		t.Fatalf("unexpected bun runtime profile details: %#v", check.Details)
+	}
+	if _, ok := checks["deno"]; ok {
+		t.Fatalf("non-selected deno should not create warning noise: %#v", checks["deno"])
+	}
+}
+
+func TestDoctorRuntimeReportsSelectedDeno(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	writeManifestStubWithIR(t, repo, `{format:1,workspace:{name:"ws",runtime:"deno"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{}}]}`)
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "runtime", "--root", root, "--json")
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "PATH="+doctorPathWithNodeOnly(t))
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("doctor runtime json failed: %v\n%s", err, string(b))
+	}
+	var report DoctorReport
+	if err := json.Unmarshal(b, &report); err != nil {
+		t.Fatalf("invalid doctor runtime json: %v\n%s", err, string(b))
+	}
+	check := flattenDoctorChecks(report)["runtime profile"]
+	if check.Details["selected"] != "deno" || check.Details["executable"] != "deno" || check.Details["available"] != false {
+		t.Fatalf("unexpected deno runtime profile details: %#v", check.Details)
+	}
+}
+
+func TestDoctorAllIncludesRuntimeProfileSection(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	writeManifestStubWithIR(t, repo, `{format:1,workspace:{name:"ws",runtime:"nodejs"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{}}]}`)
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "--root", root, "--json")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("doctor all json failed: %v\n%s", err, string(b))
+	}
+	var report DoctorReport
+	if err := json.Unmarshal(b, &report); err != nil {
+		t.Fatalf("invalid doctor all json: %v\n%s", err, string(b))
+	}
+	found := false
+	for _, section := range report.Sections {
+		if section.Name == "Runtime profile" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("doctor all missing Runtime profile section: %#v", report.Sections)
 	}
 }
 
@@ -321,6 +423,20 @@ func TestDoctorTextRendersSortedDetailsAndRuntimeVersion(t *testing.T) {
 			t.Fatalf("node runtime detail missing path/version: %#v", nodeCheck.Details)
 		}
 	}
+}
+
+func doctorPathWithNodeOnly(t *testing.T) string {
+	t.Helper()
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Fatalf("node is required for doctor runtime test: %v", err)
+	}
+	dir := t.TempDir()
+	linkPath := filepath.Join(dir, "node")
+	if err := os.Symlink(nodePath, linkPath); err != nil {
+		t.Fatalf("failed to create node symlink: %v", err)
+	}
+	return dir
 }
 
 func writeManifestStubWithIR(t *testing.T, repo string, irJSON string) {
