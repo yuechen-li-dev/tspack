@@ -46,7 +46,9 @@ The migrate release smoke should cover the package.json-to-draft onboarding path
 - `tspack migrate --root <fixture> --write` writes `manifest.migrated.tsx` and `tspack-migration.md`.
 - Existing output files fail without `--force` and preserve all-or-nothing output behavior.
 - The generated manifest maps package metadata, dependencies, peer dependencies, dev tools, targets, publish includes, and `MIGRATION_TODO_*` comments.
-- The migration report includes inputs, summary, mechanical mappings, grouped TODOs, scripts not migrated, security notes for lifecycle scripts, and next steps.
+- The migration report includes inputs, summary, mechanical mappings, lockfile evidence, grouped TODOs, scripts not migrated, security notes for lifecycle scripts, and next steps.
+- The migrate smoke fixture with `package-lock.json` reports direct resolved package evidence, lifecycle/bin/platform/duplicate evidence, and writes no `ts-lock.toml`.
+- A fixture without `package-lock.json` succeeds and reports lock evidence as not found; an implicit invalid lock warns and continues; explicit missing/invalid `--package-lock` fails.
 - Scripts are listed but not executed.
 - `manifest.tsx`, `package.json`, lockfiles, source files, and dependency installations are not mutated.
 

@@ -2,7 +2,7 @@
 
 `tspack migrate` is an onboarding draft generator for existing npm-style projects. It reads the current root `package.json` and produces a reviewable TSPack draft, not a completed semantic conversion.
 
-M41a intentionally assumes that a human or LLM reviews the result. Existing npm projects often mix package metadata, build scripts, framework conventions, and dependency intent in ways that cannot be safely inferred from `package.json` alone.
+`tspack migrate` intentionally assumes that a human or LLM reviews the result. Existing npm projects often mix package metadata, build scripts, framework conventions, and dependency intent in ways that cannot be safely inferred from `package.json` alone.
 
 ## Default safety behavior
 
@@ -43,6 +43,8 @@ Without `--force`, any existing output file causes the command to fail before wr
 | `--write` | Create output files. Omitted means preview only. |
 | `--root <root>` | Set the project root. Defaults to the current directory. |
 | `--package-json <path>` | Read an explicit package.json path. Relative paths are resolved from `--root`. |
+| `--package-lock <path>` | Read an explicit npm package-lock path for migration report evidence. Relative paths are resolved from `--root`. |
+| `--no-lock-evidence` | Skip package-lock evidence even when `package-lock.json` exists. |
 | `--out-manifest <path>` | Write the manifest draft to a custom path. Relative paths are resolved from `--root`. |
 | `--out-report <path>` | Write the migration report to a custom path. Relative paths are resolved from `--root`. |
 | `--force` | Overwrite migration output files. Does not permit overwriting `manifest.tsx` unless that exact custom output path is explicitly requested. |
@@ -60,6 +62,31 @@ The manifest draft uses the current `tspack/manifest` authoring API and includes
 - comments with stable `MIGRATION_TODO_*` tags for every important uncertainty
 
 The draft is meant to be readable TypeScript/TSX. Source entry paths are guesses, usually mapping `dist/index.js` to `src/index.ts`; they are marked with TODO comments because package.json generally does not declare source entry files.
+
+
+## Package-lock evidence
+
+By default, `tspack migrate` looks for `<root>/package-lock.json`. When present, it parses npm lockfile v2/v3 fields enough to enrich `tspack-migration.md` with review evidence. This evidence is intentionally report-only:
+
+- no `ts-lock.toml` is generated from `package-lock.json`
+- package-lock data is never treated as TSPack resolved truth
+- package-lock/package.json files are not mutated
+- `npm install`, dependency resolution, vulnerability scans, malware scans, and package scripts are not run
+
+The lock evidence section reports:
+
+- lockfile path, lockfileVersion, and package count
+- direct package.json dependencies with declared range, locked version, integrity prefix, lock path, and resolved URL when present
+- approximate transitive fanout from lock dependency names
+- lifecycle script capabilities such as `preinstall`, `install`, `postinstall`, `prepare`, `prepack`, and publish-related hooks
+- packages with `bin` fields
+- locked peer dependency metadata
+- likely platform/native packages from `os`, `cpu`, package-name markers, and known `@esbuild/*`, `@rollup/rollup-*`, and `@biomejs/cli-*` patterns
+- mismatches such as missing direct lock entries, root lock declarations not represented in package.json fields consumed by migrate, duplicate versions, and `@types/*` evidence
+
+Lifecycle scripts from the lockfile add `MIGRATION_TODO_SECURITY` report guidance. Binary packages, lifecycle capabilities, and large approximate fanout add dependency-classification review guidance. Detailed lock evidence stays in `tspack-migration.md`; the manifest draft remains package.json-driven.
+
+If no implicit `<root>/package-lock.json` exists, migration continues and the report says lock evidence was not found. If the implicit lock exists but cannot be parsed, migration continues with a warning diagnostic and the report says lock evidence was invalid and ignored. If `--package-lock <path>` is provided, missing or invalid lock files fail the command because the user explicitly requested that evidence. `--package-lock` and `--no-lock-evidence` cannot be combined.
 
 ## TODO taxonomy
 
@@ -118,7 +145,7 @@ Scripts are listed in `tspack-migration.md` but are not migrated to RunTargets a
 `tspack-migration.md` includes:
 
 - inputs and output paths
-- lockfile detection, explicitly marked as not consumed in M41a
+- package-lock evidence status and report-only lock evidence when available
 - package summary and inferred kind
 - dependency counts and target count
 - mechanical mapping table
@@ -126,6 +153,7 @@ Scripts are listed in `tspack-migration.md` but are not migrated to RunTargets a
 - duplicate peer/runtime declarations and identifier collisions when present
 - grouped TODO sections
 - scripts not migrated
+- lifecycle, binary, peer, platform/native, duplicate-version, and mismatch evidence from package-lock when available
 - suggested next steps
 
 The report does not claim migration is complete.
@@ -160,12 +188,12 @@ Overwrite previous migration outputs:
 tspack migrate --write --force
 ```
 
-## Non-goals in M41a
+## Non-goals
 
-M41a does not:
+`tspack migrate` does not:
 
 - translate `package-lock.json` to `ts-lock.toml`
-- translate package-lock graphs
+- translate package-lock graphs into TSPack lock data
 - scan source imports
 - infer target boundaries from source code
 - overwrite `manifest.tsx` automatically
