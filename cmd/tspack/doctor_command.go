@@ -229,7 +229,7 @@ func doctorRun(root string) doctorBuilder {
 	d := doctorBuilder{}
 	d.checks = append(d.checks, runtimeCheck("node", "--version"))
 	d.checks = append(d.checks, runtimeCheck("bun", "--version"))
-	d.checks = append(d.checks, reservedRuntimeCheck("deno"))
+	d.checks = append(d.checks, runtimeCheck("deno", "--version"))
 	d.checks = append(d.checks, DoctorCheck{
 		Name:    "runtime:system",
 		Status:  "ok",
@@ -410,19 +410,6 @@ func runtimeCheck(command string, versionFlag string) DoctorCheck {
 	return DoctorCheck{Name: command, Status: "ok", Message: command + " found", Details: details}
 }
 
-func reservedRuntimeCheck(name string) DoctorCheck {
-	return DoctorCheck{
-		Name:    name,
-		Status:  "not_applicable",
-		Message: "reserved runtime backend; not implemented yet",
-		Details: map[string]any{
-			"available":   false,
-			"implemented": false,
-			"status":      "reserved runtime backend; not implemented yet",
-		},
-	}
-}
-
 func commandVersion(path string, flag string) string {
 	cmd := exec.Command(path, flag)
 	cmd.Env = os.Environ()
@@ -442,8 +429,8 @@ func runCommandWithTimeout(cmd *exec.Cmd, timeout time.Duration) ([]byte, error)
 }
 
 func runTargetCommandFirstToken(target manifest.RunTarget) string {
-	if target.Runtime == "bun" {
-		return "bun"
+	if executable, ok := directRuntimeExecutable(target.Runtime); ok {
+		return executable
 	}
 	return firstToken(target.Command)
 }
@@ -461,6 +448,9 @@ func runtimeAvailable(name string) bool {
 		return true
 	case "bun":
 		_, err := exec.LookPath("bun")
+		return err == nil
+	case "deno":
+		_, err := exec.LookPath("deno")
 		return err == nil
 	default:
 		_, err := exec.LookPath(name)

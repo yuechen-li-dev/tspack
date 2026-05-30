@@ -40,6 +40,13 @@ export default define(
             url: 'http://localhost:3001',
             ready: { kind: 'stdout-match', pattern: 'ready', stream: 'stdout' },
           },
+          {
+            name: 'dev-deno',
+            runtime: 'deno',
+            command: ['run', '--allow-net=127.0.0.1:8080', 'server.ts'],
+            url: 'http://localhost:8080',
+            ready: { kind: 'stdout-match', pattern: 'ready', stream: 'stdout' },
+          },
         ]}
       />
     </Package>

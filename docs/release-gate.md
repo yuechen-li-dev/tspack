@@ -166,6 +166,19 @@ The M42c runtime portability release smoke must prove Bun as a runtime profile w
 - Native xTest and JavaScript bridge paths still use the existing Node bridge seams.
 - Guardrail review/tests verify no `bun install`, `bun add`, `bun pm`, `bun.lockb`, Bun dependency resolution, Bun materialization, or Bun package-manager command path was introduced.
 
+### M42d Deno runtime proof smoke
+
+The M42d runtime portability release smoke must prove Deno as a runtime profile without changing package-manager or task-runner semantics:
+
+- `tspack doctor runtime --json` for `<Workspace runtime="deno">` reports `selected: deno`, `executable: deno`, `status: experimental`, `lifecycleOwner: tspack`, `packageManagerDelegated: false`, `dependencyResolution: TSPack`, `lockfile: ts-lock.toml`, `materialization: TSPack`, and `securityPolicy: TSPack`.
+- A PATH-controlled missing-Deno smoke reports `available: false` deterministically without warning noise for non-selected runtimes.
+- A fake Deno executable smoke for `RunTarget.runtime: "deno"` proves `tspack run --once` invokes `deno` with the declared argv payload, preserves cwd, preserves `--env` overlays, passes stdout/stderr through, and satisfies stdout-match readiness.
+- Missing Deno for an explicit Deno RunTarget fails before execution with `TSPACK_RUN_RUNTIME_NOT_FOUND` and does not fall back to Node.js, Bun, system execution, npm, npx, package scripts, or `deno task`.
+- Workspace `runtime="deno"` does not override explicit `runtime: "system"`, `runtime: "bun"`, or existing Node RunTarget behavior; omitted RunTarget runtime behavior remains unchanged.
+- Native xTest and JavaScript bridge paths still use the existing Node bridge seams.
+- Guardrail review/tests verify no `deno task`, `deno install`, `deno add`, `deno cache`, `deno vendor`, `deno.json`, `deno.lock`, import-map handling, JSR resolver, `npm:` resolver, Deno materialization, or Deno package-manager command path was introduced.
+- Existing Node.js and Bun baseline smokes continue to pass.
+
 ### Claude-fooding Phase 2 package-manager smoke
 
 The Phase 2 package-manager smoke must cover the validated update→store→sync loop and read-only UX commands:

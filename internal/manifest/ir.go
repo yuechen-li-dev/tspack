@@ -385,7 +385,7 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 				add("TSPACK_RUN_DUPLICATE_TARGET", "duplicate run target name: "+rt.Name)
 			}
 			seenRunTargets[rt.Name] = struct{}{}
-			if rt.Runtime != "system" && rt.Runtime != "node" && rt.Runtime != "bun" {
+			if rt.Runtime != "system" && rt.Runtime != "node" && rt.Runtime != "bun" && rt.Runtime != "deno" {
 				add("TSPACK_RUN_INVALID_RUNTIME", rp+".runtime is invalid")
 			}
 			if rt.Cwd != "" && rt.Cwd != "workspace" && rt.Cwd != "package" {

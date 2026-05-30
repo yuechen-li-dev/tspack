@@ -7,7 +7,7 @@ export default define(
         rows={[
           {
             name: 'dev',
-            runtime: 'deno',
+            runtime: 'npm',
             command: ['server.ts'],
             url: 'http://localhost:3000',
           },
