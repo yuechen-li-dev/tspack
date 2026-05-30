@@ -575,6 +575,86 @@ type InspectCdpOptions = {
 
 Calling `inspect.url` or `inspect.cdp` is an observation only. It does not count as a meaningful xTest action. A fact that only calls inspect still fails with `TSPACK_TEST_NO_ASSERTION`; use `assert`, `expect`, or `expect.snapshotJson` to make a claim about the returned structure.
 
+### Inspect assertion helpers
+
+`assert.inspect.*` provides lightweight assertions over already-collected inspect JSON. These helpers are assertions, not browser automation: they do not click, type, navigate, wait, retry, re-inspect, take screenshots, run OCR, mutate source, or validate files on disk. Like other native xTest assertions, every helper requires a non-empty reason string and counts as meaningful assertion activity.
+
+Available helpers:
+
+```ts
+assert.inspect.exists(node, reason);
+assert.inspect.visible(node, reason);
+assert.inspect.hidden(node, reason);
+assert.inspect.role(node, role, reason);
+assert.inspect.name(node, name, reason);
+assert.inspect.boundsWithin(node, constraints, reason);
+assert.inspect.hitIncludes(hitTest, expected, reason);
+assert.inspect.source(node, expected, reason);
+```
+
+`boundsWithin` accepts explicit min/max constraints for browser-computed `x`, `y`, `width`, and `height`:
+
+```ts
+type InspectBoundsConstraints = {
+  minWidth?: number;
+  minHeight?: number;
+  maxWidth?: number;
+  maxHeight?: number;
+  minX?: number;
+  minY?: number;
+  maxX?: number;
+  maxY?: number;
+};
+```
+
+A typical fact can observe the page, find a node in the returned JSON, and assert only the facts that matter:
+
+```tsx
+const ui = await inspect.url("http://127.0.0.1:5173", {
+  selector: "main",
+});
+
+const save = inspect.findByRole(ui.root, "button", "Save");
+
+assert.inspect.visible(save, "Save button should be visible");
+assert.inspect.role(save, "button", "Save control should expose button role");
+assert.inspect.boundsWithin(
+  save,
+  { minWidth: 80, minHeight: 32 },
+  "Save button should have a usable click target",
+);
+```
+
+Source-hint assertions compare only the fields supplied by the test. They do not validate that a file exists:
+
+```tsx
+assert.inspect.source(
+  save,
+  {
+    file: "src/components/Button.tsx",
+    component: "Button",
+    symbol: "Button.Primary",
+  },
+  "Save button should retain source hints",
+);
+```
+
+Hit-test assertions match at least one element in a collected `hitTest.elements` list against all supplied fields:
+
+```tsx
+const ui = await inspect.url("http://127.0.0.1:5173", {
+  points: [{ x: 120, y: 48 }],
+});
+
+assert.inspect.hitIncludes(
+  ui.hitTests[0],
+  { role: "button", name: "Save", tag: "button" },
+  "click point should hit the Save button",
+);
+```
+
+Failure diagnostics use inspect-specific assertion codes and include compact node or hit-test summaries rather than dumping a full subtree. Null or missing nodes fail cleanly, so tests may call `assert.inspect.visible(inspect.findByRole(...), reason)` without a separate existence assertion.
+
 ### Snapshot guidance
 
 Inspect results are plain JSON and work with `expect.snapshotJson`. Prefer snapshotting a stable selector or subtree such as `ui.root` rather than an entire page when layout, generated IDs, or dynamic content may vary.

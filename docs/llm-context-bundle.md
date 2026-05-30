@@ -149,12 +149,14 @@ The intended workflow remains human-orchestrated:
 4. A reviewer LLM can receive the same bundle plus the human-authored patch and test output to critique the change.
 5. A human decides what to apply, runs tests, and commits normal text diffs.
 
+Native `assert.inspect.*` helpers can validate selected UI facts before or after an LLM-proposed change: for example, the same role/name/bounds/source/hit-test facts copied into a bundle can become explicit xTest assertions. This keeps bundle use grounded in executable checks without adding model calls to the test harness.
+
 This separates runtime observation from code mutation. M40d provides the packet, not the agent.
 
 ## Future ladder
 
 - M40d: design document, TypeScript model, pure builder prototype, fixture tests, and a low-risk VS Code copy command.
-- M40e: xTest or CLI bundle helper for scripts and tests.
+- M40e: native xTest inspect assertion helpers over collected inspect JSON.
 - M40f: harden the VS Code **Copy LLM Context** command based on real use.
 - Future: model-provider integration.
 - Future: source-map and framework adapters.
