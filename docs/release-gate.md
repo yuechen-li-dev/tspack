@@ -363,3 +363,18 @@ Before release, verify the source mapping probe remains narrow and deterministic
 - Malformed source hints preserve `source.raw` and report `source.parseError` without failing inspect.
 - Nodes without source hints omit `source`.
 - Extension tree conversion displays source hint metadata but must not mutate source or trust page-provided paths as authority.
+
+### M40d LLM context bundle smoke
+
+Before release, verify the runtime-grounded LLM context bundle remains a design/prototype milestone rather than model integration:
+
+- `docs/llm-context-bundle.md` exists and documents the thesis, non-goals, inputs, JSON shape, trust model, size budget, author/reviewer use, and future ladder.
+- The VS Code extension has a pure `buildUiContextBundle(inspectResult, selectedNode, options)` builder with deterministic serialization and no timestamps.
+- Fixture inspect JSON produces a bundle with version `1`, kind `tspack.uiContext`, the exact selected node, compact ancestors, capped siblings, capped children, runtime URL/browser/viewport, constraints, and caller-supplied or inspect-result diagnostics.
+- Valid workspace-contained source hints include a bounded excerpt with one-based `startLine` and `endLine`.
+- Source hints with no line include only the chosen first-lines window.
+- Missing files, absolute paths, parent traversal, URL-like schemes, paths outside the workspace, and symlink escapes produce validation errors and no excerpt.
+- Compact names/text are truncated deterministically.
+- The extension registers `tspack.inspect.copyLlmContext` with the title **TSPack: Copy Selected Inspect Node LLM Context** when the copy command is enabled.
+- The copy command copies parseable JSON, uses workspace validation for source excerpts, and does not call a model, mutate source, open network connections, run `tspack check`, or perform prompt orchestration.
+- Existing copy-node JSON, reveal-source, and inspect tree conversion tests continue to pass.

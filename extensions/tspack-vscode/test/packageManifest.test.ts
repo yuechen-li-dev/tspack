@@ -20,10 +20,32 @@ const packageManifest = JSON.parse(
 ) as PackageManifest;
 
 describe('extension package manifest', () => {
+  it('registers the LLM context copy command', () => {
+    expect(packageManifest.contributes.commands).toContainEqual({
+      command: 'tspack.inspect.copyLlmContext',
+      title: 'TSPack: Copy Selected Inspect Node LLM Context',
+    });
+  });
+
   it('registers the reveal source command', () => {
     expect(packageManifest.contributes.commands).toContainEqual({
       command: 'tspack.inspect.revealSource',
       title: 'TSPack: Reveal Source for Selected Inspect Node',
+    });
+  });
+
+  it('adds LLM context copy to inspect node context menus', () => {
+    const contextMenus = packageManifest.contributes.menus['view/item/context'];
+
+    expect(contextMenus).toContainEqual({
+      command: 'tspack.inspect.copyLlmContext',
+      when: 'view == tspackInspectTree && viewItem == inspectNode',
+      group: 'inline',
+    });
+    expect(contextMenus).toContainEqual({
+      command: 'tspack.inspect.copyLlmContext',
+      when: 'view == tspackInspectTree && viewItem == inspectNodeWithSource',
+      group: 'inline',
     });
   });
 

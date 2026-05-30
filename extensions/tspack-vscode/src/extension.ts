@@ -17,6 +17,10 @@ import {
   isSourceHintMalformed,
   resolveSourceHintPath,
 } from './revealSource';
+import {
+  buildUiContextBundle,
+  serializeUiContextBundle,
+} from './uiContextBundle';
 
 class InspectTreeItem extends vscode.TreeItem {
   readonly inspectNode: InspectNode;
@@ -39,17 +43,24 @@ class InspectTreeProvider implements vscode.TreeDataProvider<InspectTreeNode> {
     InspectTreeNode | undefined | null | void
   >();
   private roots: InspectTreeNode[] = [];
+  private result: InspectResult | undefined;
 
   readonly onDidChangeTreeData = this.changed.event;
 
   setResult(result: InspectResult): void {
+    this.result = result;
     this.roots = buildInspectTree(result);
     this.changed.fire();
   }
 
   clear(): void {
+    this.result = undefined;
     this.roots = [];
     this.changed.fire();
+  }
+
+  getResult(): InspectResult | undefined {
+    return this.result;
   }
 
   getTreeItem(element: InspectTreeNode): vscode.TreeItem {
@@ -211,11 +222,13 @@ async function inspectTargetsCommand(
   }
 }
 
-async function chooseWorkspaceRoot(): Promise<vscode.WorkspaceFolder | undefined> {
+async function chooseWorkspaceRoot(
+  actionDescription = 'using source hints',
+): Promise<vscode.WorkspaceFolder | undefined> {
   const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
   if (workspaceFolders.length === 0) {
     vscode.window.showWarningMessage(
-      'Open a workspace folder before revealing source hints.',
+      `Open a workspace folder before ${actionDescription}.`,
     );
     return undefined;
   }
@@ -271,7 +284,7 @@ async function revealSourceForNode(node: InspectNode | undefined): Promise<void>
     return;
   }
 
-  const workspaceRoot = await chooseWorkspaceRoot();
+  const workspaceRoot = await chooseWorkspaceRoot('revealing source hints');
   if (!workspaceRoot) {
     return;
   }
@@ -314,6 +327,39 @@ async function revealSourceForNode(node: InspectNode | undefined): Promise<void>
   editor.revealRange(
     new vscode.Range(position, position),
     vscode.TextEditorRevealType.InCenterIfOutsideViewport,
+  );
+}
+
+async function copyLlmContextForNode(
+  provider: InspectTreeProvider,
+  item: InspectTreeItem | InspectTreeNode | undefined,
+  selectedNode: InspectNode | undefined,
+): Promise<void> {
+  const node = item instanceof InspectTreeItem
+    ? item.inspectNode
+    : item?.node ?? selectedNode;
+  if (!node) {
+    vscode.window.showWarningMessage('No TSPack inspect node selected.');
+    return;
+  }
+
+  const inspectResult = provider.getResult() ?? { root: node };
+  let workspaceRoot: vscode.WorkspaceFolder | undefined;
+  if (node.source) {
+    workspaceRoot = await chooseWorkspaceRoot('copying source excerpts');
+    if (!workspaceRoot) {
+      return;
+    }
+  }
+
+  const bundle = await buildUiContextBundle(inspectResult, node, {
+    workspaceRoot: workspaceRoot?.uri.fsPath,
+    workspaceRootName: workspaceRoot?.name,
+    selectionReason: 'Selected in the TSPack Inspect VS Code tree.',
+  });
+  await vscode.env.clipboard.writeText(serializeUiContextBundle(bundle));
+  vscode.window.showInformationMessage(
+    'Copied TSPack inspect LLM context bundle JSON.',
   );
 }
 
@@ -374,6 +420,13 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       await vscode.env.clipboard.writeText(serializeInspectNode(node));
       vscode.window.showInformationMessage('Copied TSPack inspect node JSON.');
+    },
+  ));
+
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'tspack.inspect.copyLlmContext',
+    async (item?: InspectTreeItem | InspectTreeNode) => {
+      await copyLlmContextForNode(provider, item, selectedNode);
     },
   ));
 

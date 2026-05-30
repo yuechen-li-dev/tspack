@@ -98,3 +98,11 @@ Native xTest can now participate directly in the runtime-grounded workflow:
 4. **Provide context later** by handing exact inspect JSON to higher-level tools instead of guessing from CSS or source.
 
 This step is intentionally limited to observation plus test assertions. Source hints may now appear in inspect JSON when a page provides them, but the helper does not add visual editing handles, source mutation, screenshots, OCR, reveal-source behavior, or LLM context bundles.
+
+## M40d: LLM context bundle layer
+
+The next runtime-grounded layer is an LLM context bundle: a deterministic JSON packet for a selected inspect node. The bundle combines the selected runtime node, compact ancestors/siblings/children, browser-computed role/name/text/bounds/style facts, optional hit-test facts, a workspace-validated source excerpt, diagnostics supplied by the caller, and stable constraints that remind tools not to overtrust hints or infer dependencies.
+
+This layer is not LLM integration. It exists so author and reviewer workflows can share the same observed runtime facts while humans continue to orchestrate source edits, tests, and review. An author LLM can use the bundle to propose a patch; a reviewer LLM can later use the bundle plus a patch and test output to critique that patch. In both cases the source tree remains the source of truth, the browser remains layout truth, and the bundle is read-only context.
+
+See [LLM Context Bundle Design](llm-context-bundle.md) for the M40d contract and prototype behavior.
