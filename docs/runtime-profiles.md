@@ -16,6 +16,10 @@ Allowed values are:
 
 If `runtime` is omitted, TSPack defaults the workspace runtime profile to `nodejs`.
 
+## Closeout
+
+The full M42 runtime profile closeout is documented in [Runtime Profile Closeout](claude-fooding-runtime-profiles.md). This page remains the concise behavior reference; the closeout records the milestone history, release-gate posture, explicit non-goals, and future ladder.
+
 ## Runtime switch demo (M42e)
 
 The fixture family documented in [Runtime Switch Demo](runtime-switch-demo.md) demonstrates the one-line portability claim: change `<Workspace runtime="nodejs">` to `<Workspace runtime="bun">` or `<Workspace runtime="deno">` while keeping the project contract stable. The manifests differ only by the workspace runtime value, normalized IR differs only in `Workspace.Runtime`, and check/pack/why/package metadata remain stable across the three profiles.

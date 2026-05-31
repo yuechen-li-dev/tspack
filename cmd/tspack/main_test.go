@@ -923,6 +923,33 @@ func TestDocsReleaseGateIncludesRuntimeGroundedInspectCloseoutSmoke(t *testing.T
 	}
 }
 
+func TestDocsReleaseGateIncludesRuntimeProfileCloseoutSmoke(t *testing.T) {
+	closeoutDoc := filepath.Join("..", "..", "docs", "claude-fooding-runtime-profiles.md")
+	if _, err := os.Stat(closeoutDoc); err != nil {
+		t.Fatalf("runtime profile closeout doc missing: %v", err)
+	}
+
+	doc, err := os.ReadFile(filepath.Join("..", "..", "docs", "release-gate.md"))
+	if err != nil {
+		t.Fatalf("read release gate doc: %v", err)
+	}
+
+	text := string(doc)
+	for _, phrase := range []string{
+		`runtime="bun"`,
+		`runtime="deno"`,
+		"packageManagerDelegated",
+		"bun <declared argv>",
+		"deno <declared argv>",
+		"no package-manager delegation",
+		"Workspace.Runtime",
+	} {
+		if !strings.Contains(text, phrase) {
+			t.Fatalf("release gate doc missing runtime profile smoke phrase %q", phrase)
+		}
+	}
+}
+
 func TestCheckJSONWarningOnlyLockfileMissing(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")

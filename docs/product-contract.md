@@ -69,6 +69,10 @@ Primary commands:
 - `tspack run`
 - `tspack inspect` (**experimental**)
 
+## Runtime portability contract
+
+Runtime profiles are part of TSPack's portability contract: change runtime identity, not package-manager truth. `<Workspace runtime="nodejs" | "bun" | "deno">` selects the workspace runtime profile for reporting and explicit runtime seams, while package graph, artifact generation, lockfile semantics, materialization, checks, pack output, and lifecycle security remain TSPack-owned. Runtime profile values are not npm package-manager selections and do not add package metadata, package-manager delegation, resolver changes, or materializer changes. See `docs/runtime-profiles.md` and `docs/claude-fooding-runtime-profiles.md`.
+
 ## Command responsibility boundaries
 
 - **migrate** is an onboarding/draft generator. It translates mechanical package.json, package-lock, source import, and script evidence into a reviewable manifest/report, but it is not semantic migration completion.
