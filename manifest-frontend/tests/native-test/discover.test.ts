@@ -116,6 +116,34 @@ describe("native test discovery", () => {
     expect(codes).toContain("TSPACK_TEST_DUPLICATE_CYCLETIME");
     expect(codes).toContain("TSPACK_TEST_INVALID_CYCLETIME");
   });
+  it("ignores generated TSPack internals and package artifacts", () => {
+    const root = makeDir();
+    write(
+      root,
+      "tests/root.xtest.tsx",
+      'export default (<Suite name="s"><Fact name="root">{() => {}}</Fact></Suite>);',
+    );
+    write(
+      root,
+      ".tspack/store/extracted/pkg/tests/copied.xtest.tsx",
+      'export default (<Suite name="s"><Fact name="copied">{() => {}}</Fact></Suite>);',
+    );
+    write(
+      root,
+      "tspack-artifacts/unpacked/tests/artifact.xtest.tsx",
+      'export default (<Suite name="s"><Fact name="artifact">{() => {}}</Fact></Suite>);',
+    );
+
+    const result = discoverNativeTestFiles({ rootDir: root });
+
+    expect(
+      result.files.map((file) => path.relative(root, file.filePath)),
+    ).toEqual([path.join("tests", "root.xtest.tsx")]);
+    expect(
+      result.files.flatMap((file) => file.tests.map((test) => test.id)),
+    ).toEqual(["tests/root.xtest.tsx::s/root"]);
+  });
+
   it("discovers valid/invalid and ignores conventional test/spec files", () => {
     const root = makeDir();
     write(

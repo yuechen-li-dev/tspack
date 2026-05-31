@@ -2,7 +2,7 @@
 format = 1
 
 [[package]]
-ID = 'workspace:@tspack-examples/runtime-switch-ui#4021737fc7a7a5d021eba24ca20739746c48c3d03c1a1ce42f9b508ba1bb7618'
+ID = 'workspace:@tspack-examples/runtime-switch-ui#3f006ed91aef579d7dd2d3e020c9432ee04bf249bac9b0f20235abd14611c111'
 Name = '@tspack-examples/runtime-switch-ui'
 Version = '0.1.0'
 Source = 'workspace'
@@ -12,11 +12,11 @@ Rev = ''
 TreeHash = ''
 Path = '.'
 Workspace = '@tspack-examples/runtime-switch-ui'
-Hash = 'sha256:4021737fc7a7a5d021eba24ca20739746c48c3d03c1a1ce42f9b508ba1bb7618'
+Hash = 'sha256:3f006ed91aef579d7dd2d3e020c9432ee04bf249bac9b0f20235abd14611c111'
 
 [[edge]]
 From = '@tspack-examples/runtime-switch-app:target:app'
-To = 'workspace:@tspack-examples/runtime-switch-ui#4021737fc7a7a5d021eba24ca20739746c48c3d03c1a1ce42f9b508ba1bb7618'
+To = 'workspace:@tspack-examples/runtime-switch-ui#3f006ed91aef579d7dd2d3e020c9432ee04bf249bac9b0f20235abd14611c111'
 Kind = 'runtime'
 Optional = false
 

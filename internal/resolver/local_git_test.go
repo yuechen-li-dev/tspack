@@ -102,6 +102,27 @@ func TestPathPositiveNegativeAndDeterminism(t *testing.T) {
 	mustCode(t, invalidRes, "TSPACK_RESOLVE_PATH_PACKAGE_JSON_INVALID")
 }
 
+func TestPathHashIgnoresGeneratedLockfile(t *testing.T) {
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"dep-path","version":"1.0.0"}`), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "ts-lock.toml"), []byte("# first generated lockfile\n"), 0o644)
+
+	first, ok := hashDirectory(root)
+	if !ok {
+		t.Fatalf("expected first hash")
+	}
+
+	_ = os.WriteFile(filepath.Join(root, "ts-lock.toml"), []byte("# second generated lockfile\n"), 0o644)
+	second, ok := hashDirectory(root)
+	if !ok {
+		t.Fatalf("expected second hash")
+	}
+
+	if first != second {
+		t.Fatalf("expected lockfile changes to be ignored, got %q then %q", first, second)
+	}
+}
+
 func TestWorkspaceResolveAndMissing(t *testing.T) {
 	res := ResolveNPM(context.Background(), ResolverOptions{Mode: ResolveModeUpdate, Client: buildFakeRegistry()}, ResolveRequest{Graph: localGraph(".", []manifest.DependencyIntent{{Key: "dep", Kind: "dep", Source: manifest.Source{Kind: "workspace", Name: "app"}}}, []string{"dep"})})
 	if len(res.Lock.Packages) != 1 || res.Lock.Packages[0].Source != "workspace" || res.Lock.Packages[0].Hash == "" {

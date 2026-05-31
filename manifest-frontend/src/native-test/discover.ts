@@ -396,7 +396,13 @@ export function discoverNativeTestFile(filePath: string): DiscoveryResult {
   };
 }
 
-const defaultIgnore = new Set(["node_modules", ".git", "dist"]);
+const defaultIgnore = new Set([
+  "node_modules",
+  ".git",
+  ".tspack",
+  "dist",
+  "tspack-artifacts",
+]);
 export function discoverNativeTestFiles(
   options: DiscoverOptions,
 ): DiscoverFilesResult {

@@ -103,7 +103,7 @@ func hasXTests(root string) bool {
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if name == "node_modules" || name == ".git" || name == "dist" {
+			if ignoredTestDiscoveryDir(name) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -115,6 +115,15 @@ func hasXTests(root string) bool {
 		return nil
 	})
 	return found
+}
+
+func ignoredTestDiscoveryDir(name string) bool {
+	switch name {
+	case "node_modules", ".git", ".tspack", "dist", "tspack-artifacts":
+		return true
+	default:
+		return false
+	}
 }
 
 func vitestAvailable(root string) bool {
