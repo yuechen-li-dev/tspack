@@ -520,16 +520,54 @@ The migrate release smoke must cover package.json script classification without 
 - Verify lifecycle scripts appear in the security section and no marker-file script is executed.
 - Verify `manifest.migrated.tsx` contains `MIGRATION_TODO_RUN_TARGETS` but no active `<RunTargets>` rows by default.
 
-### Runtime profile smoke
+### M42 runtime profile smoke
 
-Release gate smoke should cover the M42a runtime profile seam:
+Release gate smoke should cover the closed M42 runtime profile arc documented in `docs/claude-fooding-runtime-profiles.md`.
+
+#### Workspace runtime parsing
 
 - `<Workspace runtime="nodejs">`, `<Workspace runtime="bun">`, and `<Workspace runtime="deno">` parse and validate.
 - Omitted workspace runtime defaults to `nodejs` in normalized IR / Go model.
 - Invalid runtime profile values such as `npm`, `pnpm`, and `yarn` are rejected with `TSPACK_MANIFEST_INVALID_RUNTIME_PROFILE` or the manifest validation equivalent.
-- `tspack doctor runtime --json` reports `selected`, `executable`, `available`, `status`, `lifecycleOwner: "tspack"`, and `packageManagerDelegated: false`.
+
+#### `doctor runtime`
+
+- `tspack doctor runtime --json` reports selected `nodejs`, `bun`, and `deno` for matching fixtures.
+- JSON shape includes `selected`, `executable`, `available`, `status`, `lifecycleOwner: "tspack"`, `packageManagerDelegated: false`, `dependencyResolution: "TSPack"`, `lockfile: "ts-lock.toml"`, `materialization: "TSPack"`, and `securityPolicy: "TSPack"`.
 - Missing non-selected Bun/Deno executables do not create warning noise.
-- `update`, `sync`, `check`, `pack`, native xTest, inspect bridge, and explicit RunTarget runtime behavior remain unchanged.
+
+#### Node baseline
+
+- Omitted workspace runtime and explicit `<Workspace runtime="nodejs">` normalize equivalently, including `Workspace.Runtime`.
+- Existing behavior is preserved for check, pack, why, run, native xTest, inspect/JS bridge paths, and doctor.
+- Runtime profile metadata does not appear in generated package metadata.
+
+#### Bun proof
+
+- Explicit `RunTarget.runtime: "bun"` invokes `bun <declared argv>`, preserves cwd/env/readiness behavior, and does not run package scripts.
+- Missing Bun fails before fallback with `TSPACK_RUN_RUNTIME_NOT_FOUND`.
+- Guardrails verify no `bun install`, `bun add`, `bun pm`, Bun lock handling, Bun resolver behavior, Bun materialization, or Bun package-manager command path was introduced.
+
+#### Deno proof
+
+- Explicit `RunTarget.runtime: "deno"` invokes `deno <declared argv>`, preserves cwd/env/readiness behavior, and does not run `deno task`.
+- Missing Deno fails before fallback with `TSPACK_RUN_RUNTIME_NOT_FOUND`.
+- Guardrails verify no `deno task`, `deno install`, `deno add`, `deno cache`, `deno vendor`, deno.json handling, deno.lock handling, import-map handling, JSR resolver, `npm:` resolver, Deno materialization, or Deno package-manager command path was introduced.
+
+#### Runtime switch fixture
+
+- `fixtures/valid/runtime-switch-nodejs/manifest.tsx`, `fixtures/valid/runtime-switch-bun/manifest.tsx`, and `fixtures/valid/runtime-switch-deno/manifest.tsx` differ only by the `<Workspace runtime="nodejs" | "bun" | "deno">` value.
+- Normalized IR for the three fixtures differs only in `Workspace.Runtime`.
+- `tspack check`, `tspack pack`, `tspack pack --verify`, `tspack why left-pad`, and `tspack why --json left-pad` stay stable across runtime profiles.
+- Generated `package/package.json` metadata stays stable and does not contain workspace runtime profile metadata.
+- Explicit runtime RunTargets stay explicit and stable: Node/local-bin semantics for `runtime: "node"`, direct argv execution for `runtime: "system"`, `bun <declared argv>` for `runtime: "bun"`, and `deno <declared argv>` for `runtime: "deno"`.
+
+#### Guardrails
+
+- No package-manager delegation is introduced; the release gate must preserve the explicit phrase: no package-manager delegation. `packageManagerDelegated` remains `false`.
+- No workspace-runtime inheritance into RunTargets exists yet.
+- No native xTest runtime switching or JavaScript bridge/runtime switching is introduced.
+- No materializer, resolver, lockfile schema, package metadata, package-manager mutation, npm/npx fallback, Bun package-manager, or Deno task/cache/vendor behavior changes are introduced.
 
 ### M42e runtime switch demo smoke
 

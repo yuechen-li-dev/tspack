@@ -4,7 +4,7 @@
 
 Change runtime profile, keep project contract.
 
-The M42e demo fixture family proves that the same project can be represented as Node.js, Bun, or Deno by changing only the `<Workspace runtime="...">` value. TSPack still owns dependency resolution, `ts-lock.toml`, materialization, checks, pack, lifecycle policy, and package-manager semantics.
+The M42e demo fixture family proves that the same project can be represented as Node.js, Bun, or Deno by changing only the `<Workspace runtime="...">` value. TSPack still owns dependency resolution, `ts-lock.toml`, materialization, checks, pack, lifecycle policy, and package-manager semantics. The full M42 closeout is in [Runtime Profile Closeout](claude-fooding-runtime-profiles.md).
 
 ## One-line switch
 
