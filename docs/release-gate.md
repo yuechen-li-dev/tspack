@@ -584,3 +584,7 @@ The M42e runtime portability release smoke must prove the one-line switch demo w
 - Missing explicit Bun or Deno executables fail with `TSPACK_RUN_RUNTIME_NOT_FOUND`; missing non-selected runtimes do not affect check, pack, or why.
 - Guardrail review/tests verify no `bun install`, `bun add`, `bun pm`, `deno task`, `deno install`, `deno add`, `deno cache`, `deno vendor`, Bun lockfile handling, Deno lockfile handling, resolver changes, materializer changes, package-manager mutation, npm/npx fallback, native xTest runtime switching, or JavaScript bridge runtime switching was introduced.
 - `tspack migrate` continues to omit `runtime="nodejs"` by default and does not infer Bun or Deno runtime from package-manager or runtime-owned config files.
+
+## Dogfooding smoke: Runtime Switch Notes
+
+Before release, run the command matrix in `examples/runtime-switch-notes/DOGFOODING.md` or refresh it when behavior changes. The sample links runtime-profile switching, RunTargets, native xTest, inspect source hints, pack verification, why, security, and format/lint checks in one intentionally small project.

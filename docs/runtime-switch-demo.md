@@ -88,3 +88,7 @@ tspack run bun-hello --once
 ```sh
 tspack run deno-hello --once
 ```
+
+## Dogfooding sample
+
+For a concrete small project that exercises runtime profiles together with explicit Node.js, Bun, and Deno RunTargets, see `examples/runtime-switch-notes/`. The sample records real command results in `examples/runtime-switch-notes/DOGFOODING.md` and is intended to remain a release smoke.

@@ -1,0 +1,19 @@
+body {
+  color: #172033;
+  font-family: system-ui, sans-serif;
+  margin: 2rem;
+}
+
+main {
+  max-width: 44rem;
+}
+
+.runtime-card {
+  border: 1px solid #d6dbe6;
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+}
+
+button {
+  margin: 1rem 0;
+}

@@ -1,0 +1,9 @@
+{
+  "buttonName": "New note",
+  "roles": [
+    "main",
+    "region",
+    "button"
+  ],
+  "rootComponent": "RuntimeSwitchNotes"
+}

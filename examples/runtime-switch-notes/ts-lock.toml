@@ -1,0 +1,31 @@
+[lock]
+format = 1
+tool = "tspack"
+
+[[package]]
+id = "workspace:@tspack-examples/runtime-switch-ui#fixture"
+name = "@tspack-examples/runtime-switch-ui"
+source = "workspace"
+hash = "fixture-runtime-switch-ui"
+workspace = "runtime-switch-notes"
+
+[[edge]]
+from = "@tspack-examples/runtime-switch-app:target:app"
+to = "workspace:@tspack-examples/runtime-switch-ui#fixture"
+kind = "runtime"
+
+[[target]]
+package = "@tspack-examples/runtime-switch-app"
+name = "app"
+export = "."
+entry = "src/app/index.ts"
+runtime = "public/app.js"
+types = "public/app.d.ts"
+
+[[target]]
+package = "@tspack-examples/runtime-switch-ui"
+name = "ui"
+export = "."
+entry = "src/ui/index.ts"
+runtime = "dist/ui/index.js"
+types = "dist/ui/index.d.ts"
