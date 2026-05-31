@@ -576,3 +576,30 @@ func mustFileExist(t *testing.T, path string) {
 		t.Fatalf("expected file %s: %v", path, err)
 	}
 }
+
+func TestRuntimeSwitchPackStability(t *testing.T) {
+	profiles := []string{"nodejs", "bun", "deno"}
+	results := make(map[string]runtimeBaselinePackResult)
+
+	for _, profile := range profiles {
+		results[profile] = packRuntimeBaselineFixture(t, "runtime-switch-"+profile)
+	}
+
+	baseline := results["nodejs"]
+	for _, profile := range []string{"bun", "deno"} {
+		current := results[profile]
+		if baseline.hash != current.hash {
+			t.Fatalf("nodejs and %s pack hashes differ: %s != %s", profile, baseline.hash, current.hash)
+		}
+		if !bytes.Equal(baseline.packageJSON, current.packageJSON) {
+			t.Fatalf("nodejs and %s package.json differ:\nnodejs=%s\n%s=%s", profile, string(baseline.packageJSON), profile, string(current.packageJSON))
+		}
+	}
+
+	for profile, result := range results {
+		packageJSON := result.packageJSON
+		if bytes.Contains(packageJSON, []byte("runtime\"")) || bytes.Contains(packageJSON, []byte("nodejs")) || bytes.Contains(packageJSON, []byte("bun")) || bytes.Contains(packageJSON, []byte("deno")) {
+			t.Fatalf("workspace runtime profile leaked into %s package.json: %s", profile, string(packageJSON))
+		}
+	}
+}

@@ -30,7 +30,7 @@ Core thesis: **Declare targets. Resolve sources. Enforce boundaries. Lock realit
 - `ts-lock.toml` is resolved truth.
 - `node_modules` is a generated compatibility artifact, not source of truth.
 - Fetch is not execute: dependency lifecycle scripts are not run by default.
-- Workspace `runtime` selects `nodejs`, `bun`, or `deno` as a runtime profile; TSPack still owns dependency resolution, lockfiles, materialization, checks, packing, and lifecycle policy.
+- Workspace `runtime` selects `nodejs`, `bun`, or `deno` as a runtime profile; TSPack still owns dependency resolution, lockfiles, materialization, checks, packing, and lifecycle policy. See `docs/runtime-switch-demo.md` for the one-line runtime switch fixture.
 
 ## Non-goals (current)
 

@@ -16,6 +16,12 @@ Allowed values are:
 
 If `runtime` is omitted, TSPack defaults the workspace runtime profile to `nodejs`.
 
+## Runtime switch demo (M42e)
+
+The fixture family documented in [Runtime Switch Demo](runtime-switch-demo.md) demonstrates the one-line portability claim: change `<Workspace runtime="nodejs">` to `<Workspace runtime="bun">` or `<Workspace runtime="deno">` while keeping the project contract stable. The manifests differ only by the workspace runtime value, normalized IR differs only in `Workspace.Runtime`, and check/pack/why/package metadata remain stable across the three profiles.
+
+M42e does not add workspace-runtime inheritance into RunTargets. Explicit RunTarget runtime declarations continue to win: a workspace declared as `runtime="deno"` can still have a `runtime: "bun"` RunTarget, and TSPack launches Bun for that target.
+
 ## Node.js baseline (M42b)
 
 `nodejs` is the compatibility/default profile. These two workspace declarations are behaviorally equivalent for current supported commands:

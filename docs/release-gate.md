@@ -530,3 +530,19 @@ Release gate smoke should cover the M42a runtime profile seam:
 - `tspack doctor runtime --json` reports `selected`, `executable`, `available`, `status`, `lifecycleOwner: "tspack"`, and `packageManagerDelegated: false`.
 - Missing non-selected Bun/Deno executables do not create warning noise.
 - `update`, `sync`, `check`, `pack`, native xTest, inspect bridge, and explicit RunTarget runtime behavior remain unchanged.
+
+### M42e runtime switch demo smoke
+
+The M42e runtime portability release smoke must prove the one-line switch demo without introducing package-manager switching:
+
+- `fixtures/valid/runtime-switch-nodejs/manifest.tsx`, `fixtures/valid/runtime-switch-bun/manifest.tsx`, and `fixtures/valid/runtime-switch-deno/manifest.tsx` differ only by the `<Workspace runtime="nodejs" | "bun" | "deno">` value.
+- Normalized IR for the three fixtures differs only in `Workspace.Runtime`.
+- `tspack check` is stable across the three runtime profiles and does not produce runtime-profile noise.
+- `tspack pack` and `tspack pack --verify` are stable across the three runtime profiles; generated `package/package.json` does not contain workspace runtime profile metadata such as `nodejs`, `bun`, or `deno`.
+- `tspack why left-pad` and `tspack why --json left-pad` explain the same dependency graph across runtime profiles.
+- `tspack doctor runtime --json` reports selected `nodejs`, `bun`, and `deno` for the corresponding fixture and keeps `lifecycleOwner: tspack` and `packageManagerDelegated: false` for all three.
+- Explicit runtime RunTargets use their declared runtime: Node/local-bin semantics for `runtime: "node"`, `bun <declared argv>` for `runtime: "bun"`, `deno <declared argv>` for `runtime: "deno"`, and direct argv execution for `runtime: "system"`.
+- Workspace runtime does not override explicit target runtime; for example, `runtime="deno"` at the workspace level does not change a `runtime: "bun"` RunTarget.
+- Missing explicit Bun or Deno executables fail with `TSPACK_RUN_RUNTIME_NOT_FOUND`; missing non-selected runtimes do not affect check, pack, or why.
+- Guardrail review/tests verify no `bun install`, `bun add`, `bun pm`, `deno task`, `deno install`, `deno add`, `deno cache`, `deno vendor`, Bun lockfile handling, Deno lockfile handling, resolver changes, materializer changes, package-manager mutation, npm/npx fallback, native xTest runtime switching, or JavaScript bridge runtime switching was introduced.
+- `tspack migrate` continues to omit `runtime="nodejs"` by default and does not infer Bun or Deno runtime from package-manager or runtime-owned config files.
