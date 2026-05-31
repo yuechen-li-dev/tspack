@@ -562,6 +562,19 @@ func loadManifestAndGraph(opts Options) (*manifest.ManifestIR, *graph.WorkspaceG
 	return ir, g, append([]diag.Diagnostic{}, gd...)
 }
 
+func manifestFrontendCLIPath() string {
+	candidates := []string{
+		filepath.Join("manifest-frontend", "dist", "src", "cli.js"),
+		filepath.Join("manifest-frontend", "dist", "cli.js"),
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return candidates[0]
+}
+
 func loadManifestIR(opts Options) (*manifest.ManifestIR, []diag.Diagnostic) {
 	if opts.ManifestIRPath != "" {
 		b, err := os.ReadFile(opts.ManifestIRPath)
@@ -572,7 +585,7 @@ func loadManifestIR(opts Options) (*manifest.ManifestIR, []diag.Diagnostic) {
 	}
 	cliPath := opts.FrontendCLIPath
 	if cliPath == "" {
-		cliPath = filepath.Join("manifest-frontend", "dist", "src", "cli.js")
+		cliPath = manifestFrontendCLIPath()
 	}
 	if _, err := os.Stat(cliPath); err != nil {
 		return nil, []diag.Diagnostic{errDiag("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", "manifest frontend CLI not found; run `cd manifest-frontend && npm run build`", cliPath)}

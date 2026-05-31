@@ -1,0 +1,32 @@
+<main
+  data-tspack-source="src/app/index.ts:12:3"
+  data-tspack-component="RuntimeSwitchNotes"
+  data-tspack-symbol="RuntimeSwitchNotes.App"
+>
+  <h1>Runtime Switch Notes</h1>
+  <section aria-label="Runtime status">
+    <article class="runtime-card" data-runtime="Node.js">
+      <h2>Node.js</h2>
+      <p>RunTarget: <code>node-server</code></p>
+      <p>Port: 4171</p>
+      <p>Status: ready</p>
+    </article>
+    <article class="runtime-card" data-runtime="Bun">
+      <h2>Bun</h2>
+      <p>RunTarget: <code>bun-server</code></p>
+      <p>Port: 4172</p>
+      <p>Status: optional</p>
+    </article>
+    <article class="runtime-card" data-runtime="Deno">
+      <h2>Deno</h2>
+      <p>RunTarget: <code>deno-server</code></p>
+      <p>Port: 4173</p>
+      <p>Status: optional</p>
+    </article>
+  </section>
+  <button type="button" data-tspack-component="NewNoteButton">New note</button>
+  <ul aria-label="Sample notes">
+    <li data-note-id="note-1">Switch the workspace runtime profile with one manifest line.</li>
+    <li data-note-id="note-2">RunTargets stay explicit about node, bun, and deno.</li>
+  </ul>
+</main>
