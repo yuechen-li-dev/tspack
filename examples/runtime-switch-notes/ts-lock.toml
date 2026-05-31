@@ -1,31 +1,37 @@
 [lock]
 format = 1
-tool = "tspack"
 
 [[package]]
-id = "workspace:@tspack-examples/runtime-switch-ui#fixture"
-name = "@tspack-examples/runtime-switch-ui"
-source = "workspace"
-hash = "fixture-runtime-switch-ui"
-workspace = "runtime-switch-notes"
+ID = 'workspace:@tspack-examples/runtime-switch-ui#4021737fc7a7a5d021eba24ca20739746c48c3d03c1a1ce42f9b508ba1bb7618'
+Name = '@tspack-examples/runtime-switch-ui'
+Version = '0.1.0'
+Source = 'workspace'
+Integrity = ''
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = '.'
+Workspace = '@tspack-examples/runtime-switch-ui'
+Hash = 'sha256:4021737fc7a7a5d021eba24ca20739746c48c3d03c1a1ce42f9b508ba1bb7618'
 
 [[edge]]
-from = "@tspack-examples/runtime-switch-app:target:app"
-to = "workspace:@tspack-examples/runtime-switch-ui#fixture"
-kind = "runtime"
+From = '@tspack-examples/runtime-switch-app:target:app'
+To = 'workspace:@tspack-examples/runtime-switch-ui#4021737fc7a7a5d021eba24ca20739746c48c3d03c1a1ce42f9b508ba1bb7618'
+Kind = 'runtime'
+Optional = false
 
 [[target]]
-package = "@tspack-examples/runtime-switch-app"
-name = "app"
-export = "."
-entry = "src/app/index.ts"
-runtime = "public/app.js"
-types = "public/app.d.ts"
+Package = '@tspack-examples/runtime-switch-app'
+Name = 'app'
+Export = '.'
+Entry = 'src/app/index.ts'
+Runtime = 'public/app.js'
+Types = 'public/app.d.ts'
 
 [[target]]
-package = "@tspack-examples/runtime-switch-ui"
-name = "ui"
-export = "."
-entry = "src/ui/index.ts"
-runtime = "dist/ui/index.js"
-types = "dist/ui/index.d.ts"
+Package = '@tspack-examples/runtime-switch-ui'
+Name = 'ui'
+Export = '.'
+Entry = 'src/ui/index.ts'
+Runtime = 'dist/ui/index.js'
+Types = 'dist/ui/index.d.ts'

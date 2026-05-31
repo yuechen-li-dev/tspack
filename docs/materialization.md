@@ -80,6 +80,8 @@ M11: `tspack sync` invokes the materializer. `node_modules` remains a compatibil
 
 Update/sync relationship: a successful `tspack update` now resolves dependencies and populates store artifacts required by the lockfile so `tspack sync` can materialize without manual store priming.
 
+When `tspack update` populates the store from local `path` or `workspace` sources, TSPack-managed internal artifact directories are not package source content. Store hashing and copying skip `.tspack/`, `tspack-artifacts/`, `.git/`, and `node_modules/`, and the copy helper also skips a destination subtree if the destination is inside the source root. This is internal artifact protection, not a publish exclude policy: ordinary package content such as checked-in `dist/**` files remains eligible for store population and later materialization.
+
 ## CLI compatibility hardening (M28)
 
 M28 preserves package executable behavior and generates strict root `.bin` entries.

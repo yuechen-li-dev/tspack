@@ -143,3 +143,83 @@ func makeTarballWithMode(t *testing.T, files map[string]fileSpec) []byte {
 	_ = gz.Close()
 	return buf.Bytes()
 }
+
+func TestPathTreeArtifactSkipsInternalDirsAndKeepsDist(t *testing.T) {
+	root := t.TempDir()
+	mustMkdir(t, filepath.Join(root, ".tspack", "store"))
+	mustMkdir(t, filepath.Join(root, "tspack-artifacts"))
+	mustMkdir(t, filepath.Join(root, "dist"))
+	mustWrite(t, filepath.Join(root, ".tspack", "store", "sentinel.txt"), "internal")
+	mustWrite(t, filepath.Join(root, "tspack-artifacts", "sentinel.txt"), "internal")
+	mustWrite(t, filepath.Join(root, "dist", "index.js"), "export const value = 1;\n")
+	mustWrite(t, filepath.Join(root, "src.ts"), "export const source = true;\n")
+
+	s, _ := Open(filepath.Join(root, ".tspack", "store"))
+	ref, diags := s.PutArtifact(Artifact{Kind: ArtifactPathTree, RootDir: root})
+	if len(diags) > 0 {
+		t.Fatalf("diags: %v", diags)
+	}
+
+	mustExist(t, filepath.Join(ref.ExtractedPath, "src.ts"))
+	mustExist(t, filepath.Join(ref.ExtractedPath, "dist", "index.js"))
+	mustNotExist(t, filepath.Join(ref.ExtractedPath, ".tspack"))
+	mustNotExist(t, filepath.Join(ref.ExtractedPath, "tspack-artifacts"))
+}
+
+func TestCopyTreeRejectsSourceAsDestination(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "package.json"), `{"name":"local","version":"1.0.0"}`)
+
+	diags := copyTree(root, root)
+	if len(diags) == 0 || diags[0].Code != "TSPACK_STORE_SELF_COPY_DETECTED" {
+		t.Fatalf("expected self-copy diagnostic, got %v", diags)
+	}
+
+	mustExist(t, filepath.Join(root, "package.json"))
+}
+
+func TestCopyTreeSkipsDestinationInsideSource(t *testing.T) {
+	root := t.TempDir()
+	dest := filepath.Join(root, "nested", "dest")
+	mustWrite(t, filepath.Join(root, "package.json"), `{"name":"local","version":"1.0.0"}`)
+	mustWrite(t, filepath.Join(dest, "old.txt"), "old")
+
+	diags := copyTree(root, dest)
+	if len(diags) > 0 {
+		t.Fatalf("diags: %v", diags)
+	}
+
+	mustExist(t, filepath.Join(dest, "package.json"))
+	mustNotExist(t, filepath.Join(dest, "nested", "dest", "old.txt"))
+}
+
+func mustMkdir(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", path, err)
+	}
+}
+
+func mustWrite(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir parent %s: %v", path, err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func mustExist(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected %s to exist: %v", path, err)
+	}
+}
+
+func mustNotExist(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("expected %s to be absent, got %v", path, err)
+	}
+}

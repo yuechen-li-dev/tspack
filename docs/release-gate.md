@@ -588,3 +588,9 @@ The M42e runtime portability release smoke must prove the one-line switch demo w
 ## Dogfooding smoke: Runtime Switch Notes
 
 Before release, run the command matrix in `examples/runtime-switch-notes/DOGFOODING.md` or refresh it when behavior changes. The sample links runtime-profile switching, RunTargets, native xTest, inspect source hints, pack verification, why, security, and format/lint checks in one intentionally small project.
+
+M43b update/store regression smoke must also verify:
+
+- `go run ./cmd/tspack update --root examples/runtime-switch-notes` completes without recursively copying `.tspack/store` into itself.
+- Local workspace/path source store population excludes TSPack-managed internal artifact directories such as `.tspack/` and `tspack-artifacts/` while preserving package content such as checked-in `dist/**` files.
+- The local source copy helper skips a destination subtree when the copy destination is inside the source root, so store layout changes cannot reintroduce self-copy recursion.

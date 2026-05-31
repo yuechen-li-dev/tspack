@@ -292,7 +292,7 @@ func hashDirectory(root string) (string, error) {
 		if rel == "." {
 			return nil
 		}
-		if d.IsDir() && (d.Name() == ".git" || d.Name() == "node_modules") {
+		if d.IsDir() && shouldSkipLocalArtifactDir(d.Name()) {
 			return filepath.SkipDir
 		}
 		if d.Type()&os.ModeSymlink != 0 {
@@ -320,22 +320,44 @@ func hashDirectory(root string) (string, error) {
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
 func copyTree(root, dest string) []diag.Diagnostic {
-	if err := os.RemoveAll(dest + ".tmp"); err != nil {
-		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", err.Error())}
+	cleanRoot, rootErr := filepath.Abs(filepath.Clean(root))
+	if rootErr != nil {
+		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", rootErr.Error())}
+	}
+	cleanDest, destErr := filepath.Abs(filepath.Clean(dest))
+	if destErr != nil {
+		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", destErr.Error())}
 	}
 	tmp := dest + ".tmp"
+	cleanTmp, tmpErr := filepath.Abs(filepath.Clean(tmp))
+	if tmpErr != nil {
+		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", tmpErr.Error())}
+	}
+	if cleanRoot == cleanDest {
+		return []diag.Diagnostic{errDiag("TSPACK_STORE_SELF_COPY_DETECTED", "store copy source and destination are the same path")}
+	}
+	if err := os.RemoveAll(tmp); err != nil {
+		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", err.Error())}
+	}
 	if err := os.MkdirAll(tmp, 0o755); err != nil {
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", err.Error())}
 	}
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(cleanRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, _ := filepath.Rel(root, path)
+		pathAbs, absErr := filepath.Abs(filepath.Clean(path))
+		if absErr != nil {
+			return absErr
+		}
+		rel, _ := filepath.Rel(cleanRoot, pathAbs)
 		if rel == "." {
 			return nil
 		}
-		if d.IsDir() && (d.Name() == ".git" || d.Name() == "node_modules") {
+		if d.IsDir() && (isSameOrWithin(pathAbs, cleanDest) || isSameOrWithin(pathAbs, cleanTmp)) {
+			return filepath.SkipDir
+		}
+		if d.IsDir() && shouldSkipLocalArtifactDir(d.Name()) {
 			return filepath.SkipDir
 		}
 		if d.Type()&os.ModeSymlink != 0 {
@@ -374,6 +396,24 @@ func copyTree(root, dest string) []diag.Diagnostic {
 	}
 	return nil
 }
+
+func shouldSkipLocalArtifactDir(name string) bool {
+	switch name {
+	case ".git", ".tspack", "node_modules", "tspack-artifacts":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSameOrWithin(path, parent string) bool {
+	rel, err := filepath.Rel(parent, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
 func sortCaps(c []lockfile.Capability) {
 	sort.SliceStable(c, func(i, j int) bool {
 		if c[i].Kind != c[j].Kind {
