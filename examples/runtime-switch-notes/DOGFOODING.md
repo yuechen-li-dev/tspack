@@ -90,10 +90,88 @@
 - DOGFOOD_DOCS: Update RunTarget runtime docs to consistently include `bun` and `deno`.
 - DOGFOOD_FRICTION: Provide a documented way for examples to opt into the default Biome backend without package-manager pretzeling.
 
+## M43e rerun after M43b/M43c/M43d
+
+### Environment
+
+- Date: 2026-05-31 in the Codex container.
+- Node.js: available at `/root/.nvm/versions/node/v24.15.0/bin/node`, version `v24.15.0`.
+- Bun: available at `/root/.local/share/mise/installs/bun/1.2.14/bin/bun`, version `1.2.14`.
+- Deno: not available on `PATH`.
+- Playwright package: available through the manifest frontend dependency set, but Chromium browser executables are not installed in the container.
+- Biome: no example-local `@biomejs/biome` install and no `biome` executable on `PATH`.
+
+### Prep and repository checks
+
+| command | result | notes |
+| --- | --- | --- |
+| `rm -rf examples/runtime-switch-notes/.tspack examples/runtime-switch-notes/tspack-artifacts tspack-artifacts` | pass | Removed generated state before the rerun. |
+| `cd manifest-frontend && npm run build` | pass | Built the canonical manifest, native-test, and inspect bridge outputs. npm still warns about an unknown `http-proxy` env config. |
+| `test -f manifest-frontend/dist/cli.js` | pass | Verified the manifest bridge emitted by the documented build. |
+| `test -f manifest-frontend/dist/inspect-cli.js` | pass | Verified the inspect bridge emitted by the documented build. |
+| `test -f manifest-frontend/dist/native-test-cli.js` | pass | Verified the native xTest bridge emitted by the documented build. |
+| `cd manifest-frontend && npm run typecheck:manifest-api` | pass | Manifest API type surface still typechecks. |
+| `cd manifest-frontend && npm test` | pass | 157 passed, 9 skipped. Skips were expected Playwright/host integration skips in this container. |
+| `cd extensions/tspack-vscode && npm test` | pass | 35 extension tests passed. |
+| `cd extensions/tspack-vscode && npm run compile` | pass | Extension TypeScript compile passed. |
+| `go test ./...` | pass | Go test suite passed before the M43e fixes. After the M43e fixes, focused Go tests for the changed packages passed and the final full suite was rerun. |
+
+### Dogfood matrix results
+
+| command | result | notes |
+| --- | --- | --- |
+| `go run ./cmd/tspack update --root examples/runtime-switch-notes` | pass | With a clean `.tspack`, update completed with `lockfile diff: +0 -0`; no `file name too long` and no nested `.tspack/store/**/.tspack/store`. |
+| `go run ./cmd/tspack update --root examples/runtime-switch-notes` | pass | A second update was idempotent with `lockfile diff: +0 -0`. M43e fixed a lockfile hash feedback loop found during the rerun. |
+| `go run ./cmd/tspack check --root examples/runtime-switch-notes` | pass | Check passed after update. |
+| `go run ./cmd/tspack check --root examples/runtime-switch-notes --format` | expected environment/tool fail | `TSPACK_BIOME_BACKEND_NOT_FOUND`; clear diagnostic, and the example intentionally does not add Biome just to turn this green. |
+| `go run ./cmd/tspack doctor runtime --root examples/runtime-switch-notes` | pass | Selected runtime profile is `nodejs`; TSPack owns resolution, lockfile, materialization, lifecycle policy, security policy, check, and pack; `packageManagerDelegated: false`. |
+| `go run ./cmd/tspack doctor run --root examples/runtime-switch-notes` | pass | Node and Bun available; Deno unavailable as a warning. Explicit RunTargets remain explicit and report their URLs/readiness. |
+| `go run ./cmd/tspack doctor security --root examples/runtime-switch-notes` | pass | Security manifest loaded, no lifecycle capabilities recorded, lifecycle execution posture is blocked by default. |
+| `go run ./cmd/tspack doctor format --root examples/runtime-switch-notes` | expected environment/tool fail | Biome backend missing; config warning says TSPack defaults would be used. |
+| `go run ./cmd/tspack run --root examples/runtime-switch-notes --list` | pass | Lists Node.js, Bun, and Deno run targets with explicit runtimes. |
+| `go run ./cmd/tspack run --root examples/runtime-switch-notes node-server --once` | pass | Node server reached stdout readiness at `http://127.0.0.1:4171`. |
+| `go run ./cmd/tspack run --root examples/runtime-switch-notes bun-server --once` | pass | Bun server reached stdout readiness at `http://127.0.0.1:4172`. |
+| `go run ./cmd/tspack run --root examples/runtime-switch-notes deno-server --once` | expected environment fail | `TSPACK_RUN_RUNTIME_NOT_FOUND` names runtime `deno`, executable `deno`, target `deno-server`, and gives an install/change-runtime hint. |
+| `go run ./cmd/tspack test --root examples/runtime-switch-notes` | pass | 4 native xTest facts passed. M43e fixed duplicate discovery of tests copied into `.tspack/store`. |
+| `go run ./cmd/tspack test --root examples/runtime-switch-notes --compact` | pass | Compact summary reports 4 passed. |
+| `go run ./cmd/tspack test --root examples/runtime-switch-notes --batch` | pass | Batch mode reports the same 4 passing facts. |
+| `go run ./cmd/tspack pack --root examples/runtime-switch-notes --package @tspack-examples/runtime-switch-ui --dry-run` | pass | Planned README, LICENSE, CHANGELOG, `dist/ui/**`, and generated package metadata. |
+| `go run ./cmd/tspack pack --root examples/runtime-switch-notes --package @tspack-examples/runtime-switch-ui --verify` | pass | Produced and verified `tspack-examples-runtime-switch-ui-0.1.0.tgz`. |
+| `go run ./cmd/tspack why --root examples/runtime-switch-notes @tspack-examples/runtime-switch-ui` | pass | Explains the app package's workspace dependency and target reachability. |
+| `go run ./cmd/tspack why --root examples/runtime-switch-notes @tspack-examples/runtime-switch-ui --json` | pass | JSON output is clean and has no diagnostics. |
+| `go run ./cmd/tspack why --root examples/runtime-switch-notes --reverse @tspack-examples/runtime-switch-ui` | pass | Reverse why reports the workspace UI package pulled by the app target. |
+| `go run ./cmd/tspack inspect http://127.0.0.1:4171 --json` | expected environment fail | With the Node server kept running, URL inspect reaches the Playwright URL backend and fails with `TSPACK_INSPECT_BROWSER_LAUNCH_FAILED`; it does not report `TSPACK_INSPECT_VSCODE_NOT_FOUND`. |
+| `go run ./cmd/tspack inspect http://127.0.0.1:4171 --selector main --json` | expected environment fail | Selector URL inspect has the same browser-executable limitation and no VS Code routing failure. |
+| `go run ./cmd/tspack format --root examples/runtime-switch-notes --check` | expected environment/tool fail | `TSPACK_BIOME_BACKEND_NOT_FOUND`. |
+| `go run ./cmd/tspack lint --root examples/runtime-switch-notes` | expected environment/tool fail | `TSPACK_BIOME_BACKEND_NOT_FOUND`. |
+
+### Fixed blockers verified
+
+- DOGFOOD_FIXED: M43b update/store recursion is verified. Update from a clean `.tspack` completed without recursive `.tspack/store` copying, without `file name too long`, and without nested `.tspack/store/**/.tspack/store` directories.
+- DOGFOOD_FIXED: M43c URL inspect routing is verified. Ordinary URL inspect now reaches the Playwright backend; this environment's failure is `TSPACK_INSPECT_BROWSER_LAUNCH_FAILED`, not `TSPACK_INSPECT_VSCODE_NOT_FOUND`.
+- DOGFOOD_FIXED: M43d bridge build/discovery is verified. The documented `cd manifest-frontend && npm run build` path emits `dist/cli.js`, `dist/inspect-cli.js`, and `dist/native-test-cli.js`, and native xTest runs through that bridge.
+- DOGFOOD_FIXED: M43e removed duplicate native xTest discovery from generated `.tspack/store` and `tspack-artifacts` trees. The sample now reports 4 facts, not 8 duplicate facts after update.
+- DOGFOOD_FIXED: M43e removed a workspace/path lock hash feedback loop by excluding generated `ts-lock.toml` from local source hashing/copying. Consecutive `update` runs now report `lockfile diff: +0 -0`.
+
+### Remaining blockers and limitations
+
+- DOGFOOD_ENV: Deno is not installed in this container. The failing Deno run command is an expected environment limitation with a clean `TSPACK_RUN_RUNTIME_NOT_FOUND` diagnostic.
+- DOGFOOD_ENV: Playwright Chromium executables are not installed in this container. URL inspect cannot complete here, but routing reaches the correct backend.
+- DOGFOOD_FRICTION: Biome is not installed for the sample. `check --format`, `doctor format`, `format --check`, and `lint` fail with clear `TSPACK_BIOME_BACKEND_NOT_FOUND` diagnostics. This remains acceptable for this sample because adding Biome would expand the example and package-manager surface.
+- DOGFOOD_FOLLOWUP: The broader app target `types: ""` versus lockfile validator mismatch remains documented historical friction; the sample still carries `public/app.d.ts` to keep lock/check green.
+- DOGFOOD_FOLLOWUP: Single-manifest multi-package projects still make `cwd: "package"` unhelpful for this shape, so the sample intentionally uses `cwd: "workspace"`.
+
+### M43e verdict
+
+Outcome A / LGTM for treating `examples/runtime-switch-notes` as a release-smoke candidate with documented environment skips/limitations.
+
+The rerun verified the targeted M43b/M43c/M43d fixes and found two tightly scoped product footguns in the real smoke path: generated test trees were being discovered, and generated lockfile contents could feed back into workspace/path hashes. Both were fixed in M43e and verified before updating this report. The remaining red commands are environment/tool availability limitations, not product blockers for this sample.
+
+
 ## Verdict
 
-Outcome A for M43d: the sample is worth keeping as a future release smoke, M43b removed the update/store recursion blocker, M43c removed the URL-inspect VS Code routing blocker, and M43d removed the bridge build/discovery mismatch. Remaining blockers are environment/tool availability items such as missing Playwright browser executables and missing Biome backend.
+Outcome A / LGTM for M43e: the sample is ready to be treated as a release-smoke candidate with documented environment skips. M43b removed the update/store recursion blocker, M43c removed the URL-inspect VS Code routing blocker, M43d removed the bridge build/discovery mismatch, and M43e removed duplicate generated-test discovery plus lockfile hash feedback discovered during the rerun. Remaining red commands are environment/tool availability items such as missing Deno, missing Playwright browser executables, and missing Biome backend.
 
 The runtime-profile thesis mostly holds for the manifest line itself: `runtime="nodejs"` is visible in `doctor runtime`, does not delegate package-manager behavior, and explicit RunTargets keep Node.js/Bun/Deno execution separate. The one-line runtime profile story is less proven for the broader workflow because inspect and format/lint surfaces still have environment-dependent gaps.
 
-Before release, the remaining highest-value fixes are the broader environment-dependent tool availability gaps. With bridge discovery aligned, this example is closer to a useful end-to-end release smoke.
+Before release closeout, keep the environment skip conditions explicit rather than installing browsers or Biome implicitly. With those skips documented, this example is a useful end-to-end release smoke.

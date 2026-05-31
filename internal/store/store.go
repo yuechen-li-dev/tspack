@@ -299,6 +299,9 @@ func hashDirectory(root string) (string, error) {
 			return nil
 		}
 		if d.Type().IsRegular() {
+			if shouldSkipLocalArtifactFile(d.Name()) {
+				return nil
+			}
 			files = append(files, rel)
 		}
 		return nil
@@ -363,6 +366,9 @@ func copyTree(root, dest string) []diag.Diagnostic {
 		if d.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
+		if d.Type().IsRegular() && shouldSkipLocalArtifactFile(d.Name()) {
+			return nil
+		}
 		out := filepath.Join(tmp, rel)
 		if d.IsDir() {
 			return os.MkdirAll(out, 0o755)
@@ -400,6 +406,15 @@ func copyTree(root, dest string) []diag.Diagnostic {
 func shouldSkipLocalArtifactDir(name string) bool {
 	switch name {
 	case ".git", ".tspack", "node_modules", "tspack-artifacts":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldSkipLocalArtifactFile(name string) bool {
+	switch name {
+	case "ts-lock.toml":
 		return true
 	default:
 		return false

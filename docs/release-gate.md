@@ -592,7 +592,8 @@ Before release, run the command matrix in `examples/runtime-switch-notes/DOGFOOD
 M43b update/store regression smoke must also verify:
 
 - `go run ./cmd/tspack update --root examples/runtime-switch-notes` completes without recursively copying `.tspack/store` into itself.
-- Local workspace/path source store population excludes TSPack-managed internal artifact directories such as `.tspack/` and `tspack-artifacts/` while preserving package content such as checked-in `dist/**` files.
+- A second consecutive `go run ./cmd/tspack update --root examples/runtime-switch-notes` is idempotent and reports `lockfile diff: +0 -0`; generated `ts-lock.toml` content must not feed back into workspace/path source hashes.
+- Local workspace/path source store population excludes TSPack-managed internal artifact directories such as `.tspack/` and `tspack-artifacts/`, plus generated `ts-lock.toml`, while preserving package content such as checked-in `dist/**` files.
 - The local source copy helper skips a destination subtree when the copy destination is inside the source root, so store layout changes cannot reintroduce self-copy recursion.
 
 
@@ -614,3 +615,4 @@ Release smoke must include URL inspect routing that does not depend on VS Code d
   - `manifest-frontend/dist/inspect-cli.js`
 - Go bridge discovery must prefer `manifest-frontend/dist/<bridge>.js` and still accept legacy `manifest-frontend/dist/src/<bridge>.js` for local/dev compatibility.
 - Release smoke should include `test -f` checks for all three bridge files, `go run ./cmd/tspack test --root examples/runtime-switch-notes`, and an inspect command that proves lookup reaches the inspect backend. In environments without Playwright browser executables, `TSPACK_INSPECT_BROWSER_LAUNCH_FAILED` is acceptable; bridge-missing diagnostics are not.
+- Native xTest discovery for the sample should report the root `tests/**` facts once and must not rediscover generated copies under `.tspack/store` or `tspack-artifacts`.

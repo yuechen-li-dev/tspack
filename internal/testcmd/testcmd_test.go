@@ -74,6 +74,31 @@ func TestRunXTestForwardsUpdateSnapshotsOnlyForRunMode(t *testing.T) {
 	}
 }
 
+func TestHasXTestsIgnoresGeneratedTSPackInternals(t *testing.T) {
+	root := t.TempDir()
+	mustWriteTestFile(t, filepath.Join(root, ".tspack", "store", "copied.xtest.tsx"))
+	mustWriteTestFile(t, filepath.Join(root, "tspack-artifacts", "copied.xtest.tsx"))
+
+	if hasXTests(root) {
+		t.Fatalf("expected generated TSPack internals to be ignored")
+	}
+
+	mustWriteTestFile(t, filepath.Join(root, "tests", "real.xtest.tsx"))
+	if !hasXTests(root) {
+		t.Fatalf("expected root tests to be discovered")
+	}
+}
+
+func mustWriteTestFile(t *testing.T, filePath string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+		t.Fatalf("mkdir test file dir: %v", err)
+	}
+	if err := os.WriteFile(filePath, []byte("export default null\n"), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+}
+
 func TestVitestUpdateSnapshotsUnsupported(t *testing.T) {
 	result := Run(Options{RootDir: t.TempDir(), UseVitest: true, UpdateSnapshots: true})
 	if result.ExitCode == 0 {

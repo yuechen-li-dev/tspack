@@ -172,6 +172,9 @@ func hashDirectory(root string) (string, bool) {
 			return nil
 		}
 		if d.Type().IsRegular() {
+			if shouldSkipLocalArtifactFile(d.Name()) {
+				return nil
+			}
 			files = append(files, rel)
 		}
 		return nil
@@ -196,6 +199,15 @@ func hashDirectory(root string) (string, bool) {
 func shouldSkipLocalArtifactDir(name string) bool {
 	switch name {
 	case ".git", ".tspack", "node_modules", "tspack-artifacts":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldSkipLocalArtifactFile(name string) bool {
+	switch name {
+	case "ts-lock.toml":
 		return true
 	default:
 		return false

@@ -151,6 +151,7 @@ func TestPathTreeArtifactSkipsInternalDirsAndKeepsDist(t *testing.T) {
 	mustMkdir(t, filepath.Join(root, "dist"))
 	mustWrite(t, filepath.Join(root, ".tspack", "store", "sentinel.txt"), "internal")
 	mustWrite(t, filepath.Join(root, "tspack-artifacts", "sentinel.txt"), "internal")
+	mustWrite(t, filepath.Join(root, "ts-lock.toml"), "# generated lockfile\n")
 	mustWrite(t, filepath.Join(root, "dist", "index.js"), "export const value = 1;\n")
 	mustWrite(t, filepath.Join(root, "src.ts"), "export const source = true;\n")
 
@@ -164,6 +165,28 @@ func TestPathTreeArtifactSkipsInternalDirsAndKeepsDist(t *testing.T) {
 	mustExist(t, filepath.Join(ref.ExtractedPath, "dist", "index.js"))
 	mustNotExist(t, filepath.Join(ref.ExtractedPath, ".tspack"))
 	mustNotExist(t, filepath.Join(ref.ExtractedPath, "tspack-artifacts"))
+	mustNotExist(t, filepath.Join(ref.ExtractedPath, "ts-lock.toml"))
+}
+
+func TestPathTreeArtifactHashIgnoresGeneratedLockfile(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "package.json"), `{"name":"local","version":"1.0.0"}`)
+	mustWrite(t, filepath.Join(root, "ts-lock.toml"), "# first generated lockfile\n")
+
+	first, err := hashDirectory(root)
+	if err != nil {
+		t.Fatalf("hash first directory: %v", err)
+	}
+
+	mustWrite(t, filepath.Join(root, "ts-lock.toml"), "# second generated lockfile\n")
+	second, err := hashDirectory(root)
+	if err != nil {
+		t.Fatalf("hash second directory: %v", err)
+	}
+
+	if first != second {
+		t.Fatalf("expected lockfile changes to be ignored, got %q then %q", first, second)
+	}
 }
 
 func TestCopyTreeRejectsSourceAsDestination(t *testing.T) {
