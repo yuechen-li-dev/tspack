@@ -294,6 +294,19 @@ func printHelp() {
 	fmt.Println("  tspack migrate [--check] [--write] [--root .] [--package-json path] [--package-lock path] [--no-lock-evidence] [--scan-source] [--no-source-scan] [--out-manifest path] [--out-report path] [--force]")
 }
 
+func manifestFrontendInspectCLIPath() string {
+	candidates := []string{
+		filepath.Join("manifest-frontend", "dist", "src", "inspect-cli.js"),
+		filepath.Join("manifest-frontend", "dist", "inspect-cli.js"),
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return candidates[0]
+}
+
 func runInspectCommand(args []string) {
 	root := "."
 	runTarget := ""
@@ -363,7 +376,7 @@ func runInspectCommand(args []string) {
 		os.Exit(1)
 	}
 
-	bridge := filepath.Join("manifest-frontend", "dist", "src", "inspect-cli.js")
+	bridge := manifestFrontendInspectCLIPath()
 	if _, err := os.Stat(bridge); err != nil {
 		fmt.Fprintln(os.Stderr, "TSPACK_INSPECT_BRIDGE_MISSING: inspect bridge not found")
 		os.Exit(1)

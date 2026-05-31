@@ -594,3 +594,13 @@ M43b update/store regression smoke must also verify:
 - `go run ./cmd/tspack update --root examples/runtime-switch-notes` completes without recursively copying `.tspack/store` into itself.
 - Local workspace/path source store population excludes TSPack-managed internal artifact directories such as `.tspack/` and `tspack-artifacts/` while preserving package content such as checked-in `dist/**` files.
 - The local source copy helper skips a destination subtree when the copy destination is inside the source root, so store layout changes cannot reintroduce self-copy recursion.
+
+
+## Inspect URL backend smoke
+
+Release smoke must include URL inspect routing that does not depend on VS Code discovery:
+
+- Start the `examples/runtime-switch-notes` node server and run `tspack inspect http://127.0.0.1:4171 --json`.
+- Run `tspack inspect http://127.0.0.1:4171 --selector main --json` against the same server.
+- Verify ordinary URL inspect reaches the Playwright URL backend; `TSPACK_INSPECT_VSCODE_NOT_FOUND` is reserved for explicit VS Code/platform-webview or related editor/backend probes.
+- If Playwright browser executables are unavailable in the environment, record the browser/backend-unavailable diagnostic as an environment limitation, not as a VS Code discovery failure.

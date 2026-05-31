@@ -185,6 +185,34 @@ export async function probeVSCodeElectronBackend(): Promise<InspectBackendProbe>
   }
 }
 
+export function isInspectUrlLike(input: string | undefined): boolean {
+  return Boolean(input && /^https?:\/\//i.test(input));
+}
+
+export function resolveInspectBackend(options: InspectOptions): InspectBackendName {
+  if (options.cdpEndpoint) {
+    return "cdp";
+  }
+
+  if (options.browser !== "auto") {
+    return options.browser;
+  }
+
+  if (options.hostPath) {
+    return "host-path";
+  }
+
+  if (options.browserPath) {
+    return "browser-path";
+  }
+
+  if (isInspectUrlLike(options.url)) {
+    return "playwright-chromium";
+  }
+
+  return "auto";
+}
+
 type PlaywrightBrowserTypeName = "chromium" | "webkit";
 
 type PlaywrightBrowserOverrides = {
@@ -210,6 +238,14 @@ async function inspectWithPlaywrightBrowser(
     browser = await browserType.launch({
       executablePath: overrides?.executablePath,
     });
+  } catch (error: unknown) {
+    if (error instanceof Error && error.message.startsWith("TSPACK_INSPECT_")) {
+      throw error;
+    }
+    throw new Error("TSPACK_INSPECT_BROWSER_LAUNCH_FAILED");
+  }
+
+  try {
     const page = await browser.newPage({
       viewport: {
         width: options.viewport.width,
@@ -244,7 +280,7 @@ async function inspectWithPlaywrightBrowser(
     }
     throw new Error("TSPACK_INSPECT_PAGE_LOAD_FAILED");
   } finally {
-    await browser?.close();
+    await browser.close();
   }
 }
 
@@ -376,13 +412,14 @@ async function inspectWithCdp(
 export async function runInspect(
   options: InspectOptions,
 ): Promise<UIInspectResult> {
-  if (options.url && !/^https?:\/\//i.test(options.url)) {
+  if (options.url && !isInspectUrlLike(options.url)) {
     throw new Error("TSPACK_INSPECT_INVALID_TARGET");
   }
 
   const hostPath = options.hostPath;
   const browserPath = options.browserPath;
-  const backend = options.browser;
+  const configuredBackend = options.browser;
+  const backend = resolveInspectBackend(options);
 
   if (hostPath && browserPath) {
     throw new Error("TSPACK_INSPECT_INVALID_BACKEND_OPTIONS");
@@ -392,15 +429,19 @@ export async function runInspect(
     throw new Error("TSPACK_INSPECT_INVALID_BACKEND_OPTIONS");
   }
 
-  if (options.cdpEndpoint && backend !== "cdp") {
+  if (
+    options.cdpEndpoint &&
+    configuredBackend !== "auto" &&
+    configuredBackend !== "cdp"
+  ) {
     throw new Error("TSPACK_INSPECT_INVALID_BACKEND_OPTIONS");
   }
 
   if (
     (hostPath || browserPath) &&
-    backend !== "auto" &&
-    backend !== "host-path" &&
-    backend !== "browser-path"
+    configuredBackend !== "auto" &&
+    configuredBackend !== "host-path" &&
+    configuredBackend !== "browser-path"
   ) {
     throw new Error("TSPACK_INSPECT_INVALID_BACKEND_OPTIONS");
   }
@@ -478,18 +519,7 @@ export async function runInspect(
   }
 
   if (backend === "auto") {
-    const probe = await probeVSCodeElectronBackend();
-    if (probe.executablePath && !probe.reason) {
-      return inspectWithChromium(options, {
-        executablePath: probe.executablePath,
-        browserName: "chromium",
-      });
-    }
-    try {
-      return await inspectWithChromium(options, { browserName: "chromium" });
-    } catch {
-      throw new Error(probe.reason ?? "TSPACK_INSPECT_BROWSER_LAUNCH_FAILED");
-    }
+    return inspectWithChromium(options, { browserName: "chromium" });
   }
 
   throw new Error("TSPACK_INSPECT_BROWSER_UNSUPPORTED");

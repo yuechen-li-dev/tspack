@@ -10,6 +10,7 @@ import { parsePoint, parseViewport } from "../src/inspect/index.js";
 import {
   buildInspectAnalyzerExpression,
   findVSCodeExecutable,
+  resolveInspectBackend,
   resolveVSCodeElectronExecutable,
   runInspect,
 } from "../src/inspect/backend.js";
@@ -234,6 +235,83 @@ describe("inspect parsing", () => {
     expect(json.endsWith("\n")).toBe(true);
   });
 
+  it("routes ordinary URL inspect to Playwright Chromium without VS Code discovery", () => {
+    const baseOptions = {
+      browser: "auto" as const,
+      viewport: { width: 800, height: 600 },
+      points: [] as Array<{ x: number; y: number }>,
+      json: true,
+    };
+
+    expect(
+      resolveInspectBackend({
+        ...baseOptions,
+        url: "http://127.0.0.1:4171",
+      }),
+    ).toBe("playwright-chromium");
+
+    expect(
+      resolveInspectBackend({
+        ...baseOptions,
+        url: "https://example.test",
+      }),
+    ).toBe("playwright-chromium");
+
+    expect(
+      resolveInspectBackend({
+        ...baseOptions,
+        url: "http://127.0.0.1:4171",
+        selector: "main",
+        points: [{ x: 20, y: 30 }],
+      }),
+    ).toBe("playwright-chromium");
+  });
+
+  it("preserves explicit VS Code, platform-webview, host-path, browser-path, and CDP routing", () => {
+    const baseOptions = {
+      url: "http://127.0.0.1:4171",
+      browser: "auto" as const,
+      viewport: { width: 800, height: 600 },
+      points: [] as Array<{ x: number; y: number }>,
+      json: true,
+    };
+
+    expect(
+      resolveInspectBackend({
+        ...baseOptions,
+        browser: "vscode",
+      }),
+    ).toBe("vscode");
+
+    expect(
+      resolveInspectBackend({
+        ...baseOptions,
+        browser: "platform-webview",
+      }),
+    ).toBe("platform-webview");
+
+    expect(
+      resolveInspectBackend({
+        ...baseOptions,
+        cdpEndpoint: "http://127.0.0.1:9222",
+      }),
+    ).toBe("cdp");
+
+    expect(
+      resolveInspectBackend({
+        ...baseOptions,
+        hostPath: "/tmp/host",
+      }),
+    ).toBe("host-path");
+
+    expect(
+      resolveInspectBackend({
+        ...baseOptions,
+        browserPath: "/tmp/browser",
+      }),
+    ).toBe("browser-path");
+  });
+
   it("builds analyzer evaluate expressions with serialized selector and point args", () => {
     const expression = buildInspectAnalyzerExpression(
       '#root[aria-label=\"A B\"]',
@@ -270,6 +348,25 @@ describe("inspect parsing", () => {
     ).rejects.toThrow(
       /TSPACK_INSPECT_(PAGE_LOAD_FAILED|BROWSER_LAUNCH_FAILED)/,
     );
+  }, 15000);
+
+  it("does not report VS Code discovery errors for ordinary auto URL inspect", async () => {
+    try {
+      await runInspect({
+        url: "http://127.0.0.1:1/unreachable",
+        browser: "auto",
+        viewport: { width: 800, height: 600 },
+        points: [],
+        json: true,
+      });
+      throw new Error("expected inspect to fail for unreachable URL");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).not.toContain("TSPACK_INSPECT_VSCODE_NOT_FOUND");
+      expect(message).toMatch(
+        /TSPACK_INSPECT_(BROWSER_LAUNCH_FAILED|PAGE_LOAD_FAILED)/,
+      );
+    }
   }, 15000);
 
   it("supports discovery and browser selection errors", async () => {
