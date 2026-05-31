@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": [],
+    "noCheck": true
+  },
+  "include": [
+    "src/cli.ts",
+    "src/index.ts",
+    "src/inspect-cli.ts",
+    "src/inspect/**/*.ts",
+    "src/native-test-cli.ts",
+    "src/native-test/**/*.ts",
+    "src/node-shims.d.ts"
+  ],
+  "exclude": ["tests"]
+}

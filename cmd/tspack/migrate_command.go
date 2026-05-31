@@ -358,16 +358,20 @@ type migrationFrontendResult struct {
 }
 
 func migrationFrontendCLIPath(repoRoot string) string {
-	candidates := []string{
-		filepath.Join(repoRoot, "manifest-frontend", "dist", "src", "cli.js"),
-		filepath.Join(repoRoot, "manifest-frontend", "dist", "cli.js"),
-	}
+	candidates := migrationFrontendCLICandidates(repoRoot)
 	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 			return candidate
 		}
 	}
 	return candidates[0]
+}
+
+func migrationFrontendCLICandidates(repoRoot string) []string {
+	return []string{
+		filepath.Join(repoRoot, "manifest-frontend", "dist", "cli.js"),
+		filepath.Join(repoRoot, "manifest-frontend", "dist", "src", "cli.js"),
+	}
 }
 
 func runMigrationManifestFrontend(frontendCLIPath string, manifestPath string) migrationFrontendResult {

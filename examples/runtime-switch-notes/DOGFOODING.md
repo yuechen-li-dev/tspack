@@ -24,7 +24,7 @@
 | `go run ./cmd/tspack run --root examples/runtime-switch-notes node-server --once` | pass | Node server reached stdout readiness on port 4171 and stopped cleanly. |
 | `go run ./cmd/tspack run --root examples/runtime-switch-notes bun-server --once` | pass | Bun server reached stdout readiness on port 4172 and stopped cleanly. |
 | `go run ./cmd/tspack run --root examples/runtime-switch-notes deno-server --once` | expected fail | `TSPACK_RUN_RUNTIME_NOT_FOUND` clearly named runtime `deno`, executable `deno`, target `deno-server`, and install/change-runtime hint. |
-| `go run ./cmd/tspack test --root examples/runtime-switch-notes` | pass | 4 native xTest facts passed. Required a native test bridge built by an ad hoc full `tsc`; see findings. |
+| `go run ./cmd/tspack test --root examples/runtime-switch-notes` | pass | 4 native xTest facts passed after the documented `cd manifest-frontend && npm run build`; no full failing `tsc -p tsconfig.json` workaround was required. |
 | `go run ./cmd/tspack test --root examples/runtime-switch-notes --compact` | pass | Compact output hid passing test details and kept the summary. |
 | `go run ./cmd/tspack test --root examples/runtime-switch-notes --batch` | pass | Batch execution passed the same 4 tests. |
 | `go run ./cmd/tspack pack --root examples/runtime-switch-notes --package @tspack-examples/runtime-switch-ui --dry-run` | pass | Planned README, LICENSE, CHANGELOG, `dist/ui/**`, and generated `package.json`. |
@@ -37,14 +37,13 @@
 | `go run ./cmd/tspack format --root examples/runtime-switch-notes --check` | fail | `TSPACK_BIOME_BACKEND_NOT_FOUND`. |
 | `go run ./cmd/tspack lint --root examples/runtime-switch-notes` | fail | `TSPACK_BIOME_BACKEND_NOT_FOUND`. |
 | `go run ./cmd/tspack update --root examples/runtime-switch-notes` | pass | Fixed in M43b. Workspace dependency population completed without recursively copying `.tspack/store`; the generated lockfile now records the real workspace store hash. |
-| `cd manifest-frontend && npx tsc -p tsconfig.json` | fail but emitted bridge | Full frontend compile reported many existing TypeScript errors, but emitted `manifest-frontend/dist/src/native-test-cli.js`, which allowed `tspack test` to run. |
 
 ## Findings
 
 ### Bugs
 
-- DOGFOOD_BUG: `internal/project` expected `manifest-frontend/dist/src/cli.js`, while `npm run build` emits `manifest-frontend/dist/cli.js`. A small fallback was added so project commands can use either layout.
-- DOGFOOD_BUG: `tspack test` depends on `manifest-frontend/dist/src/native-test-cli.js`, but the documented `cd manifest-frontend && npm run build` excludes the native test bridge. A full `tsc -p tsconfig.json` emits it despite type errors, which is not a good release smoke path.
+- DOGFOOD_FIXED: M43d aligned bridge output and discovery. `cd manifest-frontend && npm run build` now emits `dist/cli.js`, `dist/inspect-cli.js`, and `dist/native-test-cli.js`, and Go bridge discovery prefers those current paths while still accepting legacy `dist/src/*.js` paths.
+- DOGFOOD_FIXED: `tspack test --root examples/runtime-switch-notes`, `--compact`, and `--batch` pass after the documented build without running a failing full `tsc -p tsconfig.json` compile or hand-creating `dist/src`.
 
 ### Fixed in M43b
 
@@ -72,7 +71,7 @@
 ### Docs gaps
 
 - DOGFOOD_DOCS: `docs/manifest.md` still says RunTarget `runtime` is `system` or `node` in one paragraph even though Bun and Deno are now supported elsewhere.
-- DOGFOOD_DOCS: The native xTest bridge build story needs to say which command emits `native-test-cli.js` without relying on a failing full TypeScript compile.
+- DOGFOOD_DOCS: The bridge build story now names `cd manifest-frontend && npm run build` as the canonical prerequisite for manifest CLI, native xTest, and inspect bridges.
 - DOGFOOD_DOCS: App target `types: ""` and lockfile target validation disagree; docs or validation should clarify the intended lock representation.
 
 ### Nice surprises
@@ -85,7 +84,7 @@
 
 ## Required follow-up issues
 
-- DOGFOOD_BUG: Align manifest frontend and native test bridge build outputs with CLI bridge discovery.
+- DOGFOOD_FIXED: Manifest frontend, native xTest, and inspect bridge build outputs are aligned with Go CLI discovery.
 - DOGFOOD_FOOTGUN: Decide whether single-manifest packages should get package roots or whether `cwd: "package"` should be rejected/diagnosed earlier for rootless packages.
 - DOGFOOD_FOOTGUN: Align app target empty `types` docs, IR, lockfile generation, and lockfile validation.
 - DOGFOOD_DOCS: Update RunTarget runtime docs to consistently include `bun` and `deno`.
@@ -93,8 +92,8 @@
 
 ## Verdict
 
-Outcome B: the sample is worth keeping as a future release smoke, M43b removed the update/store recursion blocker, and M43c removed the URL-inspect VS Code routing blocker. The dogfooding run still has concrete environment/build blockers such as missing Playwright browser executables, native test bridge build mismatch, and missing Biome backend.
+Outcome A for M43d: the sample is worth keeping as a future release smoke, M43b removed the update/store recursion blocker, M43c removed the URL-inspect VS Code routing blocker, and M43d removed the bridge build/discovery mismatch. Remaining blockers are environment/tool availability items such as missing Playwright browser executables and missing Biome backend.
 
-The runtime-profile thesis mostly holds for the manifest line itself: `runtime="nodejs"` is visible in `doctor runtime`, does not delegate package-manager behavior, and explicit RunTargets keep Node.js/Bun/Deno execution separate. The one-line runtime profile story is less proven for the broader workflow because native test bridge build, inspect, and format/lint surfaces still have blockers or environment-dependent gaps.
+The runtime-profile thesis mostly holds for the manifest line itself: `runtime="nodejs"` is visible in `doctor runtime`, does not delegate package-manager behavior, and explicit RunTargets keep Node.js/Bun/Deno execution separate. The one-line runtime profile story is less proven for the broader workflow because inspect and format/lint surfaces still have environment-dependent gaps.
 
-Before release, the remaining highest-value fixes are the bridge/build output mismatch and the broader environment-dependent tool availability gaps. Once those are fixed, this example should become a useful end-to-end release smoke.
+Before release, the remaining highest-value fixes are the broader environment-dependent tool availability gaps. With bridge discovery aligned, this example is closer to a useful end-to-end release smoke.

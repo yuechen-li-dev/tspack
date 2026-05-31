@@ -189,30 +189,30 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 	})
 
 	t.Run("generated manifests parse through frontend and validate", func(t *testing.T) {
-		frontendCLIPath := filepath.Join(repo, "manifest-frontend", "dist", "src", "cli.js")
+		frontendCLIPath := filepath.Join(repo, "manifest-frontend", "dist", "cli.js")
 		if _, err := os.Stat(frontendCLIPath); err != nil {
 			t.Skipf("frontend CLI not built: %v", err)
 		}
 
 		cases := []struct {
-			kind            string
-			name            string
-			version         string
-			targetName      string
+			kind             string
+			name             string
+			version          string
+			targetName       string
 			wantDeclarations string
 		}{
 			{
-				kind:            "library",
-				name:            "@acme/widgets",
-				version:         "0.1.0",
-				targetName:      "core",
+				kind:             "library",
+				name:             "@acme/widgets",
+				version:          "0.1.0",
+				targetName:       "core",
 				wantDeclarations: "required",
 			},
 			{
-				kind:            "app",
-				name:            "acme-demo",
-				version:         "0.1.0",
-				targetName:      "app",
+				kind:             "app",
+				name:             "acme-demo",
+				version:          "0.1.0",
+				targetName:       "app",
 				wantDeclarations: "optional",
 			},
 		}
@@ -226,6 +226,13 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 				b, err := cmd.CombinedOutput()
 				if err != nil {
 					t.Fatalf("init failed: %v\n%s", err, string(b))
+				}
+
+				if err := os.MkdirAll(filepath.Join(root, "dist"), 0o755); err != nil {
+					t.Fatalf("mkdir dist: %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(root, "dist", "index.d.ts"), []byte("export declare const value: string;\n"), 0o644); err != nil {
+					t.Fatalf("write declaration output: %v", err)
 				}
 
 				opts := project.DefaultOptions(root)
@@ -282,7 +289,6 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		}
 	})
 }
-
 
 func TestInitManifestTypeSupportDriftAndTypecheck(t *testing.T) {
 	repo := filepath.Join("..", "..")

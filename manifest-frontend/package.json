@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && npm run build:bridges",
     "test": "vitest run",
     "typecheck:src": "tsc -p tsconfig.build.json",
-    "typecheck:manifest-api": "tsc -p tsconfig.manifest-api.json --noEmit"
+    "typecheck:manifest-api": "tsc -p tsconfig.manifest-api.json --noEmit",
+    "build:bridges": "tsc -p tsconfig.bridges.json"
   },
   "devDependencies": {
     "typescript": "^5.6.3",

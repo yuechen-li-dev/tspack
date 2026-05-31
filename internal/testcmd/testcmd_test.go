@@ -136,3 +136,37 @@ func TestVitestBatchUnsupported(t *testing.T) {
 		t.Fatalf("expected batch unsupported diagnostic, got %#v", result.Diagnostics)
 	}
 }
+
+func TestDefaultXTestBridgeCandidatesPreferCurrentDistPath(t *testing.T) {
+	root := t.TempDir()
+	current := filepath.Join(root, "manifest-frontend", "dist", "native-test-cli.js")
+	legacy := filepath.Join(root, "manifest-frontend", "dist", "src", "native-test-cli.js")
+	candidates := defaultBridgeCandidates(root, "")
+
+	currentIndex := indexOfString(candidates, current)
+	legacyIndex := indexOfString(candidates, legacy)
+	if currentIndex < 0 || legacyIndex < 0 {
+		t.Fatalf("expected current and legacy candidates, got %#v", candidates)
+	}
+	if currentIndex > legacyIndex {
+		t.Fatalf("expected current dist path before legacy dist/src path, got %#v", candidates)
+	}
+}
+
+func TestDefaultXTestBridgeCandidatesAcceptLegacyDistSrcPath(t *testing.T) {
+	root := t.TempDir()
+	legacy := filepath.Join(root, "manifest-frontend", "dist", "src", "native-test-cli.js")
+	candidates := defaultBridgeCandidates(root, "")
+	if indexOfString(candidates, legacy) < 0 {
+		t.Fatalf("expected legacy bridge candidate %q in %#v", legacy, candidates)
+	}
+}
+
+func indexOfString(values []string, target string) int {
+	for index, value := range values {
+		if value == target {
+			return index
+		}
+	}
+	return -1
+}

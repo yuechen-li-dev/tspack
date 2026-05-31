@@ -244,3 +244,13 @@ See [Runtime-Grounded IDE Vision](runtime-grounded-ide.md) and [Runtime-Grounded
 ## Native xTest helper
 
 The same runtime inspect backend is available inside native xTest through the `inspect` helper namespace. Tests can call `inspect.url(url, options?)` for a browser-backed page or `inspect.cdp(endpoint, options?)` for an existing CDP target, then assert or snapshot the returned structured inspect JSON. Inspect calls are observations, not assertions, so an inspect-only fact still fails the native harness no-assertion check. Use `assert.inspect.*` for role, name, visibility, bounds, hit-test, and source-hint facts over already-collected JSON. See [native-test-harness.md](./native-test-harness.md#inspect-helpers) for examples and option types.
+
+## Bridge build prerequisite
+
+Development checkouts run `tspack inspect` through the manifest frontend inspect bridge. Build it with:
+
+```sh
+cd manifest-frontend && npm run build
+```
+
+The canonical artifact is `manifest-frontend/dist/inspect-cli.js`; Go CLI discovery also accepts the legacy `manifest-frontend/dist/src/inspect-cli.js` path. Browser backend availability is separate from bridge lookup: a missing Playwright browser executable may produce `TSPACK_INSPECT_BROWSER_LAUNCH_FAILED`, but that is not a bridge build failure.
