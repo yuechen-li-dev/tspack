@@ -1441,8 +1441,26 @@ console.log('{"ok":true}');`, argsPath)
 
 func TestCLIInspectBridgeMissing(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	bridge := filepath.Join(repo, "manifest-frontend", "dist", "src", "inspect-cli.js")
-	_ = os.Remove(bridge)
+	bridges := []string{
+		filepath.Join(repo, "manifest-frontend", "dist", "src", "inspect-cli.js"),
+		filepath.Join(repo, "manifest-frontend", "dist", "inspect-cli.js"),
+	}
+	backups := map[string]string{}
+	for _, bridge := range bridges {
+		backup := bridge + ".bak-test"
+		if _, err := os.Stat(bridge); err == nil {
+			if renameErr := os.Rename(bridge, backup); renameErr != nil {
+				t.Fatalf("backup inspect bridge: %v", renameErr)
+			}
+			backups[bridge] = backup
+		}
+	}
+	t.Cleanup(func() {
+		for bridge, backup := range backups {
+			_ = os.Rename(backup, bridge)
+		}
+	})
+
 	cmd := exec.Command("go", "run", "./cmd/tspack", "inspect", "http://example.test")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()

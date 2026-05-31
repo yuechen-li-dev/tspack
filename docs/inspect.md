@@ -4,7 +4,7 @@
 >
 > `tspack inspect` is a structural UI inspection experiment. It is useful today, but it is not yet a stable public contract and CLI/API flags may still change as backend support is refined.
 
-`tspack inspect <url>` performs structural UI inspection for rendered browser targets.
+`tspack inspect <url>` performs structural UI inspection for rendered browser targets. Ordinary URL inspection uses the Playwright Chromium URL backend by default; it does not require VS Code or Code-family executable discovery.
 M23 also supports inspecting declared run targets:
 - `tspack inspect dev`
 - `tspack inspect --run dev`
@@ -52,6 +52,7 @@ The analyzer core is shared across backends. Backends are responsible for obtain
 
 4. **Playwright backends (`playwright-chromium`, `chromium`, `playwright-webkit`, `webkit`)**
    - Use Playwright automation.
+   - This is the default backend for URL targets when `--browser` is omitted or `--browser auto` is used.
    - May require matching Playwright browser binaries; the WebKit aliases require Playwright WebKit availability.
    - Useful for controlled browser inspection and CI when browsers are installed.
    - The browser-side analyzer is shared across Chromium and WebKit.
@@ -85,7 +86,10 @@ Most reliable (already-running host with explicit endpoint):
 
 URL inspection:
 
-- `tspack inspect <url>` (Playwright backend; requires available browser runtime)
+- `tspack inspect http://127.0.0.1:4171 --json`
+- `tspack inspect http://127.0.0.1:4171 --selector main --json`
+- `tspack inspect <url>` (Playwright Chromium backend by default; requires an available Playwright browser runtime)
+- `tspack inspect <url> --browser webkit` (Playwright WebKit backend when WebKit is available)
 - `tspack inspect <url> --host-path /path/to/chrome`
 
 VS Code/Electron app UI inspection:
@@ -106,6 +110,8 @@ The TSPack Inspect VS Code extension includes **TSPack: Reveal Source for Select
 Reveal is read-only and workspace-bound. The extension treats page-provided source hints as untrusted data, rejects absolute paths, URL-like schemes, parent traversal, and symlink escapes, requires the target file to already exist under the selected workspace folder, and never creates or mutates source files. Component and symbol hint fields are displayed as metadata only; they are not used for filesystem resolution.
 
 ## VS Code / Code-family current status
+
+VS Code/Electron inspection is an explicit editor/host path, not the generic URL path. `TSPACK_INSPECT_VSCODE_NOT_FOUND` is reserved for explicit VS Code-family backend/probe modes such as `--browser vscode`; ordinary URL inspection should instead reach the Playwright URL backend and, if necessary, report a browser launch/load diagnostic.
 
 - Code-family executables may be discoverable.
 - On Linux, `/usr/bin/code` can be a wrapper while `/usr/share/code/code` is the Electron binary.

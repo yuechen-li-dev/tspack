@@ -74,6 +74,22 @@ describeIntegration('inspect browser integration', () => {
     await server.close();
   });
 
+  it('uses Playwright Chromium for auto-routed URL inspect', async () => {
+    const result = await runInspect({
+      url: `${server.baseUrl}/selector`,
+      browser: 'auto',
+      viewport: { width: 800, height: 600 },
+      selector: 'main, section',
+      points: [parsePoint('130,100')],
+      json: true
+    });
+
+    expect(result.browser.name).toBe('chromium');
+    expect(result.root).not.toBeNull();
+    expect(result.root?.tag).toBe('section');
+    expect(result.hitTests).toHaveLength(1);
+  });
+
   it('inspects basic local page', async () => {
     const result = await runInspect({
       url: `${server.baseUrl}/basic`,

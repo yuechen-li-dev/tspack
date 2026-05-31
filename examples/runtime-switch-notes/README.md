@@ -99,7 +99,7 @@ go run ./cmd/tspack test --root examples/runtime-switch-notes --compact
 go run ./cmd/tspack test --root examples/runtime-switch-notes --batch
 ```
 
-Live browser inspect is intentionally documented as a manual smoke because Playwright browsers may not be installed on every contributor machine:
+Live browser inspect is intentionally documented as a manual smoke because Playwright browsers may not be installed on every contributor machine. URL inspect uses the Playwright URL backend by default and should not require VS Code; a missing browser runtime should report a browser/backend diagnostic instead of `TSPACK_INSPECT_VSCODE_NOT_FOUND`.
 
 ```sh
 go run ./cmd/tspack run --root examples/runtime-switch-notes node-server
