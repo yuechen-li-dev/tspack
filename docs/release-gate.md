@@ -604,3 +604,13 @@ Release smoke must include URL inspect routing that does not depend on VS Code d
 - Run `tspack inspect http://127.0.0.1:4171 --selector main --json` against the same server.
 - Verify ordinary URL inspect reaches the Playwright URL backend; `TSPACK_INSPECT_VSCODE_NOT_FOUND` is reserved for explicit VS Code/platform-webview or related editor/backend probes.
 - If Playwright browser executables are unavailable in the environment, record the browser/backend-unavailable diagnostic as an environment limitation, not as a VS Code discovery failure.
+
+## M43d bridge build/discovery smoke
+
+- Canonical bridge prerequisite: run `cd manifest-frontend && npm run build` from the repository root before Go CLI smoke tests that need JavaScript bridge artifacts.
+- The build must emit all TSPack-required bridge entrypoints in the current layout:
+  - `manifest-frontend/dist/cli.js`
+  - `manifest-frontend/dist/native-test-cli.js`
+  - `manifest-frontend/dist/inspect-cli.js`
+- Go bridge discovery must prefer `manifest-frontend/dist/<bridge>.js` and still accept legacy `manifest-frontend/dist/src/<bridge>.js` for local/dev compatibility.
+- Release smoke should include `test -f` checks for all three bridge files, `go run ./cmd/tspack test --root examples/runtime-switch-notes`, and an inspect command that proves lookup reaches the inspect backend. In environments without Playwright browser executables, `TSPACK_INSPECT_BROWSER_LAUNCH_FAILED` is acceptable; bridge-missing diagnostics are not.

@@ -1177,11 +1177,18 @@ console.log('PASS demo.prophecy.tsx::suite/prophecy/x');`
 
 func TestCLIDoomBridgeMissing(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	bridge := filepath.Join(repo, "manifest-frontend", "dist", "src", "native-test-cli.js")
-	backup := bridge + ".bak"
-	if _, err := os.Stat(bridge); err == nil {
-		_ = os.Rename(bridge, backup)
-		defer func() { _ = os.Rename(backup, bridge) }()
+	bridges := []string{
+		filepath.Join(repo, "manifest-frontend", "dist", "native-test-cli.js"),
+		filepath.Join(repo, "manifest-frontend", "dist", "src", "native-test-cli.js"),
+	}
+	for _, bridge := range bridges {
+		backup := bridge + ".bak"
+		if _, err := os.Stat(bridge); err == nil {
+			if renameErr := os.Rename(bridge, backup); renameErr != nil {
+				t.Fatalf("backup bridge: %v", renameErr)
+			}
+			t.Cleanup(func() { _ = os.Rename(backup, bridge) })
+		}
 	}
 	cmd := exec.Command("go", "run", "./cmd/tspack", "doom", "--root", t.TempDir())
 	cmd.Dir = repo
@@ -3731,7 +3738,7 @@ func TestCLITestXTestBridgeMissingDiagnostic(t *testing.T) {
 
 func TestCLITestDefaultBridgeResolutionFromUnrelatedCWD(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	bridge := filepath.Join(repo, "manifest-frontend", "dist", "src", "native-test-cli.js")
+	bridge := filepath.Join(repo, "manifest-frontend", "dist", "native-test-cli.js")
 	backup := bridge + ".m34a-bak"
 	if err := os.MkdirAll(filepath.Dir(bridge), 0o755); err != nil {
 		t.Fatalf("mkdir bridge dir: %v", err)

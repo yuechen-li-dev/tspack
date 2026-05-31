@@ -205,19 +205,31 @@ func defaultBridgeCandidates(cwd string, executable string) []string {
 	var candidates []string
 	if executable != "" {
 		execDir := filepath.Dir(executable)
-		candidates = append(candidates,
-			filepath.Join(execDir, "manifest-frontend", "dist", "src", "native-test-cli.js"),
-			filepath.Join(execDir, "..", "manifest-frontend", "dist", "src", "native-test-cli.js"),
-			filepath.Join(execDir, "..", "share", "tspack", "manifest-frontend", "dist", "src", "native-test-cli.js"),
-		)
+		candidates = append(candidates, manifestFrontendBridgeCandidates(execDir, "native-test-cli.js")...)
+		candidates = append(candidates, manifestFrontendBridgeCandidates(filepath.Join(execDir, ".."), "native-test-cli.js")...)
+		candidates = append(candidates, manifestFrontendSharedBridgeCandidates(execDir, "native-test-cli.js")...)
 	}
 	if sourceRepo := sourceRepositoryRoot(); sourceRepo != "" {
-		candidates = append(candidates, filepath.Join(sourceRepo, "manifest-frontend", "dist", "src", "native-test-cli.js"))
+		candidates = append(candidates, manifestFrontendBridgeCandidates(sourceRepo, "native-test-cli.js")...)
 	}
 	if cwd != "" {
-		candidates = append(candidates, filepath.Join(cwd, "manifest-frontend", "dist", "src", "native-test-cli.js"))
+		candidates = append(candidates, manifestFrontendBridgeCandidates(cwd, "native-test-cli.js")...)
 	}
 	return candidates
+}
+
+func manifestFrontendBridgeCandidates(root string, bridgeName string) []string {
+	return []string{
+		filepath.Join(root, "manifest-frontend", "dist", bridgeName),
+		filepath.Join(root, "manifest-frontend", "dist", "src", bridgeName),
+	}
+}
+
+func manifestFrontendSharedBridgeCandidates(execDir string, bridgeName string) []string {
+	return []string{
+		filepath.Join(execDir, "..", "share", "tspack", "manifest-frontend", "dist", bridgeName),
+		filepath.Join(execDir, "..", "share", "tspack", "manifest-frontend", "dist", "src", bridgeName),
+	}
 }
 
 func sourceRepositoryRoot() string {

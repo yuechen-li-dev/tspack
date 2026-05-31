@@ -668,3 +668,13 @@ inspect.flatten(ui.root);
 inspect.findByRole(ui.root, "button", "Save");
 inspect.findByText(ui.root, /Saved/);
 ```
+
+## Bridge build prerequisite
+
+Native xTest execution uses the JavaScript bridge `manifest-frontend/dist/native-test-cli.js` in the current build layout. Build it with:
+
+```sh
+cd manifest-frontend && npm run build
+```
+
+The Go CLI bridge resolver prefers `manifest-frontend/dist/native-test-cli.js` and accepts the legacy `manifest-frontend/dist/src/native-test-cli.js` path for older local checkouts. A full failing `tsc -p tsconfig.json` compile is not part of the supported native xTest smoke path.

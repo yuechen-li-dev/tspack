@@ -294,19 +294,6 @@ func printHelp() {
 	fmt.Println("  tspack migrate [--check] [--write] [--root .] [--package-json path] [--package-lock path] [--no-lock-evidence] [--scan-source] [--no-source-scan] [--out-manifest path] [--out-report path] [--force]")
 }
 
-func manifestFrontendInspectCLIPath() string {
-	candidates := []string{
-		filepath.Join("manifest-frontend", "dist", "src", "inspect-cli.js"),
-		filepath.Join("manifest-frontend", "dist", "inspect-cli.js"),
-	}
-	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
-		}
-	}
-	return candidates[0]
-}
-
 func runInspectCommand(args []string) {
 	root := "."
 	runTarget := ""
@@ -376,11 +363,7 @@ func runInspectCommand(args []string) {
 		os.Exit(1)
 	}
 
-	bridge := manifestFrontendInspectCLIPath()
-	if _, err := os.Stat(bridge); err != nil {
-		fmt.Fprintln(os.Stderr, "TSPACK_INSPECT_BRIDGE_MISSING: inspect bridge not found")
-		os.Exit(1)
-	}
+	bridge := requireManifestFrontendBridge("inspect-cli.js", "TSPACK_INSPECT_BRIDGE_MISSING", "inspect bridge")
 	nodeArgs := []string{bridge, "inspect"}
 	exitCode := 0
 	exitMessage := ""
@@ -491,11 +474,7 @@ func runDoomCommand(args []string) {
 			os.Exit(1)
 		}
 	}
-	bridge := filepath.Join("manifest-frontend", "dist", "src", "native-test-cli.js")
-	if _, err := os.Stat(bridge); err != nil {
-		fmt.Fprintln(os.Stderr, "TSPACK_DOOM_BRIDGE_MISSING: native doom bridge not found")
-		os.Exit(1)
-	}
+	bridge := requireManifestFrontendBridge("native-test-cli.js", "TSPACK_DOOM_BRIDGE_MISSING", "native doom bridge")
 	nodeArgs := []string{bridge, "doom", "--root", root}
 	if out != "" {
 		nodeArgs = append(nodeArgs, "--out", out)
@@ -543,11 +522,7 @@ func runBenchCommand(args []string) {
 			os.Exit(1)
 		}
 	}
-	bridge := filepath.Join("manifest-frontend", "dist", "src", "native-test-cli.js")
-	if _, err := os.Stat(bridge); err != nil {
-		fmt.Fprintln(os.Stderr, "TSPACK_BENCH_BRIDGE_MISSING: native benchmark bridge not found")
-		os.Exit(1)
-	}
+	bridge := requireManifestFrontendBridge("native-test-cli.js", "TSPACK_BENCH_BRIDGE_MISSING", "native benchmark bridge")
 	nodeArgs := []string{bridge, "bench", "--root", root}
 	if list {
 		nodeArgs = append(nodeArgs, "--list")
@@ -596,11 +571,7 @@ func runArtifactCommand(args []string) {
 			os.Exit(1)
 		}
 	}
-	bridge := filepath.Join("manifest-frontend", "dist", "src", "native-test-cli.js")
-	if _, err := os.Stat(bridge); err != nil {
-		fmt.Fprintln(os.Stderr, "TSPACK_ARTIFACT_BRIDGE_MISSING: native artifact bridge not found")
-		os.Exit(1)
-	}
+	bridge := requireManifestFrontendBridge("native-test-cli.js", "TSPACK_ARTIFACT_BRIDGE_MISSING", "native artifact bridge")
 	nodeArgs := []string{bridge, "artifact", "--root", root}
 	if out != "" {
 		nodeArgs = append(nodeArgs, "--out", out)
