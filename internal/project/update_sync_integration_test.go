@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tspack/tspack/internal/lockfile"
@@ -225,5 +226,127 @@ func TestTargetedUpdatePreservesNonSelectedRootDep(t *testing.T) {
 	}
 	if !foundReact || !foundLodash {
 		t.Fatalf("expected react upgraded and lodash pinned; lock=%#v", lf.Packages)
+	}
+}
+
+func TestUpdateWorkspaceRootDependencyDoesNotCopyTSPackStoreIntoItself(t *testing.T) {
+	root := t.TempDir()
+	mustWriteProjectFile(t, filepath.Join(root, "src", "app", "index.ts"), "import { label } from '../ui/index';\nconsole.log(label);\n")
+	mustWriteProjectFile(t, filepath.Join(root, "src", "ui", "index.ts"), "export const label = 'ui';\n")
+	mustWriteProjectFile(t, filepath.Join(root, "dist", "app", "index.d.ts"), "export {};\n")
+	mustWriteProjectFile(t, filepath.Join(root, "dist", "ui", "index.d.ts"), "export declare const label: string;\n")
+	mustWriteProjectFile(t, filepath.Join(root, "dist", "ui", "index.js"), "export const label = 'ui';\n")
+	mustWriteProjectFile(t, filepath.Join(root, ".tspack", "store", "sentinel.txt"), "internal store state")
+	mustWriteProjectFile(t, filepath.Join(root, "tspack-artifacts", "sentinel.txt"), "internal artifact state")
+
+	irPath := writeIR(t, root, map[string]any{
+		"format":    1,
+		"workspace": map[string]any{"name": "single-root-ws"},
+		"packages": []map[string]any{
+			{
+				"name":    "app",
+				"version": "1.0.0",
+				"root":    ".",
+				"kind":    "app",
+				"dependencies": []map[string]any{
+					{"key": "ui", "kind": "dep", "source": map[string]any{"kind": "workspace", "name": "ui"}},
+				},
+				"targets": []map[string]any{
+					{"name": "app", "export": ".", "entry": "src/app/index.ts", "runtime": "src/app/index.ts", "types": "dist/app/index.d.ts", "deps": []string{"ui"}, "peers": []string{}},
+				},
+				"tools":      []string{},
+				"boundaries": []any{},
+				"publish":    map[string]any{"include": []string{"dist/**"}, "exclude": []string{}},
+				"policies":   map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}},
+			},
+			{
+				"name":         "ui",
+				"version":      "1.0.0",
+				"root":         ".",
+				"kind":         "library",
+				"dependencies": []map[string]any{},
+				"targets": []map[string]any{
+					{"name": "core", "export": ".", "entry": "src/ui/index.ts", "runtime": "src/ui/index.ts", "types": "dist/ui/index.d.ts", "deps": []string{}, "peers": []string{}},
+				},
+				"tools":      []string{},
+				"boundaries": []any{},
+				"publish":    map[string]any{"include": []string{"dist/**"}, "exclude": []string{}},
+				"policies":   map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}},
+			},
+		},
+	})
+
+	opts := DefaultOptions(root)
+	opts.ManifestIRPath = irPath
+	res := Update(opts)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("update failed: %#v", res.Diagnostics)
+	}
+
+	lf, _, err := lockfile.LoadFile(opts.LockfilePath)
+	if err != nil {
+		t.Fatalf("load lock: %v", err)
+	}
+	if len(lf.Packages) != 1 || lf.Packages[0].Source != "workspace" {
+		t.Fatalf("unexpected lock packages: %#v", lf.Packages)
+	}
+
+	extractedRoot := filepath.Join(opts.StoreRoot, "extracted")
+	mustFindProjectFile(t, extractedRoot, filepath.Join("src", "ui", "index.ts"))
+	mustFindProjectFile(t, extractedRoot, filepath.Join("dist", "ui", "index.js"))
+	mustNotFindProjectPath(t, extractedRoot, ".tspack")
+	mustNotFindProjectPath(t, extractedRoot, "tspack-artifacts")
+}
+
+func mustWriteProjectFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir parent %s: %v", path, err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func mustFindProjectFile(t *testing.T, root, rel string) {
+	t.Helper()
+	found := false
+	walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		pathRel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
+		}
+		if pathRel == rel || strings.HasSuffix(pathRel, string(filepath.Separator)+rel) {
+			found = true
+		}
+		return nil
+	})
+	if walkErr != nil {
+		t.Fatalf("walk %s: %v", root, walkErr)
+	}
+	if !found {
+		t.Fatalf("expected to find %s under %s", rel, root)
+	}
+}
+
+func mustNotFindProjectPath(t *testing.T, root, name string) {
+	t.Helper()
+	walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Name() == name {
+			t.Fatalf("found excluded path %s under %s", path, root)
+		}
+		return nil
+	})
+	if walkErr != nil {
+		t.Fatalf("walk %s: %v", root, walkErr)
 	}
 }

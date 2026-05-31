@@ -165,7 +165,7 @@ func hashDirectory(root string) (string, bool) {
 		if rel == "." {
 			return nil
 		}
-		if d.IsDir() && (d.Name() == ".git" || d.Name() == "node_modules") {
+		if d.IsDir() && shouldSkipLocalArtifactDir(d.Name()) {
 			return filepath.SkipDir
 		}
 		if d.Type()&os.ModeSymlink != 0 {
@@ -191,6 +191,15 @@ func hashDirectory(root string) (string, bool) {
 		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil)), true
+}
+
+func shouldSkipLocalArtifactDir(name string) bool {
+	switch name {
+	case ".git", ".tspack", "node_modules", "tspack-artifacts":
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *resolverState) addPackageAndEdge(pkg lockfile.Package, from, kind string, optional bool) {
