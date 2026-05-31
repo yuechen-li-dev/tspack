@@ -821,3 +821,58 @@ func TestDoctorAllIncludesSecuritySection(t *testing.T) {
 		t.Fatalf("doctor all missing Security section: %#v", report.Sections)
 	}
 }
+
+func TestRuntimeSwitchDoctorRuntimeReportsSelectedProfile(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		profile    string
+		executable string
+	}{
+		{profile: "nodejs", executable: "node"},
+		{profile: "bun", executable: "bun"},
+		{profile: "deno", executable: "deno"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.profile, func(t *testing.T) {
+			irJSON := readRuntimeSwitchFixtureIRJSON(t, repo, tc.profile)
+			writeManifestStubWithIR(t, repo, irJSON)
+			cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "runtime", "--root", root, "--json")
+			cmd.Dir = repo
+			cmd.Env = append(os.Environ(), "PATH="+doctorPathWithNodeOnly(t))
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("doctor runtime json failed: %v\n%s", err, string(output))
+			}
+			var report DoctorReport
+			if err := json.Unmarshal(output, &report); err != nil {
+				t.Fatalf("invalid doctor runtime json: %v\n%s", err, string(output))
+			}
+			check := flattenDoctorChecks(report)["runtime profile"]
+			if check.Details["selected"] != tc.profile {
+				t.Fatalf("selected runtime profile = %#v, want %q", check.Details["selected"], tc.profile)
+			}
+			if check.Details["executable"] != tc.executable {
+				t.Fatalf("runtime executable = %#v, want %q", check.Details["executable"], tc.executable)
+			}
+			if check.Details["lifecycleOwner"] != "tspack" || check.Details["packageManagerDelegated"] != false {
+				t.Fatalf("unexpected ownership details: %#v", check.Details)
+			}
+		})
+	}
+}
+
+func readRuntimeSwitchFixtureIRJSON(t *testing.T, repo string, profile string) string {
+	t.Helper()
+	path := filepath.Join(repo, "fixtures", "valid", "runtime-switch-"+profile, "manifest.ir.golden.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}

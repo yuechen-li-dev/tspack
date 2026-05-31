@@ -4668,3 +4668,89 @@ func TestCLIRunDenoDoesNotIntroduceToolingDelegation(t *testing.T) {
 		}
 	}
 }
+
+func TestCLIRunRuntimeSwitchExplicitTargetsStayExplicitAcrossWorkspaceProfiles(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fakeBin := filepath.Join(root, "fake-bin")
+	captureDir := filepath.Join(root, "captures")
+	if err := os.MkdirAll(captureDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeShellCaptureRuntime(t, filepath.Join(fakeBin, "bun"), filepath.Join(captureDir, "bun.txt"), "ready from fake bun")
+	writeShellCaptureRuntime(t, filepath.Join(fakeBin, "deno"), filepath.Join(captureDir, "deno.txt"), "ready from fake deno")
+	writeShellCaptureRuntime(t, filepath.Join(root, "scripts", "system-hello"), filepath.Join(captureDir, "system.txt"), "ready from fake system")
+
+	for _, profile := range []string{"nodejs", "bun", "deno"} {
+		t.Run(profile, func(t *testing.T) {
+			irJSON := readRuntimeSwitchFixtureIRJSONForRun(t, repo, profile)
+			writeRunFrontendStub(t, irJSON)
+
+			listPayload := runListJSONForIR(t, repo, root, irJSON)
+			gotRuntimes := make([]string, 0, len(listPayload.Targets))
+			for _, target := range listPayload.Targets {
+				gotRuntimes = append(gotRuntimes, target.Runtime)
+			}
+			wantRuntimes := []string{"node", "bun", "deno", "system"}
+			if !reflect.DeepEqual(gotRuntimes, wantRuntimes) {
+				t.Fatalf("workspace runtime %s changed explicit target runtimes: got %#v want %#v", profile, gotRuntimes, wantRuntimes)
+			}
+
+			runRuntimeSwitchTarget(t, repo, root, fakeBin, "bun-hello", "ready from fake bun")
+			assertShellCapture(t, filepath.Join(captureDir, "bun.txt"), "scripts/bun-hello.js from-bun")
+			runRuntimeSwitchTarget(t, repo, root, fakeBin, "deno-hello", "ready from fake deno")
+			assertShellCapture(t, filepath.Join(captureDir, "deno.txt"), "run scripts/deno-hello.ts from-deno")
+			runRuntimeSwitchTarget(t, repo, root, fakeBin, "system-hello", "ready from fake system")
+			assertShellCapture(t, filepath.Join(captureDir, "system.txt"), "from-system")
+		})
+	}
+}
+
+func readRuntimeSwitchFixtureIRJSONForRun(t *testing.T, repo string, profile string) string {
+	t.Helper()
+	path := filepath.Join(repo, "fixtures", "valid", "runtime-switch-"+profile, "manifest.ir.golden.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func writeShellCaptureRuntime(t *testing.T, path string, capture string, readyLine string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$*\" > %q\necho %q\nwhile true; do sleep 1; done\n", capture, readyLine)
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func runRuntimeSwitchTarget(t *testing.T, repo string, root string, fakeBin string, target string, expectedOutput string) {
+	t.Helper()
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, target, "--once")
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run %s failed: %v\n%s", target, err, string(output))
+	}
+	if !strings.Contains(string(output), expectedOutput) {
+		t.Fatalf("run %s missing %q:\n%s", target, expectedOutput, string(output))
+	}
+}
+
+func assertShellCapture(t *testing.T, path string, expected string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(data)) != expected {
+		t.Fatalf("capture %s = %q, want %q", path, strings.TrimSpace(string(data)), expected)
+	}
+}

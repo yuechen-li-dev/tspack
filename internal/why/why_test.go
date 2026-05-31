@@ -667,3 +667,27 @@ func countLockEdge(edges []LockEdgeRef, from string, to string, kind string) int
 	}
 	return count
 }
+
+func TestRuntimeSwitchWhyStability(t *testing.T) {
+	profiles := []string{"nodejs", "bun", "deno"}
+	results := make(map[string]Result)
+
+	for _, profile := range profiles {
+		results[profile] = analyzeRuntimeBaselineFixture(t, "runtime-switch-"+profile)
+	}
+
+	baseline := results["nodejs"]
+	for _, profile := range []string{"bun", "deno"} {
+		current := results[profile]
+		if !reflect.DeepEqual(baseline, current) {
+			t.Fatalf("why analysis changed for %s runtime:\nnodejs=%#v\n%s=%#v", profile, baseline, profile, current)
+		}
+	}
+	dep := mustFindExplanation(t, baseline, "dependency", "runtime-switch", "left-pad", "")
+	if dep.Kind != "dep" {
+		t.Fatalf("expected dep explanation, got %q", dep.Kind)
+	}
+	if len(dep.LockPackages) != 1 || dep.LockPackages[0].ID != "npm:left-pad@1.3.0" {
+		t.Fatalf("expected left-pad lock package, got %#v", dep.LockPackages)
+	}
+}

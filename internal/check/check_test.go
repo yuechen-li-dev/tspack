@@ -787,3 +787,30 @@ func TestM33EToolRuntimeWinsOverAllowOnly(t *testing.T) {
 		t.Fatalf("tool runtime should return before allowOnly: %#v", res.Diagnostics)
 	}
 }
+
+func TestRuntimeSwitchCheckStability(t *testing.T) {
+	fixtures := []string{
+		"runtime-switch-nodejs",
+		"runtime-switch-bun",
+		"runtime-switch-deno",
+	}
+
+	var first []diag.Diagnostic
+	for _, fixtureName := range fixtures {
+		t.Run(fixtureName, func(t *testing.T) {
+			fixturePath := "../../fixtures/valid/" + fixtureName + "/manifest.ir.golden.json"
+			rootDir := "../../fixtures/valid/" + fixtureName
+			res := CheckRuntimeBoundaries(CheckOptions{RootDir: rootDir, Graph: loadGraph(t, fixturePath)})
+			if len(res.Diagnostics) != 0 {
+				t.Fatalf("runtime switch check diagnostics=%#v", res.Diagnostics)
+			}
+			if first == nil {
+				first = append([]diag.Diagnostic(nil), res.Diagnostics...)
+				return
+			}
+			if !reflect.DeepEqual(first, res.Diagnostics) {
+				t.Fatalf("diagnostics differ: first=%#v current=%#v", first, res.Diagnostics)
+			}
+		})
+	}
+}

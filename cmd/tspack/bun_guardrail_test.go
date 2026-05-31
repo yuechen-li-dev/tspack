@@ -7,13 +7,19 @@ import (
 	"testing"
 )
 
-func TestM42cNoBunPackageManagerDelegation(t *testing.T) {
+func TestM42RuntimeProfilesDoNotDelegatePackageManagers(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	forbidden := []string{
 		`exec.Command("bun", "install"`,
 		`exec.Command("bun", "add"`,
 		`exec.Command("bun", "pm"`,
-		"bun.lockb",
+		`exec.Command("deno", "task"`,
+		`exec.Command("deno", "install"`,
+		`exec.Command("deno", "add"`,
+		`exec.Command("deno", "cache"`,
+		`exec.Command("deno", "vendor"`,
+		"bun." + "lockb",
+		"deno." + "lock",
 	}
 	var matches []string
 	walkErr := filepath.WalkDir(repo, func(path string, entry os.DirEntry, err error) error {
@@ -49,6 +55,6 @@ func TestM42cNoBunPackageManagerDelegation(t *testing.T) {
 		t.Fatal(walkErr)
 	}
 	if len(matches) > 0 {
-		t.Fatalf("Bun package-manager delegation guardrail found forbidden paths: %s", strings.Join(matches, "; "))
+		t.Fatalf("runtime package-manager delegation guardrail found forbidden paths: %s", strings.Join(matches, "; "))
 	}
 }
