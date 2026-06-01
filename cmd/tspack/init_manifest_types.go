@@ -39,20 +39,31 @@ const initManifestTypesDTS = "" +
 	"\n" +
 	"  export type DependencySource = NpmSource | GitSource | PathSource | WorkspaceSource;\n" +
 	"\n" +
+	"  export type DependencyOptions = {\n" +
+	"    key?: string;\n" +
+	"  };\n" +
+	"\n" +
 	"  export type DepIntent = {\n" +
 	"    kind: 'dep';\n" +
 	"    source: DependencySource;\n" +
+	"    key?: string;\n" +
+	"  };\n" +
+	"\n" +
+	"  export type PeerOptions = DependencyOptions & {\n" +
+	"    optional?: boolean;\n" +
 	"  };\n" +
 	"\n" +
 	"  export type PeerIntent = {\n" +
 	"    kind: 'peer';\n" +
 	"    source: DependencySource;\n" +
+	"    key?: string;\n" +
 	"    optional?: boolean;\n" +
 	"  };\n" +
 	"\n" +
 	"  export type ToolIntent = {\n" +
 	"    kind: 'tool';\n" +
 	"    source: DependencySource;\n" +
+	"    key?: string;\n" +
 	"  };\n" +
 	"\n" +
 	"  export type DependencyIntent = DepIntent | PeerIntent | ToolIntent;\n" +
@@ -230,9 +241,9 @@ const initManifestTypesDTS = "" +
 	"  export function path(pathValue: string): PathSource;\n" +
 	"  export function workspace(name: string, options?: Omit<WorkspaceSource, 'kind' | 'name'>): WorkspaceSource;\n" +
 	"\n" +
-	"  export function dep(source: DependencySource): DepIntent;\n" +
-	"  export function peer(source: DependencySource, options?: Omit<PeerIntent, 'kind' | 'source'>): PeerIntent;\n" +
-	"  export function tool(source: DependencySource): ToolIntent;\n" +
+	"  export function dep(source: DependencySource, options?: DependencyOptions): DepIntent;\n" +
+	"  export function peer(source: DependencySource, options?: PeerOptions): PeerIntent;\n" +
+	"  export function tool(source: DependencySource, options?: DependencyOptions): ToolIntent;\n" +
 	"\n" +
 	"  export const Workspace: ManifestComponent<WorkspaceProps>;\n" +
 	"  export const Packages: ManifestComponent<PackagesProps>;\n" +

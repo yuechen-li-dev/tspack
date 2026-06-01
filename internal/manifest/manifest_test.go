@@ -186,6 +186,22 @@ func TestDependencyIdentityDerivationRule(t *testing.T) {
 	}
 }
 
+func TestScopedToolExplicitKeyReferenceValidates(t *testing.T) {
+	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[{"key":"@biomejs/biome","kind":"tool","source":{"kind":"npm","package":"@biomejs/biome","range":"^1.9.4"}}],"targets":[{"name":"core","export":".","entry":"src/index.ts","runtime":"dist/index.js","types":"dist/index.d.ts","peers":[],"deps":[]}],"policies":{},"boundaries":[],"tools":["@biomejs/biome"],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	_, diags := LoadBytes("x.json", []byte(j))
+	if len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diags)
+	}
+}
+
+func TestUnscopedToolAliasReferenceValidates(t *testing.T) {
+	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[{"kind":"tool","source":{"kind":"npm","package":"typescript","range":"^5.0.0"}}],"targets":[{"name":"core","export":".","entry":"src/index.ts","runtime":"dist/index.js","types":"dist/index.d.ts","peers":[],"deps":[]}],"policies":{},"boundaries":[],"tools":["typescript"],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	_, diags := LoadBytes("x.json", []byte(j))
+	if len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diags)
+	}
+}
+
 func TestTargetPathsRejectBareDot(t *testing.T) {
 	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[{"name":"core","export":".","entry":".","runtime":"dist/index.js","types":"dist/index.d.ts","peers":[],"deps":[]}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
 	_, diags := LoadBytes("x.json", []byte(j))

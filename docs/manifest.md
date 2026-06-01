@@ -51,6 +51,31 @@ export default define(
 
 
 
+
+## Dependency aliases and explicit keys
+
+`defineDeps({ ... })` attaches each object property name as a dependency-reference alias. When no explicit dependency `key` is present, references such as `<Tools values={[deps.typescript]} />` use that alias, so this common unscoped dependency shape keeps emitting `"typescript"`:
+
+```tsx
+const deps = defineDeps({
+  typescript: tool(npm("typescript", "^5.0.0")),
+});
+```
+
+Use an explicit `key` when the dependency identity differs from the local property alias. The explicit key overrides the `defineDeps` alias for target dependency refs, peer refs, and tool refs. This is especially important for scoped npm packages when the local alias is shorter than the package name:
+
+```tsx
+const deps = defineDeps({
+  biome: tool(npm("@biomejs/biome", "^1.9.4"), {
+    key: "@biomejs/biome",
+  }),
+});
+
+<Tools values={[deps.biome]} />
+```
+
+Without the explicit key in this example, the manifest frontend preserves the `biome` alias fallback. Because the dependency identity derived from the npm package is `@biomejs/biome`, Go IR validation reports `TSPACK_IR_UNKNOWN_DEPENDENCY_REF` if the alias and dependency identity do not match.
+
 ## Publish include conventions
 
 `<Publish include={...} />` is the complete explicit source of package contents before `exclude` filters apply. TSPack does not silently add conventional files. Include optional package documents, such as `README.md`, `LICENSE`, and `CHANGELOG.md`, only when those files exist and should be published:

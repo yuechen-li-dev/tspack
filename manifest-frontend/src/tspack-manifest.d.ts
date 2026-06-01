@@ -36,20 +36,31 @@ declare module 'tspack/manifest' {
 
   export type DependencySource = NpmSource | GitSource | PathSource | WorkspaceSource;
 
+  export type DependencyOptions = {
+    key?: string;
+  };
+
   export type DepIntent = {
     kind: 'dep';
     source: DependencySource;
+    key?: string;
+  };
+
+  export type PeerOptions = DependencyOptions & {
+    optional?: boolean;
   };
 
   export type PeerIntent = {
     kind: 'peer';
     source: DependencySource;
+    key?: string;
     optional?: boolean;
   };
 
   export type ToolIntent = {
     kind: 'tool';
     source: DependencySource;
+    key?: string;
   };
 
   export type DependencyIntent = DepIntent | PeerIntent | ToolIntent;
@@ -227,9 +238,9 @@ declare module 'tspack/manifest' {
   export function path(pathValue: string): PathSource;
   export function workspace(name: string, options?: Omit<WorkspaceSource, 'kind' | 'name'>): WorkspaceSource;
 
-  export function dep(source: DependencySource): DepIntent;
-  export function peer(source: DependencySource, options?: Omit<PeerIntent, 'kind' | 'source'>): PeerIntent;
-  export function tool(source: DependencySource): ToolIntent;
+  export function dep(source: DependencySource, options?: DependencyOptions): DepIntent;
+  export function peer(source: DependencySource, options?: PeerOptions): PeerIntent;
+  export function tool(source: DependencySource, options?: DependencyOptions): ToolIntent;
 
   export const Workspace: ManifestComponent<WorkspaceProps>;
   export const Packages: ManifestComponent<PackagesProps>;
