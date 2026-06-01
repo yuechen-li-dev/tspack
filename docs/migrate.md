@@ -68,6 +68,8 @@ Validation is layered:
 2. **Go manifest IR validation** validates the manifest shape emitted by the frontend, including workspace/package metadata, dependency intent, targets, publish policy, security shape, and policy shape. It intentionally does not validate or require a lockfile.
 3. **TODO accounting** counts remaining `MIGRATION_TODO_*` groups and reports them. TODOs are review work, not validation errors.
 
+If validation fails, the diagnostics distinguish structural frontend/IR failures from TODO accounting. `remainingTodos` reports review work still present, and `todosAreErrors: false` makes clear that `MIGRATION_TODO_*` comments did not fail validation by themselves. Unknown dependency-reference failures may also include an alias/key mismatch hint when generated refs do not match declared dependency identities.
+
 A passed check means the draft is structurally valid and accepted by the current manifest frontend and Go IR validator. It does **not** mean the migration is semantically complete, dependencies are resolved, targets are correct, scripts are migrated, or publish contents are verified.
 
 With `--write --check`, TSPack validates first. If validation fails, no migration outputs are written. If validation passes, it writes the manifest draft and migration report. Existing output collisions are still checked before validation unless `--force` is passed.
@@ -95,9 +97,9 @@ The manifest draft uses the current `tspack/manifest` authoring API and includes
 
 The generated workspace intentionally omits `runtime="nodejs"` because Node.js is the default runtime profile. M42b does not infer Bun or Deno from `packageManager` or other package-manager fields; future runtime clues can be reviewed explicitly without changing migration's current behavior-preserving baseline.
 
-The draft is meant to be readable TypeScript/TSX. Source entry paths are guesses, usually mapping `dist/index.js` to `src/index.ts`; they are marked with TODO comments because package.json generally does not declare source entry files.
+The draft is meant to be readable TypeScript/TSX. Source entry paths are guesses, usually mapping `dist/index.js` to `src/index.ts`; they are marked with TODO comments because package.json generally does not declare source entry files. Generated `runtime` and `types` paths omit leading `./` segments, so package fields such as `"./dist/index.js"` become `"dist/index.js"`; parent paths such as `"../dist/index.js"` are preserved.
 
-
+Generated target rows use string dependency identity references for `deps` and `peers`, for example `deps: ["react-dom"]` and `peers: ["@types/react"]`. Tool rows continue to pass dependency objects to `<Tools values={[deps.typescript]} />`, because tool values are declared dependency intents.
 
 ## Script classification and RunTarget suggestions
 
@@ -201,20 +203,34 @@ Stable TODO tags are emitted in both the manifest and report:
 ### Dependencies
 
 - `peerDependencies` become `peer(npm(name, range))`.
-- Optional peer metadata (`peerDependenciesMeta[name].optional == true`) becomes `peer(npm(name, range), { optional: true })`.
+- Optional peer metadata (`peerDependenciesMeta[name].optional == true`) becomes `peer(npm(name, range), { optional: true })`, or `peer(npm(name, range), { key: name, optional: true })` when the generated TypeScript identifier differs from the package identity.
 - `dependencies` become `dep(npm(name, range))` unless the same package is also a peer; peer classification wins and the duplicate is reported.
 - `optionalDependencies` become `dep(npm(name, range))` with a TODO because optional runtime semantics require review.
 - `devDependencies` become `tool(npm(name, range))`.
 - Known tooling packages such as `typescript`, `vite`, `vitest`, `tsup`, `rollup`, `webpack`, `esbuild`, `@biomejs/biome`, `eslint`, `prettier`, `jest`, `playwright`, `@playwright/test`, `turbo`, and `nx` are classified as tools without an entry-specific TODO.
 - Unknown dev dependencies are still emitted as tools with `MIGRATION_TODO_DEP_CLASSIFICATION`.
 
-Dependency keys are generated as valid deterministic TypeScript identifiers. For example:
+Dependency properties are generated as valid deterministic TypeScript identifiers. Whenever the generated identifier differs from the npm package identity, migrate emits an explicit dependency `key` so generated refs preserve the package identity:
 
-- `react-dom` -> `reactDom`
-- `@types/node` -> `typesNode`
-- `@scope/pkg` -> `scopePkg`
+```tsx
+const deps = defineDeps({
+  biomejsBiome: tool(npm("@biomejs/biome", "^1.9.4"), {
+    key: "@biomejs/biome",
+  }),
+  reactDom: peer(npm("react-dom", "^18.3.1"), {
+    key: "react-dom",
+  }),
+});
+```
 
-Identifier collisions are resolved with numeric suffixes and reported.
+Examples:
+
+- `react-dom` -> `reactDom` with `key: "react-dom"`
+- `@types/node` -> `typesNode` with `key: "@types/node"`
+- `@scope/pkg` -> `scopePkg` with `key: "@scope/pkg"`
+- `typescript` -> `typescript` with no explicit key, because the identifier already equals the package identity
+
+Identifier collisions are resolved with numeric suffixes and reported. Target `deps` and `peers` generated by migrate use string package identities rather than `deps.<alias>` object references.
 
 ### Targets
 
@@ -223,6 +239,7 @@ Identifier collisions are resolved with numeric suffixes and reported.
 - Simple subpath exports may become additional target rows such as `./react` -> `react`.
 - Complex conditional exports are reported for review instead of over-inferred.
 - Missing runtime/types metadata falls back to conservative placeholders so the draft remains editable and reviewable.
+- Generated `runtime` and `types` values trim only leading `./` segments from package file paths; `../` and absolute paths are not rewritten.
 
 ### Publish
 

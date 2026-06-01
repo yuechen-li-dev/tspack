@@ -117,16 +117,18 @@ const initManifestTypesDTS = "" +
 	"\n" +
 	"  export type DependencyRefLike = DependencyIntent;\n" +
 	"\n" +
+	"  export type TargetDependencyRefLike = string | DependencyIntent;\n" +
+	"\n" +
 	"  export type TargetRow = {\n" +
 	"    name: string;\n" +
 	"    export?: string;\n" +
 	"    entry: string;\n" +
 	"    runtime: string;\n" +
 	"    types?: string;\n" +
-	"    deps?: DependencyRefLike[];\n" +
-	"    peers?: DependencyRefLike[];\n" +
+	"    deps?: TargetDependencyRefLike[];\n" +
+	"    peers?: TargetDependencyRefLike[];\n" +
 	"    optional?: boolean;\n" +
-	"    [key: string]: Primitive | Primitive[] | DependencyRefLike[] | undefined;\n" +
+	"    [key: string]: Primitive | Primitive[] | TargetDependencyRefLike[] | undefined;\n" +
 	"  };\n" +
 	"\n" +
 	"  export type RunTargetReady =\n" +

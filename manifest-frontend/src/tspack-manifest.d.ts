@@ -114,16 +114,18 @@ declare module 'tspack/manifest' {
 
   export type DependencyRefLike = DependencyIntent;
 
+  export type TargetDependencyRefLike = string | DependencyIntent;
+
   export type TargetRow = {
     name: string;
     export?: string;
     entry: string;
     runtime: string;
     types?: string;
-    deps?: DependencyRefLike[];
-    peers?: DependencyRefLike[];
+    deps?: TargetDependencyRefLike[];
+    peers?: TargetDependencyRefLike[];
     optional?: boolean;
-    [key: string]: Primitive | Primitive[] | DependencyRefLike[] | undefined;
+    [key: string]: Primitive | Primitive[] | TargetDependencyRefLike[] | undefined;
   };
 
   export type RunTargetReady =

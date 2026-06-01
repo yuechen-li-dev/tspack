@@ -53,6 +53,9 @@ The migrate release smoke should cover the package.json-to-draft onboarding path
 #### Package mapping and TODO taxonomy
 
 - The generated manifest maps package metadata, dependencies, peer dependencies, optional peer metadata, optional dependencies, dev tools, targets, and publish includes.
+- Scoped and dashed packages whose TypeScript-safe dependency identifier differs from the npm package identity emit explicit keys, including `@biomejs/biome` -> `biomejsBiome` with `key: "@biomejs/biome"`, `@types/react` -> `typesReact` with `key: "@types/react"`, and `react-dom` -> `reactDom` with `key: "react-dom"`.
+- Generated target `deps` and `peers` use string package identity refs consistently, while generated `<Tools>` values use dependency objects.
+- Generated target `runtime` and `types` paths strip leading `./` from package file paths without rewriting `../` paths.
 - The generated manifest and report include the stable TODO taxonomy, including `MIGRATION_TODO_TARGETS`, `MIGRATION_TODO_DEP_CLASSIFICATION`, `MIGRATION_TODO_RUN_TARGETS`, `MIGRATION_TODO_PUBLISH`, `MIGRATION_TODO_BOUNDARIES`, `MIGRATION_TODO_TYPES`, and `MIGRATION_TODO_SECURITY`.
 - TODO-only fixtures still exit zero when validation passes; TODOs are review markers, not validation failures.
 
@@ -83,7 +86,7 @@ The migrate release smoke should cover the package.json-to-draft onboarding path
 #### `migrate --check` validation
 
 - `tspack migrate --check` validates a generated draft from the current root without writing migration outputs.
-- `tspack migrate --root <fixture> --check` validates the generated draft, reports frontend/IR pass/fail and TODO counts, writes no files, does not execute scripts, and does not create `ts-lock.toml`.
+- `tspack migrate --root <fixture> --check` validates the generated draft, reports frontend/IR pass/fail and TODO counts, writes no files, does not execute scripts, and does not create `ts-lock.toml`. Include a scoped tool fixture with `@biomejs/biome` and an `@types/react` fixture to verify explicit keys and generated-IR validation pass.
 - `tspack migrate --root <fixture> --write --check` validates before writing and writes `manifest.migrated.tsx` and `tspack-migration.md` only when validation passes.
 - A validation-failure fixture exits nonzero and writes no migration outputs.
 - TODOs are counted but are not failures.

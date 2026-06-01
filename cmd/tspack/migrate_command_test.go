@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tspack/tspack/internal/diag"
 )
 
 func TestMigrateMissingPackageJSONDiagnostic(t *testing.T) {
@@ -118,7 +120,7 @@ func TestMigrateWriteForceAndAllOrNothing(t *testing.T) {
 	}
 	manifestPath := filepath.Join(root, "manifest.migrated.tsx")
 	reportPath := filepath.Join(root, "tspack-migration.md")
-	assertFileContains(t, manifestPath, `reactDom: dep(npm("react-dom", "^19"))`)
+	assertFileContains(t, manifestPath, `reactDom: dep(npm("react-dom", "^19"), { key: "react-dom" })`)
 	assertFileContains(t, reportPath, "TSPack Migration Report")
 
 	if err := os.Remove(reportPath); err != nil {
@@ -180,10 +182,10 @@ func TestMigrateMetadataKindDependenciesTargetsPublishAndScripts(t *testing.T) {
 		`license="Apache-2.0"`,
 		`kind="library"`,
 		`react: peer(npm("react", "^19.0.0"), { optional: true })`,
-		`scopePkg: dep(npm("@scope/pkg", "^1.0.0"))`,
+		`scopePkg: dep(npm("@scope/pkg", "^1.0.0"), { key: "@scope/pkg" })`,
 		`fsevents: dep(npm("fsevents", "^2.3.0"))`,
 		`typescript: tool(npm("typescript", "^5.9.0"))`,
-		`unknownTool: tool(npm("unknown-tool", "1.0.0"))`,
+		`unknownTool: tool(npm("unknown-tool", "1.0.0"), { key: "unknown-tool" })`,
 		`name: "core"`,
 		`name: "react"`,
 		`include={["dist/**", "README.md"]}`,
@@ -862,4 +864,169 @@ func TestMigrateCheckOutputCollisionFailsBeforeValidation(t *testing.T) {
 		t.Fatalf("collision should fail before validation:\n%s", text)
 	}
 	assertFileContains(t, filepath.Join(root, "manifest.migrated.tsx"), "old")
+}
+
+func TestMigrateExplicitKeysForGeneratedAliases(t *testing.T) {
+	root := t.TempDir()
+	writePackageJSON(t, root, `{
+  "name":"alias-keys",
+  "version":"1.0.0",
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/react": "^18.2.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "react-dom": "^18.3.1"
+  },
+  "peerDependenciesMeta": {
+    "react-dom": { "optional": true }
+  }
+}`)
+
+	cfg, _ := parseMigrateArgs([]string{"migrate", "--root", root})
+	draft, diagnostic := buildMigrationDraft(cfg)
+	if diagnostic != nil {
+		t.Fatalf("unexpected diagnostic: %#v", diagnostic)
+	}
+
+	for _, want := range []string{
+		`biomejsBiome: tool(npm("@biomejs/biome", "^1.9.4"), { key: "@biomejs/biome" })`,
+		`typesReact: tool(npm("@types/react", "^18.2.0"), { key: "@types/react" })`,
+		`reactDom: peer(npm("react-dom", "^18.3.1"), { key: "react-dom", optional: true })`,
+		`typescript: tool(npm("typescript", "^5.0.0"))`,
+		`peers: ["react-dom"]`,
+		`<Tools values={[deps.biomejsBiome, deps.typesReact, deps.typescript]} />`,
+	} {
+		if !strings.Contains(draft.Manifest, want) {
+			t.Fatalf("manifest missing %q:\n%s", want, draft.Manifest)
+		}
+	}
+	if strings.Contains(draft.Manifest, `typescript: tool(npm("typescript", "^5.0.0"), { key:`) {
+		t.Fatalf("manifest should not emit unnecessary key for matching identifier:\n%s", draft.Manifest)
+	}
+}
+
+func TestMigrateTargetDependencyRefsUsePackageIdentities(t *testing.T) {
+	root := t.TempDir()
+	writePackageJSON(t, root, `{
+  "name":"target-refs",
+  "version":"1.0.0",
+  "dependencies": { "react-dom": "^18.3.1", "@scope/pkg": "^1.0.0" },
+  "peerDependencies": { "@types/react": "^18.2.0" }
+}`)
+
+	cfg, _ := parseMigrateArgs([]string{"migrate", "--root", root})
+	draft, diagnostic := buildMigrationDraft(cfg)
+	if diagnostic != nil {
+		t.Fatalf("unexpected diagnostic: %#v", diagnostic)
+	}
+
+	for _, want := range []string{
+		`scopePkg: dep(npm("@scope/pkg", "^1.0.0"), { key: "@scope/pkg" })`,
+		`reactDom: dep(npm("react-dom", "^18.3.1"), { key: "react-dom" })`,
+		`typesReact: peer(npm("@types/react", "^18.2.0"), { key: "@types/react" })`,
+		`deps: ["@scope/pkg", "react-dom"]`,
+		`peers: ["@types/react"]`,
+	} {
+		if !strings.Contains(draft.Manifest, want) {
+			t.Fatalf("manifest missing %q:\n%s", want, draft.Manifest)
+		}
+	}
+	if strings.Contains(draft.Manifest, `deps: [deps.`) || strings.Contains(draft.Manifest, `peers: [deps.`) {
+		t.Fatalf("target dependency refs should use string identities:\n%s", draft.Manifest)
+	}
+}
+
+func TestMigrateCanonicalizesGeneratedTargetPaths(t *testing.T) {
+	root := t.TempDir()
+	writePackageJSON(t, root, `{
+  "name":"paths",
+  "version":"1.0.0",
+  "main":"./dist/index.js",
+  "types":"./dist/index.d.ts"
+}`)
+
+	cfg, _ := parseMigrateArgs([]string{"migrate", "--root", root})
+	draft, diagnostic := buildMigrationDraft(cfg)
+	if diagnostic != nil {
+		t.Fatalf("unexpected diagnostic: %#v", diagnostic)
+	}
+	for _, want := range []string{`runtime: "dist/index.js"`, `types: "dist/index.d.ts"`} {
+		if !strings.Contains(draft.Manifest, want) {
+			t.Fatalf("manifest missing %q:\n%s", want, draft.Manifest)
+		}
+	}
+	if strings.Contains(draft.Manifest, `runtime: "./dist/index.js"`) || strings.Contains(draft.Manifest, `types: "./dist/index.d.ts"`) {
+		t.Fatalf("manifest should strip leading ./ from generated runtime/types paths:\n%s", draft.Manifest)
+	}
+}
+
+func TestMigrateCanonicalizesExportTargetPaths(t *testing.T) {
+	root := t.TempDir()
+	writePackageJSON(t, root, `{
+  "name":"export-paths",
+  "version":"1.0.0",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+  }
+}`)
+
+	cfg, _ := parseMigrateArgs([]string{"migrate", "--root", root})
+	draft, diagnostic := buildMigrationDraft(cfg)
+	if diagnostic != nil {
+		t.Fatalf("unexpected diagnostic: %#v", diagnostic)
+	}
+	for _, want := range []string{`runtime: "dist/index.js"`, `types: "dist/index.d.ts"`} {
+		if !strings.Contains(draft.Manifest, want) {
+			t.Fatalf("manifest missing %q:\n%s", want, draft.Manifest)
+		}
+	}
+}
+
+func TestMigrateDoesNotCanonicalizeParentTargetPaths(t *testing.T) {
+	root := t.TempDir()
+	writePackageJSON(t, root, `{
+  "name":"parent-paths",
+  "version":"1.0.0",
+  "main":"../dist/index.js",
+  "types":"../dist/index.d.ts"
+}`)
+
+	cfg, _ := parseMigrateArgs([]string{"migrate", "--root", root})
+	draft, diagnostic := buildMigrationDraft(cfg)
+	if diagnostic != nil {
+		t.Fatalf("unexpected diagnostic: %#v", diagnostic)
+	}
+	for _, want := range []string{`runtime: "../dist/index.js"`, `types: "../dist/index.d.ts"`} {
+		if !strings.Contains(draft.Manifest, want) {
+			t.Fatalf("manifest missing %q:\n%s", want, draft.Manifest)
+		}
+	}
+}
+
+func TestMigrateInvalidIRDiagnosticClarifiesTodos(t *testing.T) {
+	result := migrationValidationResult{TempPath: "/tmp/manifest.tsx", RemainingTodos: 3}
+	diagnostics := []diag.Diagnostic{{
+		Code:     "TSPACK_IR_UNKNOWN_DEPENDENCY_REF",
+		Severity: diag.SeverityError,
+		Message:  "unknown dependency ref",
+	}}
+
+	diagnostic := migrationIRInvalidDiagnostic(result, diagnostics)
+	details := strings.Join(diagnostic.Details, "\n")
+	fixes := strings.Join(diagnostic.Fixes, "\n")
+	for _, want := range []string{
+		"remainingTodos: 3",
+		"todosAreErrors: false",
+		"alias/key mismatch",
+		"TSPACK_IR_UNKNOWN_DEPENDENCY_REF",
+	} {
+		if !strings.Contains(details, want) {
+			t.Fatalf("diagnostic details missing %q: %#v", want, diagnostic.Details)
+		}
+	}
+	if !strings.Contains(fixes, "MIGRATION_TODO_* comments do not fail validation") {
+		t.Fatalf("diagnostic fixes should clarify TODO behavior: %#v", diagnostic.Fixes)
+	}
 }
