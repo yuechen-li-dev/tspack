@@ -62,19 +62,22 @@ const deps = defineDeps({
 });
 ```
 
-Use an explicit `key` when the dependency identity differs from the local property alias. The explicit key overrides the `defineDeps` alias for target dependency refs, peer refs, and tool refs. This is especially important for scoped npm packages when the local alias is shorter than the package name:
+Use an explicit `key` when the dependency identity differs from the local property alias. The explicit key overrides the `defineDeps` alias for target dependency refs, peer refs, and tool refs. This is especially important for scoped npm packages or dashed package names when the local alias must be a TypeScript-safe identifier:
 
 ```tsx
 const deps = defineDeps({
-  biome: tool(npm("@biomejs/biome", "^1.9.4"), {
+  biomejsBiome: tool(npm("@biomejs/biome", "^1.9.4"), {
     key: "@biomejs/biome",
+  }),
+  reactDom: peer(npm("react-dom", "^18.3.1"), {
+    key: "react-dom",
   }),
 });
 
-<Tools values={[deps.biome]} />
+<Tools values={[deps.biomejsBiome]} />
 ```
 
-Without the explicit key in this example, the manifest frontend preserves the `biome` alias fallback. Because the dependency identity derived from the npm package is `@biomejs/biome`, Go IR validation reports `TSPACK_IR_UNKNOWN_DEPENDENCY_REF` if the alias and dependency identity do not match.
+Without the explicit key in this example, the manifest frontend preserves the property alias fallback. Because the dependency identity derived from the npm package is `@biomejs/biome` or `react-dom`, Go IR validation reports `TSPACK_IR_UNKNOWN_DEPENDENCY_REF` if the alias and dependency identity do not match. `tspack migrate` follows this rule automatically: generated declarations get `key` whenever the TypeScript identifier differs from the npm package name, while packages such as `typescript` do not get noisy key options.
 
 ## Publish include conventions
 

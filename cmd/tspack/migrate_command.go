@@ -426,6 +426,7 @@ func migrationManifestInvalidDiagnostic(result migrationValidationResult, diagno
 	details := []string{
 		"manifestDraftPath: " + result.TempPath,
 		fmt.Sprintf("remainingTodos: %d", result.RemainingTodos),
+		"todosAreErrors: false",
 	}
 	details = append(details, migrationDiagnosticDetails("frontend diagnostic", diagnostics)...)
 	return &migrationDiagnostic{
@@ -433,7 +434,7 @@ func migrationManifestInvalidDiagnostic(result migrationValidationResult, diagno
 		Message: "generated manifest draft did not pass manifest frontend validation",
 		Details: details,
 		Fixes: []string{
-			"Review the generated manifest and MIGRATION_TODO_* comments.",
+			"Review the generated manifest structure; MIGRATION_TODO_* comments do not fail validation by themselves.",
 			"If this came from ordinary package.json input, treat it as a tspack migrate bug.",
 		},
 	}
@@ -443,6 +444,10 @@ func migrationIRInvalidDiagnostic(result migrationValidationResult, diagnostics 
 	details := []string{
 		"manifestDraftPath: " + result.TempPath,
 		fmt.Sprintf("remainingTodos: %d", result.RemainingTodos),
+		"todosAreErrors: false",
+	}
+	if migrationDiagnosticsContainCode(diagnostics, "TSPACK_IR_UNKNOWN_DEPENDENCY_REF") {
+		details = append(details, "dependencyRefHint: generated manifest contains dependency refs that do not match declared dependency identities; this is likely a migration generator bug or an alias/key mismatch")
 	}
 	details = append(details, migrationDiagnosticDetails("IR diagnostic", diagnostics)...)
 	return &migrationDiagnostic{
@@ -450,7 +455,7 @@ func migrationIRInvalidDiagnostic(result migrationValidationResult, diagnostics 
 		Message: "generated manifest draft frontend IR did not pass Go manifest validation",
 		Details: details,
 		Fixes: []string{
-			"Review the generated manifest and MIGRATION_TODO_* comments.",
+			"Review the generated manifest structure; MIGRATION_TODO_* comments do not fail validation by themselves.",
 			"If this came from ordinary package.json input, treat it as a tspack migrate bug.",
 		},
 	}
@@ -478,6 +483,15 @@ func migrationDiagnosticDetails(prefix string, diagnostics []diag.Diagnostic) []
 		return []string{prefix + ": no structured diagnostics returned"}
 	}
 	return details
+}
+
+func migrationDiagnosticsContainCode(diagnostics []diag.Diagnostic, code string) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 func hasMigrationErrorDiagnostics(diagnostics []diag.Diagnostic) bool {
@@ -959,13 +973,14 @@ func inferMigrationTargets(pkg packageJSONModel, kind string, draft *migrationDr
 	}
 
 	if len(targetsByExport) == 0 && (pkg.Main != "" || pkg.Module != "" || migrationTypesField(pkg) != "") {
-		runtime := firstNonEmpty(pkg.Module, pkg.Main, "dist/index.js")
+		runtime := canonicalMigrationPackagePath(firstNonEmpty(pkg.Module, pkg.Main, "dist/index.js"))
+		types := canonicalMigrationPackagePath(firstNonEmpty(migrationTypesField(pkg), "dist/index.d.ts"))
 		targetsByExport["."] = migratedTarget{
 			Name:        "core",
 			Export:      ".",
 			Entry:       guessMigrationEntry(runtime, "."),
 			Runtime:     runtime,
-			Types:       firstNonEmpty(migrationTypesField(pkg), "dist/index.d.ts"),
+			Types:       types,
 			NeedsTODO:   true,
 			Description: "main/module/types fields",
 		}
@@ -1067,16 +1082,24 @@ func simpleExportFromValue(value any) (simpleExportInfo, bool) {
 }
 
 func targetFromExport(name string, exportName string, info simpleExportInfo, pkg packageJSONModel, description string, needsTODO bool) migratedTarget {
-	runtime := firstNonEmpty(info.Runtime, pkg.Module, pkg.Main, "dist/index.js")
+	runtime := canonicalMigrationPackagePath(firstNonEmpty(info.Runtime, pkg.Module, pkg.Main, "dist/index.js"))
+	types := canonicalMigrationPackagePath(firstNonEmpty(info.Types, migrationTypesField(pkg), "dist/index.d.ts"))
 	return migratedTarget{
 		Name:        name,
 		Export:      exportName,
 		Entry:       guessMigrationEntry(runtime, exportName),
 		Runtime:     runtime,
-		Types:       firstNonEmpty(info.Types, migrationTypesField(pkg), "dist/index.d.ts"),
+		Types:       types,
 		NeedsTODO:   needsTODO,
 		Description: description,
 	}
+}
+
+func canonicalMigrationPackagePath(path string) string {
+	for strings.HasPrefix(path, "./") {
+		path = strings.TrimPrefix(path, "./")
+	}
+	return path
 }
 
 func targetNameFromExport(exportName string) string {
@@ -1661,10 +1684,10 @@ func renderMigrationManifest(draft *migrationDraft) string {
 		builder.WriteString(quoteTSString(target.Types))
 		builder.WriteString(",\n")
 		builder.WriteString("            deps: [")
-		builder.WriteString(joinDependencyRefs(draft.Dependencies, "dep"))
+		builder.WriteString(joinDependencyIdentityRefs(draft.Dependencies, "dep"))
 		builder.WriteString("],\n")
 		builder.WriteString("            peers: [")
-		builder.WriteString(joinDependencyRefs(draft.Dependencies, "peer"))
+		builder.WriteString(joinDependencyIdentityRefs(draft.Dependencies, "peer"))
 		builder.WriteString("],\n")
 		builder.WriteString("            optional: false,\n")
 		builder.WriteString("          },\n")
@@ -1696,10 +1719,25 @@ func renderMigrationManifest(draft *migrationDraft) string {
 
 func renderDependencyCall(dep migratedDependency) string {
 	source := "npm(" + quoteTSString(dep.PackageName) + ", " + quoteTSString(dep.Range) + ")"
-	if dep.Kind == "peer" && dep.OptionalPeer {
-		return "peer(" + source + ", { optional: true })"
+	options := renderDependencyOptions(dep)
+	if options != "" {
+		return dep.Kind + "(" + source + ", " + options + ")"
 	}
 	return dep.Kind + "(" + source + ")"
+}
+
+func renderDependencyOptions(dep migratedDependency) string {
+	var options []string
+	if dep.Key != dep.PackageName {
+		options = append(options, "key: "+quoteTSString(dep.PackageName))
+	}
+	if dep.Kind == "peer" && dep.OptionalPeer {
+		options = append(options, "optional: true")
+	}
+	if len(options) == 0 {
+		return ""
+	}
+	return "{ " + strings.Join(options, ", ") + " }"
 }
 
 func joinDependencyRefs(deps []migratedDependency, kind string) string {
@@ -1707,6 +1745,16 @@ func joinDependencyRefs(deps []migratedDependency, kind string) string {
 	for _, dep := range deps {
 		if kind == "" || dep.Kind == kind {
 			refs = append(refs, "deps."+dep.Key)
+		}
+	}
+	return strings.Join(refs, ", ")
+}
+
+func joinDependencyIdentityRefs(deps []migratedDependency, kind string) string {
+	var refs []string
+	for _, dep := range deps {
+		if kind == "" || dep.Kind == kind {
+			refs = append(refs, quoteTSString(dep.PackageName))
 		}
 	}
 	return strings.Join(refs, ", ")
