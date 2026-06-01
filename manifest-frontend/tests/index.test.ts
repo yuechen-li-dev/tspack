@@ -13,6 +13,22 @@ function golden(...parts: string[]): string {
   return fs.readFileSync(path.join(root, 'fixtures', ...parts, 'manifest.ir.golden.json'), 'utf8').trim();
 }
 
+function withTemporaryManifest(
+  prefix: string,
+  contents: string,
+  assertion: (manifestPath: string) => void,
+): void {
+  const tmpDir = fs.mkdtempSync(path.join(root, 'fixtures', prefix));
+  const manifestPath = path.join(tmpDir, 'manifest.tsx');
+  fs.writeFileSync(manifestPath, contents, 'utf8');
+
+  try {
+    assertion(manifestPath);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
 describe('manifest frontend parser', () => {
   it('parses minimal-library', () => {
     const result = parseManifestFile(fixture('valid', 'minimal-library'));
@@ -136,6 +152,114 @@ export default define(
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+
+
+  it('uses explicit dependency key before defineDeps alias for scoped tool refs', () => {
+    withTemporaryManifest(
+      'tmp-scoped-tool-explicit-key-',
+      `import { define, defineDeps, npm, tool } from "tspack/manifest";
+const deps = defineDeps({
+  biome: tool(npm("@biomejs/biome", "^1.9.4"), {
+    key: "@biomejs/biome",
+  }),
+});
+export default define(
+  <Workspace name="ws">
+    <Package name="app" version="1.0.0" kind="library" dependencies={{ values: [deps.biome] }}>
+      <Targets rows={[{ name: "core", export: ".", entry: "src/index.ts", runtime: "dist/index.js", types: "dist/index.d.ts" }]} />
+      <Tools values={[deps.biome]} />
+    </Package>
+  </Workspace>
+);
+`,
+      (manifestPath) => {
+        const result = parseManifestFile(manifestPath);
+        expect(result.ok).toBe(true);
+        const pkg = result.ir?.packages[0] as Record<string, any>;
+        expect(pkg.dependencies[0].key).toBe('@biomejs/biome');
+        expect(pkg.tools).toEqual(['@biomejs/biome']);
+      },
+    );
+  });
+
+  it('preserves defineDeps property alias fallback for unscoped tool refs', () => {
+    withTemporaryManifest(
+      'tmp-tool-alias-fallback-',
+      `import { define, defineDeps, npm, tool } from "tspack/manifest";
+const deps = defineDeps({
+  typescript: tool(npm("typescript", "^5.0.0")),
+});
+export default define(
+  <Workspace name="ws">
+    <Package name="app" version="1.0.0" kind="library" dependencies={{ values: [deps.typescript] }}>
+      <Targets rows={[{ name: "core", export: ".", entry: "src/index.ts", runtime: "dist/index.js", types: "dist/index.d.ts" }]} />
+      <Tools values={[deps.typescript]} />
+    </Package>
+  </Workspace>
+);
+`,
+      (manifestPath) => {
+        const result = parseManifestFile(manifestPath);
+        expect(result.ok).toBe(true);
+        const pkg = result.ir?.packages[0] as Record<string, any>;
+        expect(pkg.dependencies[0].key).toBeUndefined();
+        expect(pkg.tools).toEqual(['typescript']);
+      },
+    );
+  });
+
+  it('keeps scoped package alias fallback when no explicit key is provided', () => {
+    withTemporaryManifest(
+      'tmp-scoped-tool-alias-fallback-',
+      `import { define, defineDeps, npm, tool } from "tspack/manifest";
+const deps = defineDeps({
+  biome: tool(npm("@biomejs/biome", "^1.9.4")),
+});
+export default define(
+  <Workspace name="ws">
+    <Package name="app" version="1.0.0" kind="library" dependencies={{ values: [deps.biome] }}>
+      <Targets rows={[{ name: "core", export: ".", entry: "src/index.ts", runtime: "dist/index.js", types: "dist/index.d.ts" }]} />
+      <Tools values={[deps.biome]} />
+    </Package>
+  </Workspace>
+);
+`,
+      (manifestPath) => {
+        const result = parseManifestFile(manifestPath);
+        expect(result.ok).toBe(true);
+        const pkg = result.ir?.packages[0] as Record<string, any>;
+        expect(pkg.dependencies[0].key).toBeUndefined();
+        expect(pkg.tools).toEqual(['biome']);
+      },
+    );
+  });
+
+  it('uses explicit dependency key before defineDeps alias for scoped target refs', () => {
+    withTemporaryManifest(
+      'tmp-scoped-target-explicit-key-',
+      `import { define, dep, defineDeps, npm } from "tspack/manifest";
+const deps = defineDeps({
+  reactTypes: dep(npm("@types/react", "^18.0.0"), {
+    key: "@types/react",
+  }),
+});
+export default define(
+  <Workspace name="ws">
+    <Package name="app" version="1.0.0" kind="library" dependencies={{ values: [deps.reactTypes] }}>
+      <Targets rows={[{ name: "core", export: ".", entry: "src/index.ts", runtime: "dist/index.js", types: "dist/index.d.ts", deps: [deps.reactTypes] }]} />
+    </Package>
+  </Workspace>
+);
+`,
+      (manifestPath) => {
+        const result = parseManifestFile(manifestPath);
+        expect(result.ok).toBe(true);
+        const pkg = result.ir?.packages[0] as Record<string, any>;
+        expect(pkg.dependencies[0].key).toBe('@types/react');
+        expect(pkg.targets[0].deps).toEqual(['@types/react']);
+      },
+    );
   });
 
   it('accepts allowOnly boundary rows', () => {

@@ -345,6 +345,9 @@ function dependencyRefKey(value: any): string {
   if (typeof value === 'string') {
     return value;
   }
+  if (typeof value?.key === 'string') {
+    return value.key;
+  }
   if (typeof value?.__key === 'string') {
     return value.__key;
   }

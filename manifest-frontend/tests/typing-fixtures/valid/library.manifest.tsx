@@ -28,6 +28,8 @@ const boundaryPolicy: BoundaryPolicy = {
 
 const deps = defineDeps({
   react: peer(npm('react', '^19.0.0')),
+  biome: tool(npm('@biomejs/biome', '^1.9.4'), { key: '@biomejs/biome' }),
+  reactTypes: dep(npm('@types/react', '^18.0.0'), { key: '@types/react' }),
   ts: tool(npm('typescript', '^5.9.0')),
   tslib: dep(npm('tslib', '^2.8.0')),
 });
