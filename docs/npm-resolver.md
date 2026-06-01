@@ -17,6 +17,14 @@ M7 resolves `source.kind == "npm"` dependency intents from the workspace graph i
 - Supports exact, caret, tilde, and comparator ranges.
 - Chooses highest satisfying version deterministically.
 
+## Registry metadata URLs
+
+- Package metadata is requested by appending one encoded package-name segment to the registry base URL.
+- Unscoped packages use paths such as `/react` and `/left-pad`.
+- Scoped packages keep the scope/name slash inside the encoded package-name segment, so `@types/react`, `@biomejs/biome`, and `@babel/core` are requested at paths such as `/@types%2Freact`, `/@biomejs%2Fbiome`, and `/@babel%2Fcore`.
+- Scoped metadata paths must not be double encoded; `%25` in place of the package-name escape is a resolver bug.
+- Custom registry base paths are supported, so a base such as `https://registry.example.test/npm/` requests `@types/react` at `https://registry.example.test/npm/@types%2Freact`.
+
 ## Integrity and tarball checks
 
 - Fetches tarballs through the registry client.
