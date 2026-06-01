@@ -202,6 +202,7 @@ Fixture/fake-registry smoke should include:
 - `tspack update <declared-dep> --root <fixture>` preserving non-selected locked roots when valid.
 - `tspack update <declared-dep> --root <fixture> --dry-run --json` with JSON-only stdout.
 - `tspack outdated --root <fixture> --json` using metadata-only registry access.
+- Scoped npm metadata URL smoke for `@types/react` and `@biomejs/biome`, verifying fake-registry requests use `/@types%2Freact` and `/@biomejs%2Fbiome` without `%25` double encoding.
 
 ### Claude-fooding Phase 3 boundary/import smoke
 

@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"path"
 	"strings"
 	"time"
 )
@@ -62,8 +61,28 @@ func (c *HTTPRegistryClient) packageURL(name string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("invalid registry url: %w", err)
 	}
-	u.Path = path.Join(u.Path, url.PathEscape(name))
+
+	escapedBasePath := u.EscapedPath()
+	escapedPackageName := url.PathEscape(name)
+	u.Path = appendDecodedPathSegment(u.Path, name)
+	u.RawPath = appendEscapedPathSegment(escapedBasePath, escapedPackageName)
 	return u.String(), nil
+}
+
+func appendDecodedPathSegment(basePath, segment string) string {
+	basePath = strings.TrimRight(basePath, "/")
+	if basePath == "" {
+		return "/" + segment
+	}
+	return basePath + "/" + segment
+}
+
+func appendEscapedPathSegment(basePath, escapedSegment string) string {
+	basePath = strings.TrimRight(basePath, "/")
+	if basePath == "" {
+		return "/" + escapedSegment
+	}
+	return basePath + "/" + escapedSegment
 }
 
 func (c *HTTPRegistryClient) get(ctx context.Context, u string) ([]byte, int, error) {
