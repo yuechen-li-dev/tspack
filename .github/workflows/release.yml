@@ -1,0 +1,146 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version/tag, e.g. v0.1.0"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            archive: tspack-linux-amd64.tar.gz
+          - goos: linux
+            goarch: arm64
+            archive: tspack-linux-arm64.tar.gz
+          - goos: darwin
+            goarch: amd64
+            archive: tspack-darwin-amd64.tar.gz
+          - goos: darwin
+            goarch: arm64
+            archive: tspack-darwin-arm64.tar.gz
+          - goos: windows
+            goarch: amd64
+            archive: tspack-windows-amd64.zip
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: manifest-frontend/package.json
+
+      - name: Install manifest frontend dependencies
+        working-directory: manifest-frontend
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install --no-package-lock
+          fi
+
+      - name: Build release archive
+        run: |
+          version="${{ inputs.version || github.ref_name }}"
+          ./scripts/package-release.sh \
+            --goos "${{ matrix.goos }}" \
+            --goarch "${{ matrix.goarch }}" \
+            --version "$version" \
+            --out-dir dist/release
+
+      - name: Smoke linux-amd64 no-dist binary
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: |
+          set -euo pipefail
+          temp_dir="$(mktemp -d)"
+          dist_backup="manifest-frontend/dist.release-workflow-bak"
+          restore_dist() {
+            if [ -d "$dist_backup" ]; then
+              if [ -e manifest-frontend/dist ]; then
+                mv manifest-frontend/dist "manifest-frontend/dist.release-workflow-unexpected-${{ github.run_id }}"
+              fi
+              mv "$dist_backup" manifest-frontend/dist
+            fi
+            rm -rf "$temp_dir"
+          }
+          trap restore_dist EXIT INT TERM
+
+          tar -xzf dist/release/tspack-linux-amd64.tar.gz -C "$temp_dir"
+          if [ -d manifest-frontend/dist ]; then
+            mv manifest-frontend/dist "$dist_backup"
+          fi
+
+          "$temp_dir/tspack-linux-amd64/tspack" check --root examples/runtime-switch-notes
+          "$temp_dir/tspack-linux-amd64/tspack" test --root examples/runtime-switch-notes >"$temp_dir/test.out" 2>"$temp_dir/test.err" || {
+            cat "$temp_dir/test.out" "$temp_dir/test.err" >"$temp_dir/test.log"
+            if grep -Eqi 'TSPACK_BRIDGE_UNAVAILABLE|TSPACK_.*BRIDGE.*NOT_FOUND|TSPACK_.*BRIDGE_MISSING|manifest frontend bridge not found|inspect bridge not found|native xTest bridge not found' "$temp_dir/test.log"; then
+              cat "$temp_dir/test.log"
+              exit 1
+            fi
+          }
+          "$temp_dir/tspack-linux-amd64/tspack" inspect http://127.0.0.1:9 --json >"$temp_dir/inspect.out" 2>"$temp_dir/inspect.err" || true
+          cat "$temp_dir/inspect.out" "$temp_dir/inspect.err" >"$temp_dir/inspect.log"
+          if grep -Eqi 'TSPACK_BRIDGE_UNAVAILABLE|TSPACK_.*BRIDGE.*NOT_FOUND|TSPACK_.*BRIDGE_MISSING|manifest frontend bridge not found|inspect bridge not found|native xTest bridge not found' "$temp_dir/inspect.log"; then
+            cat "$temp_dir/inspect.log"
+            exit 1
+          fi
+          grep -Eq 'TSPACK_INSPECT_(BROWSER_LAUNCH_FAILED|VSCODE_NOT_FOUND|PAGE_LOAD_FAILED|PLAYWRIGHT_CORE_NOT_FOUND|PLAYWRIGHT_CORE_LOAD_FAILED|INVALID_TARGET|FAILED)' "$temp_dir/inspect.log"
+
+      - name: Upload packaged archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: dist/release/${{ matrix.archive }}
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download packaged archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/release
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: dist/release
+        run: sha256sum tspack-* > checksums.txt
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version || github.ref_name }}
+          name: TSPack ${{ inputs.version || github.ref_name }}
+          body: TSPack ${{ inputs.version || github.ref_name }} release artifacts.
+          files: |
+            dist/release/tspack-linux-amd64.tar.gz
+            dist/release/tspack-linux-arm64.tar.gz
+            dist/release/tspack-darwin-amd64.tar.gz
+            dist/release/tspack-darwin-arm64.tar.gz
+            dist/release/tspack-windows-amd64.zip
+            dist/release/checksums.txt
