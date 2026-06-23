@@ -26,9 +26,51 @@ The release build flow is:
 
 Generated files such as `internal/embeddedbridges/generated_assets.go`, copied bridge bundles under `internal/embeddedbridges/assets/`, release binaries under `dist/`, and frontend or extension `dist` trees must stay out of source control.
 
+
+## Install script
+
+`scripts/install.sh` is the first Unix install path for TSPack release artifacts. It downloads from GitHub Releases, verifies the downloaded archive against `checksums.txt`, extracts the `tspack` binary, and installs it without `sudo` by default.
+
+Current canonical artifact source: GitHub Releases for `yuechen-li-dev/tspack`. The installer is kept in this repository for now; when using a raw GitHub URL later, review the script before running it. Do not treat `get.tspack.dev` as live yet.
+
+Supported Unix platforms map to release artifacts as follows:
+
+- Linux `x86_64` / `amd64` -> `tspack-linux-amd64.tar.gz`
+- Linux `aarch64` / `arm64` -> `tspack-linux-arm64.tar.gz`
+- macOS `x86_64` / `amd64` -> `tspack-darwin-amd64.tar.gz`
+- macOS `aarch64` / `arm64` -> `tspack-darwin-arm64.tar.gz`
+
+Windows is not installed through `scripts/install.sh`. Windows users should manually download `tspack-windows-amd64.zip` from GitHub Releases. A Windows installer or PowerShell script is future work.
+
+By default the script installs to `$HOME/.local/bin/tspack`:
+
+```sh
+sh scripts/install.sh
+```
+
+Install a specific release tag with:
+
+```sh
+TSPACK_VERSION=v0.1.0 sh scripts/install.sh
+```
+
+Install to a custom user-writable directory with:
+
+```sh
+TSPACK_INSTALL_DIR="$HOME/bin" sh scripts/install.sh
+```
+
+If `$HOME/.local/bin` is not on `PATH`, add this to your shell profile manually:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+The installer does not mutate shell profiles, does not require `sudo`, does not skip checksum verification, and does not make hidden network calls beyond the GitHub latest-release API and GitHub Release artifact downloads.
+
 ## Future distribution TODOs
 
-- `get.tspack.dev` installer.
+- `get.tspack.dev` installer endpoint. This is a future canonical URL and is not live yet.
 - GitHub Releases matrix.
 - `setup-tspack` GitHub Action.
 - mise plugin.
@@ -70,6 +112,6 @@ Build a specific release archive locally with:
 ./scripts/package-release.sh --goos linux --goarch amd64 --version v0.1.0
 ```
 
-Future installers such as `install.sh` and `get.tspack.dev` should download these GitHub Release artifacts. They are not live distribution surfaces yet.
+`scripts/install.sh` downloads these GitHub Release artifacts on Unix platforms. `get.tspack.dev` remains a future TODO and is not a live distribution surface yet.
 
 Before the public `v0.1` release, release builds should inject explicit CLI version metadata if the command surface grows a stable `tspack --version` entrypoint.

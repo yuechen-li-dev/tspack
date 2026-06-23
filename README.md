@@ -1,5 +1,12 @@
 # TSPack
 
+## Installation
+
+For now, download release artifacts from GitHub Releases or run `scripts/install.sh` from a trusted checkout. The Unix installer downloads the matching release archive, verifies its SHA256 entry from `checksums.txt`, and installs `tspack` to `$HOME/.local/bin` unless `TSPACK_INSTALL_DIR` is set.
+
+Review installer scripts before running them from raw URLs. A canonical hosted installer endpoint is future work.
+
+
 TSPack is a TypeScript lifecycle tool centered on deterministic intent (`manifest.tsx`) and deterministic resolved truth (`ts-lock.toml`).
 
 Core thesis: **Declare targets. Resolve sources. Enforce boundaries. Lock reality. Pack exactly.**

@@ -102,6 +102,21 @@ The migrate release smoke should cover the package.json-to-draft onboarding path
 - No lockfiles are mutated or generated.
 - No LLM calls are made.
 
+
+### M45c Unix install script gate
+
+The M45c installer gate covers `scripts/install.sh` as the first human Unix install path for GitHub Release artifacts:
+
+- `sh -n scripts/install.sh` must pass.
+- The installer must resolve the latest release from the GitHub Releases API when `TSPACK_VERSION` is unset, and must honor `TSPACK_VERSION=vX.Y.Z` or `--version vX.Y.Z` for explicit installs.
+- Platform mapping must cover Linux `x86_64` / `amd64` -> `linux-amd64`, Linux `aarch64` / `arm64` -> `linux-arm64`, macOS `x86_64` / `amd64` -> `darwin-amd64`, and macOS `aarch64` / `arm64` -> `darwin-arm64`. Unsupported OS/arch combinations must fail clearly with the detected values.
+- Checksum verification against the release `checksums.txt` is mandatory. Missing checksum files, missing artifact entries, checksum-tool absence, and hash mismatches must fail rather than install.
+- The default install destination is `$HOME/.local/bin/tspack`; `TSPACK_INSTALL_DIR` and `--install-dir` may override it. The installer must not require `sudo` by default.
+- If the install directory is not on `PATH`, the installer should print manual shell-profile guidance and must not edit shell profiles automatically.
+- Windows is outside `scripts/install.sh`; the gate requires a clear note that Windows users should download `tspack-windows-amd64.zip` from GitHub Releases manually.
+- The docs must not advertise `get.tspack.dev` as live. It remains a future installer endpoint TODO until hosting is implemented.
+- Fake release-server tests should cover latest-version resolution, explicit-version installation, platform mapping, successful checksum verification, and checksum mismatch failure when feasible.
+
 ### Resolver Phase 8a carryover smoke
 
 The resolver/update smoke should stay offline and use fake registries and fixture tarballs:
