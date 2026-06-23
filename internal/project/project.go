@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/tspack/tspack/internal/bridge"
 	"github.com/tspack/tspack/internal/capability"
 	"github.com/tspack/tspack/internal/check"
 	"github.com/tspack/tspack/internal/diag"
@@ -563,16 +564,14 @@ func loadManifestAndGraph(opts Options) (*manifest.ManifestIR, *graph.WorkspaceG
 }
 
 func manifestFrontendCLIPath() string {
-	candidates := []string{
-		filepath.Join("manifest-frontend", "dist", "src", "cli.js"),
-		filepath.Join("manifest-frontend", "dist", "cli.js"),
+	resolution := bridge.Resolve("cli.js")
+	if resolution.Path != "" {
+		return resolution.Path
 	}
-	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
-		}
+	if len(resolution.SearchedPaths) > 0 {
+		return resolution.SearchedPaths[0]
 	}
-	return candidates[0]
+	return filepath.Join("manifest-frontend", "dist", "cli.js")
 }
 
 func loadManifestIR(opts Options) (*manifest.ManifestIR, []diag.Diagnostic) {
@@ -588,7 +587,7 @@ func loadManifestIR(opts Options) (*manifest.ManifestIR, []diag.Diagnostic) {
 		cliPath = manifestFrontendCLIPath()
 	}
 	if _, err := os.Stat(cliPath); err != nil {
-		return nil, []diag.Diagnostic{errDiag("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", "manifest frontend CLI not found; run `cd manifest-frontend && npm run build`", cliPath)}
+		return nil, []diag.Diagnostic{errDiag("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", "manifest frontend CLI not found", strings.Join(bridge.BuildNeededDetails(), "\n"), cliPath)}
 	}
 	cmd := exec.Command("node", cliPath, opts.ManifestPath)
 	var stdout, stderr bytes.Buffer
