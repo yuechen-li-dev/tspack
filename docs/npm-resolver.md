@@ -54,3 +54,7 @@ M7 resolves `source.kind == "npm"` dependency intents from the workspace graph i
 - Resolver tests are fully offline and deterministic.
 - Fake registry metadata and tarballs are generated in test fixtures.
 - No live npm network is used in tests.
+
+## Related docs
+
+- [Claude-Fooding Phase 8a Carryover](claude-fooding-phase8a-carryover.md)

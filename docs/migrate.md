@@ -330,3 +330,7 @@ tspack migrate --write --force
 - provide framework adapters
 - perform full monorepo workspace discovery beyond the current package.json root
 - analyze source maps
+
+## Related docs
+
+- [Claude-Fooding Phase 8a Carryover](claude-fooding-phase8a-carryover.md)

@@ -56,6 +56,7 @@ The migrate release smoke should cover the package.json-to-draft onboarding path
 - Scoped and dashed packages whose TypeScript-safe dependency identifier differs from the npm package identity emit explicit keys, including `@biomejs/biome` -> `biomejsBiome` with `key: "@biomejs/biome"`, `@types/react` -> `typesReact` with `key: "@types/react"`, and `react-dom` -> `reactDom` with `key: "react-dom"`.
 - Generated target `deps` and `peers` use string package identity refs consistently, while generated `<Tools>` values use dependency objects.
 - Generated target `runtime` and `types` paths strip leading `./` from package file paths without rewriting `../` paths.
+- Phase 8a carryover smoke runs the scoped fixture through both `tspack migrate --check --root <fixture>` and `tspack migrate --write --check --root <fixture>` and verifies no `TSPACK_IR_UNKNOWN_DEPENDENCY_REF` or `TSPACK_MIGRATE_GENERATED_IR_INVALID` diagnostics.
 - The generated manifest and report include the stable TODO taxonomy, including `MIGRATION_TODO_TARGETS`, `MIGRATION_TODO_DEP_CLASSIFICATION`, `MIGRATION_TODO_RUN_TARGETS`, `MIGRATION_TODO_PUBLISH`, `MIGRATION_TODO_BOUNDARIES`, `MIGRATION_TODO_TYPES`, and `MIGRATION_TODO_SECURITY`.
 - TODO-only fixtures still exit zero when validation passes; TODOs are review markers, not validation failures.
 
@@ -100,6 +101,17 @@ The migrate release smoke should cover the package.json-to-draft onboarding path
 - No package.json files are mutated.
 - No lockfiles are mutated or generated.
 - No LLM calls are made.
+
+### Resolver Phase 8a carryover smoke
+
+The resolver/update smoke should stay offline and use fake registries and fixture tarballs:
+
+- Scoped metadata URL coverage verifies `@biomejs/biome`, `@types/react`, and `@babel/core` request `/@biomejs%2Fbiome`, `/@types%2Freact`, and `/@babel%2Fcore` respectively.
+- Scoped metadata URL coverage fails on `%25`, `%2540`, or `%252F` double encoding.
+- Tarball package metadata coverage accepts `package/package.json`, `babel__core/package.json`, and `estree/package.json`.
+- Tarball package metadata coverage rejects or ignores deep `package/subdir/package.json` entries and fails deterministically on multiple top-level roots.
+- The composed scoped URL plus non-standard tarball-root smoke resolves `@types/babel__core` from `/@types%2Fbabel__core` with `babel__core/package.json`.
+- Existing unscoped package and custom registry path-prefix happy paths remain covered.
 
 ### Pack safety smoke
 
