@@ -10,6 +10,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -96,6 +99,120 @@ func TestDiagnostics(t *testing.T) {
 	bad.Dist.Integrity = "sha512-" + base64.StdEncoding.EncodeToString(sum512(fc3.tar[badURL]))
 	fc3.meta["left-pad"].Versions["1.0.0"] = bad
 	mustCode(t, resolveOne(fc3, "left-pad", "1.0.0"), "TSPACK_RESOLVE_NPM_TARBALL_METADATA_MISMATCH")
+}
+
+func TestParseTarballPackageJSONRootDetection(t *testing.T) {
+	cases := []struct {
+		name     string
+		entries  map[string]string
+		wantName string
+		wantOK   bool
+	}{
+		{
+			name:     "package root",
+			entries:  map[string]string{"package/package.json": packageJSONFixture("pkg", "1.0.0")},
+			wantName: "pkg",
+			wantOK:   true,
+		},
+		{
+			name:     "babel core root",
+			entries:  map[string]string{"babel__core/package.json": packageJSONFixture("@types/babel__core", "7.20.0")},
+			wantName: "@types/babel__core",
+			wantOK:   true,
+		},
+		{
+			name:     "estree root",
+			entries:  map[string]string{"estree/package.json": packageJSONFixture("@types/estree", "1.0.8")},
+			wantName: "@types/estree",
+			wantOK:   true,
+		},
+		{
+			name:     "types react root",
+			entries:  map[string]string{"./types-react/package.json": packageJSONFixture("@types/react", "19.0.0")},
+			wantName: "@types/react",
+			wantOK:   true,
+		},
+		{
+			name:     "root level fallback",
+			entries:  map[string]string{"package.json": packageJSONFixture("fixture", "1.0.0")},
+			wantName: "fixture",
+			wantOK:   true,
+		},
+		{
+			name:    "deep package subdir ignored",
+			entries: map[string]string{"package/subdir/package.json": packageJSONFixture("pkg", "1.0.0")},
+			wantOK:  false,
+		},
+		{
+			name:    "nested too deep ignored",
+			entries: map[string]string{"nested/too/deep/package.json": packageJSONFixture("pkg", "1.0.0")},
+			wantOK:  false,
+		},
+		{
+			name: "multiple single roots fail",
+			entries: map[string]string{
+				"anotherRoot/package.json": packageJSONFixture("other", "1.0.0"),
+				"package/package.json":     packageJSONFixture("pkg", "1.0.0"),
+			},
+			wantOK: false,
+		},
+		{
+			name:    "malformed package json fails",
+			entries: map[string]string{"package/package.json": `{"name":`},
+			wantOK:  false,
+		},
+		{
+			name:    "traversal ignored",
+			entries: map[string]string{"../package/package.json": packageJSONFixture("pkg", "1.0.0")},
+			wantOK:  false,
+		},
+		{
+			name:    "absolute ignored",
+			entries: map[string]string{"/package/package.json": packageJSONFixture("pkg", "1.0.0")},
+			wantOK:  false,
+		},
+		{
+			name:    "embedded traversal ignored",
+			entries: map[string]string{"package/../package.json": packageJSONFixture("pkg", "1.0.0")},
+			wantOK:  false,
+		},
+		{
+			name:    "no package json fails",
+			entries: map[string]string{"package/index.js": "module.exports = {};"},
+			wantOK:  false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			manifest, ok := parseTarballPackageJSON(tarballWithEntries(t, tc.entries))
+			if ok != tc.wantOK {
+				t.Fatalf("ok=%v want %v manifest=%#v", ok, tc.wantOK, manifest)
+			}
+			if ok && manifest.Name != tc.wantName {
+				t.Fatalf("name=%q want %q", manifest.Name, tc.wantName)
+			}
+		})
+	}
+}
+
+func TestResolveScopedPackageWithNonStandardTarballRootOverHTTP(t *testing.T) {
+	server := newTarballRootRegistry(t, map[string]string{
+		"@types/babel__core": "babel__core",
+		"@types/estree":      "estree",
+	})
+
+	client := NewHTTPRegistryClient(server.URL)
+	deps := []manifest.DependencyIntent{
+		{Key: "babelCore", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "@types/babel__core", Range: "1.0.0"}},
+		{Key: "estree", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "@types/estree", Range: "1.0.0"}},
+	}
+	res := ResolveNPM(context.Background(), ResolverOptions{Client: client, Mode: ResolveModeUpdate}, ResolveRequest{Graph: graphForDeps(deps, nil, []string{"babelCore", "estree"})})
+	if len(res.Diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", res.Diagnostics)
+	}
+	assertHasPackage(t, res.Lock, "npm:@types/babel__core@1.0.0")
+	assertHasPackage(t, res.Lock, "npm:@types/estree@1.0.0")
 }
 
 func TestDeterministicOutput(t *testing.T) {
@@ -247,3 +364,76 @@ func sortCheck(lf *lockfile.Lockfile) bool {
 }
 
 var _ = diag.SeverityInfo
+
+func packageJSONFixture(name, version string) string {
+	body, _ := json.Marshal(map[string]any{"name": name, "version": version})
+	return string(body)
+}
+
+func tarballWithEntries(t *testing.T, entries map[string]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for name, body := range entries {
+		b := []byte(body)
+		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(b))}); err != nil {
+			t.Fatalf("write header: %v", err)
+		}
+		if _, err := tw.Write(b); err != nil {
+			t.Fatalf("write body: %v", err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("close tar: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("close gzip: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func newTarballRootRegistry(t *testing.T, packages map[string]string) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	metadataByEscapedPath := map[string]PackageMetadata{}
+	tarballsByPath := map[string][]byte{}
+	for packageName, tarballRoot := range packages {
+		version := "1.0.0"
+		tarballPath := "/tarballs/" + tarballRoot + "-" + version + ".tgz"
+		tarballURL := server.URL + tarballPath
+		body := tarballWithEntries(t, map[string]string{tarballRoot + "/package.json": packageJSONFixture(packageName, version)})
+		metadataByEscapedPath["/"+url.PathEscape(packageName)] = PackageMetadata{
+			Name: packageName,
+			Versions: map[string]PackageVersion{
+				version: {
+					Name:    packageName,
+					Version: version,
+					Dist: PackageDist{
+						Tarball:   tarballURL,
+						Integrity: "sha512-" + base64.StdEncoding.EncodeToString(sum512(body)),
+					},
+				},
+			},
+			DistTags: map[string]string{"latest": version},
+		}
+		tarballsByPath[tarballPath] = body
+	}
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if body, ok := tarballsByPath[r.URL.Path]; ok {
+			_, _ = w.Write(body)
+			return
+		}
+		metadata, ok := metadataByEscapedPath[r.URL.EscapedPath()]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(metadata)
+	})
+	return server
+}

@@ -32,7 +32,8 @@ M7 resolves `source.kind == "npm"` dependency intents from the workspace graph i
   - `sha512-<base64>`
   - `sha256-<base64>`
 - Unsupported integrity algorithms emit `TSPACK_RESOLVE_NPM_UNSUPPORTED_INTEGRITY`.
-- Parses `package/package.json` from tarball and validates package `name` and `version` against selected metadata.
+- Parses `package.json` package metadata from tarballs and validates package `name` and `version` against selected metadata. The parser accepts `package.json` directly under any single top-level tarball root, such as `package/package.json`, `babel__core/package.json`, or `estree/package.json`, which supports packages whose archive root is not literally `package`.
+- A root-level `package.json` is accepted only as a fallback when no single-root package metadata entry exists; deep entries such as `package/subdir/package.json` are ignored, and multiple top-level package metadata entries are invalid because the tarball root is ambiguous.
 - Records a tarball SHA-256 content hash in lockfile package `hash`.
 
 ## Security: fetch is not execute

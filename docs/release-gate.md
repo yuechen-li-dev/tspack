@@ -121,6 +121,7 @@ The Phase 6 pack/why smoke must cover the closeout state documented in `docs/cla
 - `tspack pack --verify` structurally verifies produced npm artifacts before finalization.
 - `tspack pack --package <pkg> --verify` verifies one package selection without packing unrelated packages.
 - Generated `package/package.json` metadata checks cover `license`, `main`, `types`, `peerDependencies`, and optional `peerDependenciesMeta`.
+- npm resolver tarball metadata smoke covers package metadata under `package/package.json`, `babel__core/package.json`, and `estree/package.json`; it must reject multiple-root ambiguity and must not accept deep nested `package/subdir/package.json` as the tarball package metadata entry.
 - All-or-nothing failure smoke verifies that a selected-package failure exits nonzero and leaves no partial final artifacts.
 - Include matched nothing smoke verifies `TSPACK_PACK_INCLUDE_MATCHED_NOTHING` as an error.
 - Changelog omission smoke verifies `CHANGELOG.md` omission warns with `TSPACK_PACK_CHANGELOG_NOT_INCLUDED` without auto-including or mutating publish policy.
