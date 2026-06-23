@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path"
 	"sort"
 	"strings"
 
@@ -270,6 +271,10 @@ func parseTarballPackageJSON(body []byte) (packageJSON, bool) {
 		return packageJSON{}, false
 	}
 	defer gz.Close()
+
+	var rootPackageJSON []byte
+	var topLevelPackageJSON []byte
+	foundTopLevelPackageJSON := false
 	tr := tar.NewReader(gz)
 	for {
 		hdr, err := tr.Next()
@@ -279,19 +284,74 @@ func parseTarballPackageJSON(body []byte) (packageJSON, bool) {
 		if err != nil {
 			return packageJSON{}, false
 		}
-		if hdr.Name == "package/package.json" {
-			b, err := io.ReadAll(tr)
-			if err != nil {
-				return packageJSON{}, false
-			}
-			var raw rawPackageJSON
-			if err := json.Unmarshal(b, &raw); err != nil {
-				return packageJSON{}, false
-			}
-			return packageJSON{Name: raw.Name, Version: raw.Version, Scripts: stringScripts(raw.Scripts)}, true
+
+		cleanName, ok := cleanTarballPackageJSONPath(hdr.Name)
+		if !ok {
+			continue
+		}
+
+		b, err := io.ReadAll(tr)
+		if err != nil {
+			return packageJSON{}, false
+		}
+
+		if cleanName == "package.json" {
+			rootPackageJSON = b
+			continue
+		}
+
+		if foundTopLevelPackageJSON {
+			return packageJSON{}, false
+		}
+		topLevelPackageJSON = b
+		foundTopLevelPackageJSON = true
+	}
+
+	selected := topLevelPackageJSON
+	if !foundTopLevelPackageJSON {
+		selected = rootPackageJSON
+	}
+	if selected == nil {
+		return packageJSON{}, false
+	}
+
+	var raw rawPackageJSON
+	if err := json.Unmarshal(selected, &raw); err != nil {
+		return packageJSON{}, false
+	}
+	return packageJSON{Name: raw.Name, Version: raw.Version, Scripts: stringScripts(raw.Scripts)}, true
+}
+
+func cleanTarballPackageJSONPath(name string) (string, bool) {
+	if name == "" || strings.HasPrefix(name, "/") {
+		return "", false
+	}
+	for _, part := range strings.Split(name, "/") {
+		if part == ".." {
+			return "", false
 		}
 	}
-	return packageJSON{}, false
+
+	cleanName := path.Clean(name)
+	if cleanName == "." || cleanName == "" {
+		return "", false
+	}
+	if cleanName == ".." || strings.HasPrefix(cleanName, "../") || strings.Contains(cleanName, "/../") {
+		return "", false
+	}
+
+	if cleanName == "package.json" {
+		return cleanName, true
+	}
+	if !strings.HasSuffix(cleanName, "/package.json") {
+		return "", false
+	}
+
+	parts := strings.Split(cleanName, "/")
+	if len(parts) != 2 || parts[1] != "package.json" || parts[0] == "" {
+		return "", false
+	}
+	return cleanName, true
 }
 
 func verifyIntegrity(body []byte, integrity string) (bool, string) {
