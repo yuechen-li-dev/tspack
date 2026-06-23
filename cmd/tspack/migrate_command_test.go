@@ -866,6 +866,70 @@ func TestMigrateCheckOutputCollisionFailsBeforeValidation(t *testing.T) {
 	assertFileContains(t, filepath.Join(root, "manifest.migrated.tsx"), "old")
 }
 
+func TestMigratePhase8aScopedFixtureCheckRerun(t *testing.T) {
+	root := t.TempDir()
+	writePackageJSON(t, root, `{
+  "name": "@phase8a/scoped-migrate",
+  "version": "0.1.0",
+  "license": "MIT",
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/react": "^18.2.0",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "react-dom": "^18.3.1"
+  },
+  "peerDependenciesMeta": {
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "README.md", "LICENSE"]
+}`)
+
+	checkCmd := exec.Command("go", "run", "./cmd/tspack", "migrate", "--check", "--root", root)
+	checkCmd.Dir = repoRootForMigrateTest(t)
+	checkOutput, err := checkCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("phase 8a migrate --check failed: %v\n%s", err, string(checkOutput))
+	}
+	checkText := string(checkOutput)
+	for _, forbidden := range []string{"TSPACK_IR_UNKNOWN_DEPENDENCY_REF", "TSPACK_MIGRATE_GENERATED_IR_INVALID"} {
+		if strings.Contains(checkText, forbidden) {
+			t.Fatalf("migrate --check output contained %s:\n%s", forbidden, checkText)
+		}
+	}
+
+	writeCmd := exec.Command("go", "run", "./cmd/tspack", "migrate", "--write", "--check", "--root", root)
+	writeCmd.Dir = repoRootForMigrateTest(t)
+	writeOutput, err := writeCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("phase 8a migrate --write --check failed: %v\n%s", err, string(writeOutput))
+	}
+	writeText := string(writeOutput)
+	for _, forbidden := range []string{"TSPACK_IR_UNKNOWN_DEPENDENCY_REF", "TSPACK_MIGRATE_GENERATED_IR_INVALID"} {
+		if strings.Contains(writeText, forbidden) {
+			t.Fatalf("migrate --write --check output contained %s:\n%s", forbidden, writeText)
+		}
+	}
+
+	manifestPath := filepath.Join(root, "manifest.migrated.tsx")
+	for _, want := range []string{
+		`biomejsBiome: tool(npm("@biomejs/biome", "^1.9.4"), { key: "@biomejs/biome" })`,
+		`typesReact: tool(npm("@types/react", "^18.2.0"), { key: "@types/react" })`,
+		`reactDom: peer(npm("react-dom", "^18.3.1"), { key: "react-dom", optional: true })`,
+		`peers: ["react-dom"]`,
+		`runtime: "dist/index.js"`,
+		`types: "dist/index.d.ts"`,
+	} {
+		assertFileContains(t, manifestPath, want)
+	}
+}
+
 func TestMigrateExplicitKeysForGeneratedAliases(t *testing.T) {
 	root := t.TempDir()
 	writePackageJSON(t, root, `{

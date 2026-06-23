@@ -143,6 +143,7 @@ func TestResolveNPMScopedPackageUsesEncodedMetadataPath(t *testing.T) {
 	metadataRequests := []string{}
 	typesTarball := makeClientTarball(t, "@types/react", "1.0.0")
 	biomeTarball := makeClientTarball(t, "@biomejs/biome", "2.0.0")
+	babelTarball := makeClientTarball(t, "@babel/core", "7.0.0")
 
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -168,10 +169,20 @@ func TestResolveNPMScopedPackageUsesEncodedMetadataPath(t *testing.T) {
 				server.URL+"/tarballs/biome-2.0.0.tgz",
 			)
 			_ = json.NewEncoder(w).Encode(metadata)
+		case "/@babel%2Fcore":
+			metadataRequests = append(metadataRequests, r.RequestURI)
+			metadata := scopedPackageMetadata(
+				"@babel/core",
+				"7.0.0",
+				server.URL+"/tarballs/babel-core-7.0.0.tgz",
+			)
+			_ = json.NewEncoder(w).Encode(metadata)
 		case "/tarballs/types-react-1.0.0.tgz":
 			_, _ = w.Write(typesTarball)
 		case "/tarballs/biome-2.0.0.tgz":
 			_, _ = w.Write(biomeTarball)
+		case "/tarballs/babel-core-7.0.0.tgz":
+			_, _ = w.Write(babelTarball)
 		default:
 			http.NotFound(w, r)
 		}
@@ -197,22 +208,32 @@ func TestResolveNPMScopedPackageUsesEncodedMetadataPath(t *testing.T) {
 				Range:   "2.0.0",
 			},
 		},
+		{
+			Key:  "@babel/core",
+			Kind: "dep",
+			Source: manifest.Source{
+				Kind:    "npm",
+				Package: "@babel/core",
+				Range:   "7.0.0",
+			},
+		},
 	}
 	res := ResolveNPM(
 		context.Background(),
 		ResolverOptions{Client: NewHTTPRegistryClient(server.URL), Mode: ResolveModeUpdate},
-		ResolveRequest{Graph: graphForDeps(deps, nil, []string{"@types/react", "@biomejs/biome"})},
+		ResolveRequest{Graph: graphForDeps(deps, nil, []string{"@types/react", "@biomejs/biome", "@babel/core"})},
 	)
 	if len(res.Diagnostics) > 0 {
 		t.Fatalf("resolver diagnostics: %#v", res.Diagnostics)
 	}
 	assertHasPackage(t, res.Lock, "npm:@types/react@1.0.0")
 	assertHasPackage(t, res.Lock, "npm:@biomejs/biome@2.0.0")
-	if len(metadataRequests) != 2 {
-		t.Fatalf("expected two metadata requests, got %#v", metadataRequests)
+	assertHasPackage(t, res.Lock, "npm:@babel/core@7.0.0")
+	if len(metadataRequests) != 3 {
+		t.Fatalf("expected three metadata requests, got %#v", metadataRequests)
 	}
 	for _, requestPath := range metadataRequests {
-		if requestPath != "/@types%2Freact" && requestPath != "/@biomejs%2Fbiome" {
+		if requestPath != "/@types%2Freact" && requestPath != "/@biomejs%2Fbiome" && requestPath != "/@babel%2Fcore" {
 			t.Fatalf("unexpected metadata request path: %s", requestPath)
 		}
 	}

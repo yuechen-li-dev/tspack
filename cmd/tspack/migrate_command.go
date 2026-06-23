@@ -892,6 +892,10 @@ func migrateDependencies(pkg packageJSONModel, draft *migrationDraft) []migrated
 		})
 	}
 	for _, name := range sortedMapKeys(pkg.DevDependencies) {
+		if peerNames[name] {
+			draft.DuplicatePeerDeps = append(draft.DuplicatePeerDeps, name)
+			continue
+		}
 		key := migrationIdentifierForPackage(name, usedKeys, draft)
 		knownTool := knownMigrationTools[name]
 		deps = append(deps, migratedDependency{
