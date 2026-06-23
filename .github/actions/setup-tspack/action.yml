@@ -1,0 +1,29 @@
+name: setup-tspack
+description: Install TSPack from GitHub Releases and add it to PATH.
+inputs:
+  version:
+    description: "TSPack version to install. Use 'latest' or a tag like v0.1.0."
+    required: false
+    default: "latest"
+  repo:
+    description: "Repository to download TSPack releases from."
+    required: false
+    default: "yuechen-li-dev/tspack"
+  github-token:
+    description: "GitHub token for API requests, useful for rate limits or private forks."
+    required: false
+  install-dir:
+    description: "Directory to install tspack into. Defaults to runner temp."
+    required: false
+  check:
+    description: "Run 'tspack --help' after installation."
+    required: false
+    default: "true"
+outputs:
+  version:
+    description: "Installed TSPack release tag."
+  path:
+    description: "Installed tspack binary path."
+runs:
+  using: node20
+  main: index.js

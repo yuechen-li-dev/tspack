@@ -6,6 +6,18 @@ For now, download release artifacts from GitHub Releases or run `scripts/install
 
 Review installer scripts before running them from raw URLs. A canonical hosted installer endpoint is future work.
 
+After the first public release is available, GitHub Actions workflows can install TSPack with the first-party setup action:
+
+```yaml
+steps:
+  - uses: yuechen-li-dev/tspack/.github/actions/setup-tspack@v1
+    with:
+      version: latest
+
+  - run: tspack check --root .
+  - run: tspack test --root .
+```
+
 
 TSPack is a TypeScript lifecycle tool centered on deterministic intent (`manifest.tsx`) and deterministic resolved truth (`ts-lock.toml`).
 

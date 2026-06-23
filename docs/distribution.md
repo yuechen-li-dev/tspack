@@ -68,11 +68,32 @@ export PATH="$HOME/.local/bin:$PATH"
 
 The installer does not mutate shell profiles, does not require `sudo`, does not skip checksum verification, and does not make hidden network calls beyond the GitHub latest-release API and GitHub Release artifact downloads.
 
+
+## setup-tspack GitHub Action
+
+The first-party GitHub Action lives in `.github/actions/setup-tspack` and installs TSPack directly from GitHub Releases. Use the subdirectory action path from workflows:
+
+```yaml
+steps:
+  - uses: yuechen-li-dev/tspack/.github/actions/setup-tspack@v1
+    with:
+      version: latest
+
+  - run: tspack check --root .
+  - run: tspack test --root .
+```
+
+The action resolves `latest` through the GitHub Releases API or accepts a pinned tag such as `v0.1.0`, downloads the matching M45b release artifact plus `checksums.txt`, verifies the artifact SHA256, extracts the binary, installs it into a runner-temp bin directory by default, and appends that directory to `GITHUB_PATH`.
+
+Supported action artifacts are Linux `amd64`/`arm64`, macOS `amd64`/`arm64`, and Windows `amd64`. Windows `arm64` and other unsupported combinations fail before download. The action uses the Node 20 GitHub Actions runtime and only Node built-ins; it does not build from source, install npm dependencies, use `get.tspack.dev`, or implement any package-manager distribution channel.
+
+Because the action is stored in this repository, external workflows must use `yuechen-li-dev/tspack/.github/actions/setup-tspack@v1`; `yuechen-li-dev/tspack/setup-tspack@v1` would require a future separate `setup-tspack` repository.
+
 ## Future distribution TODOs
 
 - `get.tspack.dev` installer endpoint. This is a future canonical URL and is not live yet.
 - GitHub Releases matrix.
-- `setup-tspack` GitHub Action.
+- Separate `setup-tspack` GitHub Action repository, if the subdirectory action path becomes undesirable.
 - mise plugin.
 - Homebrew tap.
 - npm bootstrapper.

@@ -117,6 +117,21 @@ The M45c installer gate covers `scripts/install.sh` as the first human Unix inst
 - The docs must not advertise `get.tspack.dev` as live. It remains a future installer endpoint TODO until hosting is implemented.
 - Fake release-server tests should cover latest-version resolution, explicit-version installation, platform mapping, successful checksum verification, and checksum mismatch failure when feasible.
 
+### M45d setup-tspack GitHub Action gate
+
+The M45d setup action gate covers `.github/actions/setup-tspack` as the first GitHub Actions install path for GitHub Release artifacts:
+
+- `.github/actions/setup-tspack/action.yml` must use the Node 20 runtime and point at the small handwritten installer without generated `node_modules` or dependency bundles.
+- The action must document the first-party subdirectory usage path: `yuechen-li-dev/tspack/.github/actions/setup-tspack@v1`.
+- `version: latest` must resolve the release tag from the GitHub Releases API, while an explicit tag such as `v0.1.0` must bypass latest resolution.
+- The action must download M45b artifacts from GitHub Releases and must not build TSPack from source, use `get.tspack.dev`, install npm packages, or implement other distribution channels.
+- Platform mapping tests must cover Linux `x64`/`arm64`, macOS `x64`/`arm64`, Windows `x64`, and a clear Windows `arm64` unsupported failure.
+- Checksum verification against release `checksums.txt` is mandatory. Missing artifact entries and hash mismatches must fail before extraction or installation.
+- Installation must extract the archive, find `tspack` or `tspack.exe`, copy it into the install directory, append the install directory to `GITHUB_PATH`, and expose `version` and `path` outputs.
+- The post-install check may run `tspack --help`; it must not run project-specific commands such as `tspack check` by default.
+- Normal CI should not depend on a nonexistent public release. A live workflow smoke with `version: latest` is deferred until a real release exists or is manually triggered with a known published tag.
+- `node .github/actions/setup-tspack/test.js` must cover platform mapping, checksum parsing and mismatch behavior, latest tag parsing, explicit-version bypass, URL construction, extracted-binary discovery, and check-input parsing.
+
 ### Resolver Phase 8a carryover smoke
 
 The resolver/update smoke should stay offline and use fake registries and fixture tarballs:
