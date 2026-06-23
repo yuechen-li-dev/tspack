@@ -633,3 +633,16 @@ Release smoke must include URL inspect routing that does not depend on VS Code d
 - Go bridge discovery must prefer `manifest-frontend/dist/<bridge>.js` and still accept legacy `manifest-frontend/dist/src/<bridge>.js` for local/dev compatibility.
 - Release smoke should include `test -f` checks for all three bridge files, `go run ./cmd/tspack test --root examples/runtime-switch-notes`, and an inspect command that proves lookup reaches the inspect backend. In environments without Playwright browser executables, `TSPACK_INSPECT_BROWSER_LAUNCH_FAILED` is acceptable; bridge-missing diagnostics are not.
 - Native xTest discovery for the sample should report the root `tests/**` facts once and must not rediscover generated copies under `.tspack/store` or `tspack-artifacts`.
+
+## M45a v2 self-contained release binary gate
+
+- Release binaries must be built with `./scripts/build-release.sh`, which builds manifest frontend bridges, generates ignored embedded bridge assets, and builds with `-tags tspack_embedded_bridges`.
+- Self-contained smoke must temporarily hide `manifest-frontend/dist` and run:
+  - `./dist/tspack check --root examples/runtime-switch-notes`
+  - `./dist/tspack test --root examples/runtime-switch-notes`
+  - `./dist/tspack inspect ... --json` far enough to prove the inspect bridge resolves. Browser/backend environment diagnostics are acceptable; bridge-not-found diagnostics are not.
+- Generated asset guard:
+  - no committed `manifest-frontend/dist` output
+  - no committed `extensions/*/dist` output
+  - no committed copied bridge JavaScript blobs under `internal/embeddedbridges/assets`
+  - `internal/embeddedbridges/generated_assets.go` is generated and ignored by Git

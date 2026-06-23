@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/tspack/tspack/internal/bridge"
 	"github.com/tspack/tspack/internal/diag"
 )
 
@@ -180,6 +181,11 @@ func ResolveXTestBridge(explicitPath string) BridgeResolution {
 	executable, _ := os.Executable()
 	resolution := BridgeResolution{CWD: cwd, Executable: executable}
 
+	if embedded := bridge.Resolve("native-test-cli.js"); embedded.Path != "" && explicitPath == "" && os.Getenv("TSPACK_XTEST_BRIDGE") == "" {
+		resolution.Path = embedded.Path
+		return resolution
+	}
+
 	if explicitPath != "" {
 		resolution.SearchedPaths = append(resolution.SearchedPaths, explicitPath)
 		if fileExists(explicitPath) {
@@ -279,7 +285,7 @@ func containsString(values []string, target string) bool {
 }
 
 func missingBridgeDiagnostic(resolution BridgeResolution) diag.Diagnostic {
-	details := []string{}
+	details := bridge.BuildNeededDetails()
 	if len(resolution.SearchedPaths) > 0 {
 		details = append(details, "searched paths:")
 		for _, searched := range resolution.SearchedPaths {
