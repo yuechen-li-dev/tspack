@@ -655,3 +655,17 @@ Release smoke must include URL inspect routing that does not depend on VS Code d
   - no committed `extensions/*/dist` output
   - no committed copied bridge JavaScript blobs under `internal/embeddedbridges/assets`
   - `internal/embeddedbridges/generated_assets.go` is generated and ignored by Git
+
+## M45b GitHub Releases artifact gate
+
+M45b release automation must verify:
+
+- `.github/workflows/release.yml` exists and is triggered only by `v*` tag pushes or manual `workflow_dispatch` runs.
+- The release matrix builds `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, and `windows/amd64` targets.
+- Every target is built with `-tags tspack_embedded_bridges` after `manifest-frontend/dist` is built and `go run ./tools/generate-embedded-bridges` has produced ignored embedded bridge assets.
+- Release archives are named `tspack-linux-amd64.tar.gz`, `tspack-linux-arm64.tar.gz`, `tspack-darwin-amd64.tar.gz`, `tspack-darwin-arm64.tar.gz`, and `tspack-windows-amd64.zip`.
+- Archives contain the platform binary plus repository `LICENSE` and `README.md` when present; Unix tarballs preserve the executable bit.
+- The `linux/amd64` workflow build extracts the archive, hides `manifest-frontend/dist`, and runs `check`, `test`, and `inspect --json` smokes far enough to prove embedded bridge resolution. Bridge-missing diagnostics are failures; stable later inspect diagnostics are acceptable.
+- `checksums.txt` is generated with SHA256 entries for all uploaded archives using `<sha256>  <filename>` lines.
+- GitHub Release upload is configured with `contents: write` and uploads all archives plus `checksums.txt` without deleting unrelated release assets.
+- Generated embedded assets, bridge bundles, release binaries, release archives, frontend `dist`, and extension build outputs remain ignored and uncommitted.
