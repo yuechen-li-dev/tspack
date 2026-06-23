@@ -634,6 +634,15 @@ Release smoke must include URL inspect routing that does not depend on VS Code d
 - Release smoke should include `test -f` checks for all three bridge files, `go run ./cmd/tspack test --root examples/runtime-switch-notes`, and an inspect command that proves lookup reaches the inspect backend. In environments without Playwright browser executables, `TSPACK_INSPECT_BROWSER_LAUNCH_FAILED` is acceptable; bridge-missing diagnostics are not.
 - Native xTest discovery for the sample should report the root `tests/**` facts once and must not rediscover generated copies under `.tspack/store` or `tspack-artifacts`.
 
+
+## M45a.1 release binary verification polish gate
+
+- `go test ./cmd/tspack -run TestDoctorFormatReportsDefaultBiomeConfigSource -count=1 -v -timeout 180s` must pass, or any remaining timeout must be documented with a concrete unrelated blocker and reproduction.
+- `go test ./cmd/tspack -count=1 -v -timeout 180s` must pass, or any remaining command-surface blocker must be classified before release.
+- `./scripts/build-release.sh` must restore `manifest-frontend/dist` with trap cleanup after success, command failure, smoke failure, or handled interrupts. A pre-existing `manifest-frontend/dist.release-smoke-bak` is a hard error because the script must not overwrite or delete user data.
+- The release inspect no-dist smoke must distinguish bridge lookup failures from acceptable later-stage inspect diagnostics. Missing bridge diagnostics such as `TSPACK_INSPECT_BRIDGE_MISSING`, `TSPACK_*BRIDGE*NOT_FOUND`, `manifest frontend bridge not found`, or `inspect bridge not found` fail the release smoke. Stable post-bridge diagnostics such as `TSPACK_INSPECT_BROWSER_LAUNCH_FAILED`, Playwright load failures, page-load failures, invalid-target failures, or the generic inspect failure wrapper are acceptable in constrained environments.
+- Generated release assets must remain ignored and untracked: `internal/embeddedbridges/generated_assets.go`, `internal/embeddedbridges/assets/`, `manifest-frontend/dist/`, extension build output, and `dist/tspack`.
+
 ## M45a v2 self-contained release binary gate
 
 - Release binaries must be built with `./scripts/build-release.sh`, which builds manifest frontend bridges, generates ignored embedded bridge assets, and builds with `-tags tspack_embedded_bridges`.

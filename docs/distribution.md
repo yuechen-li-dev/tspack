@@ -21,9 +21,10 @@ The release build flow is:
 1. Build `manifest-frontend/dist`.
 2. Run `go run ./tools/generate-embedded-bridges`.
 3. Build `./cmd/tspack` with `-tags tspack_embedded_bridges`.
-4. Smoke the binary with `manifest-frontend/dist` temporarily hidden.
+4. Smoke the binary with `manifest-frontend/dist` temporarily hidden, using trap cleanup so the local frontend build is restored on success, command failure, smoke failure, or handled interrupts.
+5. Confirm release smokes do not report missing bridge diagnostics. The inspect smoke targets a local URL far enough to prove the embedded inspect bridge resolves, then accepts only stable later-stage inspect diagnostics such as browser, Playwright, page-load, or invalid-target failures.
 
-Generated files such as `internal/embeddedbridges/generated_assets.go`, copied bridge bundles, and frontend `dist` trees must stay out of source control.
+Generated files such as `internal/embeddedbridges/generated_assets.go`, copied bridge bundles under `internal/embeddedbridges/assets/`, release binaries under `dist/`, and frontend or extension `dist` trees must stay out of source control.
 
 ## Future distribution TODOs
 
