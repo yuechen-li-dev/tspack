@@ -243,3 +243,12 @@ A category acknowledgment may be constrained to reviewed script names:
 ```
 
 Exact `acknowledgedCapabilities` entries remain stronger package/script/command evidence and take precedence when both exact and category acknowledgments match. A `maintainer-publish` category acknowledgment does not suppress `preinstall`, `install`, or `postinstall`; consumer-install category acknowledgments must be explicit and should be treated as higher-risk review metadata. Category acknowledgments do not allow lifecycle execution, rebuilds, package-manager compatibility behavior, or resolver changes.
+
+
+## UpdatePolicy security gates
+
+`tspack update --policy --dry-run` evaluates allowed policy-plan candidates against the same lifecycle capability and acknowledgment model used by `tspack check` and `tspack doctor security`. The planner does not execute lifecycle scripts, behavior fixtures, or package code, and it does not fetch external vulnerability feeds. It only uses package metadata already resolved for outdated/update planning and the workspace security policy.
+
+Exact `Security.acknowledgedCapabilities` rows pass matching candidate lifecycle capabilities when package, script, and command match the candidate package ID. `Security.acknowledgedLifecycleCategories` rows can pass matching lifecycle categories when no exact acknowledgment is present. Stale or mismatched acknowledgments do not pass a candidate.
+
+An unacknowledged consumer-install lifecycle script (`preinstall`, `install`, or `postinstall`) blocks policy-plan readiness. An unacknowledged maintainer-publish lifecycle script such as `prepare` or `prepublishOnly` requires review. Passing a policy-plan gate is not execution permission: lifecycle execution remains blocked by default. Behavior fixture/report paths remain evidence for review surfaces and do not run during policy planning.

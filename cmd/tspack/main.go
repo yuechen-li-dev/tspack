@@ -195,6 +195,7 @@ type PolicyUpdateDryRunJSONReport struct {
 type PolicyUpdatePlanJSON struct {
 	PolicyPresent          bool                    `json:"policyPresent"`
 	WouldUpdate            bool                    `json:"wouldUpdate"`
+	WouldApply             bool                    `json:"wouldApply"`
 	SecurityGatesEvaluated bool                    `json:"securityGatesEvaluated"`
 	SecurityGateStatus     string                  `json:"securityGateStatus"`
 	Summary                PolicyUpdatePlanSummary `json:"summary"`
@@ -206,29 +207,35 @@ type PolicyUpdatePlanJSON struct {
 }
 
 type PolicyUpdatePlanSummary struct {
-	Allowed       int `json:"allowed"`
-	Blocked       int `json:"blocked"`
-	Unclassified  int `json:"unclassified"`
-	NotApplicable int `json:"notApplicable"`
-	Noop          int `json:"noop"`
+	Allowed         int `json:"allowed"`
+	Blocked         int `json:"blocked"`
+	Unclassified    int `json:"unclassified"`
+	NotApplicable   int `json:"notApplicable"`
+	Noop            int `json:"noop"`
+	Ready           int `json:"ready"`
+	SecurityBlocked int `json:"securityBlocked"`
+	ReviewRequired  int `json:"reviewRequired"`
 }
 
 type PolicyUpdateCandidate struct {
-	Name               string                    `json:"name"`
-	Kind               string                    `json:"kind"`
-	Requested          string                    `json:"requested"`
-	Current            []string                  `json:"current"`
-	Wanted             string                    `json:"wanted"`
-	Latest             string                    `json:"latest"`
-	Packages           []project.OutdatedPackage `json:"packages"`
-	PackageCount       int                       `json:"packageCount"`
-	PolicyStrategy     string                    `json:"policyStrategy,omitempty"`
-	PolicyLevel        string                    `json:"policyLevel,omitempty"`
-	PolicyStatus       string                    `json:"policyStatus"`
-	PolicyReason       string                    `json:"policyReason,omitempty"`
-	Action             string                    `json:"action"`
-	Message            string                    `json:"message"`
-	SecurityGateStatus string                    `json:"securityGateStatus"`
+	Name                    string                                 `json:"name"`
+	Kind                    string                                 `json:"kind"`
+	Requested               string                                 `json:"requested"`
+	Current                 []string                               `json:"current"`
+	Wanted                  string                                 `json:"wanted"`
+	Latest                  string                                 `json:"latest"`
+	Packages                []project.OutdatedPackage              `json:"packages"`
+	PackageCount            int                                    `json:"packageCount"`
+	PolicyStrategy          string                                 `json:"policyStrategy,omitempty"`
+	PolicyLevel             string                                 `json:"policyLevel,omitempty"`
+	PolicyStatus            string                                 `json:"policyStatus"`
+	PolicyReason            string                                 `json:"policyReason,omitempty"`
+	Action                  string                                 `json:"action"`
+	EffectiveAction         string                                 `json:"effectiveAction"`
+	Message                 string                                 `json:"message"`
+	SecurityGateStatus      string                                 `json:"securityGateStatus"`
+	SecurityGateReasons     []string                               `json:"securityGateReasons"`
+	SecurityGateDiagnostics []project.PolicySecurityGateDiagnostic `json:"securityGateDiagnostics,omitempty"`
 }
 
 type UpdateDryRunJSONState struct {
@@ -1365,8 +1372,8 @@ func buildPolicyUpdateDryRunJSONReport(opts project.Options, result project.Resu
 
 func buildPolicyUpdatePlan(outdated *project.OutdatedResult) PolicyUpdatePlanJSON {
 	plan := PolicyUpdatePlanJSON{
-		SecurityGatesEvaluated: false,
-		SecurityGateStatus:     "not_evaluated",
+		SecurityGatesEvaluated: true,
+		SecurityGateStatus:     "not_applicable",
 		Allowed:                []PolicyUpdateCandidate{},
 		Blocked:                []PolicyUpdateCandidate{},
 		Unclassified:           []PolicyUpdateCandidate{},
@@ -1379,6 +1386,7 @@ func buildPolicyUpdatePlan(outdated *project.OutdatedResult) PolicyUpdatePlanJSO
 	plan.PolicyPresent = outdated.HasPolicy
 	for _, dep := range outdatedHumanEntries(outdated, false) {
 		candidate := policyUpdateCandidate(dep)
+		applyPolicySecurityGate(&candidate, dep, outdated.Security)
 		switch candidate.PolicyStatus {
 		case "allowed":
 			plan.Allowed = append(plan.Allowed, candidate)
@@ -1397,14 +1405,10 @@ func buildPolicyUpdatePlan(outdated *project.OutdatedResult) PolicyUpdatePlanJSO
 			}
 		}
 	}
-	plan.Summary = PolicyUpdatePlanSummary{
-		Allowed:       len(plan.Allowed),
-		Blocked:       len(plan.Blocked),
-		Unclassified:  len(plan.Unclassified),
-		NotApplicable: len(plan.NotApplicable),
-		Noop:          len(plan.Noop),
-	}
+	plan.Summary = summarizePolicyUpdatePlan(plan)
 	plan.WouldUpdate = plan.Summary.Allowed > 0
+	plan.WouldApply = plan.Summary.Ready > 0
+	plan.SecurityGateStatus = summarizePolicySecurityGateStatus(plan)
 	return plan
 }
 
@@ -1449,8 +1453,81 @@ func policyUpdateCandidate(dep project.OutdatedDependency) PolicyUpdateCandidate
 		PolicyReason:       dep.PolicyReason,
 		Action:             action,
 		Message:            message,
-		SecurityGateStatus: "not_evaluated",
+		SecurityGateStatus: "not_applicable",
+		EffectiveAction:    action,
 	}
+}
+
+func applyPolicySecurityGate(candidate *PolicyUpdateCandidate, dep project.OutdatedDependency, security manifest.Security) {
+	gate := project.EvaluatePolicySecurityGate(dep, security)
+	candidate.SecurityGateStatus = gate.Status
+	candidate.SecurityGateReasons = gate.Reasons
+	candidate.SecurityGateDiagnostics = gate.Diagnostics
+	candidate.EffectiveAction = policyEffectiveAction(candidate.PolicyStatus, gate.Status)
+	if candidate.PolicyStatus == "allowed" && len(gate.Reasons) > 0 {
+		candidate.Message = candidate.Message + ", security: " + strings.Join(gate.Reasons, "; ")
+	}
+}
+
+func policyEffectiveAction(policyStatus string, securityStatus string) string {
+	if policyStatus != "allowed" {
+		return "skip"
+	}
+	switch securityStatus {
+	case "passed":
+		return "update"
+	case "review_required":
+		return "review"
+	case "blocked":
+		return "blocked"
+	default:
+		return "skip"
+	}
+}
+
+func summarizePolicyUpdatePlan(plan PolicyUpdatePlanJSON) PolicyUpdatePlanSummary {
+	summary := PolicyUpdatePlanSummary{
+		Allowed:       len(plan.Allowed),
+		Blocked:       len(plan.Blocked),
+		Unclassified:  len(plan.Unclassified),
+		NotApplicable: len(plan.NotApplicable),
+		Noop:          len(plan.Noop),
+	}
+	for _, candidate := range plan.Allowed {
+		switch candidate.SecurityGateStatus {
+		case "passed":
+			summary.Ready++
+		case "blocked":
+			summary.SecurityBlocked++
+		case "review_required":
+			summary.ReviewRequired++
+		}
+	}
+	return summary
+}
+
+func summarizePolicySecurityGateStatus(plan PolicyUpdatePlanJSON) string {
+	statuses := map[string]bool{}
+	for _, candidates := range [][]PolicyUpdateCandidate{
+		plan.Allowed,
+		plan.Blocked,
+		plan.Unclassified,
+		plan.NotApplicable,
+		plan.Noop,
+	} {
+		for _, candidate := range candidates {
+			statuses[candidate.SecurityGateStatus] = true
+		}
+	}
+	if len(statuses) == 0 {
+		return "not_applicable"
+	}
+	if len(statuses) == 1 {
+		for status := range statuses {
+			return status
+		}
+	}
+	return "mixed"
 }
 
 func updateDiagnosticsJSON(diags []diag.Diagnostic) []CheckJSONDiagnostic {
@@ -1475,20 +1552,39 @@ func printPolicyUpdateDryRunPlan(result project.Result) {
 	}
 	if plan.Summary.Allowed == 0 && plan.Summary.Blocked == 0 && plan.Summary.Unclassified == 0 && plan.Summary.NotApplicable == 0 {
 		fmt.Println("No policy-eligible updates found.")
+		fmt.Println("security gates: evaluated")
+		fmt.Println("lifecycle execution remains blocked")
 		fmt.Println("lockfile written: no")
 		return
 	}
-	printPolicyCandidates("Allowed by policy:", plan.Allowed)
-	printPolicyCandidates("Blocked:", plan.Blocked)
+	printPolicyCandidates("Ready:", filterPolicyCandidatesByEffectiveAction(plan.Allowed, "update"))
+	printPolicyCandidates("Needs review:", filterPolicyCandidatesByEffectiveAction(plan.Allowed, "review"))
+	printPolicyCandidates("Blocked by security:", filterPolicyCandidatesByEffectiveAction(plan.Allowed, "blocked"))
+	printPolicyCandidates("Blocked by policy:", plan.Blocked)
 	printPolicyCandidates("Unclassified:", plan.Unclassified)
 	printPolicyCandidates("Not applicable:", plan.NotApplicable)
 	fmt.Println("Summary:")
-	fmt.Printf("allowed: %d\n", plan.Summary.Allowed)
-	fmt.Printf("blocked: %d\n", plan.Summary.Blocked)
+	fmt.Printf("version-policy allowed: %d\n", plan.Summary.Allowed)
+	fmt.Printf("ready: %d\n", plan.Summary.Ready)
+	fmt.Printf("review required: %d\n", plan.Summary.ReviewRequired)
+	fmt.Printf("security blocked: %d\n", plan.Summary.SecurityBlocked)
+	fmt.Printf("policy blocked: %d\n", plan.Summary.Blocked)
 	fmt.Printf("unclassified: %d\n", plan.Summary.Unclassified)
 	fmt.Printf("not applicable: %d\n", plan.Summary.NotApplicable)
-	fmt.Println("security gates: not evaluated")
+	fmt.Println("security gates: evaluated")
+	fmt.Println("security model: current TSPack lifecycle/acknowledgment model")
+	fmt.Println("lifecycle execution remains blocked")
 	fmt.Println("lockfile written: no")
+}
+
+func filterPolicyCandidatesByEffectiveAction(candidates []PolicyUpdateCandidate, action string) []PolicyUpdateCandidate {
+	filtered := []PolicyUpdateCandidate{}
+	for _, candidate := range candidates {
+		if candidate.EffectiveAction == action {
+			filtered = append(filtered, candidate)
+		}
+	}
+	return filtered
 }
 
 func printPolicyCandidates(title string, candidates []PolicyUpdateCandidate) {
@@ -1507,6 +1603,10 @@ func printPolicyCandidates(title string, candidates []PolicyUpdateCandidate) {
 		fmt.Printf(" packages: %d", candidate.PackageCount)
 		if candidate.Message != "" {
 			fmt.Printf(" %s", candidate.Message)
+		}
+		fmt.Printf("\n  security: %s", strings.ReplaceAll(candidate.SecurityGateStatus, "_", " "))
+		if len(candidate.SecurityGateReasons) > 0 {
+			fmt.Printf(" — %s", strings.Join(candidate.SecurityGateReasons, "; "))
 		}
 		fmt.Println()
 	}
