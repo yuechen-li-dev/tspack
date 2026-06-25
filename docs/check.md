@@ -1,0 +1,28 @@
+# Check command
+
+`tspack check` validates the manifest, lockfile, package graph, security capability metadata, and other project invariants without mutating lockfiles, materialized packages, or source files.
+
+## Noisy warning summaries
+
+Default human output keeps serious diagnostics visible and summarizes noisy informational warning families when there are two or more entries:
+
+- Version conflicts (`TSPACK_LOCK_VERSION_CONFLICT`) are summarized with a count, deterministic package/version examples, and `tspack check --show-conflicts` guidance.
+- Lifecycle-script-present warnings (`TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT`) are summarized with a count, deterministic package examples, and the lifecycle posture that execution is blocked by policy.
+
+Use these reveal flags when you need the full human diagnostic blocks:
+
+```sh
+tspack check --show-conflicts
+tspack check --show-lifecycle
+tspack check --show-conflicts --show-lifecycle
+```
+
+The reveal flags only affect human rendering. They do not change diagnostic generation, security posture, lifecycle execution behavior, or exit-code semantics.
+
+## JSON output
+
+`tspack check --json` remains full-detail and machine-useful. It includes every individual version-conflict and lifecycle-present diagnostic, including lifecycle script details and pull chains when available. Human summary diagnostics are not a replacement for the structured diagnostics array.
+
+## Security visibility
+
+Lifecycle summary output means packages declare scripts, but TSPack's policy blocks lifecycle execution by default. More serious security diagnostics, such as stale or unused acknowledgments and future error-level security blockers, remain visible in default human output. Use `tspack doctor security` for policy posture.

@@ -710,3 +710,15 @@ M45b release automation must verify:
 - `checksums.txt` is generated with SHA256 entries for all uploaded archives using `<sha256>  <filename>` lines.
 - GitHub Release upload is configured with `contents: write` and uploads all archives plus `checksums.txt` without deleting unrelated release assets.
 - Generated embedded assets, bridge bundles, release binaries, release archives, frontend `dist`, and extension build outputs remain ignored and uncommitted.
+
+### M46b check warning-volume gate
+
+The M46b gate covers default human `tspack check` readability for noisy informational warning families without weakening diagnostics or security posture:
+
+- Default human `tspack check` summarizes multiple `TSPACK_LOCK_VERSION_CONFLICT` warnings with a count, deterministic examples, and `--show-conflicts` reveal guidance.
+- `tspack check --show-conflicts` reveals full individual version conflict diagnostics.
+- Default human `tspack check` summarizes multiple `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT` warnings with a count, deterministic examples, blocked-by-policy posture, and `--show-lifecycle` reveal guidance.
+- `tspack check --show-lifecycle` reveals full individual lifecycle script diagnostics, including script and pull-chain details.
+- Serious security diagnostics and all error-level diagnostics remain visible in default human output.
+- `tspack check --json` remains complete and includes every individual conflict and lifecycle diagnostic.
+- Warning summarization must not change exit-code semantics, diagnostic codes, lockfile schema, resolver behavior, lifecycle execution behavior, or security policy.
