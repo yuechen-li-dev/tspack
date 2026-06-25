@@ -125,7 +125,7 @@ export function parseWorkspace(rootManifestPath: string): ManifestParseResult {
 
   return {
     ok: true,
-    ir: stableSort({ format: 1, workspace: rootParsed.doc.ir.workspace, packages: mergedPackages }),
+    ir: stableSort({ ...rootParsed.doc.ir, packages: mergedPackages }),
     diagnostics: [],
   };
 }

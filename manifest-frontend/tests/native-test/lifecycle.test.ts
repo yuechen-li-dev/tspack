@@ -197,4 +197,40 @@ describe("lifecycle behavior harness", () => {
     expect(result.results).toHaveLength(1);
     expect(result.results[0].status).toBe("passed");
   });
+
+  it("exposes runLifecycleScript as a native xTest global", async () => {
+    const root = makeDir();
+    const packageDir = path.join(root, "fixture", "package");
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(packageDir, "install.js"),
+      "require('node:fs').writeFileSync('postinstall.txt', 'ok')",
+    );
+
+    fs.writeFileSync(
+      path.join(root, "global-lifecycle.xtest.tsx"),
+      `
+        export default (<Suite name="lifecycle global">
+          <Fact name="runLifecycleScript global exists">{async () => {
+            assert.equal(typeof runLifecycleScript, 'function', 'runLifecycleScript is injected');
+            const result = await runLifecycleScript({
+              packageDir: ${JSON.stringify(packageDir)},
+              command: 'node install.js',
+            });
+            assert.equal(result.exitCode, 0, 'lifecycle exit is preserved');
+            assert.equal(result.violations.length, 0, 'fixture lifecycle stays inside policy');
+            assert.equal(result.writes.some((entry) => entry.endsWith('postinstall.txt')), true, 'guard report includes writes');
+          }}</Fact>
+        </Suite>);
+      `,
+    );
+
+    const result = await runNativeTestFiles({ rootDir: root });
+    expect(result.diagnostics).toEqual([]);
+    expect(result.results).toHaveLength(1);
+    if (result.results[0].status !== "passed") {
+      throw new Error(JSON.stringify(result.results[0].error, null, 2));
+    }
+    expect(result.results[0].status).toBe("passed");
+  });
 });

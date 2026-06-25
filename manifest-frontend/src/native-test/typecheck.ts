@@ -113,6 +113,40 @@ type TspackInspectSourceExpected = {
   component?: string;
   symbol?: string;
 };
+
+type TspackLifecycleProbePolicy = {
+  denyNetwork?: boolean;
+  denyChildProcess?: boolean;
+  denyEnv?: string[];
+  allowRead?: string[];
+  allowWrite?: string[];
+};
+type TspackLifecycleRunScriptRequest = {
+  packageDir: string;
+  command: string;
+  script?: string;
+  policy?: TspackLifecycleProbePolicy;
+  env?: Record<string, string>;
+  timeoutSeconds?: number;
+};
+type TspackLifecycleViolation = {
+  code: string;
+  kind: string;
+  detail: string;
+  path?: string;
+  module?: string;
+  envKey?: string;
+};
+type TspackLifecycleRunScriptResult = {
+  exitCode: number | null;
+  signal?: string | null;
+  timedOut: boolean;
+  stdout: string;
+  stderr: string;
+  violations: TspackLifecycleViolation[];
+  reads: string[];
+  writes: string[];
+};
 type TspackNativeNode = unknown;
 type TspackNativeProps = Record<string, unknown> | null | undefined;
 type TspackNativeTag = (
@@ -148,6 +182,7 @@ declare const assert: {
 };
 declare const expect: unknown;
 declare const skip: unknown;
+declare const runLifecycleScript: (request: TspackLifecycleRunScriptRequest) => Promise<TspackLifecycleRunScriptResult>;
 declare const inspect: {
   url(url: string, options?: TspackInspectUrlOptions): Promise<TspackInspectResult>;
   cdp(endpoint: string, options?: TspackInspectCdpOptions): Promise<TspackInspectResult>;

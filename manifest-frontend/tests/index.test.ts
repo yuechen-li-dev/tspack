@@ -393,6 +393,63 @@ export default define(
     expect(parseWorkspace(manifestPath).ok).toBe(true);
   });
 
+  it('parseWorkspace preserves root Security in split manifests', () => {
+    const tmpDir = fs.mkdtempSync(path.join(root, 'fixtures', 'tmp-split-security-'));
+    const packageDir = path.join(tmpDir, 'packages', 'app');
+    fs.mkdirSync(packageDir, { recursive: true });
+    const manifestPath = path.join(tmpDir, 'manifest.tsx');
+
+    fs.writeFileSync(
+      manifestPath,
+      `import { defineWorkspace } from "tspack/manifest";
+export default defineWorkspace(
+  <Workspace name="ws">
+    <Packages rows={[{ name: "app", root: "packages/app", manifest: "packages/app/package.manifest.tsx" }]} />
+    <Security acknowledgedCapabilities={[{
+      package: "npm:dep-a@1.0.0",
+      kind: "lifecycleScript",
+      script: "postinstall",
+      command: "node install.js",
+      reason: "Known lifecycle capability; execution remains blocked by TSPack.",
+      behaviorFixture: "security/dep-a-postinstall.valid.xtest.tsx",
+    }]} />
+  </Workspace>
+);
+`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(packageDir, 'package.manifest.tsx'),
+      `import { definePackage } from "tspack/manifest";
+export default definePackage(
+  <Package name="app" version="1.0.0" kind="library">
+    <Targets rows={[{ name: "core", export: ".", entry: "src/index.ts", runtime: "dist/index.js", types: "dist/index.d.ts" }]} />
+    <Publish include={["dist/**"]} />
+  </Package>
+);
+`,
+      'utf8',
+    );
+
+    try {
+      const result = parseWorkspace(manifestPath);
+      expect(result.ok).toBe(true);
+      expect(result.ir?.packages).toHaveLength(1);
+      expect(result.ir?.security?.acknowledgedCapabilities).toEqual([
+        {
+          package: 'npm:dep-a@1.0.0',
+          kind: 'lifecycleScript',
+          script: 'postinstall',
+          command: 'node install.js',
+          reason: 'Known lifecycle capability; execution remains blocked by TSPack.',
+          behaviorFixture: 'security/dep-a-postinstall.valid.xtest.tsx',
+        },
+      ]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     ['forbidden-import', 'TSPACK_MANIFEST_FORBIDDEN_IMPORT'],
     ['process-env', 'TSPACK_MANIFEST_FORBIDDEN_PROCESS_ENV'],
