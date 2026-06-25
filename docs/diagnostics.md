@@ -335,3 +335,11 @@ A manifest acknowledgment does not match any lifecycle capability in the lockfil
 ### Lifecycle classification details
 
 `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT` details include `lifecycleScriptName`, `lifecycleCategory`, and `consumerInstallTime` in addition to package, script, command, execution posture, and pull-chain details. Categories are `consumer-install` for `preinstall`/`install`/`postinstall`, `maintainer-publish` for `prepublishOnly`/`prepublish`/`prepare`/`prepack`/`postpack`/`publish`/`postpublish`, and `other` for detected lifecycle hooks outside the known sets. Default human output summarizes this diagnostic family by category; `--show-lifecycle` and JSON output retain individual full-detail diagnostics.
+
+### TSPACK_SECURITY_ACKNOWLEDGED_LIFECYCLE_CATEGORY_UNUSED
+
+A `Security.acknowledgedLifecycleCategories` row did not match any lifecycle capabilities in the current lockfile. Remove it if the dependency graph no longer needs that category policy, or update its `category`/`scripts` fields to match the reviewed lifecycle capabilities.
+
+### TSPACK_SECURITY_ACKNOWLEDGED_LIFECYCLE_CATEGORY_STALE
+
+A `Security.acknowledgedLifecycleCategories` row includes a script that is not part of the declared lifecycle category. For example, `postinstall` belongs to `consumer-install`, not `maintainer-publish`. Update the category or script list so the policy says exactly what it acknowledges.

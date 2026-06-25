@@ -121,7 +121,7 @@ func Check(opts Options) Result {
 			out = append(out, d...)
 			out = append(out, lockfile.CheckGraphConsistency(g, lf).Diagnostics...)
 			out = append(out, lockfile.CheckVersionConflicts(lf).Diagnostics...)
-			out = append(out, lifecycleCapabilityDiagnostics(lf, lifecycleAcknowledgementSet(ir))...)
+			out = append(out, lifecycleCapabilityDiagnostics(lf, lifecycleAcknowledgementSet(ir), lifecycleCategoryAcknowledgements(ir))...)
 		}
 	} else if os.IsNotExist(err) {
 		out = append(out, diag.Diagnostic{Code: "TSPACK_CHECK_LOCKFILE_MISSING", Severity: diag.SeverityWarning, Message: "lockfile is missing"})
@@ -641,12 +641,13 @@ func hasErrors(diags []diag.Diagnostic) bool {
 	return false
 }
 
-func lifecycleCapabilityDiagnostics(lf *lockfile.Lockfile, acknowledgements map[string]manifest.AcknowledgedCapability) []diag.Diagnostic {
+func lifecycleCapabilityDiagnostics(lf *lockfile.Lockfile, acknowledgements map[string]manifest.AcknowledgedCapability, categoryAcknowledgements []manifest.AcknowledgedLifecycleCategory) []diag.Diagnostic {
 	if lf == nil {
 		return nil
 	}
 	diagnostics := []diag.Diagnostic{}
 	usedAcknowledgements := map[string]bool{}
+	usedCategoryAcknowledgements := map[int]int{}
 	staleAcknowledgements := map[string]staleLifecycleAcknowledgement{}
 	pathsByPackage := lifecyclePulledByPaths(lf)
 	for _, pkg := range lf.Packages {
@@ -659,6 +660,8 @@ func lifecycleCapabilityDiagnostics(lf *lockfile.Lockfile, acknowledgements map[
 				usedAcknowledgements[ackKey] = true
 				continue
 			}
+			classification := capmodel.ClassifyLifecycleScript(capability.Script)
+			categoryAcknowledgement, categoryAcknowledgementIndex, categoryAcknowledged := matchingLifecycleCategoryAcknowledgement(classification.LifecycleCategory, capability.Script, categoryAcknowledgements)
 			staleKey := lifecycleStaleAcknowledgementKey(pkg.ID, capability.Script)
 			for _, acknowledgement := range acknowledgements {
 				if acknowledgement.Package == pkg.ID && acknowledgement.Script == capability.Script && acknowledgement.Command != capability.Command {
@@ -667,7 +670,6 @@ func lifecycleCapabilityDiagnostics(lf *lockfile.Lockfile, acknowledgements map[
 					staleAcknowledgements[staleKey] = staleLifecycleAcknowledgement{Acknowledgement: acknowledgement, ActualCommand: capability.Command}
 				}
 			}
-			classification := capmodel.ClassifyLifecycleScript(capability.Script)
 			details := []string{
 				"package: " + pkg.ID,
 				"lifecycleScriptName: " + capability.Script,
@@ -676,6 +678,20 @@ func lifecycleCapabilityDiagnostics(lf *lockfile.Lockfile, acknowledgements map[
 				"lifecycleCategory: " + classification.LifecycleCategory,
 				"consumerInstallTime: " + fmt.Sprintf("%t", classification.ConsumerInstallTime),
 				"execution: blocked by default",
+			}
+			if categoryAcknowledged {
+				usedCategoryAcknowledgements[categoryAcknowledgementIndex]++
+				details = append(details,
+					"acknowledged: true",
+					"acknowledgmentKind: lifecycle-category",
+					"acknowledgedByCategory: "+categoryAcknowledgement.Category,
+					"reason: "+categoryAcknowledgement.Reason,
+				)
+			} else {
+				details = append(details,
+					"acknowledged: false",
+					"acknowledgmentKind: null",
+				)
 			}
 			paths := pathsByPackage[pkg.ID]
 			if len(paths) > 0 {
@@ -705,6 +721,35 @@ func lifecycleCapabilityDiagnostics(lf *lockfile.Lockfile, acknowledgements map[
 			},
 		})
 	}
+	for index, acknowledgement := range categoryAcknowledgements {
+		for _, script := range acknowledgement.Scripts {
+			if categoryAcknowledgementScriptStale(acknowledgement, script) {
+				diagnostics = append(diagnostics, diag.Diagnostic{
+					Code:     "TSPACK_SECURITY_ACKNOWLEDGED_LIFECYCLE_CATEGORY_STALE",
+					Severity: diag.SeverityWarning,
+					Message:  "acknowledged lifecycle category includes script outside that category",
+					Details: []string{
+						"category: " + acknowledgement.Category,
+						"script: " + script,
+						"actual category: " + capmodel.ClassifyLifecycleScript(script).LifecycleCategory,
+						"reason: " + acknowledgement.Reason,
+					},
+				})
+			}
+		}
+		if usedCategoryAcknowledgements[index] == 0 {
+			diagnostics = append(diagnostics, diag.Diagnostic{
+				Code:     "TSPACK_SECURITY_ACKNOWLEDGED_LIFECYCLE_CATEGORY_UNUSED",
+				Severity: diag.SeverityWarning,
+				Message:  "acknowledged lifecycle category did not match any lockfile capabilities",
+				Details: []string{
+					"category: " + acknowledgement.Category,
+					"scripts: " + strings.Join(acknowledgement.Scripts, ","),
+					"reason: " + acknowledgement.Reason,
+				},
+			})
+		}
+	}
 	for key, acknowledgement := range acknowledgements {
 		if usedAcknowledgements[key] {
 			continue
@@ -730,6 +775,34 @@ type staleLifecycleAcknowledgement struct {
 	ActualCommand   string
 }
 
+func lifecycleCategoryAcknowledgements(ir *manifest.ManifestIR) []manifest.AcknowledgedLifecycleCategory {
+	if ir == nil {
+		return nil
+	}
+	return append([]manifest.AcknowledgedLifecycleCategory(nil), ir.Security.AcknowledgedLifecycleCategories...)
+}
+
+func matchingLifecycleCategoryAcknowledgement(category string, script string, acknowledgements []manifest.AcknowledgedLifecycleCategory) (manifest.AcknowledgedLifecycleCategory, int, bool) {
+	for index, acknowledgement := range acknowledgements {
+		if acknowledgement.Category != category {
+			continue
+		}
+		if len(acknowledgement.Scripts) == 0 {
+			return acknowledgement, index, true
+		}
+		for _, acknowledgedScript := range acknowledgement.Scripts {
+			if acknowledgedScript == script {
+				return acknowledgement, index, true
+			}
+		}
+	}
+	return manifest.AcknowledgedLifecycleCategory{}, -1, false
+}
+
+func categoryAcknowledgementScriptStale(acknowledgement manifest.AcknowledgedLifecycleCategory, script string) bool {
+	classification := capmodel.ClassifyLifecycleScript(script)
+	return classification.LifecycleCategory != acknowledgement.Category
+}
 func lifecycleAcknowledgementSet(ir *manifest.ManifestIR) map[string]manifest.AcknowledgedCapability {
 	acknowledgements := map[string]manifest.AcknowledgedCapability{}
 	if ir == nil {

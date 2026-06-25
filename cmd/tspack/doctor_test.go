@@ -9,6 +9,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/tspack/tspack/internal/lockfile"
+	"github.com/tspack/tspack/internal/manifest"
 )
 
 func writeManifestStub(t *testing.T, repo string) {
@@ -903,4 +906,37 @@ func readRuntimeSwitchFixtureIRJSON(t *testing.T, repo string, profile string) s
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+func TestDoctorLifecycleCategoryAcknowledgementStates(t *testing.T) {
+	lf := &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"},
+		Packages: []lockfile.Package{{ID: "npm:dep-a@1.0.0", Name: "dep-a", Version: "1.0.0", Source: "npm", Integrity: "x", Capabilities: []lockfile.Capability{
+			{Kind: "lifecycleScript", Script: "prepare", Command: "node prepare.js"},
+			{Kind: "lifecycleScript", Script: "postinstall", Command: "node install.js"},
+		}}},
+	}
+	checks := doctorLifecycleSecurityChecks(t.TempDir(), lf, nil, []manifest.AcknowledgedLifecycleCategory{{
+		Category: "maintainer-publish",
+		Reason:   "Maintainer lifecycle scripts remain blocked.",
+	}})
+	byName := map[string]DoctorCheck{}
+	for _, check := range checks {
+		byName[check.Name] = check
+	}
+	summary := byName["lifecycle summary"]
+	if summary.Details["categoryAcknowledgedCapabilities"] != 1 || summary.Details["unacknowledgedCapabilities"] != 1 {
+		t.Fatalf("unexpected lifecycle category summary: %#v", summary)
+	}
+	prepare := byName["lifecycle npm:dep-a@1.0.0 prepare"]
+	if prepare.Status != "ok" || prepare.Details["acknowledgmentKind"] != "lifecycle-category" || prepare.Details["acknowledgedByCategory"] != "maintainer-publish" {
+		t.Fatalf("unexpected category acknowledged capability: %#v", prepare)
+	}
+	postinstall := byName["lifecycle npm:dep-a@1.0.0 postinstall"]
+	if postinstall.Status != "warning" || postinstall.Details["acknowledged"] != false || postinstall.Details["lifecycleCategory"] != "consumer-install" {
+		t.Fatalf("consumer install lifecycle should remain unacknowledged: %#v", postinstall)
+	}
+	category := byName["lifecycle category acknowledgement maintainer-publish"]
+	if category.Details["matchedCapabilities"] != 1 {
+		t.Fatalf("category acknowledgement missing matched count: %#v", category)
+	}
 }

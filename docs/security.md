@@ -212,3 +212,34 @@ Relationship between security tools:
 TSPack classifies recorded lifecycle capabilities by operational relevance while continuing to block all lifecycle execution by default. Consumer install-time scripts are `preinstall`, `install`, and `postinstall`; these are the highest-relevance hooks for dependency consumers because npm-style installers can run them during dependency installation. Maintainer publish-time scripts are `prepublishOnly`, `prepublish`, `prepare`, `prepack`, `postpack`, `publish`, and `postpublish`; these are generally maintainer workflow hooks and are operationally less urgent for consumers, but TSPack still records them as blocked capabilities. Any detected lifecycle script outside those known sets is categorized as `other` rather than being silently treated as install-time.
 
 Lifecycle diagnostics include `lifecycleScriptName`, `lifecycleCategory`, and `consumerInstallTime`. Human `tspack check` summarizes lifecycle warnings by category and `tspack check --show-lifecycle` reveals every script, command, category, execution posture, and pull chain. `tspack check --json` keeps individual diagnostics with classification fields. `tspack doctor security` reports lifecycle category counts and shows the same classification for acknowledged and unacknowledged capabilities.
+
+### Lifecycle category acknowledgments
+
+Projects may acknowledge a lifecycle category without permitting execution. This reduces repeated default `tspack check` lifecycle noise for operationally lower-risk categories while keeping the capabilities visible in `tspack check --json`, `tspack check --show-lifecycle`, `tspack doctor security`, and `tspack why` audit surfaces.
+
+```tsx
+<Security
+  acknowledgedLifecycleCategories={[
+    {
+      category: "maintainer-publish",
+      reason: "Maintainer-side package scripts are blocked by TSPack and do not execute during consumer install/update.",
+    },
+  ]}
+/>
+```
+
+A category acknowledgment may be constrained to reviewed script names:
+
+```tsx
+<Security
+  acknowledgedLifecycleCategories={[
+    {
+      category: "maintainer-publish",
+      scripts: ["prepublishOnly", "prepare", "prepack"],
+      reason: "Reviewed maintainer-side lifecycle scripts; execution remains blocked by TSPack.",
+    },
+  ]}
+/>
+```
+
+Exact `acknowledgedCapabilities` entries remain stronger package/script/command evidence and take precedence when both exact and category acknowledgments match. A `maintainer-publish` category acknowledgment does not suppress `preinstall`, `install`, or `postinstall`; consumer-install category acknowledgments must be explicit and should be treated as higher-risk review metadata. Category acknowledgments do not allow lifecycle execution, rebuilds, package-manager compatibility behavior, or resolver changes.

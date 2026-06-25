@@ -97,7 +97,16 @@ const initManifestTypesDTS = "" +
 	"    | 'postpack'\n" +
 	"    | 'prepublish'\n" +
 	"    | 'prepublishOnly'\n" +
+	"    | 'publish'\n" +
 	"    | 'postpublish';\n" +
+	"\n" +
+	"  export type LifecycleCategory = 'consumer-install' | 'maintainer-publish' | 'other';\n" +
+	"\n" +
+	"  export type AcknowledgedLifecycleCategory = {\n" +
+	"    category: LifecycleCategory;\n" +
+	"    scripts?: LifecycleScriptName[];\n" +
+	"    reason: string;\n" +
+	"  };\n" +
 	"\n" +
 	"  export type AcknowledgedCapability = {\n" +
 	"    package: string;\n" +
@@ -197,7 +206,8 @@ const initManifestTypesDTS = "" +
 	"  };\n" +
 	"\n" +
 	"  export type SecurityProps = {\n" +
-	"    acknowledgedCapabilities: AcknowledgedCapability[];\n" +
+	"    acknowledgedCapabilities?: AcknowledgedCapability[];\n" +
+	"    acknowledgedLifecycleCategories?: AcknowledgedLifecycleCategory[];\n" +
 	"  };\n" +
 	"\n" +
 	"  export type ToolsProps = {\n" +
