@@ -643,11 +643,13 @@ func doctorSecurity(root string) doctorBuilder {
 	lockfilePath := filepath.Join(root, "ts-lock.toml")
 	lf, lockChecks, lockfileAvailable := loadDoctorSecurityLockfile(lockfilePath)
 	acks := []manifest.AcknowledgedCapability(nil)
+	categoryAcks := []manifest.AcknowledgedLifecycleCategory(nil)
 	if ir != nil {
 		acks = append(acks, ir.Security.AcknowledgedCapabilities...)
+		categoryAcks = append(categoryAcks, ir.Security.AcknowledgedLifecycleCategories...)
 	}
-	if !lockfileAvailable && len(acks) > 0 {
-		annotateMissingLockfileAcknowledgements(lockChecks, len(acks))
+	if !lockfileAvailable && len(acks)+len(categoryAcks) > 0 {
+		annotateMissingLockfileAcknowledgements(lockChecks, len(acks)+len(categoryAcks))
 	}
 	d.checks = append(d.checks, lockChecks...)
 	d.checks = append(d.checks, doctorBehaviorEvidenceChecks(root, acks)...)
@@ -656,7 +658,7 @@ func doctorSecurity(root string) doctorBuilder {
 		return d
 	}
 
-	d.checks = append(d.checks, doctorLifecycleSecurityChecks(root, lf, acks)...)
+	d.checks = append(d.checks, doctorLifecycleSecurityChecks(root, lf, acks, categoryAcks)...)
 	d.checks = append(d.checks, doctorSecurityPostureCheck())
 	return d
 }
@@ -716,7 +718,7 @@ func loadDoctorSecurityManifest(root string) (*manifest.ManifestIR, []DoctorChec
 	if len(diagnostics) > 0 {
 		return nil, doctorChecksForDiagnostics("security manifest", diagnostics)
 	}
-	return ir, []DoctorCheck{{Name: "security manifest", Status: "ok", Message: "security policy loaded", Details: map[string]any{"acknowledgedCapabilities": len(ir.Security.AcknowledgedCapabilities)}}}
+	return ir, []DoctorCheck{{Name: "security manifest", Status: "ok", Message: "security policy loaded", Details: map[string]any{"acknowledgedCapabilities": len(ir.Security.AcknowledgedCapabilities), "acknowledgedLifecycleCategories": len(ir.Security.AcknowledgedLifecycleCategories)}}}
 }
 
 func doctorChecksForDiagnostics(prefix string, diagnostics []diag.Diagnostic) []DoctorCheck {
@@ -765,14 +767,16 @@ func loadDoctorSecurityLockfile(lockfilePath string) (*lockfile.Lockfile, []Doct
 	return lf, nil, true
 }
 
-func doctorLifecycleSecurityChecks(root string, lf *lockfile.Lockfile, acknowledgements []manifest.AcknowledgedCapability) []DoctorCheck {
+func doctorLifecycleSecurityChecks(root string, lf *lockfile.Lockfile, acknowledgements []manifest.AcknowledgedCapability, categoryAcknowledgements []manifest.AcknowledgedLifecycleCategory) []DoctorCheck {
 	capabilities := collectDoctorLifecycleCapabilities(lf)
 	ackByExactKey := doctorAcknowledgementsByExactKey(acknowledgements)
 	usedAcknowledgements := map[string]bool{}
+	usedCategoryAcknowledgements := map[int]int{}
 	staleByCapabilityKey := map[string]manifest.AcknowledgedCapability{}
 	pathsByPackage := doctorLifecyclePulledByPathLines(lf)
 
 	acknowledgedCount := 0
+	categoryAcknowledgedCount := 0
 	unacknowledgedCount := 0
 	staleCount := 0
 	packagesWithLifecycle := map[string]bool{}
@@ -795,9 +799,13 @@ func doctorLifecycleSecurityChecks(root string, lf *lockfile.Lockfile, acknowled
 		}
 		exactKey := doctorLifecycleAcknowledgementKey(lifecycleCapability.PackageID, lifecycleCapability.Script, lifecycleCapability.Command)
 		_, acknowledged := ackByExactKey[exactKey]
+		_, categoryAcknowledgementIndex, categoryAcknowledged := doctorMatchingLifecycleCategoryAcknowledgement(lifecycleCapability, categoryAcknowledgements)
 		if acknowledged {
 			usedAcknowledgements[exactKey] = true
 			acknowledgedCount++
+		} else if categoryAcknowledged {
+			usedCategoryAcknowledgements[categoryAcknowledgementIndex]++
+			categoryAcknowledgedCount++
 		} else {
 			staleAck, stale := doctorFindStaleAcknowledgement(lifecycleCapability, acknowledgements)
 			if stale {
@@ -830,7 +838,10 @@ func doctorLifecycleSecurityChecks(root string, lf *lockfile.Lockfile, acknowled
 	if len(capabilities) > 0 {
 		summaryMessage = fmt.Sprintf("%d lifecycle script capabilities found", len(capabilities))
 	}
-	if unacknowledgedCount > 0 || staleCount > 0 || len(unusedAcknowledgements) > 0 {
+	unusedCategoryAcknowledgements := doctorUnusedLifecycleCategoryAcknowledgements(categoryAcknowledgements, usedCategoryAcknowledgements)
+	staleCategoryAcknowledgements := doctorStaleLifecycleCategoryAcknowledgements(categoryAcknowledgements)
+
+	if unacknowledgedCount > 0 || staleCount > 0 || len(unusedAcknowledgements) > 0 || len(unusedCategoryAcknowledgements) > 0 || len(staleCategoryAcknowledgements) > 0 {
 		summaryStatus = "warning"
 	}
 	checks = append(checks, DoctorCheck{
@@ -838,19 +849,25 @@ func doctorLifecycleSecurityChecks(root string, lf *lockfile.Lockfile, acknowled
 		Status:  summaryStatus,
 		Message: summaryMessage,
 		Details: map[string]any{
-			"totalLifecycleCapabilities":   len(capabilities),
-			"acknowledged":                 acknowledgedCount,
-			"unacknowledged":               unacknowledgedCount,
-			"staleAcknowledgments":         staleCount,
-			"unusedAcknowledgments":        len(unusedAcknowledgements),
-			"packagesWithLifecycleScripts": len(packagesWithLifecycle),
-			"lifecycleCategories":          categoryCounts,
-			"execution":                    "blocked by default",
+			"totalLifecycleCapabilities":             len(capabilities),
+			"acknowledgedCapabilities":               acknowledgedCount,
+			"acknowledged":                           acknowledgedCount,
+			"acknowledgedLifecycleCategories":        len(categoryAcknowledgements),
+			"categoryAcknowledgedCapabilities":       categoryAcknowledgedCount,
+			"unacknowledgedCapabilities":             unacknowledgedCount,
+			"unacknowledged":                         unacknowledgedCount,
+			"staleAcknowledgments":                   staleCount,
+			"unusedAcknowledgments":                  len(unusedAcknowledgements),
+			"unusedLifecycleCategoryAcknowledgments": len(unusedCategoryAcknowledgements),
+			"staleLifecycleCategoryAcknowledgments":  len(staleCategoryAcknowledgements),
+			"packagesWithLifecycleScripts":           len(packagesWithLifecycle),
+			"lifecycleCategories":                    categoryCounts,
+			"execution":                              "blocked by default",
 		},
 	})
 
 	for _, lifecycleCapability := range capabilities {
-		check := doctorLifecycleCapabilityCheck(root, lifecycleCapability, ackByExactKey, staleByCapabilityKey, pathsByPackage)
+		check := doctorLifecycleCapabilityCheck(root, lifecycleCapability, ackByExactKey, categoryAcknowledgements, staleByCapabilityKey, pathsByPackage)
 		checks = append(checks, check)
 	}
 	for _, staleAck := range staleAcknowledgementsSorted(staleByCapabilityKey) {
@@ -887,9 +904,57 @@ func doctorLifecycleSecurityChecks(root string, lf *lockfile.Lockfile, acknowled
 			},
 		})
 	}
+	for index, categoryAck := range categoryAcknowledgements {
+		checks = append(checks, doctorLifecycleCategoryAcknowledgementCheck(categoryAck, usedCategoryAcknowledgements[index]))
+	}
+	for _, categoryAck := range staleCategoryAcknowledgements {
+		checks = append(checks, doctorLifecycleCategoryStaleCheck(categoryAck))
+	}
+	for _, categoryAck := range unusedCategoryAcknowledgements {
+		checks = append(checks, doctorLifecycleCategoryUnusedCheck(categoryAck))
+	}
 	return checks
 }
 
+func doctorLifecycleCategoryAcknowledgementCheck(acknowledgement manifest.AcknowledgedLifecycleCategory, matchedCapabilities int) DoctorCheck {
+	return DoctorCheck{
+		Name:    "lifecycle category acknowledgement " + acknowledgement.Category,
+		Status:  "ok",
+		Message: "lifecycle category acknowledgment audited; execution remains blocked",
+		Details: map[string]any{
+			"category":            acknowledgement.Category,
+			"scripts":             acknowledgement.Scripts,
+			"reason":              acknowledgement.Reason,
+			"matchedCapabilities": matchedCapabilities,
+		},
+	}
+}
+
+func doctorLifecycleCategoryStaleCheck(acknowledgement manifest.AcknowledgedLifecycleCategory) DoctorCheck {
+	return DoctorCheck{
+		Name:    "stale lifecycle category acknowledgement " + acknowledgement.Category,
+		Status:  "warning",
+		Message: "acknowledged lifecycle category includes script outside that category",
+		Details: map[string]any{
+			"category": acknowledgement.Category,
+			"scripts":  acknowledgement.Scripts,
+			"reason":   acknowledgement.Reason,
+		},
+	}
+}
+
+func doctorLifecycleCategoryUnusedCheck(acknowledgement manifest.AcknowledgedLifecycleCategory) DoctorCheck {
+	return DoctorCheck{
+		Name:    "unused lifecycle category acknowledgement " + acknowledgement.Category,
+		Status:  "warning",
+		Message: "acknowledged lifecycle category did not match any lockfile capabilities",
+		Details: map[string]any{
+			"category": acknowledgement.Category,
+			"scripts":  acknowledgement.Scripts,
+			"reason":   acknowledgement.Reason,
+		},
+	}
+}
 func collectDoctorLifecycleCapabilities(lf *lockfile.Lockfile) []doctorLifecycleCapability {
 	if lf == nil {
 		return nil
@@ -926,9 +991,10 @@ func collectDoctorLifecycleCapabilities(lf *lockfile.Lockfile) []doctorLifecycle
 	return capabilities
 }
 
-func doctorLifecycleCapabilityCheck(root string, lifecycleCapability doctorLifecycleCapability, ackByExactKey map[string]manifest.AcknowledgedCapability, staleByCapabilityKey map[string]manifest.AcknowledgedCapability, pathsByPackage map[string][]string) DoctorCheck {
+func doctorLifecycleCapabilityCheck(root string, lifecycleCapability doctorLifecycleCapability, ackByExactKey map[string]manifest.AcknowledgedCapability, categoryAcknowledgements []manifest.AcknowledgedLifecycleCategory, staleByCapabilityKey map[string]manifest.AcknowledgedCapability, pathsByPackage map[string][]string) DoctorCheck {
 	exactKey := doctorLifecycleAcknowledgementKey(lifecycleCapability.PackageID, lifecycleCapability.Script, lifecycleCapability.Command)
 	acknowledgement, acknowledged := ackByExactKey[exactKey]
+	categoryAcknowledgement, _, categoryAcknowledged := doctorMatchingLifecycleCategoryAcknowledgement(lifecycleCapability, categoryAcknowledgements)
 	staleKey := doctorLifecycleStaleAcknowledgementKey(lifecycleCapability.PackageID, lifecycleCapability.Script)
 	staleAck, stale := staleByCapabilityKey[staleKey]
 
@@ -942,11 +1008,20 @@ func doctorLifecycleCapabilityCheck(root string, lifecycleCapability doctorLifec
 		"lifecycleCategory":   lifecycleCapability.Category,
 		"consumerInstallTime": lifecycleCapability.InstallTime,
 		"execution":           "blocked",
-		"acknowledged":        acknowledged,
+		"acknowledged":        acknowledged || categoryAcknowledged,
+	}
+	if !acknowledged && categoryAcknowledged {
+		status = "ok"
+		message = "lifecycle script capability acknowledged by category policy; execution remains blocked"
+		details["acknowledgmentKind"] = "lifecycle-category"
+		details["acknowledgedByCategory"] = categoryAcknowledgement.Category
+		details["acknowledgedByScripts"] = categoryAcknowledgement.Scripts
+		details["reason"] = categoryAcknowledgement.Reason
 	}
 	if acknowledged {
 		status = "ok"
 		message = "acknowledged lifecycle script capability; execution remains blocked"
+		details["acknowledgmentKind"] = "capability"
 		details["reason"] = acknowledgement.Reason
 		addDoctorEvidenceDetails(root, details, acknowledgement)
 	}
@@ -967,6 +1042,46 @@ func doctorLifecycleCapabilityCheck(root string, lifecycleCapability doctorLifec
 	}
 }
 
+func doctorMatchingLifecycleCategoryAcknowledgement(lifecycleCapability doctorLifecycleCapability, acknowledgements []manifest.AcknowledgedLifecycleCategory) (manifest.AcknowledgedLifecycleCategory, int, bool) {
+	for index, acknowledgement := range acknowledgements {
+		if acknowledgement.Category != lifecycleCapability.Category {
+			continue
+		}
+		if len(acknowledgement.Scripts) == 0 {
+			return acknowledgement, index, true
+		}
+		for _, script := range acknowledgement.Scripts {
+			if script == lifecycleCapability.Script {
+				return acknowledgement, index, true
+			}
+		}
+	}
+	return manifest.AcknowledgedLifecycleCategory{}, -1, false
+}
+
+func doctorUnusedLifecycleCategoryAcknowledgements(acknowledgements []manifest.AcknowledgedLifecycleCategory, used map[int]int) []manifest.AcknowledgedLifecycleCategory {
+	out := []manifest.AcknowledgedLifecycleCategory{}
+	for index, acknowledgement := range acknowledgements {
+		if used[index] == 0 {
+			out = append(out, acknowledgement)
+		}
+	}
+	return out
+}
+
+func doctorStaleLifecycleCategoryAcknowledgements(acknowledgements []manifest.AcknowledgedLifecycleCategory) []manifest.AcknowledgedLifecycleCategory {
+	out := []manifest.AcknowledgedLifecycleCategory{}
+	for _, acknowledgement := range acknowledgements {
+		for _, script := range acknowledgement.Scripts {
+			classification := capability.ClassifyLifecycleScript(script)
+			if classification.LifecycleCategory != acknowledgement.Category {
+				out = append(out, acknowledgement)
+				break
+			}
+		}
+	}
+	return out
+}
 func doctorAcknowledgementsByExactKey(acknowledgements []manifest.AcknowledgedCapability) map[string]manifest.AcknowledgedCapability {
 	byKey := map[string]manifest.AcknowledgedCapability{}
 	for _, acknowledgement := range acknowledgements {

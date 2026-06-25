@@ -94,7 +94,16 @@ declare module 'tspack/manifest' {
     | 'postpack'
     | 'prepublish'
     | 'prepublishOnly'
+    | 'publish'
     | 'postpublish';
+
+  export type LifecycleCategory = 'consumer-install' | 'maintainer-publish' | 'other';
+
+  export type AcknowledgedLifecycleCategory = {
+    category: LifecycleCategory;
+    scripts?: LifecycleScriptName[];
+    reason: string;
+  };
 
   export type AcknowledgedCapability = {
     package: string;
@@ -194,7 +203,8 @@ declare module 'tspack/manifest' {
   };
 
   export type SecurityProps = {
-    acknowledgedCapabilities: AcknowledgedCapability[];
+    acknowledgedCapabilities?: AcknowledgedCapability[];
+    acknowledgedLifecycleCategories?: AcknowledgedLifecycleCategory[];
   };
 
   export type ToolsProps = {

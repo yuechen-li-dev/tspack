@@ -42,15 +42,18 @@ type CheckJSONSummary struct {
 }
 
 type CheckJSONDiagnostic struct {
-	Code                string      `json:"code"`
-	Severity            string      `json:"severity"`
-	Message             string      `json:"message"`
-	File                string      `json:"file,omitempty"`
-	LifecycleScriptName string      `json:"lifecycleScriptName,omitempty"`
-	LifecycleCategory   string      `json:"lifecycleCategory,omitempty"`
-	ConsumerInstallTime *bool       `json:"consumerInstallTime,omitempty"`
-	Details             interface{} `json:"details,omitempty"`
-	Fixes               interface{} `json:"fixes,omitempty"`
+	Code                   string      `json:"code"`
+	Severity               string      `json:"severity"`
+	Message                string      `json:"message"`
+	File                   string      `json:"file,omitempty"`
+	LifecycleScriptName    string      `json:"lifecycleScriptName,omitempty"`
+	LifecycleCategory      string      `json:"lifecycleCategory,omitempty"`
+	ConsumerInstallTime    *bool       `json:"consumerInstallTime,omitempty"`
+	Acknowledged           *bool       `json:"acknowledged,omitempty"`
+	AcknowledgmentKind     *string     `json:"acknowledgmentKind,omitempty"`
+	AcknowledgedByCategory string      `json:"acknowledgedByCategory,omitempty"`
+	Details                interface{} `json:"details,omitempty"`
+	Fixes                  interface{} `json:"fixes,omitempty"`
 }
 
 type WhyJSONReport struct {
@@ -1241,10 +1244,20 @@ func renderHumanDiagnostics(out *os.File, diagnostics []diag.Diagnostic, options
 	} else {
 		rendered = append(rendered, versionConflictSummaryDiagnostic(conflicts))
 	}
-	if options.ShowLifecycle || len(lifecycle) < 2 {
+	if options.ShowLifecycle {
 		rendered = append(rendered, lifecycle...)
 	} else {
-		rendered = append(rendered, lifecycleSummaryDiagnostic(lifecycle))
+		unacknowledgedLifecycle := unacknowledgedLifecycleDiagnostics(lifecycle)
+		if len(unacknowledgedLifecycle) == 0 && len(lifecycle) > 0 {
+			rendered = append(rendered, lifecycleAllAcknowledgedSummaryDiagnostic(lifecycle))
+		} else if len(unacknowledgedLifecycle) < 2 {
+			rendered = append(rendered, unacknowledgedLifecycle...)
+			if len(categoryAcknowledgedLifecycleDiagnostics(lifecycle)) > 0 {
+				rendered = append(rendered, lifecycleSummaryDiagnostic(lifecycle))
+			}
+		} else {
+			rendered = append(rendered, lifecycleSummaryDiagnostic(lifecycle))
+		}
 	}
 	diag.SortDiagnostics(rendered)
 	for _, diagnostic := range rendered {
@@ -1275,6 +1288,43 @@ func versionConflictSummaryDiagnostic(conflicts []diag.Diagnostic) diag.Diagnost
 	}
 }
 
+func unacknowledgedLifecycleDiagnostics(lifecycle []diag.Diagnostic) []diag.Diagnostic {
+	out := []diag.Diagnostic{}
+	for _, diagnostic := range lifecycle {
+		if lifecycleDiagnosticDetail(diagnostic, "acknowledgmentKind") == "lifecycle-category" {
+			continue
+		}
+		out = append(out, diagnostic)
+	}
+	return out
+}
+
+func categoryAcknowledgedLifecycleDiagnostics(lifecycle []diag.Diagnostic) []diag.Diagnostic {
+	out := []diag.Diagnostic{}
+	for _, diagnostic := range lifecycle {
+		if lifecycleDiagnosticDetail(diagnostic, "acknowledgmentKind") == "lifecycle-category" {
+			out = append(out, diagnostic)
+		}
+	}
+	return out
+}
+
+func lifecycleAllAcknowledgedSummaryDiagnostic(lifecycle []diag.Diagnostic) diag.Diagnostic {
+	counts := lifecycleCategoryCounts(lifecycle)
+	message := fmt.Sprintf("Lifecycle scripts: %d scripts acknowledged by category policy; execution remains blocked.", len(lifecycle))
+	if counts[capability.LifecycleCategoryMaintainerPublish] == len(lifecycle) {
+		message = fmt.Sprintf("Lifecycle scripts: %d maintainer-side scripts acknowledged by category policy; execution remains blocked.", len(lifecycle))
+	}
+	return diag.Diagnostic{
+		Code:     "TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT",
+		Severity: diag.SeverityInfo,
+		Message:  message,
+		Details: []string{
+			"Run `tspack check --show-lifecycle` for full script and acknowledgment details.",
+			"Run `tspack doctor security` for audit details.",
+		},
+	}
+}
 func lifecycleSummaryDiagnostic(lifecycle []diag.Diagnostic) diag.Diagnostic {
 	counts := lifecycleCategoryCounts(lifecycle)
 	consumerExamples := lifecycleExamplesByCategory(lifecycle, capability.LifecycleCategoryConsumerInstall, 2)
@@ -1298,6 +1348,14 @@ func lifecycleSummaryDiagnostic(lifecycle []diag.Diagnostic) diag.Diagnostic {
 		"Run `tspack doctor security` for policy posture.",
 	)
 	message := lifecycleSummaryMessage(counts)
+	categoryAcknowledgedCount := len(categoryAcknowledgedLifecycleDiagnostics(lifecycle))
+	unacknowledgedCount := len(unacknowledgedLifecycleDiagnostics(lifecycle))
+	if categoryAcknowledgedCount > 0 {
+		details = append([]string{fmt.Sprintf("%d lifecycle scripts acknowledged by lifecycle category policy.", categoryAcknowledgedCount)}, details...)
+	}
+	if unacknowledgedCount > 0 {
+		details = append([]string{fmt.Sprintf("%d lifecycle scripts remain unacknowledged.", unacknowledgedCount)}, details...)
+	}
 	return diag.Diagnostic{
 		Code:     "TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT",
 		Severity: diag.SeverityWarning,
@@ -1472,6 +1530,13 @@ func buildCheckJSONReport(opts project.Options, result project.Result) CheckJSON
 			jd.LifecycleCategory = lifecycleDiagnosticDetail(d, "lifecycleCategory")
 			consumerInstallTime := lifecycleDiagnosticDetail(d, "consumerInstallTime") == "true"
 			jd.ConsumerInstallTime = &consumerInstallTime
+			acknowledged := lifecycleDiagnosticDetail(d, "acknowledged") == "true"
+			jd.Acknowledged = &acknowledged
+			acknowledgmentKind := lifecycleDiagnosticDetail(d, "acknowledgmentKind")
+			if acknowledgmentKind != "" && acknowledgmentKind != "null" {
+				jd.AcknowledgmentKind = &acknowledgmentKind
+			}
+			jd.AcknowledgedByCategory = lifecycleDiagnosticDetail(d, "acknowledgedByCategory")
 		}
 		if len(d.Details) > 0 {
 			jd.Details = d.Details

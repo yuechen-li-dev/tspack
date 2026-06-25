@@ -756,3 +756,15 @@ The M46b gate covers default human `tspack check` readability for noisy informat
 - Acknowledged, stale, unused, and behavior-fixture/report evidence behavior remains package/script/command based.
 - Lifecycle execution remains blocked by default.
 - No batch suppression, `acknowledgedScriptKinds`, or `--no-security-warnings` policy is implemented.
+
+## M48c lifecycle category acknowledgment policy gate
+
+- Manifest `Security.acknowledgedLifecycleCategories` supports `category`, optional `scripts`, and required `reason` fields.
+- A `maintainer-publish` category acknowledgment suppresses default human check lifecycle noise for maintainer-side scripts only.
+- Consumer-install scripts remain visible unless a consumer-install category acknowledgment explicitly matches them.
+- `tspack doctor security` reports lifecycle category acknowledgments, matched category-acknowledged capability counts, and per-capability acknowledgment kind.
+- Unused lifecycle category acknowledgments emit `TSPACK_SECURITY_ACKNOWLEDGED_LIFECYCLE_CATEGORY_UNUSED`.
+- Stale lifecycle category scripts emit `TSPACK_SECURITY_ACKNOWLEDGED_LIFECYCLE_CATEGORY_STALE`.
+- `tspack check --json` remains full-detail and includes lifecycle acknowledgment fields.
+- Split manifests preserve root `Security.acknowledgedLifecycleCategories` with the rest of root security policy.
+- Lifecycle execution remains blocked by default; category acknowledgment is audit metadata only.

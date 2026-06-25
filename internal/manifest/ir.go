@@ -46,7 +46,8 @@ func (w *Workspace) UnmarshalJSON(data []byte) error {
 }
 
 type Security struct {
-	AcknowledgedCapabilities []AcknowledgedCapability `json:"acknowledgedCapabilities,omitempty"`
+	AcknowledgedCapabilities        []AcknowledgedCapability        `json:"acknowledgedCapabilities,omitempty"`
+	AcknowledgedLifecycleCategories []AcknowledgedLifecycleCategory `json:"acknowledgedLifecycleCategories,omitempty"`
 }
 
 type AcknowledgedCapability struct {
@@ -61,6 +62,16 @@ type AcknowledgedCapability struct {
 
 func (a AcknowledgedCapability) Key() string {
 	return a.Package + "|" + a.Kind + "|" + a.Script + "|" + a.Command
+}
+
+type AcknowledgedLifecycleCategory struct {
+	Category string   `json:"category"`
+	Scripts  []string `json:"scripts,omitempty"`
+	Reason   string   `json:"reason"`
+}
+
+func (a AcknowledgedLifecycleCategory) Key() string {
+	return a.Category + "|" + strings.Join(a.Scripts, ",")
 }
 
 type Package struct {
@@ -212,7 +223,16 @@ func isValidRuntimeProfile(value string) bool {
 
 func isSupportedLifecycleScript(scriptName string) bool {
 	switch scriptName {
-	case "preinstall", "install", "postinstall", "prepack", "prepare", "postpack", "prepublish", "prepublishOnly", "postpublish":
+	case "preinstall", "install", "postinstall", "prepack", "prepare", "postpack", "prepublish", "prepublishOnly", "publish", "postpublish":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedLifecycleCategory(category string) bool {
+	switch category {
+	case "consumer-install", "maintainer-publish", "other":
 		return true
 	default:
 		return false
@@ -303,6 +323,27 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 		}
 		seenAcknowledgedCapabilities[key] = struct{}{}
 	}
+	seenAcknowledgedLifecycleCategories := map[string]struct{}{}
+	for index, acknowledged := range ir.Security.AcknowledgedLifecycleCategories {
+		prefix := fmt.Sprintf("security.acknowledgedLifecycleCategories[%d]", index)
+		if !isSupportedLifecycleCategory(acknowledged.Category) {
+			add("TSPACK_SECURITY_INVALID_ACKNOWLEDGED_LIFECYCLE_CATEGORY", prefix+".category must be consumer-install, maintainer-publish, or other")
+		}
+		if strings.TrimSpace(acknowledged.Reason) == "" {
+			add("TSPACK_SECURITY_INVALID_ACKNOWLEDGED_LIFECYCLE_CATEGORY", prefix+".reason is required")
+		}
+		for scriptIndex, script := range acknowledged.Scripts {
+			if !isSupportedLifecycleScript(script) {
+				add("TSPACK_SECURITY_INVALID_ACKNOWLEDGED_LIFECYCLE_CATEGORY", fmt.Sprintf("%s.scripts[%d] is not a supported lifecycle script", prefix, scriptIndex))
+			}
+		}
+		key := acknowledged.Key()
+		if _, ok := seenAcknowledgedLifecycleCategories[key]; ok {
+			add("TSPACK_SECURITY_DUPLICATE_ACKNOWLEDGED_LIFECYCLE_CATEGORY", "duplicate acknowledged lifecycle category: "+key)
+		}
+		seenAcknowledgedLifecycleCategories[key] = struct{}{}
+	}
+
 	seenPkg := map[string]struct{}{}
 	for pi, p := range ir.Packages {
 		pp := fmt.Sprintf("packages[%d]", pi)

@@ -288,6 +288,7 @@ function runtimeProfile(value: unknown, diags: Diagnostic[], file: string): Runt
 function mapSecurity(security: any): Record<string, unknown> {
   return {
     acknowledgedCapabilities: security.acknowledgedCapabilities ?? [],
+    acknowledgedLifecycleCategories: security.acknowledgedLifecycleCategories ?? [],
   };
 }
 

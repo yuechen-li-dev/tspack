@@ -1745,3 +1745,78 @@ func findDiagnostic(diagnostics []diag.Diagnostic, code string) *diag.Diagnostic
 	}
 	return nil
 }
+
+func TestCheckLifecycleCategoryAcknowledgementPolicy(t *testing.T) {
+	dir := t.TempDir()
+	ir := simpleIR()
+	ir["security"] = map[string]any{
+		"acknowledgedLifecycleCategories": []map[string]any{{
+			"category": "maintainer-publish",
+			"reason":   "Maintainer-side lifecycle scripts are blocked by TSPack.",
+		}},
+	}
+	irPath := writeIR(t, dir, ir)
+	lf := &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"},
+		Packages: []lockfile.Package{{ID: "npm:dep-a@1.0.0", Name: "dep-a", Version: "1.0.0", Source: "npm", Integrity: "x", Capabilities: []lockfile.Capability{
+			{Kind: "lifecycleScript", Script: "prepare", Command: "node prepare.js"},
+			{Kind: "lifecycleScript", Script: "postinstall", Command: "node install.js"},
+		}}},
+		Targets: []lockfile.Target{{Package: "app", Name: "core", Export: ".", Entry: "src/index.ts", Runtime: "src/index.ts", Types: "dist/index.d.ts"}},
+	}
+	b, _ := lockfile.Marshal(lf)
+	_ = os.WriteFile(filepath.Join(dir, "ts-lock.toml"), b, 0o644)
+
+	res := Check(DefaultOptionsWithIR(dir, irPath))
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("check failed: %#v", res.Diagnostics)
+	}
+	var prepareFound bool
+	var postinstallFound bool
+	for _, diagnostic := range res.Diagnostics {
+		if diagnostic.Code != "TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT" {
+			continue
+		}
+		details := strings.Join(diagnostic.Details, "\n")
+		if strings.Contains(details, "script: prepare") {
+			prepareFound = true
+			if !strings.Contains(details, "acknowledgmentKind: lifecycle-category") || !strings.Contains(details, "acknowledgedByCategory: maintainer-publish") {
+				t.Fatalf("prepare lifecycle diagnostic missing category acknowledgment details: %#v", diagnostic.Details)
+			}
+		}
+		if strings.Contains(details, "script: postinstall") {
+			postinstallFound = true
+			if !strings.Contains(details, "acknowledgmentKind: null") || !strings.Contains(details, "acknowledged: false") {
+				t.Fatalf("postinstall should remain unacknowledged by maintainer-publish policy: %#v", diagnostic.Details)
+			}
+		}
+	}
+	if !prepareFound || !postinstallFound {
+		t.Fatalf("expected prepare and postinstall lifecycle diagnostics: %#v", res.Diagnostics)
+	}
+}
+
+func TestCheckLifecycleCategoryAcknowledgementStaleAndUnused(t *testing.T) {
+	dir := t.TempDir()
+	ir := simpleIR()
+	ir["security"] = map[string]any{
+		"acknowledgedLifecycleCategories": []map[string]any{{
+			"category": "maintainer-publish",
+			"scripts":  []string{"postinstall"},
+			"reason":   "This intentionally stale fixture should be reported.",
+		}},
+	}
+	irPath := writeIR(t, dir, ir)
+	lf := &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"},
+		Packages: []lockfile.Package{{ID: "npm:dep-a@1.0.0", Name: "dep-a", Version: "1.0.0", Source: "npm", Integrity: "x", Capabilities: []lockfile.Capability{{Kind: "lifecycleScript", Script: "prepare", Command: "node prepare.js"}}}},
+	}
+	b, _ := lockfile.Marshal(lf)
+	_ = os.WriteFile(filepath.Join(dir, "ts-lock.toml"), b, 0o644)
+
+	res := Check(DefaultOptionsWithIR(dir, irPath))
+	if !hasErrCode(res.Diagnostics, "TSPACK_SECURITY_ACKNOWLEDGED_LIFECYCLE_CATEGORY_STALE") {
+		t.Fatalf("expected stale lifecycle category acknowledgment diagnostic: %#v", res.Diagnostics)
+	}
+	if !hasErrCode(res.Diagnostics, "TSPACK_SECURITY_ACKNOWLEDGED_LIFECYCLE_CATEGORY_UNUSED") {
+		t.Fatalf("expected unused lifecycle category acknowledgment diagnostic: %#v", res.Diagnostics)
+	}
+}

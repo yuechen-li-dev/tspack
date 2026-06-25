@@ -9,6 +9,15 @@ import (
 	"github.com/tspack/tspack/internal/diag"
 )
 
+func hasDiagnosticCode(diagnostics []diag.Diagnostic, code string) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
 func TestLoadValidFixtures(t *testing.T) {
 	cases := []string{
 		"../../fixtures/valid/minimal-library/manifest.ir.golden.json",
@@ -522,4 +531,21 @@ func hasDiag(diags []diag.Diagnostic, code string) bool {
 		}
 	}
 	return false
+}
+
+func TestAcknowledgedLifecycleCategoryValidation(t *testing.T) {
+	valid := `{"format":1,"workspace":{"name":"mono"},"security":{"acknowledgedLifecycleCategories":[{"category":"maintainer-publish","scripts":["prepare"],"reason":"Maintainer lifecycle scripts are blocked."}]},"packages":[{"name":"p","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	if _, diagnostics := LoadBytes("manifest.json", []byte(valid)); len(diagnostics) > 0 {
+		t.Fatalf("valid lifecycle category acknowledgment rejected: %#v", diagnostics)
+	}
+
+	invalidCategory := `{"format":1,"workspace":{"name":"mono"},"security":{"acknowledgedLifecycleCategories":[{"category":"maintainer","reason":"bad"}]},"packages":[{"name":"p","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	if _, diagnostics := LoadBytes("manifest.json", []byte(invalidCategory)); !hasDiagnosticCode(diagnostics, "TSPACK_SECURITY_INVALID_ACKNOWLEDGED_LIFECYCLE_CATEGORY") {
+		t.Fatalf("expected invalid lifecycle category diagnostic: %#v", diagnostics)
+	}
+
+	missingReason := `{"format":1,"workspace":{"name":"mono"},"security":{"acknowledgedLifecycleCategories":[{"category":"maintainer-publish"}]},"packages":[{"name":"p","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	if _, diagnostics := LoadBytes("manifest.json", []byte(missingReason)); !hasDiagnosticCode(diagnostics, "TSPACK_SECURITY_INVALID_ACKNOWLEDGED_LIFECYCLE_CATEGORY") {
+		t.Fatalf("expected missing reason diagnostic: %#v", diagnostics)
+	}
 }

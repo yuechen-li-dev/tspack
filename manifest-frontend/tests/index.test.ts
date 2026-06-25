@@ -329,15 +329,22 @@ export default define(
       `import { define } from "tspack/manifest";
 export default define(
   <Workspace name="ws">
-    <Security acknowledgedCapabilities={[{
-      package: "npm:dep-a@1.0.0",
-      kind: "lifecycleScript",
-      script: "postinstall",
-      command: "node install.js",
-      reason: "Known lifecycle capability; execution remains blocked by TSPack.",
-      behaviorFixture: "security/dep-a-postinstall.valid.xtest.tsx",
-      behaviorReport: "security/dep-a-postinstall.report.json",
-    }]} />
+    <Security
+      acknowledgedCapabilities={[{
+        package: "npm:dep-a@1.0.0",
+        kind: "lifecycleScript",
+        script: "postinstall",
+        command: "node install.js",
+        reason: "Known lifecycle capability; execution remains blocked by TSPack.",
+        behaviorFixture: "security/dep-a-postinstall.valid.xtest.tsx",
+        behaviorReport: "security/dep-a-postinstall.report.json",
+      }]}
+      acknowledgedLifecycleCategories={[{
+        category: "maintainer-publish",
+        scripts: ["prepare"],
+        reason: "Maintainer lifecycle scripts remain blocked by TSPack.",
+      }]}
+    />
     <Package name="app" version="1.0.0" kind="library">
       <Targets rows={[{ name: "core", export: ".", entry: "src/index.ts", runtime: "dist/index.js", types: "dist/index.d.ts" }]} />
       <Publish include={["dist/**"]} />
@@ -359,6 +366,13 @@ export default define(
           reason: 'Known lifecycle capability; execution remains blocked by TSPack.',
           behaviorFixture: 'security/dep-a-postinstall.valid.xtest.tsx',
           behaviorReport: 'security/dep-a-postinstall.report.json',
+        },
+      ]);
+      expect(result.ir?.security?.acknowledgedLifecycleCategories).toEqual([
+        {
+          category: 'maintainer-publish',
+          scripts: ['prepare'],
+          reason: 'Maintainer lifecycle scripts remain blocked by TSPack.',
         },
       ]);
     } finally {
