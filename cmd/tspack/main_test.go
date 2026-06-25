@@ -39,8 +39,17 @@ type checkJSONDiagnostic struct {
 }
 type updateDryRunJSONReport struct {
 	Command string `json:"command"`
-	DryRun  bool   `json:"dryRun"`
-	OK      bool   `json:"ok"`
+	DryRun  struct {
+		Enabled bool `json:"enabled"`
+		Changed bool `json:"changed"`
+		Summary struct {
+			Added     int `json:"added"`
+			Removed   int `json:"removed"`
+			Changed   int `json:"changed"`
+			Unchanged int `json:"unchanged"`
+		} `json:"summary"`
+	} `json:"dryRun"`
+	OK      bool `json:"ok"`
 	Summary struct {
 		Added     int `json:"added"`
 		Removed   int `json:"removed"`
@@ -642,11 +651,11 @@ process.stdout.write(JSON.stringify(out));`
 	if e := json.Unmarshal(b, &report); e != nil {
 		t.Fatalf("invalid json output: %v\n%s", e, string(b))
 	}
-	if report.Command != "update" || !report.DryRun || !report.OK {
+	if report.Command != "update" || !report.DryRun.Enabled || !report.OK {
 		t.Fatalf("unexpected json report: %#v", report)
 	}
-	if report.Summary.Added != 0 || report.Summary.Changed != 0 || report.Summary.Removed != 0 {
-		t.Fatalf("expected empty change summary: %#v", report.Summary)
+	if report.DryRun.Summary.Added != 0 || report.DryRun.Summary.Changed != 0 || report.DryRun.Summary.Removed != 0 {
+		t.Fatalf("expected empty change summary: %#v", report.DryRun.Summary)
 	}
 }
 

@@ -18,6 +18,7 @@ import (
 type OutdatedResult struct {
 	Summary      OutdatedSummary
 	Dependencies []OutdatedDependency
+	Groups       []OutdatedDependency
 }
 
 type OutdatedSummary struct {
@@ -28,16 +29,23 @@ type OutdatedSummary struct {
 	Total    int
 }
 
+type OutdatedPackage struct {
+	Name string `json:"name"`
+	Root string `json:"root,omitempty"`
+}
+
 type OutdatedDependency struct {
-	Key       string
-	Name      string
-	Kind      string
-	Source    string
-	Requested string
-	Current   []string
-	Wanted    string
-	Latest    string
-	Status    string
+	Key          string
+	Name         string
+	Kind         string
+	Source       string
+	Requested    string
+	Current      []string
+	Wanted       string
+	Latest       string
+	Status       string
+	Packages     []OutdatedPackage
+	PackageCount int
 }
 
 func Outdated(opts Options) Result {
@@ -83,7 +91,14 @@ func buildOutdatedResult(ctx context.Context, g *graph.WorkspaceGraph, lf *lockf
 	}
 	for _, pkg := range g.AllPackages() {
 		for _, dep := range pkg.AllDependencies() {
-			entry := OutdatedDependency{Key: dep.Key, Kind: string(dep.Kind), Source: dep.Source.Kind, Status: "not_applicable"}
+			entry := OutdatedDependency{
+				Key:          dep.Key,
+				Kind:         string(dep.Kind),
+				Source:       dep.Source.Kind,
+				Status:       "not_applicable",
+				Packages:     []OutdatedPackage{{Name: pkg.Name, Root: pkg.Root}},
+				PackageCount: 1,
+			}
 			switch dep.Source.Kind {
 			case "npm":
 				entry.Name = dep.Source.Package
@@ -123,7 +138,7 @@ func buildOutdatedResult(ctx context.Context, g *graph.WorkspaceGraph, lf *lockf
 				if entry.Name == "" {
 					entry.Name = dep.Key
 				}
-				*out = append(*out, diag.Diagnostic{Code: "TSPACK_OUTDATED_UNSUPPORTED_SOURCE", Severity: diag.SeverityWarning, Message: "dependency source is not applicable for outdated", Details: []string{entry.Key, dep.Source.Kind}})
+				*out = append(*out, diag.Diagnostic{Code: "TSPACK_OUTDATED_NON_REGISTRY_DEP", Severity: diag.SeverityWarning, Message: "non-registry dependency is not applicable to outdated checks", Details: []string{entry.Key, dep.Source.Kind}})
 			}
 			entries = append(entries, entry)
 		}
@@ -134,8 +149,54 @@ func buildOutdatedResult(ctx context.Context, g *graph.WorkspaceGraph, lf *lockf
 		}
 		return entries[i].Name < entries[j].Name
 	})
+	groups := groupOutdatedDependencies(entries)
 	summary := summarizeOutdated(entries)
-	return OutdatedResult{Summary: summary, Dependencies: entries}
+	return OutdatedResult{Summary: summary, Dependencies: entries, Groups: groups}
+}
+
+func groupOutdatedDependencies(entries []OutdatedDependency) []OutdatedDependency {
+	byKey := map[string]int{}
+	groups := make([]OutdatedDependency, 0, len(entries))
+	for _, entry := range entries {
+		key := outdatedGroupKey(entry)
+		index, ok := byKey[key]
+		if !ok {
+			group := entry
+			group.Key = entry.Name
+			group.Packages = append([]OutdatedPackage(nil), entry.Packages...)
+			group.PackageCount = len(group.Packages)
+			byKey[key] = len(groups)
+			groups = append(groups, group)
+			continue
+		}
+		groups[index].Packages = append(groups[index].Packages, entry.Packages...)
+		groups[index].PackageCount = len(groups[index].Packages)
+	}
+	for i := range groups {
+		sort.SliceStable(groups[i].Packages, func(a, b int) bool {
+			if groups[i].Packages[a].Name != groups[i].Packages[b].Name {
+				return groups[i].Packages[a].Name < groups[i].Packages[b].Name
+			}
+			return groups[i].Packages[a].Root < groups[i].Packages[b].Root
+		})
+	}
+	sort.SliceStable(groups, func(i, j int) bool {
+		return outdatedGroupKey(groups[i]) < outdatedGroupKey(groups[j])
+	})
+	return groups
+}
+
+func outdatedGroupKey(entry OutdatedDependency) string {
+	return strings.Join([]string{
+		entry.Source,
+		entry.Name,
+		entry.Kind,
+		entry.Requested,
+		strings.Join(entry.Current, ","),
+		entry.Wanted,
+		entry.Latest,
+		entry.Status,
+	}, "\x00")
 }
 
 func summarizeOutdated(entries []OutdatedDependency) OutdatedSummary {
