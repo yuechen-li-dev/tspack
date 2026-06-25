@@ -12,6 +12,7 @@ import (
 	"github.com/tspack/tspack/internal/diag"
 	"github.com/tspack/tspack/internal/graph"
 	"github.com/tspack/tspack/internal/lockfile"
+	"github.com/tspack/tspack/internal/manifest"
 	"github.com/tspack/tspack/internal/resolver"
 )
 
@@ -19,6 +20,7 @@ type OutdatedResult struct {
 	Summary      OutdatedSummary
 	Dependencies []OutdatedDependency
 	Groups       []OutdatedDependency
+	HasPolicy    bool
 }
 
 type OutdatedSummary struct {
@@ -35,21 +37,28 @@ type OutdatedPackage struct {
 }
 
 type OutdatedDependency struct {
-	Key          string
-	Name         string
-	Kind         string
-	Source       string
-	Requested    string
-	Current      []string
-	Wanted       string
-	Latest       string
-	Status       string
-	Packages     []OutdatedPackage
-	PackageCount int
+	Key            string
+	Name           string
+	Kind           string
+	Source         string
+	Requested      string
+	Current        []string
+	Wanted         string
+	Latest         string
+	Status         string
+	Packages       []OutdatedPackage
+	PackageCount   int
+	PolicyStrategy string
+	PolicyLevel    string
+	PolicyStatus   string
+	PolicyReason   string
+	PolicyMatched  bool
+	PolicyRow      int
+	PolicyMessage  string
 }
 
 func Outdated(opts Options) Result {
-	_, g, out := loadManifestAndGraph(opts)
+	ir, g, out := loadManifestAndGraph(opts)
 	out = append(out, check.CheckPackage(check.CheckOptions{RootDir: opts.RootDir, Graph: g}).Diagnostics...)
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
@@ -70,12 +79,12 @@ func Outdated(opts Options) Result {
 	if client == nil {
 		client = resolver.NewHTTPRegistryClient("")
 	}
-	result := buildOutdatedResult(context.Background(), g, lf, client, &out)
+	result := buildOutdatedResult(context.Background(), ir, g, lf, client, &out)
 	diag.SortDiagnostics(out)
 	return Result{Diagnostics: out, Outdated: &result}
 }
 
-func buildOutdatedResult(ctx context.Context, g *graph.WorkspaceGraph, lf *lockfile.Lockfile, client resolver.NPMRegistryClient, out *[]diag.Diagnostic) OutdatedResult {
+func buildOutdatedResult(ctx context.Context, ir *manifest.ManifestIR, g *graph.WorkspaceGraph, lf *lockfile.Lockfile, client resolver.NPMRegistryClient, out *[]diag.Diagnostic) OutdatedResult {
 	entries := make([]OutdatedDependency, 0)
 	currentByName := map[string][]string{}
 	if lf != nil {
@@ -149,9 +158,10 @@ func buildOutdatedResult(ctx context.Context, g *graph.WorkspaceGraph, lf *lockf
 		}
 		return entries[i].Name < entries[j].Name
 	})
+	applyUpdatePolicy(ir, entries)
 	groups := groupOutdatedDependencies(entries)
 	summary := summarizeOutdated(entries)
-	return OutdatedResult{Summary: summary, Dependencies: entries, Groups: groups}
+	return OutdatedResult{Summary: summary, Dependencies: entries, Groups: groups, HasPolicy: ir != nil && len(ir.UpdatePolicy.Rows) > 0}
 }
 
 func groupOutdatedDependencies(entries []OutdatedDependency) []OutdatedDependency {
@@ -196,6 +206,7 @@ func outdatedGroupKey(entry OutdatedDependency) string {
 		entry.Wanted,
 		entry.Latest,
 		entry.Status,
+		entry.PolicyStatus,
 	}, "\x00")
 }
 

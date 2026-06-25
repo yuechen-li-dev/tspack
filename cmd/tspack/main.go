@@ -1047,6 +1047,16 @@ func runCommand(args []string) {
 			fmt.Printf("  wanted: %s\n", dep.Wanted)
 			fmt.Printf("  latest: %s\n", dep.Latest)
 			fmt.Printf("  status: %s\n", strings.ReplaceAll(dep.Status, "_", " "))
+			if result.Outdated.HasPolicy {
+				fmt.Printf("  policy: %s", dep.PolicyStatus)
+				if dep.PolicyStrategy != "" {
+					fmt.Printf(" %s", dep.PolicyStrategy)
+				}
+				if dep.PolicyLevel != "" {
+					fmt.Printf(":%s", dep.PolicyLevel)
+				}
+				fmt.Println()
+			}
 			if dep.PackageCount > 0 {
 				fmt.Printf("  packages: %d\n", dep.PackageCount)
 				if len(dep.Packages) > 0 {
@@ -1080,16 +1090,23 @@ func outdatedHumanEntries(result *project.OutdatedResult, perPackage bool) []pro
 }
 
 type outdatedJSONEntry struct {
-	Name         string                    `json:"name"`
-	Kind         string                    `json:"kind"`
-	Source       string                    `json:"source,omitempty"`
-	Requested    string                    `json:"requested"`
-	Current      []string                  `json:"current"`
-	Wanted       string                    `json:"wanted"`
-	Latest       string                    `json:"latest"`
-	Status       string                    `json:"status"`
-	Packages     []project.OutdatedPackage `json:"packages"`
-	PackageCount int                       `json:"packageCount"`
+	Name           string                    `json:"name"`
+	Kind           string                    `json:"kind"`
+	Source         string                    `json:"source,omitempty"`
+	Requested      string                    `json:"requested"`
+	Current        []string                  `json:"current"`
+	Wanted         string                    `json:"wanted"`
+	Latest         string                    `json:"latest"`
+	Status         string                    `json:"status"`
+	Packages       []project.OutdatedPackage `json:"packages"`
+	PackageCount   int                       `json:"packageCount"`
+	PolicyStrategy string                    `json:"policyStrategy,omitempty"`
+	PolicyLevel    string                    `json:"policyLevel,omitempty"`
+	PolicyStatus   string                    `json:"policyStatus,omitempty"`
+	PolicyReason   string                    `json:"policyReason,omitempty"`
+	PolicyMatched  bool                      `json:"policyMatched"`
+	PolicyRow      int                       `json:"policyRow,omitempty"`
+	PolicyMessage  string                    `json:"policyMessage,omitempty"`
 }
 
 func outdatedJSONEntries(result *project.OutdatedResult, perPackage bool) []outdatedJSONEntry {
@@ -1097,16 +1114,23 @@ func outdatedJSONEntries(result *project.OutdatedResult, perPackage bool) []outd
 	entries := make([]outdatedJSONEntry, 0, len(dependencies))
 	for _, dep := range dependencies {
 		entry := outdatedJSONEntry{
-			Name:         dep.Name,
-			Kind:         dep.Kind,
-			Source:       dep.Source,
-			Requested:    dep.Requested,
-			Current:      dep.Current,
-			Wanted:       dep.Wanted,
-			Latest:       dep.Latest,
-			Status:       dep.Status,
-			Packages:     dep.Packages,
-			PackageCount: dep.PackageCount,
+			Name:           dep.Name,
+			Kind:           dep.Kind,
+			Source:         dep.Source,
+			Requested:      dep.Requested,
+			Current:        dep.Current,
+			Wanted:         dep.Wanted,
+			Latest:         dep.Latest,
+			Status:         dep.Status,
+			Packages:       dep.Packages,
+			PackageCount:   dep.PackageCount,
+			PolicyStrategy: dep.PolicyStrategy,
+			PolicyLevel:    dep.PolicyLevel,
+			PolicyStatus:   dep.PolicyStatus,
+			PolicyReason:   dep.PolicyReason,
+			PolicyMatched:  dep.PolicyMatched,
+			PolicyRow:      dep.PolicyRow,
+			PolicyMessage:  dep.PolicyMessage,
 		}
 		entries = append(entries, entry)
 	}

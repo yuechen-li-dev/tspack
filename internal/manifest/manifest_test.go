@@ -549,3 +549,37 @@ func TestAcknowledgedLifecycleCategoryValidation(t *testing.T) {
 		t.Fatalf("expected missing reason diagnostic: %#v", diagnostics)
 	}
 }
+
+func TestUpdatePolicyValidation(t *testing.T) {
+	base := func(policy string) string {
+		return `{"format":1,"workspace":{"name":"mono"},"updatePolicy":` + policy + `,"packages":[{"name":"p","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	}
+	valid := `{"rows":[{"name":"typescript","kind":"tool","strategy":"rolling","level":"minor","reason":"tooling can roll"},{"name":"react","kind":"dep","strategy":"manual"}]}`
+	ir, diags := LoadBytes("valid", []byte(base(valid)))
+	if len(diags) > 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diags)
+	}
+	if len(ir.UpdatePolicy.Rows) != 2 || ir.UpdatePolicy.Rows[0].Name != "typescript" {
+		t.Fatalf("unexpected update policy IR: %#v", ir.UpdatePolicy)
+	}
+
+	cases := []struct {
+		name   string
+		policy string
+		code   string
+	}{
+		{"invalid strategy", `{"rows":[{"name":"typescript","kind":"tool","strategy":"auto","level":"minor"}]}`, "TSPACK_UPDATE_POLICY_INVALID_STRATEGY"},
+		{"invalid level", `{"rows":[{"name":"typescript","kind":"tool","strategy":"rolling","level":"week"}]}`, "TSPACK_UPDATE_POLICY_INVALID_LEVEL"},
+		{"rolling missing level", `{"rows":[{"name":"typescript","kind":"tool","strategy":"rolling"}]}`, "TSPACK_UPDATE_POLICY_INVALID_LEVEL"},
+		{"manual level", `{"rows":[{"name":"react","kind":"dep","strategy":"manual","level":"minor"}]}`, "TSPACK_UPDATE_POLICY_LEVEL_NOT_ALLOWED"},
+		{"duplicate row", `{"rows":[{"name":"react","kind":"dep","strategy":"manual"},{"name":"react","kind":"dep","strategy":"pinned"}]}`, "TSPACK_UPDATE_POLICY_DUPLICATE_ROW"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, diags := LoadBytes(tc.name, []byte(base(tc.policy)))
+			if !hasDiag(diags, tc.code) {
+				t.Fatalf("missing %s in %#v", tc.code, diags)
+			}
+		})
+	}
+}

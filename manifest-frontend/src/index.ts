@@ -21,6 +21,7 @@ export type ManifestIr = {
   format: 1;
   workspace: { name: string; runtime: RuntimeProfile };
   security?: Record<string, unknown>;
+  updatePolicy?: Record<string, unknown>;
   packages: Array<Record<string, unknown>>;
 };
 
@@ -32,7 +33,7 @@ type InternalDoc = { mode: DocMode; ir: ManifestIr; rows?: PackageRow[] };
 
 const ALLOWED_IMPORT = 'tspack/manifest';
 const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'defineDeps', 'npm', 'git', 'path', 'workspace', 'dep', 'peer', 'tool']);
-const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'Policies', 'Targets', 'RunTargets', 'Tools', 'Boundaries', 'Publish', 'Security']);
+const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'Policies', 'Targets', 'RunTargets', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy']);
 
 export function parseManifestFile(filePath: string): ManifestParseResult {
   const parsed = parseManifestDocument(filePath, 'root');
@@ -252,10 +253,12 @@ function jsxToRootDoc(root: unknown, diags: Diagnostic[], file: string): Interna
   const inlinePackages = children.filter((c: any) => c.__tag === 'Package');
   const packagesNode = children.find((c: any) => c.__tag === 'Packages');
   const securityNode = children.find((c: any) => c.__tag === 'Security');
+  const updatePolicyNode = children.find((c: any) => c.__tag === 'UpdatePolicy');
   const baseIr = {
     format: 1 as const,
     workspace: { name: r?.name ?? 'workspace', runtime: runtimeProfile(r?.runtime, diags, file) },
     ...(securityNode ? { security: mapSecurity(securityNode) } : {}),
+    ...(updatePolicyNode ? { updatePolicy: mapUpdatePolicy(updatePolicyNode) } : {}),
   };
   if (packagesNode && inlinePackages.length > 0) {
     return { mode: 'split', ir: { ...baseIr, packages: [] }, rows: [] };
@@ -289,6 +292,12 @@ function mapSecurity(security: any): Record<string, unknown> {
   return {
     acknowledgedCapabilities: security.acknowledgedCapabilities ?? [],
     acknowledgedLifecycleCategories: security.acknowledgedLifecycleCategories ?? [],
+  };
+}
+
+function mapUpdatePolicy(updatePolicy: any): Record<string, unknown> {
+  return {
+    rows: updatePolicy.rows ?? [],
   };
 }
 

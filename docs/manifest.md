@@ -191,3 +191,38 @@ These fields are evidence metadata, not execution permission. `tspack check`, `t
 Allowed values are `nodejs`, `bun`, and `deno`. Omitted runtime defaults to `nodejs` in the normalized IR and Go model.
 
 The runtime profile selects the JavaScript runtime profile for future runtime-portability seams. It is not package-manager switching: `npm`, `pnpm`, `yarn`, `bun-npm`, and `deno-npm` are invalid runtime profiles. TSPack continues to own dependency resolution, `ts-lock.toml`, materialization, checks, packing, and lifecycle security policy.
+
+## UpdatePolicy
+
+`<UpdatePolicy />` is a root-level manifest declaration for dependency update intent. It is a sibling of `<Workspace />` children such as `<Security />` and package declarations, and appears in IR as `updatePolicy`.
+
+```tsx
+<UpdatePolicy
+  rows={[
+    {
+      name: "typescript",
+      kind: "tool",
+      strategy: "rolling",
+      level: "minor",
+      reason: "Tooling can roll within compatible compiler minor updates.",
+    },
+    {
+      name: "vite",
+      kind: "tool",
+      strategy: "rolling",
+      level: "major",
+      reason: "Frontend build tooling is reviewed through CI.",
+    },
+    {
+      name: "react",
+      kind: "dep",
+      strategy: "manual",
+      reason: "React runtime upgrades are coordinated manually.",
+    },
+  ]}
+/>
+```
+
+Rows match by exact dependency `name` and `kind` (`tool`, `dep`, `peer`, or `any`). `manual` and `pinned` rows must not set `level`; `rolling` rows must set `patch`, `minor`, `major`, or `latest`. Optional `reason` text is carried into reports. Optional `packages` scopes a row to declarations from named workspace packages.
+
+M50a does not apply policy-driven updates. The policy annotates `tspack outdated` so CI can see declared intent without outsourcing update motion to external bot churn.

@@ -124,6 +124,20 @@ const initManifestTypesDTS = "" +
 	"    [key: string]: Primitive | Primitive[] | BoundaryRow[] | undefined;\n" +
 	"  };\n" +
 	"\n" +
+	"  export type UpdatePolicyKind = 'tool' | 'dep' | 'peer' | 'any';\n" +
+	"  export type UpdatePolicyStrategy = 'manual' | 'pinned' | 'rolling';\n" +
+	"  export type UpdatePolicyLevel = 'patch' | 'minor' | 'major' | 'latest';\n" +
+	"\n" +
+	"  export type UpdatePolicyRow = {\n" +
+	"    name: string;\n" +
+	"    kind: UpdatePolicyKind;\n" +
+	"    strategy: UpdatePolicyStrategy;\n" +
+	"    level?: UpdatePolicyLevel;\n" +
+	"    reason?: string;\n" +
+	"    includePrerelease?: boolean;\n" +
+	"    packages?: string[];\n" +
+	"  };\n" +
+	"\n" +
 	"  export type DependencyRefLike = DependencyIntent;\n" +
 	"\n" +
 	"  export type TargetDependencyRefLike = string | DependencyIntent;\n" +
@@ -210,6 +224,10 @@ const initManifestTypesDTS = "" +
 	"    acknowledgedLifecycleCategories?: AcknowledgedLifecycleCategory[];\n" +
 	"  };\n" +
 	"\n" +
+	"  export type UpdatePolicyProps = {\n" +
+	"    rows: UpdatePolicyRow[];\n" +
+	"  };\n" +
+	"\n" +
 	"  export type ToolsProps = {\n" +
 	"    values: DependencyRefLike[];\n" +
 	"  };\n" +
@@ -267,6 +285,7 @@ const initManifestTypesDTS = "" +
 	"  export const Boundaries: ManifestComponent<BoundariesProps>;\n" +
 	"  export const Publish: ManifestComponent<PublishProps>;\n" +
 	"  export const Security: ManifestComponent<SecurityProps>;\n" +
+	"  export const UpdatePolicy: ManifestComponent<UpdatePolicyProps>;\n" +
 	"\n" +
 	"  export {};\n" +
 	"}\n" +

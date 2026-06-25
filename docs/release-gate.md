@@ -785,3 +785,13 @@ The M46b gate covers default human `tspack check` readability for noisy informat
 - `dryRun.enabled` is true for dry runs, `dryRun.changed` is a boolean, and `dryRun.summary` counts are numeric and never null.
 - Workspace/non-registry outdated diagnostics use non-registry/not-applicable wording and code `TSPACK_OUTDATED_NON_REGISTRY_DEP`.
 - Update resolver, lockfile, and write semantics remain unchanged.
+
+## M50a declared update policy and dry-run report gate
+
+- Root `<UpdatePolicy />` parses into manifest IR as `updatePolicy` and is preserved by split workspace parsing.
+- Manifest validation rejects invalid policy kinds, invalid strategies, rolling rows without a level, levels on manual/pinned rows, invalid package scopes, and duplicate rows.
+- `tspack outdated` evaluates registry dependencies against declared policy and reports `allowed`, `outside-policy-level`, `blocked-manual`, `pinned`, `unclassified`, and `not-applicable` statuses.
+- Human outdated output shows policy status when a policy exists.
+- `tspack outdated --json` includes policy fields for grouped and `--per-package` entries.
+- Policy reporting is read-only: no lockfile, manifest, store, or `node_modules` mutation is allowed.
+- M50a does not add `update --policy` mutation, automatic rolling updates, React coherence enforcement, dependency unification, or security gate enforcement.

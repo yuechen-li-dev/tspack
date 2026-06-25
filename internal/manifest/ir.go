@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/tspack/tspack/internal/diag"
@@ -14,10 +15,11 @@ import (
 )
 
 type ManifestIR struct {
-	Format    int       `json:"format"`
-	Workspace Workspace `json:"workspace"`
-	Security  Security  `json:"security,omitempty"`
-	Packages  []Package `json:"packages"`
+	Format       int          `json:"format"`
+	Workspace    Workspace    `json:"workspace"`
+	Security     Security     `json:"security,omitempty"`
+	UpdatePolicy UpdatePolicy `json:"updatePolicy,omitempty"`
+	Packages     []Package    `json:"packages"`
 }
 
 type Workspace struct {
@@ -48,6 +50,20 @@ func (w *Workspace) UnmarshalJSON(data []byte) error {
 type Security struct {
 	AcknowledgedCapabilities        []AcknowledgedCapability        `json:"acknowledgedCapabilities,omitempty"`
 	AcknowledgedLifecycleCategories []AcknowledgedLifecycleCategory `json:"acknowledgedLifecycleCategories,omitempty"`
+}
+
+type UpdatePolicy struct {
+	Rows []UpdatePolicyRow `json:"rows,omitempty"`
+}
+
+type UpdatePolicyRow struct {
+	Name              string   `json:"name"`
+	Kind              string   `json:"kind"`
+	Strategy          string   `json:"strategy"`
+	Level             string   `json:"level,omitempty"`
+	Reason            string   `json:"reason,omitempty"`
+	IncludePrerelease bool     `json:"includePrerelease,omitempty"`
+	Packages          []string `json:"packages,omitempty"`
 }
 
 type AcknowledgedCapability struct {
@@ -342,6 +358,39 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 			add("TSPACK_SECURITY_DUPLICATE_ACKNOWLEDGED_LIFECYCLE_CATEGORY", "duplicate acknowledged lifecycle category: "+key)
 		}
 		seenAcknowledgedLifecycleCategories[key] = struct{}{}
+	}
+
+	seenUpdatePolicyRows := map[string]struct{}{}
+	for index, row := range ir.UpdatePolicy.Rows {
+		prefix := fmt.Sprintf("updatePolicy.rows[%d]", index)
+		if strings.TrimSpace(row.Name) == "" {
+			add("TSPACK_UPDATE_POLICY_INVALID_ROW", prefix+".name is required")
+		}
+		if row.Kind != "tool" && row.Kind != "dep" && row.Kind != "peer" && row.Kind != "any" {
+			add("TSPACK_UPDATE_POLICY_INVALID_KIND", prefix+".kind must be tool, dep, peer, or any")
+		}
+		if row.Strategy != "manual" && row.Strategy != "pinned" && row.Strategy != "rolling" {
+			add("TSPACK_UPDATE_POLICY_INVALID_STRATEGY", prefix+".strategy must be manual, pinned, or rolling")
+		}
+		if row.Strategy == "rolling" {
+			if row.Level != "patch" && row.Level != "minor" && row.Level != "major" && row.Level != "latest" {
+				add("TSPACK_UPDATE_POLICY_INVALID_LEVEL", prefix+".level must be patch, minor, major, or latest for rolling policy")
+			}
+		} else if row.Level != "" {
+			add("TSPACK_UPDATE_POLICY_LEVEL_NOT_ALLOWED", prefix+".level is only allowed for rolling policy")
+		}
+		for packageIndex, packageName := range row.Packages {
+			if strings.TrimSpace(packageName) == "" {
+				add("TSPACK_UPDATE_POLICY_INVALID_PACKAGE_SCOPE", fmt.Sprintf("%s.packages[%d] must be a non-empty string", prefix, packageIndex))
+			}
+		}
+		scopedPackages := append([]string(nil), row.Packages...)
+		sort.Strings(scopedPackages)
+		key := row.Name + "|" + row.Kind + "|" + strings.Join(scopedPackages, ",")
+		if _, ok := seenUpdatePolicyRows[key]; ok {
+			add("TSPACK_UPDATE_POLICY_DUPLICATE_ROW", "duplicate update policy row: "+key)
+		}
+		seenUpdatePolicyRows[key] = struct{}{}
 	}
 
 	seenPkg := map[string]struct{}{}
