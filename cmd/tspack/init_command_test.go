@@ -117,6 +117,27 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, "tspack-env.d.ts")); err != nil {
 			t.Fatalf("missing tspack env type support: %v", err)
 		}
+		biomeBytes, err := os.ReadFile(filepath.Join(root, "biome.json"))
+		if err != nil {
+			t.Fatalf("missing generated biome config: %v", err)
+		}
+		var biomeConfig map[string]any
+		if err := json.Unmarshal(biomeBytes, &biomeConfig); err != nil {
+			t.Fatalf("generated biome config should be valid JSON: %v", err)
+		}
+		ignoreValues, ok := biomeConfig["files"].(map[string]any)["ignore"].([]any)
+		if !ok {
+			t.Fatalf("generated biome config missing files.ignore: %#v", biomeConfig["files"])
+		}
+		ignoreSet := map[string]bool{}
+		for _, value := range ignoreValues {
+			ignoreSet[value.(string)] = true
+		}
+		for _, want := range []string{".tspack/**", "node_modules/**", "dist/**", "tspack-artifacts/**"} {
+			if !ignoreSet[want] {
+				t.Fatalf("generated biome config missing ignore %q in %#v", want, ignoreValues)
+			}
+		}
 		text, _ := os.ReadFile(manifestPath)
 		m := string(text)
 		for _, want := range []string{"from \"tspack/manifest\"", "<Workspace", "kind=\"library\"", "name: \"core\"", "<Publish"} {
@@ -178,6 +199,27 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		}
 		if _, err := os.Stat(filepath.Join(root, "tspack-env.d.ts")); err != nil {
 			t.Fatalf("missing tspack env type support: %v", err)
+		}
+		biomeBytes, err := os.ReadFile(filepath.Join(root, "biome.json"))
+		if err != nil {
+			t.Fatalf("missing generated biome config: %v", err)
+		}
+		var biomeConfig map[string]any
+		if err := json.Unmarshal(biomeBytes, &biomeConfig); err != nil {
+			t.Fatalf("generated biome config should be valid JSON: %v", err)
+		}
+		ignoreValues, ok := biomeConfig["files"].(map[string]any)["ignore"].([]any)
+		if !ok {
+			t.Fatalf("generated biome config missing files.ignore: %#v", biomeConfig["files"])
+		}
+		ignoreSet := map[string]bool{}
+		for _, value := range ignoreValues {
+			ignoreSet[value.(string)] = true
+		}
+		for _, want := range []string{".tspack/**", "node_modules/**", "dist/**", "tspack-artifacts/**"} {
+			if !ignoreSet[want] {
+				t.Fatalf("generated biome config missing ignore %q in %#v", want, ignoreValues)
+			}
 		}
 		text, _ := os.ReadFile(manifestPath)
 		m := string(text)

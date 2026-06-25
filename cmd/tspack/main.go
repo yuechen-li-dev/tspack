@@ -18,6 +18,7 @@ import (
 	"github.com/tspack/tspack/internal/check"
 	"github.com/tspack/tspack/internal/diag"
 	"github.com/tspack/tspack/internal/how"
+	"github.com/tspack/tspack/internal/lockfile"
 	"github.com/tspack/tspack/internal/manifest"
 	"github.com/tspack/tspack/internal/project"
 	"github.com/tspack/tspack/internal/testcmd"
@@ -346,7 +347,7 @@ func printHelp() {
 	fmt.Println("Usage:")
 	fmt.Println("  tspack help")
 	fmt.Println("  tspack --version")
-	fmt.Println("  tspack check [--root .] [--json] [--explain <file>] [--show-conflicts] [--show-lifecycle]")
+	fmt.Println("  tspack check [--root .] [--json] [--format] [--explain <file>] [--show-conflicts] [--show-lifecycle]")
 	fmt.Println("  tspack update [query] [--root .] [--dry-run] [--json] [--quiet]")
 	fmt.Println("  tspack sync [--root .] [--clean]")
 	fmt.Println("  tspack pack [--root .] [--out dir] [--package name] [--dry-run] [--verify]")
@@ -367,6 +368,19 @@ func printHelp() {
 	fmt.Println("  tspack migrate [--check] [--write] [--root .] [--package-json path] [--package-lock path] [--no-lock-evidence] [--scan-source] [--no-source-scan] [--out-manifest path] [--out-report path] [--force]")
 	fmt.Println()
 	fmt.Println("Check flags:")
+	fmt.Println("  --format           Run read-only format check as part of check")
+	fmt.Println("  --show-conflicts   Show individual version conflict diagnostics instead of summary")
+	fmt.Println("  --show-lifecycle   Show individual lifecycle script diagnostics instead of summary")
+}
+
+func printCheckHelp() {
+	fmt.Println("Usage:")
+	fmt.Println("  tspack check [--root .] [--json] [--format] [--explain <file>] [--show-conflicts] [--show-lifecycle]")
+	fmt.Println()
+	fmt.Println("Flags:")
+	fmt.Println("  --format           Run read-only format check as part of check")
+	fmt.Println("  --json             Emit JSON diagnostics")
+	fmt.Println("  --explain <file>   Explain check findings for one file")
 	fmt.Println("  --show-conflicts   Show individual version conflict diagnostics instead of summary")
 	fmt.Println("  --show-lifecycle   Show individual lifecycle script diagnostics instead of summary")
 }
@@ -769,6 +783,10 @@ func runCommand(args []string) {
 	packOpts := project.PackOptions{}
 	whyOpts := project.WhyOptions{}
 	whyPositionals := []string{}
+	if cmd == "check" && len(args) > 1 && (args[1] == "--help" || args[1] == "-h") {
+		printCheckHelp()
+		return
+	}
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
 		case "--root":
@@ -1665,16 +1683,101 @@ func buildUpdateDryRunJSONReport(opts project.Options, result project.Result) Up
 	return report
 }
 
+func deriveCheckFormatPaths(root string) []string {
+	paths := map[string]bool{}
+	addPath := func(path string) {
+		cleaned := filepath.ToSlash(filepath.Clean(path))
+		if cleaned == "." || cleaned == "" || strings.HasPrefix(cleaned, "../") || isGeneratedFormatPath(cleaned) {
+			return
+		}
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(cleaned))); err == nil {
+			paths[cleaned] = true
+		}
+	}
+	addParentDir := func(path string) {
+		dir := filepath.ToSlash(filepath.Dir(path))
+		if dir == "." {
+			addPath(path)
+			return
+		}
+		addPath(dir)
+	}
+
+	addPath("manifest.tsx")
+	addPath("package.json")
+	addPath("src")
+
+	lockPath := filepath.Join(root, "ts-lock.toml")
+	if lf, _, err := lockfile.LoadFile(lockPath); err == nil {
+		for _, pkg := range lf.Packages {
+			if pkg.Path != "" {
+				addPath(filepath.ToSlash(filepath.Join(pkg.Path, "src")))
+				addPath(filepath.ToSlash(filepath.Join(pkg.Path, "package.json")))
+			}
+		}
+		for _, target := range lf.Targets {
+			if target.Entry != "" {
+				addParentDir(target.Entry)
+			}
+			if target.Types != "" && !isGeneratedFormatPath(target.Types) {
+				addParentDir(target.Types)
+			}
+		}
+	}
+
+	out := make([]string, 0, len(paths))
+	for path := range paths {
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	if len(out) == 0 {
+		return []string{"."}
+	}
+	return out
+}
+
+func isGeneratedFormatPath(path string) bool {
+	cleaned := filepath.ToSlash(filepath.Clean(path))
+	first, _, _ := strings.Cut(cleaned, "/")
+	switch first {
+	case ".tspack", "node_modules", "dist", "tspack-artifacts", "coverage", ".git", "build", ".turbo", ".vite":
+		return true
+	default:
+		return false
+	}
+}
+
 func runCheckFormatValidation(root string, jsonOutput bool) biomeCommandResult {
 	options := biomeCommandOptions{
 		Command:                  "format",
 		Root:                     root,
-		Paths:                    []string{},
+		Paths:                    deriveCheckFormatPaths(root),
 		UseCheck:                 true,
 		CaptureOutput:            jsonOutput,
 		PrintDefaultConfigStatus: !jsonOutput,
 	}
-	return runBiomeCommandWithOptions(options)
+	result := runBiomeCommandWithOptions(options)
+	for i, diagnostic := range result.Diagnostics {
+		if diagnostic.Code == "TSPACK_BIOME_BACKEND_NOT_FOUND" {
+			result.Diagnostics[i] = newCheckFormatBackendMissingDiagnostic(diagnostic)
+		}
+	}
+	return result
+}
+
+func newCheckFormatBackendMissingDiagnostic(underlying diag.Diagnostic) diag.Diagnostic {
+	details := []string{
+		"Install/configure the formatter backend or add the configured tool dependency.",
+		"current backend: biome",
+		"underlying: " + underlying.Code,
+	}
+	details = append(details, underlying.Details...)
+	return diag.Diagnostic{
+		Code:     "TSPACK_FORMAT_BACKEND_MISSING",
+		Severity: diag.SeverityError,
+		Message:  "format backend is not available",
+		Details:  details,
+	}
 }
 
 type checkRenderOptions struct {

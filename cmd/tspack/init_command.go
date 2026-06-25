@@ -167,6 +167,7 @@ func buildInitFiles(cfg initConfig) []plannedFile {
 		{path: entryPath, content: entry},
 		{path: ".tspack/types/tspack-manifest.d.ts", content: initManifestTypesDTS},
 		{path: "tspack-env.d.ts", content: initTSPackEnvDTS},
+		{path: "biome.json", content: string(defaultBiomeConfigBytes())},
 	}
 }
 

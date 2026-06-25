@@ -1679,6 +1679,43 @@ func TestCLIRunProcessExitedEarly(t *testing.T) {
 	}
 }
 
+func TestCheckFormatDerivedPathsAreScopedAndDeterministic(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{"packages/app/src", ".tspack/store/metadata", "dist", "tspack-artifacts"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := map[string]string{
+		"manifest.tsx":                          "export default {}\n",
+		"packages/app/src/bad.ts":               "export const bad=1\n",
+		".tspack/store/metadata/generated.json": "{\"z\":1}",
+		"dist/generated.js":                     "export const x=1",
+		"tspack-artifacts/report.json":          "{\"z\":1}",
+		"ts-lock.toml":                          "[lock]\nformat = 1\ntool = \"tspack\"\n\n[[target]]\npackage = \"app\"\nname = \"core\"\nentry = \"packages/app/src/bad.ts\"\nruntime = \"dist/generated.js\"\n",
+	}
+	for path, contents := range files {
+		if err := os.WriteFile(filepath.Join(root, path), []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := deriveCheckFormatPaths(root)
+	want := []string{"manifest.tsx", "packages/app/src"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected derived paths: got %#v want %#v", got, want)
+	}
+}
+
+func TestSanitizeTerminalOutputStripsANSIAndPreservesText(t *testing.T) {
+	got := sanitizeTerminalOutput("\x1b[31mred\x1b[0m useful ┌text┐")
+	if strings.Contains(got, "\x1b") {
+		t.Fatalf("sanitized output still contains escape: %q", got)
+	}
+	if !strings.Contains(got, "red useful ┌text┐") {
+		t.Fatalf("sanitized output lost useful text: %q", got)
+	}
+}
+
 func TestCLIHelpIncludesFormatAndLint(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	cmd := exec.Command("go", "run", "./cmd/tspack", "help")
@@ -1688,7 +1725,7 @@ func TestCLIHelpIncludesFormatAndLint(t *testing.T) {
 		t.Fatalf("help failed: %v\n%s", err, string(b))
 	}
 	out := string(b)
-	if !strings.Contains(out, "tspack format") || !strings.Contains(out, "tspack lint") {
+	if !strings.Contains(out, "tspack format") || !strings.Contains(out, "tspack lint") || !strings.Contains(out, "--format") {
 		t.Fatalf("help missing format/lint: %s", out)
 	}
 }
@@ -1700,6 +1737,19 @@ func TestDefaultBiomeConfigContent(t *testing.T) {
 	}
 
 	assertNestedValue(t, config, true, "formatter", "enabled")
+	ignoreValues, ok := config["files"].(map[string]any)["ignore"].([]any)
+	if !ok {
+		t.Fatalf("default Biome config missing files.ignore: %#v", config["files"])
+	}
+	ignoreSet := map[string]bool{}
+	for _, value := range ignoreValues {
+		ignoreSet[value.(string)] = true
+	}
+	for _, want := range []string{".tspack/**", "node_modules/**", "dist/**", "tspack-artifacts/**"} {
+		if !ignoreSet[want] {
+			t.Fatalf("default Biome config missing ignore %q in %#v", want, ignoreValues)
+		}
+	}
 	assertNestedValue(t, config, "tab", "formatter", "indentStyle")
 	assertNestedValue(t, config, float64(100), "formatter", "lineWidth")
 	assertNestedValue(t, config, true, "organizeImports", "enabled")
@@ -2479,7 +2529,7 @@ func TestCLICheckFormatFlagParsingAndRoot(t *testing.T) {
 		t.Fatalf("check --format should succeed: %v\n%s", err, output)
 	}
 	got := readCapturedBiomeArgv(t, capture)
-	assertBiomeArgsInclude(t, got, "format", ".")
+	assertBiomeArgsInclude(t, got, "format", "manifest.tsx", "src")
 	assertBiomeArgsOmit(t, got, "--write", "--check")
 
 	captured := readCapturedBiomeInvocation(t, capture)
@@ -2513,7 +2563,7 @@ func TestCLICheckFormatPreservesManifestAndReportsTextFailure(t *testing.T) {
 	}
 
 	got := readCapturedBiomeArgv(t, capture)
-	assertBiomeArgsInclude(t, got, "format", ".")
+	assertBiomeArgsInclude(t, got, "format", "src")
 	assertBiomeArgsOmit(t, got, "--write", "--check")
 }
 
@@ -2551,7 +2601,7 @@ func TestCLICheckFormatBackendAndConfigBehavior(t *testing.T) {
 		pathWithNodeOnly(t),
 	)
 	missingOutput := missingStdout + missingStderr
-	if missingErr == nil || !strings.Contains(missingOutput, "TSPACK_BIOME_BACKEND_NOT_FOUND") {
+	if missingErr == nil || !strings.Contains(missingOutput, "TSPACK_FORMAT_BACKEND_MISSING") {
 		t.Fatalf("missing backend should fail with diagnostic: %v\nstdout=%s\nstderr=%s", missingErr, missingStdout, missingStderr)
 	}
 
@@ -2675,12 +2725,16 @@ func TestCLICheckFormatJSONMissingBackendIsStructured(t *testing.T) {
 	}
 	found := false
 	for _, diagnostic := range report.Diagnostics {
-		if diagnostic.Code == "TSPACK_BIOME_BACKEND_NOT_FOUND" {
+		if diagnostic.Code == "TSPACK_FORMAT_BACKEND_MISSING" {
 			found = true
+			details := strings.Join(diagnostic.Details, "\n")
+			if !strings.Contains(details, "underlying: TSPACK_BIOME_BACKEND_NOT_FOUND") {
+				t.Fatalf("missing underlying detail: %+v", diagnostic)
+			}
 		}
 	}
 	if !found {
-		t.Fatalf("expected structured missing backend diagnostic: %+v", report.Diagnostics)
+		t.Fatalf("expected structured format backend missing diagnostic: %+v", report.Diagnostics)
 	}
 }
 
