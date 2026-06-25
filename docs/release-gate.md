@@ -805,3 +805,15 @@ The M46b gate covers default human `tspack check` readability for noisy informat
 - JSON output includes normalized `dryRun` with `changed: false`, a `policyPlan` object, summary counts, `wouldUpdate`, `securityGatesEvaluated: false`, and `securityGateStatus: "not_evaluated"`.
 - Missing `<UpdatePolicy />` is reportable and non-fatal when metadata resolution succeeds; `policyPresent` is false and registry candidates are unclassified.
 - Normal `tspack update`, update dry-run, and `tspack outdated` semantics remain unchanged when `--policy` is absent.
+
+
+## M50c policy update security gates
+
+- `tspack update --policy --dry-run` evaluates existing TSPack security gates for policy update plan candidates and remains read-only.
+- JSON reports `policyPlan.securityGatesEvaluated: true`, aggregate security status, candidate security statuses, `wouldApply`, `ready`, `securityBlocked`, and `reviewRequired`.
+- Allowed candidates with `securityGateStatus: passed` are ready for future policy-driven application.
+- Unacknowledged consumer-install lifecycle scripts block readiness.
+- Unacknowledged maintainer-publish lifecycle scripts require review.
+- Acknowledged exact lifecycle capabilities and matching lifecycle-category acknowledgments can pass; lifecycle execution remains blocked.
+- The command does not mutate lockfiles, stores, or materialization and does not run lifecycle scripts or behavior fixtures.
+- Normal update and outdated behavior remains unchanged.

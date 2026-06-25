@@ -18,6 +18,7 @@ import (
 
 	"github.com/tspack/tspack/internal/diag"
 	"github.com/tspack/tspack/internal/lockfile"
+	"github.com/tspack/tspack/internal/manifest"
 	"github.com/tspack/tspack/internal/resolver"
 	"github.com/tspack/tspack/internal/store"
 )
@@ -2096,5 +2097,90 @@ func TestOutdatedUpdatePolicyEvaluation(t *testing.T) {
 	lockAfter, _ := os.ReadFile(opts.LockfilePath)
 	if !bytes.Equal(lockBytes, lockAfter) {
 		t.Fatalf("outdated policy report mutated lockfile")
+	}
+}
+
+func TestPolicySecurityGateLifecycleStatuses(t *testing.T) {
+	baseDependency := OutdatedDependency{
+		Name:                       "esbuild",
+		Kind:                       "tool",
+		Source:                     "npm",
+		Current:                    []string{"0.21.0"},
+		Latest:                     "0.25.0",
+		Status:                     "wanted_available",
+		PolicyStatus:               "allowed",
+		CandidateMetadataAvailable: true,
+	}
+
+	noLifecycle := baseDependency
+	noLifecycle.Name = "typescript"
+	if gate := EvaluatePolicySecurityGate(noLifecycle, manifest.Security{}); gate.Status != "passed" {
+		t.Fatalf("no lifecycle capability should pass: %#v", gate)
+	}
+
+	exactAcknowledged := baseDependency
+	exactAcknowledged.Name = "biome"
+	exactAcknowledged.CandidateCapabilities = []lockfile.Capability{{
+		Kind:    "lifecycleScript",
+		Script:  "postinstall",
+		Command: "node postinstall.js",
+	}}
+	exactSecurity := manifest.Security{AcknowledgedCapabilities: []manifest.AcknowledgedCapability{{
+		Package: "npm:biome@0.25.0",
+		Kind:    "lifecycleScript",
+		Script:  "postinstall",
+		Command: "node postinstall.js",
+		Reason:  "reviewed install hook",
+	}}}
+	if gate := EvaluatePolicySecurityGate(exactAcknowledged, exactSecurity); gate.Status != "passed" || gate.Diagnostics[0].AcknowledgmentKind != "capability" {
+		t.Fatalf("exact acknowledged lifecycle capability should pass: %#v", gate)
+	}
+
+	categoryAcknowledged := baseDependency
+	categoryAcknowledged.Name = "rollup"
+	categoryAcknowledged.CandidateCapabilities = []lockfile.Capability{{
+		Kind:    "lifecycleScript",
+		Script:  "prepublishOnly",
+		Command: "node publish-check.js",
+	}}
+	categorySecurity := manifest.Security{AcknowledgedLifecycleCategories: []manifest.AcknowledgedLifecycleCategory{{
+		Category: "maintainer-publish",
+		Reason:   "maintainer scripts are reviewed and remain blocked by default",
+	}}}
+	if gate := EvaluatePolicySecurityGate(categoryAcknowledged, categorySecurity); gate.Status != "passed" || gate.Diagnostics[0].AcknowledgmentKind != "lifecycle-category" {
+		t.Fatalf("category acknowledged maintainer lifecycle capability should pass: %#v", gate)
+	}
+
+	needsReview := baseDependency
+	needsReview.Name = "vite"
+	needsReview.CandidateCapabilities = []lockfile.Capability{{
+		Kind:    "lifecycleScript",
+		Script:  "prepare",
+		Command: "node prepare.js",
+	}}
+	if gate := EvaluatePolicySecurityGate(needsReview, manifest.Security{}); gate.Status != "review_required" {
+		t.Fatalf("unacknowledged maintainer lifecycle capability should require review: %#v", gate)
+	}
+
+	blocked := baseDependency
+	blocked.CandidateCapabilities = []lockfile.Capability{{
+		Kind:    "lifecycleScript",
+		Script:  "postinstall",
+		Command: "node install.js",
+	}}
+	if gate := EvaluatePolicySecurityGate(blocked, manifest.Security{}); gate.Status != "blocked" {
+		t.Fatalf("unacknowledged consumer install lifecycle capability should block: %#v", gate)
+	}
+
+	stale := blocked
+	staleSecurity := manifest.Security{AcknowledgedCapabilities: []manifest.AcknowledgedCapability{{
+		Package: "npm:esbuild@0.25.0",
+		Kind:    "lifecycleScript",
+		Script:  "postinstall",
+		Command: "node old-install.js",
+		Reason:  "old reviewed command",
+	}}}
+	if gate := EvaluatePolicySecurityGate(stale, staleSecurity); gate.Status == "passed" {
+		t.Fatalf("stale exact lifecycle acknowledgment must not pass: %#v", gate)
 	}
 }

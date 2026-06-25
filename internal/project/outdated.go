@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	semver "github.com/Masterminds/semver/v3"
+	"github.com/tspack/tspack/internal/capability"
 	"github.com/tspack/tspack/internal/check"
 	"github.com/tspack/tspack/internal/diag"
 	"github.com/tspack/tspack/internal/graph"
@@ -21,6 +22,7 @@ type OutdatedResult struct {
 	Dependencies []OutdatedDependency
 	Groups       []OutdatedDependency
 	HasPolicy    bool
+	Security     manifest.Security
 }
 
 type OutdatedSummary struct {
@@ -37,24 +39,26 @@ type OutdatedPackage struct {
 }
 
 type OutdatedDependency struct {
-	Key            string
-	Name           string
-	Kind           string
-	Source         string
-	Requested      string
-	Current        []string
-	Wanted         string
-	Latest         string
-	Status         string
-	Packages       []OutdatedPackage
-	PackageCount   int
-	PolicyStrategy string
-	PolicyLevel    string
-	PolicyStatus   string
-	PolicyReason   string
-	PolicyMatched  bool
-	PolicyRow      int
-	PolicyMessage  string
+	Key                        string
+	Name                       string
+	Kind                       string
+	Source                     string
+	Requested                  string
+	Current                    []string
+	Wanted                     string
+	Latest                     string
+	Status                     string
+	Packages                   []OutdatedPackage
+	PackageCount               int
+	PolicyStrategy             string
+	PolicyLevel                string
+	PolicyStatus               string
+	PolicyReason               string
+	PolicyMatched              bool
+	PolicyRow                  int
+	PolicyMessage              string
+	CandidateMetadataAvailable bool
+	CandidateCapabilities      []lockfile.Capability
 }
 
 func Outdated(opts Options) Result {
@@ -134,6 +138,10 @@ func buildOutdatedResult(ctx context.Context, ir *manifest.ManifestIR, g *graph.
 				}
 				entry.Wanted = wanted
 				entry.Latest = latestVersion(meta)
+				if candidateVersion, ok := meta.Versions[entry.Latest]; ok {
+					entry.CandidateMetadataAvailable = true
+					entry.CandidateCapabilities = capability.FromPackageJSONScripts(candidateVersion.Scripts)
+				}
 				if len(entry.Current) > 0 {
 					current := entry.Current[len(entry.Current)-1]
 					if lessThan(current, entry.Wanted) {
@@ -161,7 +169,11 @@ func buildOutdatedResult(ctx context.Context, ir *manifest.ManifestIR, g *graph.
 	applyUpdatePolicy(ir, entries)
 	groups := groupOutdatedDependencies(entries)
 	summary := summarizeOutdated(entries)
-	return OutdatedResult{Summary: summary, Dependencies: entries, Groups: groups, HasPolicy: ir != nil && len(ir.UpdatePolicy.Rows) > 0}
+	security := manifest.Security{}
+	if ir != nil {
+		security = ir.Security
+	}
+	return OutdatedResult{Summary: summary, Dependencies: entries, Groups: groups, HasPolicy: ir != nil && len(ir.UpdatePolicy.Rows) > 0, Security: security}
 }
 
 func groupOutdatedDependencies(entries []OutdatedDependency) []OutdatedDependency {
