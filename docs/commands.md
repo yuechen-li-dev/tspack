@@ -68,14 +68,17 @@
 - `tspack update --dry-run` resolves the would-be lockfile state and prints a deterministic package-level diff.
 - Text-mode dry runs write progress to **stderr** for resolve, lockfile-diff computation, and dry-run completion.
 - `tspack update <query> --dry-run` starts with targeted planning context such as `planning targeted update: react`.
-- `tspack update --dry-run --json` keeps stdout as structured JSON only and suppresses progress by default. For targeted dry runs, the top-level `changed` field is a boolean: `true` when package entries would be added, removed, or changed, and `false` when the targeted plan is a no-op.
+- `tspack update --dry-run --json` keeps stdout as structured JSON only and suppresses progress by default. Dry-run JSON includes `dryRun.enabled`, boolean `dryRun.changed`, and numeric `dryRun.summary` counts for full and targeted updates; the top-level `changed` and `summary` fields remain available for compatibility.
 - It may fetch registry metadata to resolve versions, but does **not** write `ts-lock.toml`, does **not** populate store artifacts, and does **not** materialize `node_modules`.
 - It exits `0` on successful planning regardless of whether changes are present; resolver/runtime errors remain non-zero.
 
 ## `tspack outdated`
 
 - `tspack outdated` reports declared dependency freshness using registry metadata only.
-- `--json` writes structured freshness results to stdout.
+- Default human output groups identical declarations and shows package count/list to keep monorepos readable.
+- `--per-package` restores the expanded one-row-per-declaration view.
+- `--json` writes structured freshness results to stdout; grouped `entries` are the default, with declaration-level `dependencies` also present for compatibility.
+- Non-registry/workspace dependencies are `not_applicable`, not errors.
 - It does not fetch package tarballs, populate the store, write the lockfile, or materialize `node_modules`.
 
 ### Future update policy

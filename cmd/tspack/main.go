@@ -171,7 +171,7 @@ type WhyJSONDiagnostic struct {
 
 type UpdateDryRunJSONReport struct {
 	Command     string                         `json:"command"`
-	DryRun      bool                           `json:"dryRun"`
+	DryRun      UpdateDryRunJSONState          `json:"dryRun"`
 	OK          bool                           `json:"ok"`
 	Root        string                         `json:"root"`
 	Changed     bool                           `json:"changed"`
@@ -182,6 +182,12 @@ type UpdateDryRunJSONReport struct {
 	Changes     UpdateDryRunChanges            `json:"changes"`
 	Diagnostics []CheckJSONDiagnostic          `json:"diagnostics"`
 }
+type UpdateDryRunJSONState struct {
+	Enabled bool                `json:"enabled"`
+	Changed bool                `json:"changed"`
+	Summary UpdateDryRunSummary `json:"summary"`
+}
+
 type UpdateDryRunSummary struct {
 	Added     int `json:"added"`
 	Removed   int `json:"removed"`
@@ -701,6 +707,7 @@ func runCommand(args []string) {
 	clean := false
 	updateDryRun := false
 	updateQuiet := false
+	outdatedPerPackage := false
 	updateQuery := ""
 	packOpts := project.PackOptions{}
 	whyOpts := project.WhyOptions{}
@@ -773,6 +780,12 @@ func runCommand(args []string) {
 			whyOpts.Reverse = true
 		case "--json":
 			jsonOutput = true
+		case "--per-package":
+			if cmd != "outdated" {
+				fmt.Fprintf(os.Stderr, "unknown %s flag: --per-package\n", cmd)
+				os.Exit(1)
+			}
+			outdatedPerPackage = true
 		case "--show-conflicts":
 			if cmd != "check" {
 				fmt.Fprintf(os.Stderr, "unknown %s flag: --show-conflicts\n", cmd)
@@ -920,6 +933,7 @@ func runCommand(args []string) {
 			"ok":           !hasErrors(result.Diagnostics),
 			"root":         opts.RootDir,
 			"summary":      result.Outdated.Summary,
+			"entries":      outdatedJSONEntries(result.Outdated, outdatedPerPackage),
 			"dependencies": result.Outdated.Dependencies,
 			"diagnostics":  buildCheckJSONReport(opts, result).Diagnostics,
 		}
@@ -1021,7 +1035,7 @@ func runCommand(args []string) {
 	if result.Outdated != nil {
 		fmt.Println("TSPack outdated")
 		fmt.Println()
-		for _, dep := range result.Outdated.Dependencies {
+		for _, dep := range outdatedHumanEntries(result.Outdated, outdatedPerPackage) {
 			fmt.Println(dep.Name)
 			fmt.Printf("  kind: %s\n", dep.Kind)
 			fmt.Printf("  requested: %s\n", dep.Requested)
@@ -1033,6 +1047,12 @@ func runCommand(args []string) {
 			fmt.Printf("  wanted: %s\n", dep.Wanted)
 			fmt.Printf("  latest: %s\n", dep.Latest)
 			fmt.Printf("  status: %s\n", strings.ReplaceAll(dep.Status, "_", " "))
+			if dep.PackageCount > 0 {
+				fmt.Printf("  packages: %d\n", dep.PackageCount)
+				if len(dep.Packages) > 0 {
+					fmt.Printf("  declared by: %s\n", formatOutdatedPackages(dep.Packages))
+				}
+			}
 		}
 		fmt.Println()
 		fmt.Println("Summary:")
@@ -1047,6 +1067,62 @@ func runCommand(args []string) {
 		}
 		os.Exit(1)
 	}
+}
+
+func outdatedHumanEntries(result *project.OutdatedResult, perPackage bool) []project.OutdatedDependency {
+	if result == nil {
+		return nil
+	}
+	if perPackage || len(result.Groups) == 0 {
+		return result.Dependencies
+	}
+	return result.Groups
+}
+
+type outdatedJSONEntry struct {
+	Name         string                    `json:"name"`
+	Kind         string                    `json:"kind"`
+	Source       string                    `json:"source,omitempty"`
+	Requested    string                    `json:"requested"`
+	Current      []string                  `json:"current"`
+	Wanted       string                    `json:"wanted"`
+	Latest       string                    `json:"latest"`
+	Status       string                    `json:"status"`
+	Packages     []project.OutdatedPackage `json:"packages"`
+	PackageCount int                       `json:"packageCount"`
+}
+
+func outdatedJSONEntries(result *project.OutdatedResult, perPackage bool) []outdatedJSONEntry {
+	dependencies := outdatedHumanEntries(result, perPackage)
+	entries := make([]outdatedJSONEntry, 0, len(dependencies))
+	for _, dep := range dependencies {
+		entry := outdatedJSONEntry{
+			Name:         dep.Name,
+			Kind:         dep.Kind,
+			Source:       dep.Source,
+			Requested:    dep.Requested,
+			Current:      dep.Current,
+			Wanted:       dep.Wanted,
+			Latest:       dep.Latest,
+			Status:       dep.Status,
+			Packages:     dep.Packages,
+			PackageCount: dep.PackageCount,
+		}
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+func formatOutdatedPackages(packages []project.OutdatedPackage) string {
+	names := make([]string, 0, len(packages))
+	for _, pkg := range packages {
+		if pkg.Name != "" {
+			names = append(names, pkg.Name)
+			continue
+		}
+		names = append(names, pkg.Root)
+	}
+	return strings.Join(names, ", ")
 }
 
 func printWhyCapabilities(lockPackages []why.LockPackageRef) {
@@ -1167,7 +1243,7 @@ func printUpdateDryRunPlan(result project.Result) {
 func buildUpdateDryRunJSONReport(opts project.Options, result project.Result) UpdateDryRunJSONReport {
 	report := UpdateDryRunJSONReport{
 		Command: "update",
-		DryRun:  true,
+		DryRun:  UpdateDryRunJSONState{Enabled: true},
 		OK:      !hasErrors(result.Diagnostics),
 		Root:    opts.RootDir,
 	}
@@ -1179,6 +1255,8 @@ func buildUpdateDryRunJSONReport(opts project.Options, result project.Result) Up
 	if result.DryRun != nil {
 		report.Changed = result.DryRun.Changed
 		report.Summary = UpdateDryRunSummary(result.DryRun.Summary)
+		report.DryRun.Changed = result.DryRun.Changed
+		report.DryRun.Summary = UpdateDryRunSummary(result.DryRun.Summary)
 	}
 	if result.LockDiff != nil {
 		for _, pkg := range result.LockDiff.PackagesAdded {

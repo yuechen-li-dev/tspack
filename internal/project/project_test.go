@@ -682,7 +682,7 @@ func TestOutdatedSkipsNonNPMSourcesWithoutMetadataFetch(t *testing.T) {
 	if dep.Status != "not_applicable" {
 		t.Fatalf("expected not_applicable, got %s", dep.Status)
 	}
-	if !hasErrCode(res.Diagnostics, "TSPACK_OUTDATED_UNSUPPORTED_SOURCE") {
+	if !hasErrCode(res.Diagnostics, "TSPACK_OUTDATED_NON_REGISTRY_DEP") {
 		t.Fatalf("expected unsupported source warning")
 	}
 }
@@ -1943,4 +1943,104 @@ func lockContainsPackage(lf *lockfile.Lockfile, id string) bool {
 		}
 	}
 	return false
+}
+
+func TestOutdatedGroupsIdenticalDeclarationsAndSeparatesKeyFields(t *testing.T) {
+	dir := t.TempDir()
+	ir := simpleIR()
+	packages := []map[string]any{}
+	for _, spec := range []struct {
+		name string
+		root string
+		kind string
+		rng  string
+	}{
+		{name: "@repo/a", root: "packages/a", kind: "tool", rng: "^5.0.0"},
+		{name: "@repo/b", root: "packages/b", kind: "tool", rng: "^5.0.0"},
+		{name: "@repo/c", root: "packages/c", kind: "tool", rng: "^5.0.0"},
+		{name: "@repo/d", root: "packages/d", kind: "dep", rng: "^5.0.0"},
+		{name: "@repo/e", root: "packages/e", kind: "tool", rng: "^4.0.0"},
+	} {
+		packages = append(packages, map[string]any{
+			"name":    spec.name,
+			"root":    spec.root,
+			"version": "1.0.0",
+			"kind":    "library",
+			"dependencies": []map[string]any{{
+				"kind":   spec.kind,
+				"name":   "typescript",
+				"source": map[string]any{"kind": "npm", "package": "typescript", "range": spec.rng},
+			}},
+			"targets": []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "src/index.ts", "types": "dist/index.d.ts", "deps": []string{}, "peers": []string{}}},
+			"tools":   []string{}, "boundaries": []any{}, "publish": map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}},
+		})
+	}
+	ir["packages"] = packages
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = writeIR(t, dir, ir)
+	for _, spec := range []string{"packages/a", "packages/b", "packages/c", "packages/d", "packages/e"} {
+		_ = os.MkdirAll(filepath.Join(dir, spec, "src"), 0o755)
+		_ = os.MkdirAll(filepath.Join(dir, spec, "dist"), 0o755)
+		_ = os.WriteFile(filepath.Join(dir, spec, "src", "index.ts"), []byte("export const x = 1\n"), 0o644)
+		_ = os.WriteFile(filepath.Join(dir, spec, "dist", "index.d.ts"), []byte("export declare const x: number\n"), 0o644)
+	}
+	lf := &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"}, Packages: []lockfile.Package{{ID: "npm:typescript@5.9.3", Name: "typescript", Source: "npm", Version: "5.9.3", Hash: "sha256:dummy"}}}
+	lockBytes, _ := lockfile.Marshal(lf)
+	_ = os.WriteFile(opts.LockfilePath, lockBytes, 0o644)
+	opts.ResolverClient = &fakeClient{meta: map[string]*resolver.PackageMetadata{"typescript": {Name: "typescript", DistTags: map[string]string{"latest": "5.9.3"}, Versions: map[string]resolver.PackageVersion{"4.9.5": {Version: "4.9.5"}, "5.9.3": {Version: "5.9.3"}}}}}
+
+	res := Outdated(opts)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("outdated failed: %#v", res.Diagnostics)
+	}
+	if len(res.Outdated.Dependencies) != 5 {
+		t.Fatalf("expected five per-package dependencies, got %d", len(res.Outdated.Dependencies))
+	}
+	if len(res.Outdated.Groups) != 3 {
+		t.Fatalf("expected grouped dependencies to separate kind/range, got %#v", res.Outdated.Groups)
+	}
+	var shared *OutdatedDependency
+	for i := range res.Outdated.Groups {
+		group := &res.Outdated.Groups[i]
+		if group.Kind == "tool" && group.Requested == "^5.0.0" {
+			shared = group
+		}
+	}
+	if shared == nil || shared.PackageCount != 3 {
+		t.Fatalf("expected shared tool group with package count 3, got %#v", shared)
+	}
+	gotNames := []string{shared.Packages[0].Name, shared.Packages[1].Name, shared.Packages[2].Name}
+	wantNames := []string{"@repo/a", "@repo/b", "@repo/c"}
+	if !reflect.DeepEqual(gotNames, wantNames) {
+		t.Fatalf("expected deterministic package order %v, got %v", wantNames, gotNames)
+	}
+}
+
+func TestOutdatedNonRegistryDiagnosticUsesNotApplicableWording(t *testing.T) {
+	dir := t.TempDir()
+	ir := simpleIR()
+	pkgs := ir["packages"].([]map[string]any)
+	pkgs[0]["dependencies"] = []map[string]any{
+		{"kind": "dep", "name": "core", "source": map[string]any{"kind": "workspace", "package": "core"}},
+	}
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = writeIR(t, dir, ir)
+	client := &fakeClient{meta: map[string]*resolver.PackageMetadata{}}
+	opts.ResolverClient = client
+	res := Outdated(opts)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("outdated failed: %#v", res.Diagnostics)
+	}
+	if client.packageMetaCalls != 0 {
+		t.Fatalf("expected no registry fetch for non-registry dependency")
+	}
+	if !hasErrCode(res.Diagnostics, "TSPACK_OUTDATED_NON_REGISTRY_DEP") {
+		t.Fatalf("expected non-registry diagnostic, got %#v", res.Diagnostics)
+	}
+	if strings.Contains(res.Diagnostics[0].Message, "unsupported") {
+		t.Fatalf("diagnostic wording should not say unsupported: %#v", res.Diagnostics[0])
+	}
+	if res.Outdated.Groups[0].Status != "not_applicable" {
+		t.Fatalf("expected not_applicable, got %#v", res.Outdated.Groups[0])
+	}
 }

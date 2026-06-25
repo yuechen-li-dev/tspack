@@ -174,6 +174,11 @@ Page/analyzer:
 - `TSPACK_TEST_UNSUPPORTED_IMPORT`
 - `TSPACK_TEST_MODULE_TRANSPILE_FAILED`
 
+## Outdated diagnostics
+
+- `TSPACK_OUTDATED_NON_REGISTRY_DEP`: a workspace, path, or other non-registry dependency is not applicable to registry outdated checks. Update workspace dependencies by editing the workspace or package manifest/version.
+- `TSPACK_OUTDATED_UNSUPPORTED_SOURCE`: deprecated compatibility alias for older consumers; new outdated output uses `TSPACK_OUTDATED_NON_REGISTRY_DEP`.
+
 ## Update target diagnostics
 
 - `TSPACK_UPDATE_TARGET_NOT_FOUND`: no declared dependency key or npm package matched the query.

@@ -773,3 +773,15 @@ The M46b gate covers default human `tspack check` readability for noisy informat
 - `tspack check --json` remains full-detail and includes lifecycle acknowledgment fields.
 - Split manifests preserve root `Security.acknowledgedLifecycleCategories` with the rest of root security policy.
 - Lifecycle execution remains blocked by default; category acknowledgment is audit metadata only.
+
+
+## M49b outdated and dry-run UX normalization gate
+
+- `tspack outdated` groups identical rows by default and shows declaring package count/list.
+- `tspack outdated --per-package` restores expanded declaration-level output.
+- Outdated grouping separates different kind, requested range, current, wanted, latest, status, and dependency identity.
+- `tspack outdated --json` exposes grouped `entries` by default and declaration-level `dependencies` for compatibility; `--per-package --json` makes `entries` declaration-level.
+- `tspack update --dry-run --json` uses a normalized `dryRun` object for full and targeted updates.
+- `dryRun.enabled` is true for dry runs, `dryRun.changed` is a boolean, and `dryRun.summary` counts are numeric and never null.
+- Workspace/non-registry outdated diagnostics use non-registry/not-applicable wording and code `TSPACK_OUTDATED_NON_REGISTRY_DEP`.
+- Update resolver, lockfile, and write semantics remain unchanged.
