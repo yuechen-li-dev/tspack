@@ -49,7 +49,7 @@ Capabilities are sorted/deduplicated deterministically and round-trip through lo
 ## Visibility
 
 - `tspack update` produces lockfile changes when capabilities change.
-- `tspack check` warns with `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT` when lockfile packages include lifecycle capabilities.
+- `tspack check` warns with `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT` when lockfile packages include lifecycle capabilities. Human check output summarizes multiple lifecycle-present warnings by default because execution is blocked by policy; use `tspack check --show-lifecycle` for every script and pull-chain detail. `tspack check --json` remains full-detail, and serious security diagnostics stay visible in default human output.
 - `tspack update` may fetch npm tarballs and populate the store, but it never executes package code or lifecycle scripts.
 - `tspack update --dry-run` may fetch registry metadata for version resolution but does not fetch/store tarballs or materialize `node_modules`.
 - `tspack sync` materializes files only and never executes scripts.
@@ -105,7 +105,7 @@ script = "postinstall"
 command = "node install.js"
 ```
 
-`update` refreshes capability metadata while resolving packages. `sync` and materialization read this metadata but never execute lifecycle scripts and must not mutate the lockfile just to add missing metadata. `check` warns with `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT`, and `why` shows lifecycle capabilities next to the matching lock package.
+`update` refreshes capability metadata while resolving packages. `sync` and materialization read this metadata but never execute lifecycle scripts and must not mutate the lockfile just to add missing metadata. `check` warns with `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT`, and `why` shows lifecycle capabilities next to the matching lock package. When many packages declare lifecycle scripts, default human `check` output prints a concise summary and points to `--show-lifecycle`; `doctor security` remains the policy-posture command.
 
 This is a supply-chain visibility feature: in traditional npm installs, lifecycle scripts can run during installation and may access CI, cloud, npm, or environment credentials. TSPack keeps fetching and syncing separate from execution. Future lifecycle testing, approval policy, and jailed execution are deferred.
 

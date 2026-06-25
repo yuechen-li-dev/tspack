@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -273,7 +274,7 @@ func printHelp() {
 	fmt.Println("Usage:")
 	fmt.Println("  tspack help")
 	fmt.Println("  tspack --version")
-	fmt.Println("  tspack check [--root .] [--json] [--explain <file>]")
+	fmt.Println("  tspack check [--root .] [--json] [--explain <file>] [--show-conflicts] [--show-lifecycle]")
 	fmt.Println("  tspack update [query] [--root .] [--dry-run] [--json] [--quiet]")
 	fmt.Println("  tspack sync [--root .] [--clean]")
 	fmt.Println("  tspack pack [--root .] [--out dir] [--package name] [--dry-run] [--verify]")
@@ -292,6 +293,10 @@ func printHelp() {
 	fmt.Println("  tspack doctor [format|run|runtime|inspect|security] [--root .] [--json]")
 	fmt.Println("  tspack init --kind <library|app> --name <package-name> [--version <version>] [--license <license>] [--force] [--dry-run]")
 	fmt.Println("  tspack migrate [--check] [--write] [--root .] [--package-json path] [--package-lock path] [--no-lock-evidence] [--scan-source] [--no-source-scan] [--out-manifest path] [--out-report path] [--force]")
+	fmt.Println()
+	fmt.Println("Check flags:")
+	fmt.Println("  --show-conflicts   Show individual version conflict diagnostics instead of summary")
+	fmt.Println("  --show-lifecycle   Show individual lifecycle script diagnostics instead of summary")
 }
 
 func runInspectCommand(args []string) {
@@ -679,6 +684,8 @@ func runCommand(args []string) {
 	explainSet := false
 	checkPositionals := []string{}
 	checkFormat := false
+	showConflicts := false
+	showLifecycle := false
 	clean := false
 	updateDryRun := false
 	updateQuiet := false
@@ -754,6 +761,18 @@ func runCommand(args []string) {
 			whyOpts.Reverse = true
 		case "--json":
 			jsonOutput = true
+		case "--show-conflicts":
+			if cmd != "check" {
+				fmt.Fprintf(os.Stderr, "unknown %s flag: --show-conflicts\n", cmd)
+				os.Exit(1)
+			}
+			showConflicts = true
+		case "--show-lifecycle":
+			if cmd != "check" {
+				fmt.Fprintf(os.Stderr, "unknown %s flag: --show-lifecycle\n", cmd)
+				os.Exit(1)
+			}
+			showLifecycle = true
 		case "--format":
 			if cmd != "check" {
 				fmt.Fprintf(os.Stderr, "unknown %s flag: --format\n", cmd)
@@ -927,15 +946,7 @@ func runCommand(args []string) {
 		}
 		return
 	}
-	for _, d := range result.Diagnostics {
-		fmt.Fprintf(os.Stderr, "%s: %s\n", d.Code, d.Message)
-		for _, detail := range d.Details {
-			if detail == d.Message {
-				continue
-			}
-			fmt.Fprintf(os.Stderr, "  %s\n", detail)
-		}
-	}
+	renderHumanDiagnostics(os.Stderr, result.Diagnostics, checkRenderOptions{ShowConflicts: showConflicts, ShowLifecycle: showLifecycle})
 	if result.LockDiff != nil {
 		if cmd == "update" && updateDryRun {
 			printUpdateDryRunPlan(result)
@@ -1191,6 +1202,153 @@ func runCheckFormatValidation(root string, jsonOutput bool) biomeCommandResult {
 		PrintDefaultConfigStatus: !jsonOutput,
 	}
 	return runBiomeCommandWithOptions(options)
+}
+
+type checkRenderOptions struct {
+	ShowConflicts bool
+	ShowLifecycle bool
+}
+
+func renderHumanDiagnostics(out *os.File, diagnostics []diag.Diagnostic, options checkRenderOptions) {
+	conflicts := []diag.Diagnostic{}
+	lifecycle := []diag.Diagnostic{}
+	other := []diag.Diagnostic{}
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == "TSPACK_LOCK_VERSION_CONFLICT" && diagnostic.Severity != diag.SeverityError {
+			conflicts = append(conflicts, diagnostic)
+			continue
+		}
+		if diagnostic.Code == "TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT" && diagnostic.Severity != diag.SeverityError {
+			lifecycle = append(lifecycle, diagnostic)
+			continue
+		}
+		other = append(other, diagnostic)
+	}
+
+	rendered := append([]diag.Diagnostic{}, other...)
+	if options.ShowConflicts || len(conflicts) < 2 {
+		rendered = append(rendered, conflicts...)
+	} else {
+		rendered = append(rendered, versionConflictSummaryDiagnostic(conflicts))
+	}
+	if options.ShowLifecycle || len(lifecycle) < 2 {
+		rendered = append(rendered, lifecycle...)
+	} else {
+		rendered = append(rendered, lifecycleSummaryDiagnostic(lifecycle))
+	}
+	diag.SortDiagnostics(rendered)
+	for _, diagnostic := range rendered {
+		printHumanDiagnostic(out, diagnostic)
+	}
+}
+
+func printHumanDiagnostic(out *os.File, diagnostic diag.Diagnostic) {
+	fmt.Fprintf(out, "%s: %s\n", diagnostic.Code, diagnostic.Message)
+	for _, detail := range diagnostic.Details {
+		if detail == diagnostic.Message {
+			continue
+		}
+		fmt.Fprintf(out, "  %s\n", detail)
+	}
+}
+
+func versionConflictSummaryDiagnostic(conflicts []diag.Diagnostic) diag.Diagnostic {
+	examples := versionConflictExamples(conflicts, 3)
+	return diag.Diagnostic{
+		Code:     "TSPACK_LOCK_VERSION_CONFLICT",
+		Severity: diag.SeverityWarning,
+		Message:  fmt.Sprintf("Version conflicts: %d packages have multiple resolved versions.", len(conflicts)),
+		Details: []string{
+			"Examples: " + strings.Join(examples, ", "),
+			"Run `tspack check --show-conflicts` for full conflict diagnostics.",
+		},
+	}
+}
+
+func lifecycleSummaryDiagnostic(lifecycle []diag.Diagnostic) diag.Diagnostic {
+	examples := lifecycleExamples(lifecycle, 3)
+	return diag.Diagnostic{
+		Code:     "TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT",
+		Severity: diag.SeverityWarning,
+		Message:  fmt.Sprintf("Lifecycle scripts: %d packages declare lifecycle scripts; execution is blocked by policy.", len(lifecycle)),
+		Details: []string{
+			"Examples: " + strings.Join(examples, ", "),
+			"Run `tspack check --show-lifecycle` for full script and pull-chain details.",
+			"Run `tspack doctor security` for policy posture.",
+		},
+	}
+}
+
+func versionConflictExamples(conflicts []diag.Diagnostic, limit int) []string {
+	examples := []string{}
+	for _, conflict := range sortedDiagnosticsForExamples(conflicts) {
+		name := strings.TrimPrefix(conflict.Message, "package \"")
+		if index := strings.Index(name, "\" appears at multiple versions"); index >= 0 {
+			name = name[:index]
+		}
+		versions := []string{}
+		for _, detail := range conflict.Details {
+			trimmed := strings.TrimSpace(detail)
+			if !strings.Contains(trimmed, " -> ") {
+				continue
+			}
+			version := strings.SplitN(trimmed, " -> ", 2)[0]
+			versions = append(versions, version)
+		}
+		examples = append(examples, fmt.Sprintf("%s (%s)", name, strings.Join(uniqueSorted(versions), ", ")))
+		if len(examples) >= limit {
+			return examples
+		}
+	}
+	return examples
+}
+
+func lifecycleExamples(lifecycle []diag.Diagnostic, limit int) []string {
+	examples := []string{}
+	for _, diagnostic := range sortedDiagnosticsForExamples(lifecycle) {
+		examples = append(examples, lifecyclePackageName(diagnostic))
+		if len(examples) >= limit {
+			return examples
+		}
+	}
+	return examples
+}
+
+func lifecyclePackageName(diagnostic diag.Diagnostic) string {
+	for _, detail := range diagnostic.Details {
+		trimmed := strings.TrimSpace(detail)
+		if strings.HasPrefix(trimmed, "package: ") {
+			packageID := strings.TrimPrefix(trimmed, "package: ")
+			if strings.HasPrefix(packageID, "npm:") {
+				packageID = strings.TrimPrefix(packageID, "npm:")
+			}
+			if at := strings.LastIndex(packageID, "@"); at > 0 {
+				return packageID[:at]
+			}
+			return packageID
+		}
+	}
+	return diagnostic.Message
+}
+
+func sortedDiagnosticsForExamples(diagnostics []diag.Diagnostic) []diag.Diagnostic {
+	out := append([]diag.Diagnostic(nil), diagnostics...)
+	diag.SortDiagnostics(out)
+	return out
+}
+
+func uniqueSorted(values []string) []string {
+	seen := map[string]bool{}
+	unique := []string{}
+	for _, value := range values {
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		unique = append(unique, value)
+	}
+	sort.Strings(unique)
+	return unique
 }
 
 func buildCheckJSONReport(opts project.Options, result project.Result) CheckJSONReport {

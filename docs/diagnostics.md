@@ -56,10 +56,10 @@ This inventory groups primary diagnostic families by subsystem to keep command-s
 - Each diagnostic includes stable `code`, `severity`, and `message` fields, with optional file/details/fixes when available.
 - Boundary diagnostics may include reachable import-chain details in `details`, such as a path from the target entry through the importing file to the external package. `transitiveFrom` explicit-deny diagnostics include `transitiveFrom`, `seed`, and a seed-to-import `path`.
 - `tspack check --json` preserves diagnostic details structurally for tooling; human diagnostic text is not mixed into stdout in JSON mode.
-- Human CLI output prints diagnostic detail lines under `CODE: message` with indentation for easier resolver/store debugging.
+- Human CLI output prints diagnostic detail lines under `CODE: message` with indentation for easier resolver/store debugging. By default, human `tspack check` summarizes noisy warning families when there are two or more `TSPACK_LOCK_VERSION_CONFLICT` or `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT` diagnostics; use `--show-conflicts` or `--show-lifecycle` to reveal the individual human diagnostic blocks.
 - Severity is preserved (`error`, `warning`, `info`), and warning diagnostics are included in the report summary.
 - `ok` is `false` when one or more `error` diagnostics exist, otherwise `true`.
-- `TSPACK_LOCK_VERSION_CONFLICT` warns when one source ecosystem/package name appears at multiple locked versions (for example two npm react versions).
+- `TSPACK_LOCK_VERSION_CONFLICT` warns when one source ecosystem/package name appears at multiple locked versions (for example two npm react versions). Human `tspack check` summarizes this warning family by default when multiple packages conflict, including a deterministic example list and `--show-conflicts` reveal guidance. `tspack check --json` still emits every individual conflict diagnostic.
 - `TSPACK_WHY_NOT_FOUND` may include detail lines with matching lock package IDs and suggested `tspack why npm:<name>@<version>` queries when a bare package name only matches transitive lock entries. Multiple suggestions are sorted and scoped package IDs use the same lock ID form, for example `npm:@scope/pkg@1.2.3`. In reverse mode, not-found means no locked package matched the reverse query and the details point users back to normal `tspack why <declared-dep>` for manifest declarations.
 - `tspack why --json` preserves why diagnostics, details, and suggestions in the JSON `diagnostics` array; handled diagnostic paths keep stdout parseable and do not print human diagnostic text to stderr.
 - `TSPACK_WHY_LOCKFILE_MISSING` is warning-only for normal `tspack why`, which can still answer from manifest declarations. It is an error for `tspack why --reverse` because reverse explanations require lockfile edges; run `tspack update` first.
@@ -255,6 +255,8 @@ Inspect assertion diagnostics include the assertion reason, expected condition, 
 Severity: warning.
 
 The lockfile records that a package declares an npm lifecycle script such as `preinstall`, `install`, `postinstall`, or `prepare`. Details include the lock package ID, script name, raw command string, `execution: blocked by default`, and any available root path that pulls the package. Use `tspack why <package>` or `tspack why --reverse <package>` to investigate reachability.
+
+Human `tspack check` summarizes this warning family by default when multiple packages declare lifecycle scripts. The summary reports the count, deterministic package examples, the blocked-by-policy posture, and `--show-lifecycle` reveal guidance. This does not disable detection, does not suppress serious security diagnostics, and does not remove script or pull-chain details from `tspack check --json`.
 
 ## Lifecycle behavior probe violation codes (M37b)
 

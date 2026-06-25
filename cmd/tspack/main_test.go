@@ -662,7 +662,7 @@ if (expected && got !== expected) {
   process.stdout.write(JSON.stringify({ok:false,ir:null,diagnostics:[{code:"TSPACK_TEST_UNEXPECTED_MANIFEST_PATH",severity:"error",message:"expected="+expected+" got="+got}]}));
   process.exit(0);
 }
-const out={ok:true,ir:{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"library",dependencies:[],targets:[{name:"core",export:".",entry:"src/index.ts",runtime:"dist/index.js",types:"dist/index.d.ts",deps:[],peers:[]}],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{types:{},boundaries:{}}}]},diagnostics:[]};
+const out={ok:true,ir:{format:1,workspace:{name:"ws"},security:{acknowledgedCapabilities:[{package:"npm:unused@1.0.0",kind:"lifecycleScript",script:"postinstall",command:"node install.js",reason:"known fixture"}]},packages:[{name:"app",version:"1.0.0",kind:"library",dependencies:[],targets:[{name:"core",export:".",entry:"src/index.ts",runtime:"dist/index.js",types:"dist/index.d.ts",deps:[],peers:[]}],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{types:{},boundaries:{}}}]},diagnostics:[]};
 process.stdout.write(JSON.stringify(out));`
 	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
 	t.Cleanup(func() { _ = os.Remove(cliPath) })
@@ -3099,6 +3099,106 @@ process.stdout.write(JSON.stringify(out));`
 	}
 }
 
+func TestCLICheckSummarizesNoisyWarningsWithRevealFlags(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	writeBasicFrontendStub(t, repo)
+	binPath := buildTspackBinary(t, repo)
+	root := writeNoisyCheckFixture(t)
+
+	defaultCmd := exec.Command(binPath, "check", "--root", root)
+	defaultCmd.Dir = repo
+	defaultOutput, err := defaultCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("warnings-only check should exit zero: %v\n%s", err, string(defaultOutput))
+	}
+	defaultText := string(defaultOutput)
+	for _, expected := range []string{
+		"TSPACK_LOCK_VERSION_CONFLICT: Version conflicts: 2 packages have multiple resolved versions.",
+		"Examples: @types/estree (1.0.8, 1.0.9), js-tokens (4.0.0, 9.0.1)",
+		"Run `tspack check --show-conflicts` for full conflict diagnostics.",
+		"TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT: Lifecycle scripts: 2 packages declare lifecycle scripts; execution is blocked by policy.",
+		"Examples: culori, esbuild",
+		"Run `tspack check --show-lifecycle` for full script and pull-chain details.",
+		"Run `tspack doctor security` for policy posture.",
+		"TSPACK_SECURITY_ACKNOWLEDGED_CAPABILITY_UNUSED",
+	} {
+		if !strings.Contains(defaultText, expected) {
+			t.Fatalf("default output missing %q:\n%s", expected, defaultText)
+		}
+	}
+	for _, hidden := range []string{
+		"TSPACK_LOCK_VERSION_CONFLICT: package \"@types/estree\" appears at multiple versions",
+		"TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT: package declares install-time lifecycle script",
+		"pulled by:",
+	} {
+		if strings.Contains(defaultText, hidden) {
+			t.Fatalf("default output should summarize %q:\n%s", hidden, defaultText)
+		}
+	}
+
+	revealCmd := exec.Command(binPath, "check", "--root", root, "--show-conflicts", "--show-lifecycle")
+	revealCmd.Dir = repo
+	revealOutput, err := revealCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("revealed warnings-only check should exit zero: %v\n%s", err, string(revealOutput))
+	}
+	revealText := string(revealOutput)
+	for _, expected := range []string{
+		"TSPACK_LOCK_VERSION_CONFLICT: package \"@types/estree\" appears at multiple versions",
+		"TSPACK_LOCK_VERSION_CONFLICT: package \"js-tokens\" appears at multiple versions",
+		"TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT: package declares install-time lifecycle script",
+		"package: npm:culori@4.0.0",
+		"pulled by:",
+		"app:target:core -> npm:culori@4.0.0",
+	} {
+		if !strings.Contains(revealText, expected) {
+			t.Fatalf("revealed output missing %q:\n%s", expected, revealText)
+		}
+	}
+	jsonCmd := exec.Command(binPath, "check", "--root", root, "--json")
+	jsonCmd.Dir = repo
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	jsonCmd.Stdout = &stdout
+	jsonCmd.Stderr = &stderr
+	if err := jsonCmd.Run(); err != nil {
+		t.Fatalf("json warnings-only check should exit zero: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("json check wrote stderr: %s", stderr.String())
+	}
+	var report checkJSONReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("invalid json: %v\n%s", err, stdout.String())
+	}
+	if countDiagnostics(report.Diagnostics, "TSPACK_LOCK_VERSION_CONFLICT") != 2 {
+		t.Fatalf("json should include all conflict diagnostics: %#v", report.Diagnostics)
+	}
+	if countDiagnostics(report.Diagnostics, "TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT") != 2 {
+		t.Fatalf("json should include all lifecycle diagnostics: %#v", report.Diagnostics)
+	}
+}
+
+func TestCLICheckHelpIncludesNoisyWarningRevealFlags(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	binPath := buildTspackBinary(t, repo)
+	cmd := exec.Command(binPath, "help")
+	cmd.Dir = repo
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("help failed: %v\n%s", err, string(output))
+	}
+	text := string(output)
+	for _, expected := range []string{
+		"--show-conflicts   Show individual version conflict diagnostics instead of summary",
+		"--show-lifecycle   Show individual lifecycle script diagnostics instead of summary",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("help missing %q:\n%s", expected, text)
+		}
+	}
+}
+
 func TestCLIUpdateTargetedDryRunJSONIncludesTargetFieldsOnlyJSON(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
@@ -4818,4 +4918,127 @@ func assertShellCapture(t *testing.T, path string, expected string) {
 	if strings.TrimSpace(string(data)) != expected {
 		t.Fatalf("capture %s = %q, want %q", path, strings.TrimSpace(string(data)), expected)
 	}
+}
+
+func writeBasicFrontendStub(t *testing.T, repo string) {
+	t.Helper()
+	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	if err := os.MkdirAll(frontend, 0o755); err != nil {
+		t.Fatalf("create frontend stub directory: %v", err)
+	}
+	cliPath := filepath.Join(frontend, "cli.js")
+	stub := `#!/usr/bin/env node
+const out={ok:true,ir:{format:1,workspace:{name:"ws"},security:{acknowledgedCapabilities:[{package:"npm:unused@1.0.0",kind:"lifecycleScript",script:"postinstall",command:"node install.js",reason:"known fixture"}]},packages:[{name:"app",version:"1.0.0",kind:"library",dependencies:[],targets:[{name:"core",export:".",entry:"src/index.ts",runtime:"dist/index.js",types:"dist/index.d.ts",deps:[],peers:[]}],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{types:{},boundaries:{}}}]},diagnostics:[]};
+process.stdout.write(JSON.stringify(out));`
+	if err := os.WriteFile(cliPath, []byte(stub), 0o755); err != nil {
+		t.Fatalf("write frontend stub: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Remove(cliPath) })
+}
+
+func writeNoisyCheckFixture(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, dir := range []string{"src", "dist"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatalf("create fixture directory %s: %v", dir, err)
+		}
+	}
+	files := map[string]string{
+		"manifest.tsx":    "export default {}\n",
+		"src/index.ts":    "export const x = 1\n",
+		"dist/index.js":   "export const x = 1\n",
+		"dist/index.d.ts": "export declare const x: number\n",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o644); err != nil {
+			t.Fatalf("write fixture file %s: %v", name, err)
+		}
+	}
+	lockBody := `[lock]
+format = 1
+tool = "tspack"
+
+[[package]]
+id = "npm:@types/estree@1.0.8"
+name = "@types/estree"
+version = "1.0.8"
+source = "npm"
+integrity = "sha512-a"
+
+[[package]]
+id = "npm:@types/estree@1.0.9"
+name = "@types/estree"
+version = "1.0.9"
+source = "npm"
+integrity = "sha512-b"
+
+[[package]]
+id = "npm:js-tokens@4.0.0"
+name = "js-tokens"
+version = "4.0.0"
+source = "npm"
+integrity = "sha512-c"
+
+[[package]]
+id = "npm:js-tokens@9.0.1"
+name = "js-tokens"
+version = "9.0.1"
+source = "npm"
+integrity = "sha512-d"
+
+[[package]]
+id = "npm:culori@4.0.0"
+name = "culori"
+version = "4.0.0"
+source = "npm"
+integrity = "sha512-e"
+  [[package.capability]]
+  kind = "lifecycleScript"
+  script = "postinstall"
+  command = "node install.js"
+
+[[package]]
+id = "npm:esbuild@1.0.0"
+name = "esbuild"
+version = "1.0.0"
+source = "npm"
+integrity = "sha512-f"
+  [[package.capability]]
+  kind = "lifecycleScript"
+  script = "prepare"
+  command = "node prepare.js"
+
+[[target]]
+package = "app"
+name = "core"
+export = "."
+entry = "src/index.ts"
+runtime = "dist/index.js"
+types = "dist/index.d.ts"
+
+[[edge]]
+from = "app:target:core"
+to = "npm:culori@4.0.0"
+kind = "runtime"
+
+[[edge]]
+from = "app:target:core"
+to = "npm:esbuild@1.0.0"
+kind = "runtime"
+`
+	if err := os.WriteFile(filepath.Join(root, "ts-lock.toml"), []byte(lockBody), 0o644); err != nil {
+		t.Fatalf("write fixture lockfile: %v", err)
+	}
+	return root
+}
+
+func countDiagnostics(diagnostics []checkJSONDiagnostic, code string) int {
+	count := 0
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == code {
+			count++
+		}
+	}
+	return count
 }
