@@ -121,6 +121,20 @@ declare module 'tspack/manifest' {
     [key: string]: Primitive | Primitive[] | BoundaryRow[] | undefined;
   };
 
+  export type UpdatePolicyKind = 'tool' | 'dep' | 'peer' | 'any';
+  export type UpdatePolicyStrategy = 'manual' | 'pinned' | 'rolling';
+  export type UpdatePolicyLevel = 'patch' | 'minor' | 'major' | 'latest';
+
+  export type UpdatePolicyRow = {
+    name: string;
+    kind: UpdatePolicyKind;
+    strategy: UpdatePolicyStrategy;
+    level?: UpdatePolicyLevel;
+    reason?: string;
+    includePrerelease?: boolean;
+    packages?: string[];
+  };
+
   export type DependencyRefLike = DependencyIntent;
 
   export type TargetDependencyRefLike = string | DependencyIntent;
@@ -207,6 +221,10 @@ declare module 'tspack/manifest' {
     acknowledgedLifecycleCategories?: AcknowledgedLifecycleCategory[];
   };
 
+  export type UpdatePolicyProps = {
+    rows: UpdatePolicyRow[];
+  };
+
   export type ToolsProps = {
     values: DependencyRefLike[];
   };
@@ -264,6 +282,7 @@ declare module 'tspack/manifest' {
   export const Boundaries: ManifestComponent<BoundariesProps>;
   export const Publish: ManifestComponent<PublishProps>;
   export const Security: ManifestComponent<SecurityProps>;
+  export const UpdatePolicy: ManifestComponent<UpdatePolicyProps>;
 
   export {};
 }

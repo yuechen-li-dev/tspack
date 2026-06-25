@@ -348,3 +348,13 @@ A `Security.acknowledgedLifecycleCategories` row did not match any lifecycle cap
 ### TSPACK_SECURITY_ACKNOWLEDGED_LIFECYCLE_CATEGORY_STALE
 
 A `Security.acknowledgedLifecycleCategories` row includes a script that is not part of the declared lifecycle category. For example, `postinstall` belongs to `consumer-install`, not `maintainer-publish`. Update the category or script list so the policy says exactly what it acknowledges.
+
+## Update policy validation
+
+- `TSPACK_UPDATE_POLICY_INVALID_ROW`: an update policy row is missing required data such as `name`.
+- `TSPACK_UPDATE_POLICY_INVALID_KIND`: `kind` must be `tool`, `dep`, `peer`, or `any`.
+- `TSPACK_UPDATE_POLICY_INVALID_STRATEGY`: `strategy` must be `manual`, `pinned`, or `rolling`.
+- `TSPACK_UPDATE_POLICY_INVALID_LEVEL`: rolling policy requires `level` to be `patch`, `minor`, `major`, or `latest`.
+- `TSPACK_UPDATE_POLICY_LEVEL_NOT_ALLOWED`: `level` is only valid on rolling policy rows.
+- `TSPACK_UPDATE_POLICY_INVALID_PACKAGE_SCOPE`: package-scoped rows must list non-empty package names.
+- `TSPACK_UPDATE_POLICY_DUPLICATE_ROW`: multiple rows declare the same name/kind/package scope.

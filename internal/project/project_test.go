@@ -2044,3 +2044,57 @@ func TestOutdatedNonRegistryDiagnosticUsesNotApplicableWording(t *testing.T) {
 		t.Fatalf("expected not_applicable, got %#v", res.Outdated.Groups[0])
 	}
 }
+
+func TestOutdatedUpdatePolicyEvaluation(t *testing.T) {
+	dir := t.TempDir()
+	ir := simpleIR()
+	ir["updatePolicy"] = map[string]any{"rows": []map[string]any{
+		{"name": "typescript", "kind": "tool", "strategy": "rolling", "level": "minor", "reason": "tooling can roll"},
+		{"name": "vite", "kind": "tool", "strategy": "rolling", "level": "minor"},
+		{"name": "react", "kind": "dep", "strategy": "manual"},
+		{"name": "react-dom", "kind": "peer", "strategy": "pinned"},
+	}}
+	pkgs := ir["packages"].([]map[string]any)
+	pkgs[0]["dependencies"] = []map[string]any{
+		{"kind": "tool", "source": map[string]any{"kind": "npm", "package": "typescript", "range": "^5.8.0"}},
+		{"kind": "tool", "source": map[string]any{"kind": "npm", "package": "vite", "range": "^5.4.0"}},
+		{"kind": "dep", "source": map[string]any{"kind": "npm", "package": "react", "range": "^18.0.0"}},
+		{"kind": "peer", "source": map[string]any{"kind": "npm", "package": "react-dom", "range": "^18.0.0"}},
+		{"kind": "dep", "source": map[string]any{"kind": "npm", "package": "clsx", "range": "^1.0.0"}},
+		{"kind": "dep", "source": map[string]any{"kind": "workspace", "name": "components"}},
+	}
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = writeIR(t, dir, ir)
+	lf := &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"}, Packages: []lockfile.Package{
+		{ID: "npm:typescript@5.8.0", Name: "typescript", Source: "npm", Version: "5.8.0", Hash: "sha256:dummy"},
+		{ID: "npm:vite@5.4.21", Name: "vite", Source: "npm", Version: "5.4.21", Hash: "sha256:dummy"},
+		{ID: "npm:react@18.3.1", Name: "react", Source: "npm", Version: "18.3.1", Hash: "sha256:dummy"},
+		{ID: "npm:react-dom@18.3.1", Name: "react-dom", Source: "npm", Version: "18.3.1", Hash: "sha256:dummy"},
+		{ID: "npm:clsx@1.0.0", Name: "clsx", Source: "npm", Version: "1.0.0", Hash: "sha256:dummy"},
+	}}
+	lockBytes, _ := lockfile.Marshal(lf)
+	_ = os.WriteFile(opts.LockfilePath, lockBytes, 0o644)
+	opts.ResolverClient = &fakeClient{meta: map[string]*resolver.PackageMetadata{
+		"typescript": {Name: "typescript", DistTags: map[string]string{"latest": "5.9.3"}, Versions: map[string]resolver.PackageVersion{"5.8.0": {Version: "5.8.0"}, "5.9.3": {Version: "5.9.3"}}},
+		"vite":       {Name: "vite", DistTags: map[string]string{"latest": "8.0.16"}, Versions: map[string]resolver.PackageVersion{"5.4.21": {Version: "5.4.21"}, "8.0.16": {Version: "8.0.16"}}},
+		"react":      {Name: "react", DistTags: map[string]string{"latest": "19.2.7"}, Versions: map[string]resolver.PackageVersion{"18.3.1": {Version: "18.3.1"}, "19.2.7": {Version: "19.2.7"}}},
+		"react-dom":  {Name: "react-dom", DistTags: map[string]string{"latest": "19.2.7"}, Versions: map[string]resolver.PackageVersion{"18.3.1": {Version: "18.3.1"}, "19.2.7": {Version: "19.2.7"}}},
+		"clsx":       {Name: "clsx", DistTags: map[string]string{"latest": "2.0.0"}, Versions: map[string]resolver.PackageVersion{"1.0.0": {Version: "1.0.0"}, "2.0.0": {Version: "2.0.0"}}},
+	}}
+	res := Outdated(opts)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("outdated failed: %#v", res.Diagnostics)
+	}
+	statuses := map[string]string{}
+	for _, dep := range res.Outdated.Dependencies {
+		statuses[dep.Name] = dep.PolicyStatus
+	}
+	want := map[string]string{"typescript": "allowed", "vite": "outside-policy-level", "react": "blocked-manual", "react-dom": "pinned", "clsx": "unclassified", "components": "not-applicable"}
+	if !reflect.DeepEqual(statuses, want) {
+		t.Fatalf("unexpected policy statuses: %#v", statuses)
+	}
+	lockAfter, _ := os.ReadFile(opts.LockfilePath)
+	if !bytes.Equal(lockBytes, lockAfter) {
+		t.Fatalf("outdated policy report mutated lockfile")
+	}
+}

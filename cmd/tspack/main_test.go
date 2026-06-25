@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/tspack/tspack/internal/project"
 )
 
 type checkJSONReport struct {
@@ -5121,4 +5123,31 @@ func countDiagnostics(diagnostics []checkJSONDiagnostic, code string) int {
 		}
 	}
 	return count
+}
+
+func TestOutdatedJSONEntriesIncludePolicyFields(t *testing.T) {
+	result := &project.OutdatedResult{Dependencies: []project.OutdatedDependency{{
+		Name:           "typescript",
+		Kind:           "tool",
+		Source:         "npm",
+		Requested:      "^5.8.0",
+		Current:        []string{"5.8.0"},
+		Wanted:         "5.9.3",
+		Latest:         "5.9.3",
+		Status:         "wanted_available",
+		PolicyStrategy: "rolling",
+		PolicyLevel:    "minor",
+		PolicyStatus:   "allowed",
+		PolicyReason:   "tooling can roll",
+		PolicyMatched:  true,
+		PolicyMessage:  "rolling minor policy allows this candidate",
+	}}}
+	entries := outdatedJSONEntries(result, true)
+	if len(entries) != 1 {
+		t.Fatalf("expected one entry, got %#v", entries)
+	}
+	entry := entries[0]
+	if entry.PolicyStatus != "allowed" || entry.PolicyStrategy != "rolling" || entry.PolicyLevel != "minor" || !entry.PolicyMatched {
+		t.Fatalf("missing policy fields in JSON entry: %#v", entry)
+	}
 }

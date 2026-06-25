@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseManifestFile, parsePackageManifestFile, parseWorkspace } from '../src/index';
@@ -494,3 +495,45 @@ export default definePackage(
     expect(result.diagnostics).toEqual(sorted);
   });
 });
+
+  it('parses UpdatePolicy in root manifests', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tspack-policy-'));
+    const manifestPath = path.join(dir, 'manifest.tsx');
+    fs.writeFileSync(
+      manifestPath,
+      `import { define, Workspace, Package, UpdatePolicy } from "tspack/manifest";
+export default define(
+  <Workspace name="ws">
+    <UpdatePolicy rows={[{ name: "typescript", kind: "tool", strategy: "rolling", level: "minor", reason: "tooling can roll" }]} />
+    <Package name="app" version="1.0.0" kind="library" dependencies={{ values: [] }} />
+  </Workspace>
+);`
+    );
+    const result = parseManifestFile(manifestPath);
+    expect(result.ok).toBe(true);
+    expect((result.ir as any).updatePolicy.rows[0].name).toBe('typescript');
+  });
+
+  it('parseWorkspace preserves root UpdatePolicy in split manifests', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tspack-policy-split-'));
+    fs.mkdirSync(path.join(dir, 'packages', 'app'), { recursive: true });
+    const manifestPath = path.join(dir, 'manifest.tsx');
+    fs.writeFileSync(
+      manifestPath,
+      `import { defineWorkspace, Workspace, Packages, UpdatePolicy } from "tspack/manifest";
+export default defineWorkspace(
+  <Workspace name="ws">
+    <UpdatePolicy rows={[{ name: "react", kind: "dep", strategy: "manual" }]} />
+    <Packages rows={[{ name: "app", root: "packages/app", manifest: "packages/app/package.manifest.tsx" }]} />
+  </Workspace>
+);`
+    );
+    fs.writeFileSync(
+      path.join(dir, 'packages', 'app', 'package.manifest.tsx'),
+      `import { definePackage, Package } from "tspack/manifest";
+export default definePackage(<Package name="app" version="1.0.0" kind="library" dependencies={{ values: [] }} />);`
+    );
+    const result = parseWorkspace(manifestPath);
+    expect(result.ok).toBe(true);
+    expect((result.ir as any).updatePolicy.rows[0].strategy).toBe('manual');
+  });

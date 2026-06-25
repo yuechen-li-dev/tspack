@@ -29,3 +29,15 @@
 ## Mutation contract
 
 `tspack outdated` does not mutate lockfile, store, manifest, or `node_modules`.
+
+## Declared update policy report
+
+A workspace can declare root-level update intent with `<UpdatePolicy />`. In M50a this policy is reporting-only: `tspack outdated` and `tspack outdated --json` annotate candidates, but they do not mutate manifests, lockfiles, stores, or `node_modules`.
+
+Supported strategies are:
+
+- `manual`: update requires an explicit targeted command or manifest/range decision; reported as `blocked-manual`.
+- `pinned`: dependency is intended to remain at the current locked version until manifest intent changes; reported as `pinned`.
+- `rolling`: dependency may roll within its declared `level`; reported as `allowed` when the latest candidate is inside policy and `outside-policy-level` otherwise.
+
+Rolling levels are `patch`, `minor`, `major`, and `latest`. Rolling rows must declare a level. Dependencies with no matching row are `unclassified`, and non-registry dependencies are `not-applicable`.
