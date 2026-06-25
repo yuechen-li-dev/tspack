@@ -68,7 +68,7 @@
 - `tspack update --dry-run` resolves the would-be lockfile state and prints a deterministic package-level diff.
 - Text-mode dry runs write progress to **stderr** for resolve, lockfile-diff computation, and dry-run completion.
 - `tspack update <query> --dry-run` starts with targeted planning context such as `planning targeted update: react`.
-- `tspack update --dry-run --json` keeps stdout as structured JSON only and suppresses progress by default.
+- `tspack update --dry-run --json` keeps stdout as structured JSON only and suppresses progress by default. For targeted dry runs, the top-level `changed` field is a boolean: `true` when package entries would be added, removed, or changed, and `false` when the targeted plan is a no-op.
 - It may fetch registry metadata to resolve versions, but does **not** write `ts-lock.toml`, does **not** populate store artifacts, and does **not** materialize `node_modules`.
 - It exits `0` on successful planning regardless of whether changes are present; resolver/runtime errors remain non-zero.
 
@@ -77,6 +77,10 @@
 - `tspack outdated` reports declared dependency freshness using registry metadata only.
 - `--json` writes structured freshness results to stdout.
 - It does not fetch package tarballs, populate the store, write the lockfile, or materialize `node_modules`.
+
+### Future update policy
+
+A future declared update policy or rolling-track model may make dependency update intent more explicit. M49a only documents the bounded targeted-update behavior and does not add a policy DSL.
 
 ## Stability
 
@@ -96,6 +100,8 @@
   1. dependency key exact match
   2. npm package name exact match
   3. `npm:<name>` exact match
+- Targeted updates are bounded to the selected dependency and its resolver closure. Existing package entries outside that selected update closure are preserved semantically, including unrelated multi-version and peer-resolved entries.
+- If the selected dependency is already at the wanted locked version and the targeted package diff is empty, the command exits successfully without rewriting `ts-lock.toml`.
 - Non-selected declared npm roots are preserved from the existing lock when possible.
 - `--dry-run` and `--json` compose with targeted update.
 

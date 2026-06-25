@@ -1820,3 +1820,127 @@ func TestCheckLifecycleCategoryAcknowledgementStaleAndUnused(t *testing.T) {
 		t.Fatalf("expected unused lifecycle category acknowledgment diagnostic: %#v", res.Diagnostics)
 	}
 }
+
+func TestTargetedUpdatePreservesUnrelatedPeerResolvedMultiVersionEntries(t *testing.T) {
+	dir := t.TempDir()
+	ir := map[string]any{"format": 1, "workspace": map[string]any{"name": "ws"}, "packages": []map[string]any{{"name": "app", "version": "1.0.0", "kind": "library", "dependencies": []map[string]any{{"key": "react", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "react", "range": "^18.0.0"}}, {"key": "clsx", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "clsx", "range": "^2.1.1"}}}, "targets": []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "src/index.ts", "types": "dist/index.d.ts", "deps": []string{"react", "clsx"}, "peers": []string{}}}, "tools": []string{}, "boundaries": []any{}, "publish": map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}}}}}
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = writeIR(t, dir, ir)
+	opts.ResolverClient = targetedPeerRegressionRegistry(t)
+
+	first := Update(opts)
+	if hasErrors(first.Diagnostics) {
+		t.Fatalf("initial update failed: %#v", first.Diagnostics)
+	}
+
+	lockBefore, _, err := lockfile.LoadFile(opts.LockfilePath)
+	if err != nil {
+		t.Fatalf("load initial lockfile: %v", err)
+	}
+	lockBefore.Packages = append(lockBefore.Packages,
+		lockfile.Package{ID: "npm:react@19.2.7", Name: "react", Version: "19.2.7", Source: "npm", Integrity: "sha512-react19", Hash: "sha256:react19"},
+		lockfile.Package{ID: "npm:react-dom@19.2.7", Name: "react-dom", Version: "19.2.7", Source: "npm", Integrity: "sha512-reactdom19", Hash: "sha256:reactdom19"},
+		lockfile.Package{ID: "npm:scheduler@0.27.0", Name: "scheduler", Version: "0.27.0", Source: "npm", Integrity: "sha512-scheduler027", Hash: "sha256:scheduler027"},
+	)
+	lockBefore.Edges = append(lockBefore.Edges,
+		lockfile.Edge{From: "npm:react-dom@19.2.7", To: "npm:react@19.2.7", Kind: "peer"},
+		lockfile.Edge{From: "npm:react-dom@19.2.7", To: "npm:scheduler@0.27.0", Kind: "runtime"},
+	)
+	beforeBytes, marshalErr := lockfile.Marshal(lockBefore)
+	if marshalErr != nil {
+		t.Fatalf("marshal augmented lockfile: %v", marshalErr)
+	}
+	if err := os.WriteFile(opts.LockfilePath, beforeBytes, 0o644); err != nil {
+		t.Fatalf("write augmented lockfile: %v", err)
+	}
+
+	beforeKeySet := lockPackageKeySet(lockBefore)
+	result := UpdateWithOptions(opts, UpdateOptions{Query: "clsx"})
+	if hasErrors(result.Diagnostics) {
+		t.Fatalf("targeted update failed: %#v", result.Diagnostics)
+	}
+	if result.LockDiff == nil {
+		t.Fatalf("expected targeted update diff")
+	}
+	if len(result.LockDiff.PackagesRemoved) != 0 || len(result.LockDiff.PackagesAdded) != 0 || len(result.LockDiff.PackagesChanged) != 0 {
+		t.Fatalf("already-current targeted update should be a package no-op: %#v", result.LockDiff)
+	}
+
+	lockAfter, _, err := lockfile.LoadFile(opts.LockfilePath)
+	if err != nil {
+		t.Fatalf("load final lockfile: %v", err)
+	}
+	for _, id := range []string{"npm:react@19.2.7", "npm:react-dom@19.2.7", "npm:scheduler@0.27.0", "npm:clsx@2.1.1"} {
+		if !lockContainsPackage(lockAfter, id) {
+			t.Fatalf("targeted update did not preserve %s; lock=%#v", id, lockAfter.Packages)
+		}
+	}
+	for id := range beforeKeySet {
+		if !lockContainsPackage(lockAfter, id) {
+			t.Fatalf("targeted update removed non-selected package %s", id)
+		}
+	}
+}
+
+func TestTargetedUpdateDryRunChangedBoolReflectsPackageDiff(t *testing.T) {
+	dir := t.TempDir()
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = writeIR(t, dir, targetedIRWithDeps([]map[string]any{{"key": "react", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "react", "range": "^18.0.0"}}}, []string{"react"}))
+	client := &fakeClient{meta: map[string]*resolver.PackageMetadata{}, tar: map[string][]byte{}}
+	react182 := tarball("react", "18.2.0", nil)
+	react183 := tarball("react", "18.3.1", nil)
+	client.meta["react"] = &resolver.PackageMetadata{Name: "react", Versions: map[string]resolver.PackageVersion{"18.2.0": {Name: "react", Version: "18.2.0", Dist: resolver.PackageDist{Tarball: "react-182", Integrity: "sha512-" + base64.StdEncoding.EncodeToString(sha512sum(react182))}}}}
+	client.tar["react-182"] = react182
+	client.tar["react-183"] = react183
+	opts.ResolverClient = client
+
+	initial := Update(opts)
+	if hasErrors(initial.Diagnostics) {
+		t.Fatalf("initial update failed: %#v", initial.Diagnostics)
+	}
+	noOp := UpdateDryRunWithOptions(opts, UpdateOptions{Query: "react"})
+	if hasErrors(noOp.Diagnostics) {
+		t.Fatalf("no-op dry run failed: %#v", noOp.Diagnostics)
+	}
+	if noOp.DryRun == nil || noOp.DryRun.Changed {
+		t.Fatalf("expected no-op dry run changed=false, got %#v", noOp.DryRun)
+	}
+
+	client.meta["react"].Versions["18.3.1"] = resolver.PackageVersion{Name: "react", Version: "18.3.1", Dist: resolver.PackageDist{Tarball: "react-183", Integrity: "sha512-" + base64.StdEncoding.EncodeToString(sha512sum(react183))}}
+	changed := UpdateDryRunWithOptions(opts, UpdateOptions{Query: "react"})
+	if hasErrors(changed.Diagnostics) {
+		t.Fatalf("changed dry run failed: %#v", changed.Diagnostics)
+	}
+	if changed.DryRun == nil || !changed.DryRun.Changed {
+		t.Fatalf("expected dry run changed=true, got %#v", changed.DryRun)
+	}
+}
+
+func targetedPeerRegressionRegistry(t *testing.T) *fakeClient {
+	t.Helper()
+	client := &fakeClient{meta: map[string]*resolver.PackageMetadata{}, tar: map[string][]byte{}}
+	react := tarball("react", "18.3.1", nil)
+	clsx := tarball("clsx", "2.1.1", nil)
+	client.meta["react"] = &resolver.PackageMetadata{Name: "react", Versions: map[string]resolver.PackageVersion{"18.3.1": {Name: "react", Version: "18.3.1", Dist: resolver.PackageDist{Tarball: "react-183", Integrity: "sha512-" + base64.StdEncoding.EncodeToString(sha512sum(react))}}}}
+	client.meta["clsx"] = &resolver.PackageMetadata{Name: "clsx", Versions: map[string]resolver.PackageVersion{"2.1.1": {Name: "clsx", Version: "2.1.1", Dist: resolver.PackageDist{Tarball: "clsx-211", Integrity: "sha512-" + base64.StdEncoding.EncodeToString(sha512sum(clsx))}}}}
+	client.tar["react-183"] = react
+	client.tar["clsx-211"] = clsx
+	return client
+}
+
+func lockPackageKeySet(lf *lockfile.Lockfile) map[string]bool {
+	out := map[string]bool{}
+	for _, pkg := range lf.Packages {
+		out[pkg.ID] = true
+	}
+	return out
+}
+
+func lockContainsPackage(lf *lockfile.Lockfile, id string) bool {
+	for _, pkg := range lf.Packages {
+		if pkg.ID == id {
+			return true
+		}
+	}
+	return false
+}

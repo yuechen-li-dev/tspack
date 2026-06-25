@@ -254,6 +254,11 @@ Fixture/fake-registry smoke should include:
 
 - `tspack update --root <fixture>` followed by `tspack sync --root <fixture>`.
 - `tspack update <declared-dep> --root <fixture>` preserving non-selected locked roots when valid.
+- M49a targeted update fixture preserving non-selected peer-resolved multi-version lock entries, including a second React-family version such as `npm:react@19.2.7`, `npm:react-dom@19.2.7`, and `npm:scheduler@0.27.0`, while updating an unrelated selected dependency.
+- M49a targeted update invariant check: removed package keys must be a subset of the selected dependency update closure, and an unrelated targeted update must not reduce the non-selected package key set.
+- M49a already-current targeted update no-ops successfully without rewriting the lockfile.
+- M49a targeted dry-run JSON reports `changed` as `true` or `false`, never `null`, with zero added/removed/changed counts on no-op targeted plans.
+- M49a compatibility checks keep unsupported workspace/path targets rejected, target-not-found remediation intact, and full workspace update behavior unchanged.
 - `tspack update <declared-dep> --root <fixture> --dry-run --json` with JSON-only stdout.
 - `tspack outdated --root <fixture> --json` using metadata-only registry access.
 - Scoped npm metadata URL smoke for `@types/react` and `@biomejs/biome`, verifying fake-registry requests use `/@types%2Freact` and `/@biomejs%2Fbiome` without `%25` double encoding.
@@ -394,7 +399,7 @@ Phase 8 expected behavior coverage should verify:
 
 - Text-mode `tspack update` writes plain progress/status lines to stderr, including resolve, store population/fetch, lockfile write, and completion phases.
 - Text-mode `tspack update --dry-run` writes planning progress to stderr and does not include mutation phases.
-- Targeted update output includes the selected dependency context.
+- Targeted update output includes the selected dependency context and reports no-op targeted plans without lockfile writes when the selected dependency is already wanted/current.
 - JSON modes keep stdout machine-readable; progress is suppressed or kept off stdout.
 - `--quiet` suppresses update progress/status lines while leaving diagnostics and errors on stderr.
 

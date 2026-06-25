@@ -174,6 +174,7 @@ type UpdateDryRunJSONReport struct {
 	DryRun      bool                           `json:"dryRun"`
 	OK          bool                           `json:"ok"`
 	Root        string                         `json:"root"`
+	Changed     bool                           `json:"changed"`
 	Targeted    bool                           `json:"targeted,omitempty"`
 	Query       string                         `json:"query,omitempty"`
 	Selected    []project.UpdateSelectedTarget `json:"selected,omitempty"`
@@ -1176,6 +1177,7 @@ func buildUpdateDryRunJSONReport(opts project.Options, result project.Result) Up
 		report.Selected = result.UpdateTarget.Selected
 	}
 	if result.DryRun != nil {
+		report.Changed = result.DryRun.Changed
 		report.Summary = UpdateDryRunSummary(result.DryRun.Summary)
 	}
 	if result.LockDiff != nil {
