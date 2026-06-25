@@ -55,15 +55,18 @@ type runListOutput struct {
 }
 
 type runListTargetJSON struct {
-	ID      string                  `json:"id"`
-	Package string                  `json:"package"`
-	Name    string                  `json:"name"`
-	Runtime string                  `json:"runtime"`
-	Command []string                `json:"command"`
-	URL     string                  `json:"url"`
-	Cwd     string                  `json:"cwd"`
-	CwdPath string                  `json:"cwdPath,omitempty"`
-	Ready   *manifest.RunReadyCheck `json:"ready,omitempty"`
+	ID               string                  `json:"id"`
+	Package          string                  `json:"package"`
+	Name             string                  `json:"name"`
+	Runtime          string                  `json:"runtime"`
+	RuntimeSource    string                  `json:"runtimeSource"`
+	ExplicitRuntime  *string                 `json:"explicitRuntime"`
+	WorkspaceRuntime *string                 `json:"workspaceRuntime"`
+	Command          []string                `json:"command"`
+	URL              string                  `json:"url"`
+	Cwd              string                  `json:"cwd"`
+	CwdPath          string                  `json:"cwdPath,omitempty"`
+	Ready            *manifest.RunReadyCheck `json:"ready,omitempty"`
 }
 
 type RunTargetSession struct {
@@ -163,7 +166,9 @@ func runRunCommand(args []string) {
 	}
 	fmt.Fprintf(os.Stderr, "Starting run target %q\n", selected.ID())
 	fmt.Fprintf(os.Stderr, "Package: %s\n", selected.PackageName)
-	fmt.Fprintf(os.Stderr, "Runtime: %s\n", rt.Runtime)
+	resolvedRuntime := resolveRunTargetRuntime(rt, workspaceRuntimeForRunTargets(ir))
+	rt.Runtime = resolvedRuntime.Runtime
+	fmt.Fprintf(os.Stderr, "Runtime: %s (%s)\n", rt.Runtime, resolvedRuntime.Source)
 	fmt.Fprintf(os.Stderr, "Command: %s\n", formatRunTargetCommand(rt))
 	fmt.Fprintf(os.Stderr, "Cwd: %s (%s)\n", cwdPolicy, cwdPath)
 	if len(opts.Env.Keys) > 0 {
@@ -326,7 +331,27 @@ func loadManifestPathForRun(root string, manifestPath string) *manifest.Manifest
 	if len(diags) > 0 {
 		failRun(diags[0].Code, diags[0].Message)
 	}
+	if !placeholderManifestForFrontendStub(manifestPath) {
+		ir.Workspace.RuntimeSpecified = workspaceRuntimeDeclaredInManifest(manifestPath)
+	}
 	return ir
+}
+
+func placeholderManifestForFrontendStub(manifestPath string) bool {
+	contents, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(contents)) == "export default {}"
+}
+
+func workspaceRuntimeDeclaredInManifest(manifestPath string) bool {
+	contents, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return false
+	}
+	text := string(contents)
+	return strings.Contains(text, "<Workspace") && strings.Contains(text, "runtime=")
 }
 
 func selectRunTarget(root string, manifestPath string, ir *manifest.ManifestIR, packageName string, targetName string) runTargetRef {
@@ -398,10 +423,10 @@ func renderRunTargetList(root string, manifestPath string, ir *manifest.Manifest
 		}
 	}
 	if jsonOutput {
-		renderRunTargetListJSON(root, packageName, refs)
+		renderRunTargetListJSON(root, packageName, refs, workspaceRuntimeForRunTargets(ir))
 		return
 	}
-	renderRunTargetListText(refs, effectiveWorkspaceRuntimeProfile(ir))
+	renderRunTargetListText(refs, workspaceRuntimeForRunTargets(ir))
 }
 
 func renderRunTargetListText(refs []runTargetRef, workspaceRuntime string) {
@@ -423,7 +448,8 @@ func renderRunTargetListText(refs []runTargetRef, workspaceRuntime string) {
 			fmt.Fprintf(os.Stdout, "  %s\n", ref.PackageName)
 		}
 		fmt.Fprintf(os.Stdout, "    %s\n", ref.Target.Name)
-		fmt.Fprintf(os.Stdout, "      runtime: %s\n", ref.Target.Runtime)
+		resolvedRuntime := resolveRunTargetRuntime(ref.Target, workspaceRuntime)
+		fmt.Fprintf(os.Stdout, "      runtime: %s (%s)\n", resolvedRuntime.Runtime, resolvedRuntime.Source)
 		fmt.Fprintf(os.Stdout, "      command: %s\n", strings.Join(ref.Target.Command, " "))
 		fmt.Fprintf(os.Stdout, "      url: %s\n", ref.Target.URL)
 		cwdPath, _ := resolveRunTargetCwd(ref)
@@ -443,21 +469,64 @@ func renderRunTargetListText(refs []runTargetRef, workspaceRuntime string) {
 func renderRunTargetRuntimeNotes(workspaceRuntime string) {
 	fmt.Fprintln(os.Stdout)
 	fmt.Fprintln(os.Stdout, "Runtime notes:")
-	fmt.Fprintf(os.Stdout, "  Workspace runtime profile: %s\n", workspaceRuntime)
+	profile := effectiveWorkspaceRuntimeProfileValue(workspaceRuntime)
+	source := ""
+	if workspaceRuntime == "" {
+		source = " (default)"
+	}
+	fmt.Fprintf(os.Stdout, "  Workspace runtime profile: %s%s\n", profile, source)
 	fmt.Fprintln(os.Stdout, "  node: resolves bare commands from local tools/.bin; does not prepend node to script paths.")
 	fmt.Fprintln(os.Stdout, "  system: runs commands directly without node-local tool resolution.")
 	fmt.Fprintln(os.Stdout, "  explicit RunTarget runtime overrides the workspace runtime profile.")
-	fmt.Fprintln(os.Stdout, "  unspecified RunTarget runtime inheritance: not enabled")
+	fmt.Fprintln(os.Stdout, "  unspecified RunTarget runtime inherits the workspace runtime profile.")
 }
 
 func effectiveWorkspaceRuntimeProfile(ir *manifest.ManifestIR) string {
-	if ir.Workspace.Runtime != "" {
+	return effectiveWorkspaceRuntimeProfileValue(ir.Workspace.Runtime)
+}
+
+func workspaceRuntimeForRunTargets(ir *manifest.ManifestIR) string {
+	if ir.Workspace.RuntimeSpecified {
 		return ir.Workspace.Runtime
+	}
+	return ""
+}
+
+func effectiveWorkspaceRuntimeProfileValue(workspaceRuntime string) string {
+	if workspaceRuntime != "" {
+		return workspaceRuntime
 	}
 	return "nodejs"
 }
 
-func renderRunTargetListJSON(root string, packageName string, refs []runTargetRef) {
+type resolvedRunTargetRuntime struct {
+	Runtime          string
+	Source           string
+	ExplicitRuntime  *string
+	WorkspaceRuntime *string
+}
+
+func resolveRunTargetRuntime(target manifest.RunTarget, workspaceRuntime string) resolvedRunTargetRuntime {
+	if target.Runtime != "" {
+		explicit := target.Runtime
+		workspace := optionalRuntimeValue(workspaceRuntime)
+		return resolvedRunTargetRuntime{Runtime: target.Runtime, Source: "explicit", ExplicitRuntime: &explicit, WorkspaceRuntime: workspace}
+	}
+	if workspaceRuntime != "" {
+		workspace := workspaceRuntime
+		return resolvedRunTargetRuntime{Runtime: workspaceRuntime, Source: "workspace", WorkspaceRuntime: &workspace}
+	}
+	return resolvedRunTargetRuntime{Runtime: "nodejs", Source: "default"}
+}
+
+func optionalRuntimeValue(runtime string) *string {
+	if runtime == "" {
+		return nil
+	}
+	return &runtime
+}
+
+func renderRunTargetListJSON(root string, packageName string, refs []runTargetRef, workspaceRuntime string) {
 	var packageValue *string
 	if packageName != "" {
 		value := packageName
@@ -465,16 +534,20 @@ func renderRunTargetListJSON(root string, packageName string, refs []runTargetRe
 	}
 	targets := make([]runListTargetJSON, 0, len(refs))
 	for _, ref := range refs {
+		resolvedRuntime := resolveRunTargetRuntime(ref.Target, workspaceRuntime)
 		targets = append(targets, runListTargetJSON{
-			ID:      ref.ID(),
-			Package: ref.PackageName,
-			Name:    ref.Target.Name,
-			Runtime: ref.Target.Runtime,
-			Command: ref.Target.Command,
-			URL:     ref.Target.URL,
-			Cwd:     effectiveRunTargetCwd(ref.Target),
-			CwdPath: mustRunTargetCwd(ref),
-			Ready:   ref.Target.Ready,
+			ID:               ref.ID(),
+			Package:          ref.PackageName,
+			Name:             ref.Target.Name,
+			Runtime:          resolvedRuntime.Runtime,
+			RuntimeSource:    resolvedRuntime.Source,
+			ExplicitRuntime:  resolvedRuntime.ExplicitRuntime,
+			WorkspaceRuntime: resolvedRuntime.WorkspaceRuntime,
+			Command:          ref.Target.Command,
+			URL:              ref.Target.URL,
+			Cwd:              effectiveRunTargetCwd(ref.Target),
+			CwdPath:          mustRunTargetCwd(ref),
+			Ready:            ref.Target.Ready,
 		})
 	}
 	payload := runListOutput{
@@ -838,7 +911,7 @@ func resolveRunTargetLaunchCommand(root string, target manifest.RunTarget) ([]st
 		}
 		return prependRunTargetExecutable(executable, target.Command), nil
 	}
-	if target.Runtime == "node" {
+	if target.Runtime == "node" || target.Runtime == "nodejs" {
 		return resolveNodeLocalCommand(root, target.Command), nil
 	}
 	return target.Command, nil
@@ -883,7 +956,7 @@ func formatRunTargetCommand(target manifest.RunTarget) string {
 
 func buildRunCommandEnv(runtime string, root string, overlay runEnvOverlay) []string {
 	env := os.Environ()
-	if runtime == "node" {
+	if runtime == "node" || runtime == "nodejs" {
 		env = prependNodeModulesBinToEnv(env, root)
 	}
 	return overlayRunEnv(env, overlay)

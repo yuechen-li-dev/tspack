@@ -387,6 +387,8 @@ func runInspectCommand(args []string) {
 			os.Exit(1)
 		}
 		rt := ref.Target
+		resolvedRuntime := resolveRunTargetRuntime(rt, workspaceRuntimeForRunTargets(ir))
+		rt.Runtime = resolvedRuntime.Runtime
 		fmt.Fprintf(os.Stderr, "Starting run target %q...\n", runTarget)
 		fmt.Fprintf(os.Stderr, "Cwd: %s (%s)\n", effectiveRunTargetCwd(rt), cwdPath)
 		if len(runEnv.Keys) > 0 {

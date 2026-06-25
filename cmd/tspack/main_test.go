@@ -3997,13 +3997,13 @@ func TestCLIRunListAndPackageScoping(t *testing.T) {
 		"dev",
 		"preview",
 		"@prisma-ui/docs",
-		"runtime: system",
+		"runtime: system (explicit)",
 		"ready: http /",
 		"Runtime notes:",
 		"node: resolves bare commands from local tools/.bin; does not prepend node to script paths.",
 		"system: runs commands directly without node-local tool resolution.",
 		"explicit RunTarget runtime overrides the workspace runtime profile.",
-		"unspecified RunTarget runtime inheritance: not enabled",
+		"unspecified RunTarget runtime inherits the workspace runtime profile.",
 	} {
 		if !strings.Contains(out, expected) {
 			t.Fatalf("run --list missing %q:\n%s", expected, out)
@@ -4336,6 +4336,52 @@ func readCapturedDenoInvocation(t *testing.T, capture string) capturedDenoInvoca
 	return got
 }
 
+func TestCLIRunTargetRuntimeInheritanceResolution(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+
+	cases := []struct {
+		name          string
+		ir            string
+		wantRuntime   string
+		wantSource    string
+		wantExplicit  *string
+		wantWorkspace *string
+	}{
+		{name: "workspace bun omitted", ir: `{format:1,workspace:{name:"ws",runtime:"bun"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",command:["server.js"],url:"http://127.0.0.1:5999"}]}]}`, wantRuntime: "bun", wantSource: "workspace", wantWorkspace: stringPtr("bun")},
+		{name: "workspace deno omitted", ir: `{format:1,workspace:{name:"ws",runtime:"deno"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",command:["run","server.ts"],url:"http://127.0.0.1:5999"}]}]}`, wantRuntime: "deno", wantSource: "workspace", wantWorkspace: stringPtr("deno")},
+		{name: "workspace nodejs omitted", ir: `{format:1,workspace:{name:"ws",runtime:"nodejs"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",command:["node","server.js"],url:"http://127.0.0.1:5999"}]}]}`, wantRuntime: "nodejs", wantSource: "workspace", wantWorkspace: stringPtr("nodejs")},
+		{name: "no workspace omitted", ir: `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",command:["node","server.js"],url:"http://127.0.0.1:5999"}]}]}`, wantRuntime: "nodejs", wantSource: "default"},
+		{name: "workspace bun explicit node", ir: `{format:1,workspace:{name:"ws",runtime:"bun"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"node",command:["node","server.js"],url:"http://127.0.0.1:5999"}]}]}`, wantRuntime: "node", wantSource: "explicit", wantExplicit: stringPtr("node"), wantWorkspace: stringPtr("bun")},
+		{name: "workspace deno explicit system", ir: `{format:1,workspace:{name:"ws",runtime:"deno"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js"],url:"http://127.0.0.1:5999"}]}]}`, wantRuntime: "system", wantSource: "explicit", wantExplicit: stringPtr("system"), wantWorkspace: stringPtr("deno")},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := runListJSONForIR(t, repo, root, tc.ir)
+			if len(payload.Targets) != 1 {
+				t.Fatalf("expected one target: %#v", payload.Targets)
+			}
+			target := payload.Targets[0]
+			if target.Runtime != tc.wantRuntime || target.RuntimeSource != tc.wantSource || !stringPtrEqual(target.ExplicitRuntime, tc.wantExplicit) || !stringPtrEqual(target.WorkspaceRuntime, tc.wantWorkspace) {
+				t.Fatalf("unexpected runtime resolution: %#v", target)
+			}
+		})
+	}
+}
+
+func stringPtr(value string) *string {
+	return &value
+}
+
+func stringPtrEqual(left *string, right *string) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return *left == *right
+}
+
 func TestCLIRunWorkspaceBunDoesNotOverrideSystemRunTarget(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	root := t.TempDir()
@@ -4370,8 +4416,8 @@ func TestCLIRunWorkspaceNodejsDoesNotOverrideRunTargetRuntime(t *testing.T) {
 	omitted := runListJSONForIR(t, repo, root, omittedIR)
 	explicit := runListJSONForIR(t, repo, root, explicitIR)
 
-	if !reflect.DeepEqual(omitted, explicit) {
-		t.Fatalf("run --list --json changed under explicit nodejs:\nomitted=%#v\nexplicit=%#v", omitted, explicit)
+	if len(omitted.Targets) != 1 || omitted.Targets[0].Runtime != "system" {
+		t.Fatalf("omitted workspace runtime must preserve explicit RunTarget runtime: %#v", omitted.Targets)
 	}
 	if len(explicit.Targets) != 1 || explicit.Targets[0].Runtime != "system" {
 		t.Fatalf("workspace runtime must not override explicit RunTarget runtime: %#v", explicit.Targets)
@@ -4380,9 +4426,12 @@ func TestCLIRunWorkspaceNodejsDoesNotOverrideRunTargetRuntime(t *testing.T) {
 
 type runListJSONPayload struct {
 	Targets []struct {
-		Runtime string `json:"runtime"`
-		Cwd     string `json:"cwd"`
-		CwdPath string `json:"cwdPath"`
+		Runtime          string  `json:"runtime"`
+		RuntimeSource    string  `json:"runtimeSource"`
+		ExplicitRuntime  *string `json:"explicitRuntime"`
+		WorkspaceRuntime *string `json:"workspaceRuntime"`
+		Cwd              string  `json:"cwd"`
+		CwdPath          string  `json:"cwdPath"`
 	} `json:"targets"`
 }
 

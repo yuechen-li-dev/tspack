@@ -146,7 +146,7 @@ declare module 'tspack/manifest' {
 
   export type RunTargetRow = {
     name: string;
-    runtime: 'system' | 'node' | 'bun' | 'deno';
+    runtime?: 'system' | 'node' | 'bun' | 'deno';
     command: string[];
     url: string;
     cwd?: 'workspace' | 'package';
