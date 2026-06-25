@@ -2184,3 +2184,183 @@ func TestPolicySecurityGateLifecycleStatuses(t *testing.T) {
 		t.Fatalf("stale exact lifecycle acknowledgment must not pass: %#v", gate)
 	}
 }
+
+func TestUpdatePolicyDogfoodFixturePlanAndNoMutation(t *testing.T) {
+	dir := t.TempDir()
+	ir := updatePolicyDogfoodIR()
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = writeIR(t, dir, ir)
+	lock := updatePolicyDogfoodLockfile()
+	lockBytes, err := lockfile.Marshal(lock)
+	if err != nil {
+		t.Fatalf("marshal dogfood lockfile: %v", err)
+	}
+	if err := os.WriteFile(opts.LockfilePath, lockBytes, 0o644); err != nil {
+		t.Fatalf("write dogfood lockfile: %v", err)
+	}
+	opts.ResolverClient = updatePolicyDogfoodRegistry()
+	writeDogfoodSourceFiles(t, dir)
+
+	res := Outdated(opts)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("dogfood outdated failed: %#v", res.Diagnostics)
+	}
+	if !res.Outdated.HasPolicy {
+		t.Fatalf("dogfood fixture should expose update policy")
+	}
+	statuses := map[string]string{}
+	for _, dep := range res.Outdated.Groups {
+		statuses[dep.Name] = dep.PolicyStatus
+	}
+	wantStatuses := map[string]string{
+		"typescript":                           "allowed",
+		"vite":                                 "outside-policy-level",
+		"esbuild":                              "allowed",
+		"@biomejs/biome":                       "allowed",
+		"rollup":                               "allowed",
+		"react":                                "blocked-manual",
+		"react-dom":                            "pinned",
+		"@tspack-examples/update-policy-utils": "not-applicable",
+	}
+	for name, want := range wantStatuses {
+		if statuses[name] != want {
+			t.Fatalf("unexpected policy status for %s: got %q want %q; all=%#v", name, statuses[name], want, statuses)
+		}
+	}
+	for _, group := range res.Outdated.Groups {
+		if group.Name == "typescript" && group.PackageCount != 3 {
+			t.Fatalf("typescript should be grouped across three packages: %#v", group)
+		}
+	}
+	seenBlockedConsumer := false
+	seenExactAcknowledged := false
+	seenCategoryAcknowledged := false
+	for _, group := range res.Outdated.Groups {
+		gate := EvaluatePolicySecurityGate(group, res.Outdated.Security)
+		switch group.Name {
+		case "esbuild":
+			seenBlockedConsumer = gate.Status == "blocked"
+		case "@biomejs/biome":
+			seenExactAcknowledged = gate.Status == "passed"
+		case "rollup":
+			seenCategoryAcknowledged = gate.Status == "passed"
+		}
+	}
+	if !seenBlockedConsumer || !seenExactAcknowledged || !seenCategoryAcknowledged {
+		t.Fatalf("security gates did not cover blocked/exact/category paths")
+	}
+	after, err := os.ReadFile(opts.LockfilePath)
+	if err != nil {
+		t.Fatalf("read dogfood lockfile after outdated: %v", err)
+	}
+	if !bytes.Equal(lockBytes, after) {
+		t.Fatalf("dogfood outdated mutated lockfile")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "node_modules")); !os.IsNotExist(err) {
+		t.Fatalf("dogfood outdated created materialization")
+	}
+	if _, err := os.Stat(opts.StoreRoot); !os.IsNotExist(err) {
+		t.Fatalf("dogfood outdated populated store")
+	}
+}
+
+func updatePolicyDogfoodIR() map[string]any {
+	return map[string]any{
+		"format":    1,
+		"workspace": map[string]any{"name": "update-policy-notes", "runtime": "nodejs"},
+		"security": map[string]any{
+			"acknowledgedCapabilities": []map[string]any{{
+				"package":         "npm:@biomejs/biome@1.10.0",
+				"kind":            "lifecycleScript",
+				"script":          "postinstall",
+				"command":         "node ./scripts/postinstall.js",
+				"reason":          "Reviewed Biome postinstall native-binary selection for this fixture.",
+				"behaviorFixture": "security/biome-postinstall.xtest.ts",
+			}},
+			"acknowledgedLifecycleCategories": []map[string]any{{
+				"category": "maintainer-publish",
+				"scripts":  []string{"prepare", "prepublishOnly"},
+				"reason":   "Maintainer-publish scripts are reviewed as publish-time metadata and are not run by TSPack installs.",
+			}},
+		},
+		"updatePolicy": map[string]any{"rows": []map[string]any{
+			{"name": "typescript", "kind": "tool", "strategy": "rolling", "level": "minor"},
+			{"name": "vite", "kind": "tool", "strategy": "rolling", "level": "minor"},
+			{"name": "esbuild", "kind": "tool", "strategy": "rolling", "level": "major"},
+			{"name": "@biomejs/biome", "kind": "tool", "strategy": "rolling", "level": "minor"},
+			{"name": "rollup", "kind": "tool", "strategy": "rolling", "level": "minor"},
+			{"name": "react", "kind": "dep", "strategy": "manual"},
+			{"name": "react-dom", "kind": "peer", "strategy": "pinned"},
+		}},
+		"packages": []map[string]any{
+			{"name": "@tspack-examples/update-policy-app", "version": "0.1.0", "license": "MIT", "kind": "app", "dependencies": updatePolicyDogfoodDeps(true), "tools": []string{}, "boundaries": []any{}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}}, "publish": map[string]any{"include": []string{}, "exclude": []string{}}, "targets": []map[string]any{{"name": "app", "export": ".", "entry": "src/app.tsx", "runtime": "public/app.js", "types": "public/app.d.ts", "deps": []string{"react", "react-dom", "@tspack-examples/update-policy-utils"}}}},
+			{"name": "@tspack-examples/update-policy-lib", "version": "0.1.0", "license": "MIT", "kind": "library", "dependencies": updatePolicyDogfoodDeps(false), "tools": []string{}, "boundaries": []any{}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}}, "publish": map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}, "targets": []map[string]any{{"name": "lib", "export": ".", "entry": "src/lib.tsx", "runtime": "dist/lib.js", "types": "dist/lib.d.ts", "deps": []string{"react", "@tspack-examples/update-policy-utils"}, "peers": []string{"react-dom"}}}},
+			{"name": "@tspack-examples/update-policy-utils", "version": "0.1.0", "license": "MIT", "kind": "library", "tools": []string{}, "boundaries": []any{}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}}, "publish": map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}, "dependencies": []map[string]any{{"key": "typescript", "kind": "tool", "source": map[string]any{"kind": "npm", "package": "typescript", "range": "^5.8.0"}}, {"key": "@biomejs/biome", "kind": "tool", "source": map[string]any{"kind": "npm", "package": "@biomejs/biome", "range": "^1.9.0"}}, {"key": "rollup", "kind": "tool", "source": map[string]any{"kind": "npm", "package": "rollup", "range": "^4.20.0"}}}, "targets": []map[string]any{{"name": "utils", "export": ".", "entry": "src/utils.ts", "runtime": "dist/utils.js", "types": "dist/utils.d.ts"}}},
+		},
+	}
+}
+
+func updatePolicyDogfoodDeps(includeEsbuild bool) []map[string]any {
+	deps := []map[string]any{
+		{"key": "typescript", "kind": "tool", "source": map[string]any{"kind": "npm", "package": "typescript", "range": "^5.8.0"}},
+		{"key": "vite", "kind": "tool", "source": map[string]any{"kind": "npm", "package": "vite", "range": "^5.4.0"}},
+		{"key": "react", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "react", "range": "^18.3.0"}},
+		{"key": "react-dom", "kind": "peer", "source": map[string]any{"kind": "npm", "package": "react-dom", "range": "^18.3.0"}},
+		{"key": "@tspack-examples/update-policy-utils", "kind": "dep", "source": map[string]any{"kind": "workspace", "name": "@tspack-examples/update-policy-utils"}},
+	}
+	if includeEsbuild {
+		deps = append(deps, map[string]any{"key": "esbuild", "kind": "tool", "source": map[string]any{"kind": "npm", "package": "esbuild", "range": "^0.21.0"}})
+	}
+	return deps
+}
+
+func updatePolicyDogfoodLockfile() *lockfile.Lockfile {
+	return &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: 1, Tool: "tspack"}, Packages: []lockfile.Package{
+		{ID: "npm:typescript@5.8.0", Name: "typescript", Source: "npm", Version: "5.8.0", Hash: "sha256:fixture"},
+		{ID: "npm:vite@5.4.21", Name: "vite", Source: "npm", Version: "5.4.21", Hash: "sha256:fixture"},
+		{ID: "npm:esbuild@0.21.0", Name: "esbuild", Source: "npm", Version: "0.21.0", Hash: "sha256:fixture"},
+		{ID: "npm:@biomejs/biome@1.9.4", Name: "@biomejs/biome", Source: "npm", Version: "1.9.4", Hash: "sha256:fixture"},
+		{ID: "npm:rollup@4.20.0", Name: "rollup", Source: "npm", Version: "4.20.0", Hash: "sha256:fixture", Capabilities: []lockfile.Capability{{Kind: "lifecycleScript", Script: "prepare", Command: "node ./scripts/prepare-release.js"}}},
+		{ID: "npm:react@18.3.1", Name: "react", Source: "npm", Version: "18.3.1", Hash: "sha256:fixture"},
+		{ID: "npm:react-dom@18.3.1", Name: "react-dom", Source: "npm", Version: "18.3.1", Hash: "sha256:fixture"},
+		{ID: "workspace:@tspack-examples/update-policy-utils#fixture", Name: "@tspack-examples/update-policy-utils", Source: "workspace", Version: "0.1.0", Workspace: "@tspack-examples/update-policy-utils", Hash: "sha256:fixture"},
+	}, Targets: []lockfile.Target{
+		{Package: "@tspack-examples/update-policy-app", Name: "app", Export: ".", Entry: "src/app.tsx", Runtime: "public/app.js", Types: "public/app.d.ts"},
+		{Package: "@tspack-examples/update-policy-lib", Name: "lib", Export: ".", Entry: "src/lib.tsx", Runtime: "dist/lib.js", Types: "dist/lib.d.ts"},
+		{Package: "@tspack-examples/update-policy-utils", Name: "utils", Export: ".", Entry: "src/utils.ts", Runtime: "dist/utils.js", Types: "dist/utils.d.ts"},
+	}}
+}
+
+func updatePolicyDogfoodRegistry() *fakeClient {
+	return &fakeClient{meta: map[string]*resolver.PackageMetadata{
+		"typescript":     {Name: "typescript", DistTags: map[string]string{"latest": "5.9.3"}, Versions: map[string]resolver.PackageVersion{"5.8.0": {Version: "5.8.0"}, "5.9.3": {Version: "5.9.3"}}},
+		"vite":           {Name: "vite", DistTags: map[string]string{"latest": "8.0.16"}, Versions: map[string]resolver.PackageVersion{"5.4.21": {Version: "5.4.21"}, "8.0.16": {Version: "8.0.16"}}},
+		"esbuild":        {Name: "esbuild", DistTags: map[string]string{"latest": "0.25.0"}, Versions: map[string]resolver.PackageVersion{"0.21.0": {Version: "0.21.0"}, "0.25.0": {Version: "0.25.0", Scripts: map[string]string{"postinstall": "node install.js"}}}},
+		"@biomejs/biome": {Name: "@biomejs/biome", DistTags: map[string]string{"latest": "1.10.0"}, Versions: map[string]resolver.PackageVersion{"1.9.4": {Version: "1.9.4"}, "1.10.0": {Version: "1.10.0", Scripts: map[string]string{"postinstall": "node ./scripts/postinstall.js"}}}},
+		"rollup":         {Name: "rollup", DistTags: map[string]string{"latest": "4.21.0"}, Versions: map[string]resolver.PackageVersion{"4.20.0": {Version: "4.20.0"}, "4.21.0": {Version: "4.21.0", Scripts: map[string]string{"prepare": "node ./scripts/prepare-release.js"}}}},
+		"react":          {Name: "react", DistTags: map[string]string{"latest": "19.2.7"}, Versions: map[string]resolver.PackageVersion{"18.3.1": {Version: "18.3.1"}, "19.2.7": {Version: "19.2.7"}}},
+		"react-dom":      {Name: "react-dom", DistTags: map[string]string{"latest": "19.2.7"}, Versions: map[string]resolver.PackageVersion{"18.3.1": {Version: "18.3.1"}, "19.2.7": {Version: "19.2.7"}}},
+	}}
+}
+
+func writeDogfoodSourceFiles(t *testing.T, dir string) {
+	t.Helper()
+	files := map[string]string{
+		"src/app.tsx":                         "import React from \"react\";\nexport const app = <div />;\n",
+		"src/lib.tsx":                         "import React from \"react\";\nexport const lib = <span />;\n",
+		"src/utils.ts":                        "export const value = 1;\n",
+		"public/app.d.ts":                     "export declare const app: unknown;\n",
+		"dist/lib.d.ts":                       "export declare const lib: unknown;\n",
+		"dist/utils.d.ts":                     "export declare const value = 1;\n",
+		"security/biome-postinstall.xtest.ts": "export {};\n",
+	}
+	for name, content := range files {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("create dogfood dir: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("write dogfood file: %v", err)
+		}
+	}
+}

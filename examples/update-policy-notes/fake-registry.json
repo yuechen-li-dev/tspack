@@ -1,0 +1,50 @@
+{
+  "typescript": {
+    "current": "5.8.0",
+    "wanted": "5.9.3",
+    "latest": "5.9.3",
+    "scripts": {}
+  },
+  "vite": {
+    "current": "5.4.21",
+    "wanted": "5.4.21",
+    "latest": "8.0.16",
+    "scripts": {}
+  },
+  "esbuild": {
+    "current": "0.21.0",
+    "wanted": "0.25.0",
+    "latest": "0.25.0",
+    "scripts": {
+      "postinstall": "node install.js"
+    }
+  },
+  "@biomejs/biome": {
+    "current": "1.9.4",
+    "wanted": "1.10.0",
+    "latest": "1.10.0",
+    "scripts": {
+      "postinstall": "node ./scripts/postinstall.js"
+    }
+  },
+  "rollup": {
+    "current": "4.20.0",
+    "wanted": "4.21.0",
+    "latest": "4.21.0",
+    "scripts": {
+      "prepare": "node ./scripts/prepare-release.js"
+    }
+  },
+  "react": {
+    "current": "18.3.1",
+    "wanted": "18.3.1",
+    "latest": "19.2.7",
+    "scripts": {}
+  },
+  "react-dom": {
+    "current": "18.3.1",
+    "wanted": "18.3.1",
+    "latest": "19.2.7",
+    "scripts": {}
+  }
+}
