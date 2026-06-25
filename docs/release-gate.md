@@ -795,3 +795,13 @@ The M46b gate covers default human `tspack check` readability for noisy informat
 - `tspack outdated --json` includes policy fields for grouped and `--per-package` entries.
 - Policy reporting is read-only: no lockfile, manifest, store, or `node_modules` mutation is allowed.
 - M50a does not add `update --policy` mutation, automatic rolling updates, React coherence enforcement, dependency unification, or security gate enforcement.
+
+## M50b policy-driven update planning gate
+
+- `tspack update --policy --dry-run` succeeds as a read-only report and must not write `ts-lock.toml`, populate the store, materialize dependencies, or run lifecycle scripts.
+- `tspack update --policy` without `--dry-run` fails clearly because policy-driven mutation is not implemented yet.
+- Targeted policy planning is deferred: `tspack update <query> --policy --dry-run` fails with a targeted-policy unsupported diagnostic.
+- Human output includes `Policy update plan (dry run)`, allowed/blocked/unclassified/not-applicable buckets when present, `security gates: not evaluated`, and `lockfile written: no`.
+- JSON output includes normalized `dryRun` with `changed: false`, a `policyPlan` object, summary counts, `wouldUpdate`, `securityGatesEvaluated: false`, and `securityGateStatus: "not_evaluated"`.
+- Missing `<UpdatePolicy />` is reportable and non-fatal when metadata resolution succeeds; `policyPresent` is false and registry candidates are unclassified.
+- Normal `tspack update`, update dry-run, and `tspack outdated` semantics remain unchanged when `--policy` is absent.

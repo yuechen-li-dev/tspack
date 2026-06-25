@@ -5151,3 +5151,31 @@ func TestOutdatedJSONEntriesIncludePolicyFields(t *testing.T) {
 		t.Fatalf("missing policy fields in JSON entry: %#v", entry)
 	}
 }
+
+func TestPolicyUpdatePlanBucketsAndDryRunSemantics(t *testing.T) {
+	outdated := &project.OutdatedResult{
+		HasPolicy: true,
+		Groups: []project.OutdatedDependency{
+			{Name: "typescript", Kind: "tool", Requested: "^5.0.0", Current: []string{"5.8.0"}, Latest: "5.9.3", PolicyStatus: "allowed", PolicyStrategy: "rolling", PolicyLevel: "minor", PolicyMessage: "rolling minor policy allows this candidate", PackageCount: 3},
+			{Name: "vite", Kind: "tool", Requested: "^5.0.0", Current: []string{"5.4.21"}, Latest: "8.0.16", PolicyStatus: "outside-policy-level", PolicyStrategy: "rolling", PolicyLevel: "minor", PolicyMessage: "candidate is outside rolling minor policy", PackageCount: 1},
+			{Name: "react", Kind: "dep", Requested: "^18.0.0", Current: []string{"18.3.1"}, Latest: "19.2.7", PolicyStatus: "blocked-manual", PolicyStrategy: "manual", PolicyMessage: "updates require an explicit manual decision", PackageCount: 1},
+			{Name: "react-dom", Kind: "peer", Requested: "^18.0.0", Current: []string{"18.3.1"}, Latest: "19.2.7", PolicyStatus: "pinned", PolicyStrategy: "pinned", PolicyMessage: "dependency is intended to stay pinned until manifest intent changes", PackageCount: 1},
+			{Name: "clsx", Kind: "dep", Requested: "^2.0.0", Current: []string{"2.0.0"}, Latest: "2.1.1", PolicyStatus: "unclassified", PolicyMessage: "no update policy row matches this dependency", PackageCount: 1},
+			{Name: "@repo/components", Kind: "dep", Source: "workspace", PolicyStatus: "not-applicable", PolicyMessage: "non-registry dependencies are not evaluated by update policy", PackageCount: 1},
+		},
+	}
+
+	plan := buildPolicyUpdatePlan(outdated)
+	if !plan.PolicyPresent || !plan.WouldUpdate {
+		t.Fatalf("expected present policy with wouldUpdate=true: %#v", plan)
+	}
+	if plan.Summary.Allowed != 1 || plan.Summary.Blocked != 3 || plan.Summary.Unclassified != 1 || plan.Summary.NotApplicable != 1 {
+		t.Fatalf("unexpected summary: %#v", plan.Summary)
+	}
+	if plan.SecurityGatesEvaluated || plan.SecurityGateStatus != "not_evaluated" {
+		t.Fatalf("security gates should not be evaluated: %#v", plan)
+	}
+	if plan.Allowed[0].Action != "update" || plan.Blocked[0].Action != "outside-policy" {
+		t.Fatalf("unexpected actions: allowed=%#v blocked=%#v", plan.Allowed[0], plan.Blocked[0])
+	}
+}

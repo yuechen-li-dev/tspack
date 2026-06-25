@@ -152,3 +152,7 @@ The JSON output identifies the command and mode, echoes the CDP endpoint, and in
 ## Runtime profile doctor
 
 `tspack doctor runtime [--root .] [--json]` reports the workspace runtime profile selected by `<Workspace runtime="...">`, the executable that would represent that profile (`node`, `bun`, or `deno`), PATH availability for the selected runtime only, and the TSPack lifecycle ownership note. It does not install dependencies or delegate to package managers. Explicit `RunTarget.runtime: "bun"` and `RunTarget.runtime: "deno"` are separate run-command launch adapters that invoke `bun <declared argv>` or `deno <declared argv>`; RunTargets without explicit runtime inherit the workspace runtime profile, while explicit RunTarget runtime still wins.
+
+### Policy update planning
+
+`tspack update --policy --dry-run` produces a read-only update plan from the declared `<UpdatePolicy />`. It reuses outdated metadata and policy evaluation, reports allowed, blocked, unclassified, and not-applicable buckets, and never writes the lockfile. `--json` emits a stable `policyPlan` object plus the normalized `dryRun` object. In M50b, `--policy` requires `--dry-run`; mutation and targeted policy planning are future work.

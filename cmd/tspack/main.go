@@ -182,6 +182,55 @@ type UpdateDryRunJSONReport struct {
 	Changes     UpdateDryRunChanges            `json:"changes"`
 	Diagnostics []CheckJSONDiagnostic          `json:"diagnostics"`
 }
+
+type PolicyUpdateDryRunJSONReport struct {
+	Command     string                `json:"command"`
+	DryRun      UpdateDryRunJSONState `json:"dryRun"`
+	OK          bool                  `json:"ok"`
+	Root        string                `json:"root"`
+	PolicyPlan  PolicyUpdatePlanJSON  `json:"policyPlan"`
+	Diagnostics []CheckJSONDiagnostic `json:"diagnostics"`
+}
+
+type PolicyUpdatePlanJSON struct {
+	PolicyPresent          bool                    `json:"policyPresent"`
+	WouldUpdate            bool                    `json:"wouldUpdate"`
+	SecurityGatesEvaluated bool                    `json:"securityGatesEvaluated"`
+	SecurityGateStatus     string                  `json:"securityGateStatus"`
+	Summary                PolicyUpdatePlanSummary `json:"summary"`
+	Allowed                []PolicyUpdateCandidate `json:"allowed"`
+	Blocked                []PolicyUpdateCandidate `json:"blocked"`
+	Unclassified           []PolicyUpdateCandidate `json:"unclassified"`
+	NotApplicable          []PolicyUpdateCandidate `json:"notApplicable"`
+	Noop                   []PolicyUpdateCandidate `json:"noop"`
+}
+
+type PolicyUpdatePlanSummary struct {
+	Allowed       int `json:"allowed"`
+	Blocked       int `json:"blocked"`
+	Unclassified  int `json:"unclassified"`
+	NotApplicable int `json:"notApplicable"`
+	Noop          int `json:"noop"`
+}
+
+type PolicyUpdateCandidate struct {
+	Name               string                    `json:"name"`
+	Kind               string                    `json:"kind"`
+	Requested          string                    `json:"requested"`
+	Current            []string                  `json:"current"`
+	Wanted             string                    `json:"wanted"`
+	Latest             string                    `json:"latest"`
+	Packages           []project.OutdatedPackage `json:"packages"`
+	PackageCount       int                       `json:"packageCount"`
+	PolicyStrategy     string                    `json:"policyStrategy,omitempty"`
+	PolicyLevel        string                    `json:"policyLevel,omitempty"`
+	PolicyStatus       string                    `json:"policyStatus"`
+	PolicyReason       string                    `json:"policyReason,omitempty"`
+	Action             string                    `json:"action"`
+	Message            string                    `json:"message"`
+	SecurityGateStatus string                    `json:"securityGateStatus"`
+}
+
 type UpdateDryRunJSONState struct {
 	Enabled bool                `json:"enabled"`
 	Changed bool                `json:"changed"`
@@ -706,6 +755,7 @@ func runCommand(args []string) {
 	showLifecycle := false
 	clean := false
 	updateDryRun := false
+	updatePolicy := false
 	updateQuiet := false
 	outdatedPerPackage := false
 	updateQuery := ""
@@ -743,6 +793,12 @@ func runCommand(args []string) {
 		case "--out":
 			i++
 			packOpts.OutputDir = args[i]
+		case "--policy":
+			if cmd != "update" {
+				fmt.Fprintf(os.Stderr, "unknown %s flag: --policy\n", cmd)
+				os.Exit(1)
+			}
+			updatePolicy = true
 		case "--quiet":
 			if cmd == "update" {
 				updateQuiet = true
@@ -886,7 +942,15 @@ func runCommand(args []string) {
 		}
 		os.Exit(1)
 	}
-	if cmd == "update" && !updateQuiet && !jsonOutput {
+	if cmd == "update" && updatePolicy && !updateDryRun {
+		fmt.Fprintln(os.Stderr, "TSPACK_UPDATE_POLICY_REQUIRES_DRY_RUN: policy-driven mutation is not implemented yet; use --dry-run")
+		os.Exit(1)
+	}
+	if cmd == "update" && updatePolicy && updateQuery != "" {
+		fmt.Fprintln(os.Stderr, "TSPACK_UPDATE_POLICY_TARGET_UNSUPPORTED: targeted policy planning is not implemented in M50b; use workspace policy dry-run")
+		os.Exit(1)
+	}
+	if cmd == "update" && !updatePolicy && !updateQuiet && !jsonOutput {
 		opts.Progress = project.Progress{Enabled: true, Writer: os.Stderr}
 	}
 	updateOptions := project.UpdateOptions{Query: updateQuery}
@@ -898,7 +962,9 @@ func runCommand(args []string) {
 			result.Diagnostics = append(result.Diagnostics, formatResult.Diagnostics...)
 		}
 	case "update":
-		if updateDryRun {
+		if updatePolicy {
+			result = project.Outdated(opts)
+		} else if updateDryRun {
 			result = project.UpdateDryRunWithOptions(opts, updateOptions)
 		} else {
 			result = project.UpdateWithOptions(opts, updateOptions)
@@ -946,6 +1012,19 @@ func runCommand(args []string) {
 		}
 		return
 	}
+	if cmd == "update" && updatePolicy && updateDryRun && jsonOutput {
+		report := buildPolicyUpdateDryRunJSONReport(opts, result)
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(report); err != nil {
+			fmt.Fprintf(os.Stderr, "TSPACK_UPDATE_JSON_ENCODE_FAILED: %v\n", err)
+			os.Exit(1)
+		}
+		if hasErrors(result.Diagnostics) {
+			os.Exit(1)
+		}
+		return
+	}
 	if cmd == "update" && updateDryRun && jsonOutput {
 		report := buildUpdateDryRunJSONReport(opts, result)
 		enc := json.NewEncoder(os.Stdout)
@@ -973,6 +1052,9 @@ func runCommand(args []string) {
 		return
 	}
 	renderHumanDiagnostics(os.Stderr, result.Diagnostics, checkRenderOptions{ShowConflicts: showConflicts, ShowLifecycle: showLifecycle})
+	if cmd == "update" && updatePolicy && updateDryRun {
+		printPolicyUpdateDryRunPlan(result)
+	}
 	if result.LockDiff != nil {
 		if cmd == "update" && updateDryRun {
 			printUpdateDryRunPlan(result)
@@ -1262,6 +1344,180 @@ func printUpdateDryRunPlan(result project.Result) {
 	}
 	fmt.Println()
 	fmt.Println("No files were written.")
+}
+
+func buildPolicyUpdateDryRunJSONReport(opts project.Options, result project.Result) PolicyUpdateDryRunJSONReport {
+	plan := buildPolicyUpdatePlan(result.Outdated)
+	report := PolicyUpdateDryRunJSONReport{
+		Command: "update",
+		DryRun: UpdateDryRunJSONState{
+			Enabled: true,
+			Changed: false,
+			Summary: UpdateDryRunSummary{},
+		},
+		OK:         !hasErrors(result.Diagnostics),
+		Root:       opts.RootDir,
+		PolicyPlan: plan,
+	}
+	report.Diagnostics = updateDiagnosticsJSON(result.Diagnostics)
+	return report
+}
+
+func buildPolicyUpdatePlan(outdated *project.OutdatedResult) PolicyUpdatePlanJSON {
+	plan := PolicyUpdatePlanJSON{
+		SecurityGatesEvaluated: false,
+		SecurityGateStatus:     "not_evaluated",
+		Allowed:                []PolicyUpdateCandidate{},
+		Blocked:                []PolicyUpdateCandidate{},
+		Unclassified:           []PolicyUpdateCandidate{},
+		NotApplicable:          []PolicyUpdateCandidate{},
+		Noop:                   []PolicyUpdateCandidate{},
+	}
+	if outdated == nil {
+		return plan
+	}
+	plan.PolicyPresent = outdated.HasPolicy
+	for _, dep := range outdatedHumanEntries(outdated, false) {
+		candidate := policyUpdateCandidate(dep)
+		switch candidate.PolicyStatus {
+		case "allowed":
+			plan.Allowed = append(plan.Allowed, candidate)
+		case "blocked-manual", "pinned", "outside-policy-level":
+			plan.Blocked = append(plan.Blocked, candidate)
+		case "not-applicable":
+			plan.NotApplicable = append(plan.NotApplicable, candidate)
+		case "unclassified":
+			plan.Unclassified = append(plan.Unclassified, candidate)
+		default:
+			if dep.Status == "current" {
+				candidate.PolicyStatus = "current"
+				candidate.Action = "noop"
+				candidate.Message = "dependency is already current"
+				plan.Noop = append(plan.Noop, candidate)
+			}
+		}
+	}
+	plan.Summary = PolicyUpdatePlanSummary{
+		Allowed:       len(plan.Allowed),
+		Blocked:       len(plan.Blocked),
+		Unclassified:  len(plan.Unclassified),
+		NotApplicable: len(plan.NotApplicable),
+		Noop:          len(plan.Noop),
+	}
+	plan.WouldUpdate = plan.Summary.Allowed > 0
+	return plan
+}
+
+func policyUpdateCandidate(dep project.OutdatedDependency) PolicyUpdateCandidate {
+	status := dep.PolicyStatus
+	action := "noop"
+	message := dep.PolicyMessage
+	switch status {
+	case "allowed":
+		action = "update"
+	case "blocked-manual":
+		action = "manual"
+	case "pinned":
+		action = "pinned"
+	case "outside-policy-level":
+		action = "outside-policy"
+	case "unclassified":
+		action = "unclassified"
+	case "not-applicable":
+		action = "not-applicable"
+	default:
+		if dep.Status == "current" {
+			status = "current"
+			message = "dependency is already current"
+		}
+	}
+	if message == "" {
+		message = status
+	}
+	return PolicyUpdateCandidate{
+		Name:               dep.Name,
+		Kind:               dep.Kind,
+		Requested:          dep.Requested,
+		Current:            dep.Current,
+		Wanted:             dep.Wanted,
+		Latest:             dep.Latest,
+		Packages:           dep.Packages,
+		PackageCount:       dep.PackageCount,
+		PolicyStrategy:     dep.PolicyStrategy,
+		PolicyLevel:        dep.PolicyLevel,
+		PolicyStatus:       status,
+		PolicyReason:       dep.PolicyReason,
+		Action:             action,
+		Message:            message,
+		SecurityGateStatus: "not_evaluated",
+	}
+}
+
+func updateDiagnosticsJSON(diags []diag.Diagnostic) []CheckJSONDiagnostic {
+	sorted := append([]diag.Diagnostic(nil), diags...)
+	diag.SortDiagnostics(sorted)
+	out := make([]CheckJSONDiagnostic, 0, len(sorted))
+	for _, d := range sorted {
+		out = append(out, CheckJSONDiagnostic{Code: d.Code, Severity: string(d.Severity), Message: d.Message, Details: d.Details})
+	}
+	return out
+}
+
+func printPolicyUpdateDryRunPlan(result project.Result) {
+	plan := buildPolicyUpdatePlan(result.Outdated)
+	fmt.Println("Policy update plan (dry run)")
+	fmt.Println("No lockfile changes will be written.")
+	fmt.Println()
+	if result.Outdated != nil && !result.Outdated.HasPolicy {
+		fmt.Println("No update policy declared.")
+		fmt.Println("Candidates are unclassified; use <UpdatePolicy> to declare rolling/manual/pinned intent.")
+		fmt.Println()
+	}
+	if plan.Summary.Allowed == 0 && plan.Summary.Blocked == 0 && plan.Summary.Unclassified == 0 && plan.Summary.NotApplicable == 0 {
+		fmt.Println("No policy-eligible updates found.")
+		fmt.Println("lockfile written: no")
+		return
+	}
+	printPolicyCandidates("Allowed by policy:", plan.Allowed)
+	printPolicyCandidates("Blocked:", plan.Blocked)
+	printPolicyCandidates("Unclassified:", plan.Unclassified)
+	printPolicyCandidates("Not applicable:", plan.NotApplicable)
+	fmt.Println("Summary:")
+	fmt.Printf("allowed: %d\n", plan.Summary.Allowed)
+	fmt.Printf("blocked: %d\n", plan.Summary.Blocked)
+	fmt.Printf("unclassified: %d\n", plan.Summary.Unclassified)
+	fmt.Printf("not applicable: %d\n", plan.Summary.NotApplicable)
+	fmt.Println("security gates: not evaluated")
+	fmt.Println("lockfile written: no")
+}
+
+func printPolicyCandidates(title string, candidates []PolicyUpdateCandidate) {
+	if len(candidates) == 0 {
+		return
+	}
+	fmt.Println(title)
+	for _, candidate := range candidates {
+		fmt.Printf("%s %s %s -> %s", candidate.Name, candidate.Kind, formatPolicyVersion(candidate.Current), candidate.Latest)
+		if candidate.PolicyStrategy != "" {
+			fmt.Printf(" %s", candidate.PolicyStrategy)
+			if candidate.PolicyLevel != "" {
+				fmt.Printf(":%s", candidate.PolicyLevel)
+			}
+		}
+		fmt.Printf(" packages: %d", candidate.PackageCount)
+		if candidate.Message != "" {
+			fmt.Printf(" %s", candidate.Message)
+		}
+		fmt.Println()
+	}
+	fmt.Println()
+}
+
+func formatPolicyVersion(versions []string) string {
+	if len(versions) == 0 {
+		return "-"
+	}
+	return strings.Join(versions, ",")
 }
 
 func buildUpdateDryRunJSONReport(opts project.Options, result project.Result) UpdateDryRunJSONReport {
