@@ -132,6 +132,17 @@ The M45d setup action gate covers `.github/actions/setup-tspack` as the first Gi
 - Normal CI should not depend on a nonexistent public release. A live workflow smoke with `version: latest` is deferred until a real release exists or is manually triggered with a known published tag.
 - `node .github/actions/setup-tspack/test.js` must cover platform mapping, checksum parsing and mismatch behavior, latest tag parsing, explicit-version bypass, URL construction, extracted-binary discovery, and check-input parsing.
 
+### M46a runtime UX gate
+
+The M46a runtime UX gate keeps runtime profile semantics legible without changing execution behavior:
+
+- `docs/run.md` explains RunTarget `node` / `nodejs`, `system`, `bun`, and `deno` runtime semantics, including that `node` resolves bare local tools but does not prepend `node` to path-containing script files.
+- `tspack run --list` human output includes concise runtime notes for `node` and `system` behavior, explicit RunTarget runtime precedence, the workspace runtime profile, and the current "unspecified RunTarget runtime inheritance: not enabled" state.
+- `tspack run --list --json` remains stable machine-readable output and does not include human prose.
+- `tspack doctor runtime` text output includes `packageManagerDelegated: false` and the ownership note that TSPack owns package resolution, lockfiles, sync/materialization, check, pack, and lifecycle policy.
+- Explicit RunTarget runtime precedence remains tested; workspace runtime profiles do not override explicit RunTarget runtime values.
+- Runtime execution behavior is not changed: no runtime inheritance, no `tspack run --profile`, no automatic `node` prepending, no package-manager delegation, and no resolver/migration/check policy changes.
+
 ### Resolver Phase 8a carryover smoke
 
 The resolver/update smoke should stay offline and use fake registries and fixture tarballs:

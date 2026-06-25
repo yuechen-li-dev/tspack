@@ -401,16 +401,17 @@ func renderRunTargetList(root string, manifestPath string, ir *manifest.Manifest
 		renderRunTargetListJSON(root, packageName, refs)
 		return
 	}
-	renderRunTargetListText(refs)
+	renderRunTargetListText(refs, effectiveWorkspaceRuntimeProfile(ir))
 }
 
-func renderRunTargetListText(refs []runTargetRef) {
+func renderRunTargetListText(refs []runTargetRef, workspaceRuntime string) {
 	fmt.Fprintln(os.Stdout, "Run targets")
 	if len(refs) == 0 {
 		fmt.Fprintln(os.Stdout)
 		fmt.Fprintln(os.Stdout, "  (none)")
 		return
 	}
+	renderRunTargetRuntimeNotes(workspaceRuntime)
 	currentPackage := ""
 	for _, ref := range refs {
 		if ref.PackageName != currentPackage {
@@ -437,6 +438,23 @@ func renderRunTargetListText(refs []runTargetRef) {
 			fmt.Fprintln(os.Stdout, "      ready: url")
 		}
 	}
+}
+
+func renderRunTargetRuntimeNotes(workspaceRuntime string) {
+	fmt.Fprintln(os.Stdout)
+	fmt.Fprintln(os.Stdout, "Runtime notes:")
+	fmt.Fprintf(os.Stdout, "  Workspace runtime profile: %s\n", workspaceRuntime)
+	fmt.Fprintln(os.Stdout, "  node: resolves bare commands from local tools/.bin; does not prepend node to script paths.")
+	fmt.Fprintln(os.Stdout, "  system: runs commands directly without node-local tool resolution.")
+	fmt.Fprintln(os.Stdout, "  explicit RunTarget runtime overrides the workspace runtime profile.")
+	fmt.Fprintln(os.Stdout, "  unspecified RunTarget runtime inheritance: not enabled")
+}
+
+func effectiveWorkspaceRuntimeProfile(ir *manifest.ManifestIR) string {
+	if ir.Workspace.Runtime != "" {
+		return ir.Workspace.Runtime
+	}
+	return "nodejs"
 }
 
 func renderRunTargetListJSON(root string, packageName string, refs []runTargetRef) {
