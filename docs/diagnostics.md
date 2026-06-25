@@ -358,3 +358,8 @@ A `Security.acknowledgedLifecycleCategories` row includes a script that is not p
 - `TSPACK_UPDATE_POLICY_LEVEL_NOT_ALLOWED`: `level` is only valid on rolling policy rows.
 - `TSPACK_UPDATE_POLICY_INVALID_PACKAGE_SCOPE`: package-scoped rows must list non-empty package names.
 - `TSPACK_UPDATE_POLICY_DUPLICATE_ROW`: multiple rows declare the same name/kind/package scope.
+
+## Policy update planning diagnostics
+
+- `TSPACK_UPDATE_POLICY_REQUIRES_DRY_RUN`: `tspack update --policy` was run without `--dry-run`. M50b only supports read-only policy planning; use `tspack update --policy --dry-run`.
+- `TSPACK_UPDATE_POLICY_TARGET_UNSUPPORTED`: targeted policy planning is not implemented in M50b. Run `tspack update --policy --dry-run` for the workspace policy plan, or use `tspack outdated` for targeted investigation.

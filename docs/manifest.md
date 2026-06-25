@@ -226,3 +226,7 @@ The runtime profile selects the JavaScript runtime profile for future runtime-po
 Rows match by exact dependency `name` and `kind` (`tool`, `dep`, `peer`, or `any`). `manual` and `pinned` rows must not set `level`; `rolling` rows must set `patch`, `minor`, `major`, or `latest`. Optional `reason` text is carried into reports. Optional `packages` scopes a row to declarations from named workspace packages.
 
 M50a does not apply policy-driven updates. The policy annotates `tspack outdated` so CI can see declared intent without outsourcing update motion to external bot churn.
+
+### UpdatePolicy planning command
+
+The declared `<UpdatePolicy />` can be inspected with `tspack outdated` and planned with `tspack update --policy --dry-run`. The policy planning command is read-only in M50b: it classifies candidates into allowed, blocked, unclassified, and not-applicable buckets, but it does not apply rolling updates, enforce security gates, or mutate lockfiles/stores/materialization.
