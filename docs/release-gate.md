@@ -828,3 +828,17 @@ The M46b gate covers default human `tspack check` readability for noisy informat
 - Security-gated plan statuses are verified for ready, review-capable, blocked-by-security, blocked-by-policy, unclassified, not-applicable, and noop buckets as applicable.
 - Dry-run-only guardrails remain: `update --policy` without `--dry-run` fails, and targeted policy planning remains rejected.
 - Dogfood documentation records current limitations, including no policy-driven mutation, no targeted policy planning, no external vulnerability feed, and no React single-version/coherence policy.
+
+### M51a check --format release hardening
+
+Release smoke for M51a must verify:
+
+- The default Biome config ignores `.tspack/**`, `node_modules/**`, `dist/**`, and `tspack-artifacts/**`.
+- `tspack init` generates a `biome.json` matching the same default ignore behavior.
+- `tspack check --format` scopes Biome to source/project paths rather than the whole repository root.
+- Generated store, artifact, and dist files do not fail format checks.
+- Bad source formatting still fails with `TSPACK_FORMAT_CHECK_FAILED`.
+- `tspack check --format --json` emits valid JSON-only stdout.
+- Formatter output embedded in JSON diagnostics has no raw ANSI escape sequences.
+- Top-level `tspack --help` advertises `check --format`.
+- Missing formatter backend under `check --format` emits `TSPACK_FORMAT_BACKEND_MISSING` with the underlying Biome diagnostic in details.

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -246,14 +247,22 @@ func biomeExitDiagnostic(command string, useCheck bool, useFix bool, useUnsafe b
 	}
 }
 
+var ansiCSISequencePattern = regexp.MustCompile("\x1b\\[[0-9;?]*[ -/]*[@-~]")
+
 func appendCapturedBiomeOutput(details []string, stdout string, stderr string) []string {
-	if strings.TrimSpace(stdout) != "" {
-		details = append(details, "Biome stdout:", stdout)
+	cleanStdout := sanitizeTerminalOutput(stdout)
+	cleanStderr := sanitizeTerminalOutput(stderr)
+	if strings.TrimSpace(cleanStdout) != "" {
+		details = append(details, "Biome stdout:", cleanStdout)
 	}
-	if strings.TrimSpace(stderr) != "" {
-		details = append(details, "Biome stderr:", stderr)
+	if strings.TrimSpace(cleanStderr) != "" {
+		details = append(details, "Biome stderr:", cleanStderr)
 	}
 	return details
+}
+
+func sanitizeTerminalOutput(output string) string {
+	return ansiCSISequencePattern.ReplaceAllString(output, "")
 }
 
 func emitBiomeInvalidFlags(command string, msg string) {
@@ -320,6 +329,19 @@ func writeDefaultBiomeConfigTempFile() (string, error) {
 
 func defaultBiomeConfigBytes() []byte {
 	return []byte(`{
+  "files": {
+    "ignore": [
+      ".tspack/**",
+      "node_modules/**",
+      "dist/**",
+      "tspack-artifacts/**",
+      "coverage/**",
+      ".git/**",
+      "build/**",
+      ".turbo/**",
+      ".vite/**"
+    ]
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "tab",
@@ -342,7 +364,20 @@ func defaultBiomeConfigBytes() []byte {
     }
   },
   "javascript": {
-    "formatter": {
+    "files": {
+    "ignore": [
+      ".tspack/**",
+      "node_modules/**",
+      "dist/**",
+      "tspack-artifacts/**",
+      "coverage/**",
+      ".git/**",
+      "build/**",
+      ".turbo/**",
+      ".vite/**"
+    ]
+  },
+  "formatter": {
       "quoteStyle": "double",
       "trailingCommas": "all",
       "semicolons": "always",

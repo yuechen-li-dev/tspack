@@ -151,7 +151,8 @@ Page/analyzer:
 - `TSPACK_BIOME_BACKEND_NOT_FOUND`: TSPack could not find a Biome backend in the local `.bin`, direct `@biomejs/biome` package binary, or `PATH`.
 - `TSPACK_BIOME_COMMAND_FAILED`: the Biome backend failed to start, was terminated by signal, or failed in an unmapped infrastructure path.
 - `TSPACK_FORMAT_INVALID_FLAGS`: `tspack format` received unsupported or malformed flags, including `--unsafe` because format has no unsafe behavior in TSPack.
-- `TSPACK_FORMAT_CHECK_FAILED`: `tspack format --check` or `tspack check --format` found files that would change. Run `tspack format` to apply formatting.
+- `TSPACK_FORMAT_BACKEND_MISSING`: `tspack check --format` could not find the configured formatter backend. Details include the current backend (`biome`) and the underlying backend diagnostic, such as `TSPACK_BIOME_BACKEND_NOT_FOUND`.
+- `TSPACK_FORMAT_CHECK_FAILED`: `tspack format --check` or `tspack check --format` found source files that would change. Run `tspack format` to apply formatting. JSON diagnostic details contain sanitized formatter output without raw ANSI escape sequences.
 - `TSPACK_FORMAT_WRITE_FAILED`: `tspack format` failed while asking Biome to write formatting changes.
 - `TSPACK_LINT_INVALID_FLAGS`: `tspack lint` received unsupported or malformed flags, including `--unsafe` without `--fix`.
 - `TSPACK_LINT_CHECK_FAILED`: `tspack lint` reported lint violations. Run `tspack lint --fix` to apply safe fixes where possible.

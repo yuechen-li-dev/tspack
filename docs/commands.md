@@ -37,19 +37,19 @@
 
 ## `tspack check --format`
 
-- `tspack check --format` runs normal project validation, then runs the same read-only Biome format validation used by `tspack format --check`.
+- `tspack check --format` runs normal project validation, then runs a read-only Biome format validation scoped to project source paths such as manifests, declared target entry directories, and package `src/` directories.
 - The format scope is `.` relative to the selected project root; `check` does not accept format path arguments.
 - `--root <root>` controls both normal project validation paths and Biome backend/config discovery.
 - `--manifest <path>` controls normal manifest loading only; format validation still checks the selected root directory rather than only the manifest file.
 - The command never writes formatting changes. Run `tspack format` to apply formatting.
-- A format failure is reported as `TSPACK_FORMAT_CHECK_FAILED` and makes the overall check exit nonzero.
+- A source format failure is reported as `TSPACK_FORMAT_CHECK_FAILED` and makes the overall check exit nonzero. Missing formatter backend under `check --format` is reported as `TSPACK_FORMAT_BACKEND_MISSING` with the underlying backend diagnostic in details.
 - `tspack doctor format` can be used separately to inspect Biome backend and config readiness.
 
 ## `tspack check --json`
 
 - `tspack check --json` writes a machine-readable JSON report to **stdout**.
 - The JSON report includes command metadata, `ok`, summary counts (`errors`, `warnings`, `info`, `total`), and ordered diagnostics.
-- In JSON mode, human-readable diagnostics are not mixed into stdout. With `--format`, Biome output is captured so stdout remains JSON-only; format failures are represented as normal check diagnostics.
+- In JSON mode, human-readable diagnostics are not mixed into stdout. With `--format`, Biome output is captured and ANSI/control escape sequences are stripped before diagnostic details are emitted, so stdout remains JSON-only; format failures are represented as normal check diagnostics.
 - Exit behavior is unchanged:
   - warning diagnostics (including lock version conflicts) keep exit `0` when no errors exist;
   - exit `0` when there are no error diagnostics (warnings-only remains `0`);
