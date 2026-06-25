@@ -240,6 +240,30 @@ func TestDoctorRuntimeReportsSelectedNodejsProfile(t *testing.T) {
 	}
 }
 
+func TestDoctorRuntimeTextReportsOwnershipDetails(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "runtime", "--root", root)
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("doctor runtime text failed: %v\n%s", err, string(b))
+	}
+	out := string(b)
+	for _, expected := range []string{
+		"Runtime profile",
+		"message: manifest.tsx missing; defaulting runtime profile to nodejs",
+		"selected: nodejs",
+		"packageManagerDelegated: false",
+		"ownershipNote: TSPack owns package resolution, lockfiles, sync/materialization, check, pack, and lifecycle policy; runtime profile does not delegate those to npm/bun/deno.",
+	} {
+		if !strings.Contains(out, expected) {
+			t.Fatalf("doctor runtime text missing %q:\n%s", expected, out)
+		}
+	}
+}
+
 func TestDoctorRuntimeReportsOmittedAndExplicitNodejsEquivalently(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	root := t.TempDir()

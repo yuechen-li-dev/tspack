@@ -122,16 +122,53 @@ Package-root command example:
 Status output includes the effective cwd, for example `Cwd: workspace (/repo)` or `Cwd: package (/repo/packages/demo)`. `run --list`, `run --list --json`, and `doctor run` also report the effective cwd.
 
 ## Runtime notes
-- `system`: built-in runtime support that executes the declared argv directly. `tspack doctor run` reports this runtime as available without looking for a binary named `system`.
-- `node`: execute argv directly and prefer local `node_modules/.bin` before PATH.
-- `bun`: invoke `bun` with the declared argv payload. TSPack does not run `bun run`, package scripts, npm, or npx as a fallback.
-- `deno`: invoke `deno` with the declared argv payload. For example, `command: ["run", "--allow-net=127.0.0.1:8080", "server.ts"]` runs as `deno run --allow-net=127.0.0.1:8080 server.ts`.
+
+### Runtime profile vs. RunTarget runtime
+
+The workspace runtime profile selects the project runtime identity, for example `<Workspace runtime="bun">`. It does not delegate package resolution, lockfile ownership, sync/materialization, check, pack, or lifecycle policy to npm, Bun, or Deno. TSPack still owns those policies.
+
+RunTarget `runtime` is the process-launch backend for a single target. An explicit RunTarget runtime wins over the workspace runtime profile. Workspace runtime profiles do not automatically inherit into RunTargets yet, so a workspace with `runtime="bun"` still requires `runtime: "bun"` on a RunTarget that should launch through Bun.
+
+### RunTarget runtime values
+
+- `node` / `nodejs`: uses Node.js as the runtime identity for local tool execution. It adds local `node_modules/.bin` / TSPack-materialized tool paths as appropriate and resolves the first command token from local tools when it is a bare command name. It does **not** prepend `node` to path-containing script files. For JavaScript files, use `command: ["node", "packages/demo/server.js"]` or make the file executable with a shebang.
+- `bun`: invokes `bun` with the declared argv payload. For example, `command: ["server.js"]` runs as `bun server.js`. TSPack does not run `bun run`, read package scripts, use npm, or use npx as a fallback.
+- `deno`: invokes `deno` with the declared argv payload. For example, `command: ["run", "--allow-net=127.0.0.1:8080", "server.ts"]` runs as `deno run --allow-net=127.0.0.1:8080 server.ts`.
+- `system`: built-in runtime support that executes the declared argv directly as a system command. It does not use node-local tool resolution. For JavaScript files, include `node`, `bun`, or `deno` explicitly if needed. `tspack doctor run` reports this runtime as available without looking for a binary named `system`.
+
+Good JavaScript file command with Node:
+
+```tsx
+runtime: "node",
+command: ["node", "packages/demo/server.js"],
+```
+
+Good local tool command with Node:
+
+```tsx
+runtime: "node",
+command: ["vite", "--host", "127.0.0.1"],
+// bare vite can resolve from local tools/.bin
+```
+
+Good system command with an explicit JavaScript runtime:
+
+```tsx
+runtime: "system",
+command: ["node", "packages/demo/server.js"],
+```
+
+Potentially surprising Node command:
+
+```tsx
+runtime: "node",
+command: ["packages/demo/server.js"],
+// runtime "node" does not prepend node; the file must be executable with a shebang or this may fail with permission denied
+```
 
 Deno permission flags are explicit command arguments for now. TSPack does not infer permissions, define a Deno permission DSL, run `deno task`, read Deno package scripts, parse `deno.json` or `deno.lock`, generate import maps, or call `deno install`, `deno add`, `deno cache`, or `deno vendor`.
 
 If `deno` is missing for an explicit `runtime: "deno"` RunTarget, `tspack run` fails before execution with `TSPACK_RUN_RUNTIME_NOT_FOUND`, including `runtime: deno`, `executable: deno`, the target name, and a hint to install Deno or change the RunTarget runtime. TSPack does not fall back to Node.js, Bun, system execution, npm, npx, or package scripts.
-
-Workspace runtime profiles do not automatically inherit into RunTargets. A workspace with `runtime="deno"` still requires an explicit RunTarget `runtime: "deno"` to use Deno.
 
 Runtimes are process launch backends only. TSPack still owns manifest/lock/package/test lifecycle.
 

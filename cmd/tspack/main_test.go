@@ -3891,7 +3891,20 @@ func TestCLIRunListAndPackageScoping(t *testing.T) {
 		t.Fatalf("run --list failed: %v\n%s", err, string(b))
 	}
 	out := string(b)
-	for _, expected := range []string{"Run targets", "@prisma-ui/demo", "dev", "preview", "@prisma-ui/docs", "runtime: system", "ready: http /"} {
+	for _, expected := range []string{
+		"Run targets",
+		"@prisma-ui/demo",
+		"dev",
+		"preview",
+		"@prisma-ui/docs",
+		"runtime: system",
+		"ready: http /",
+		"Runtime notes:",
+		"node: resolves bare commands from local tools/.bin; does not prepend node to script paths.",
+		"system: runs commands directly without node-local tool resolution.",
+		"explicit RunTarget runtime overrides the workspace runtime profile.",
+		"unspecified RunTarget runtime inheritance: not enabled",
+	} {
 		if !strings.Contains(out, expected) {
 			t.Fatalf("run --list missing %q:\n%s", expected, out)
 		}
