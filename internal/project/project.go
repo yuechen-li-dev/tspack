@@ -245,10 +245,16 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
 	}
+	if updateOpts.Query != "" && old != nil {
+		res.Lock = preserveNonSelectedTargetedLockEntries(old, res.Lock, targetResult.Selected)
+	}
 	if dryRun {
 		progress.Step("computing lockfile diff...")
 	}
 	d := lockfile.DiffLockfiles(old, res.Lock)
+	if updateOpts.Query != "" && !lockDiffHasPackageChanges(d) {
+		progress.Step("%s is already at wanted version; no lockfile changes.", updateOpts.Query)
+	}
 	if dryRun {
 		summary := UpdateDiffSummary{
 			Added:     len(d.PackagesAdded),
@@ -260,7 +266,10 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 			summary.Unchanged = 0
 		}
 		progress.Step("dry run complete")
-		return Result{Diagnostics: out, LockDiff: &d, DryRun: &UpdateDryRunResult{Changed: summary.Added > 0 || summary.Removed > 0 || summary.Changed > 0, Summary: summary}, UpdateTarget: targetResult}
+		return Result{Diagnostics: out, LockDiff: &d, DryRun: &UpdateDryRunResult{Changed: lockDiffHasPackageChanges(d), Summary: summary}, UpdateTarget: targetResult}
+	}
+	if updateOpts.Query != "" && !lockDiffHasPackageChanges(d) {
+		return Result{Diagnostics: out, LockDiff: &d, UpdateTarget: targetResult}
 	}
 	progress.Step("populating store...")
 	st, err := store.Open(opts.StoreRoot)
@@ -320,6 +329,10 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 		progress.Step("update complete")
 	}
 	return Result{Diagnostics: out, LockDiff: &d, UpdateTarget: targetResult}
+}
+
+func lockDiffHasPackageChanges(diff lockfile.Diff) bool {
+	return len(diff.PackagesAdded) > 0 || len(diff.PackagesRemoved) > 0 || len(diff.PackagesChanged) > 0
 }
 
 func packagesNeedingStorePopulation(st *store.Store, packages []lockfile.Package) []lockfile.Package {
@@ -433,6 +446,154 @@ func preserveNonSelectedNPMLocks(g *graph.WorkspaceGraph, old *lockfile.Lockfile
 		}
 	}
 	return out
+}
+
+func preserveNonSelectedTargetedLockEntries(old, next *lockfile.Lockfile, selected []UpdateSelectedTarget) *lockfile.Lockfile {
+	if old == nil || next == nil || len(selected) == 0 {
+		return next
+	}
+
+	selectedNames := map[string]bool{}
+	for _, target := range selected {
+		selectedNames[target.Name] = true
+	}
+
+	selectedClosure := packageClosureForNames(old, selectedNames)
+	for id := range packageClosureForNames(next, selectedNames) {
+		selectedClosure[id] = true
+	}
+
+	merged := cloneLockfile(next)
+	nextPackageIndex := map[string]int{}
+	for index, pkg := range merged.Packages {
+		nextPackageIndex[pkg.ID] = index
+	}
+
+	for _, oldPackage := range old.Packages {
+		if selectedClosure[oldPackage.ID] {
+			continue
+		}
+		if index, ok := nextPackageIndex[oldPackage.ID]; ok {
+			merged.Packages[index] = clonePackage(oldPackage)
+			continue
+		}
+		merged.Packages = append(merged.Packages, clonePackage(oldPackage))
+	}
+
+	merged.Edges = preserveNonSelectedEdges(old, merged.Edges, selectedClosure)
+	return normalizeLockfile(merged)
+}
+
+func packageClosureForNames(lf *lockfile.Lockfile, selectedNames map[string]bool) map[string]bool {
+	closure := map[string]bool{}
+	if lf == nil || len(selectedNames) == 0 {
+		return closure
+	}
+
+	packageByID := map[string]lockfile.Package{}
+	childrenByParent := map[string][]string{}
+	for _, pkg := range lf.Packages {
+		packageByID[pkg.ID] = pkg
+	}
+	for _, edge := range lf.Edges {
+		childrenByParent[edge.From] = append(childrenByParent[edge.From], edge.To)
+	}
+
+	queue := make([]string, 0)
+	for _, edge := range lf.Edges {
+		pkg, ok := packageByID[edge.To]
+		if !ok || !selectedNames[pkg.Name] {
+			continue
+		}
+		if !strings.Contains(edge.From, ":target:") && !strings.HasSuffix(edge.From, ":tool") {
+			continue
+		}
+		if !closure[pkg.ID] {
+			closure[pkg.ID] = true
+			queue = append(queue, pkg.ID)
+		}
+	}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, child := range childrenByParent[current] {
+			if closure[child] {
+				continue
+			}
+			closure[child] = true
+			queue = append(queue, child)
+		}
+	}
+	return closure
+}
+
+func preserveNonSelectedEdges(old *lockfile.Lockfile, nextEdges []lockfile.Edge, selectedClosure map[string]bool) []lockfile.Edge {
+	kept := make([]lockfile.Edge, 0, len(nextEdges))
+	seen := map[string]bool{}
+	for _, edge := range nextEdges {
+		if edgeTouchesSelectedClosure(edge, selectedClosure) {
+			kept = append(kept, edge)
+			seen[lockEdgeKey(edge)] = true
+			continue
+		}
+	}
+	for _, edge := range old.Edges {
+		if edgeTouchesSelectedClosure(edge, selectedClosure) {
+			continue
+		}
+		key := lockEdgeKey(edge)
+		if seen[key] {
+			continue
+		}
+		kept = append(kept, edge)
+		seen[key] = true
+	}
+	return kept
+}
+
+func edgeTouchesSelectedClosure(edge lockfile.Edge, selectedClosure map[string]bool) bool {
+	return selectedClosure[edge.From] || selectedClosure[edge.To]
+}
+
+func lockEdgeKey(edge lockfile.Edge) string {
+	optional := "0"
+	if edge.Optional {
+		optional = "1"
+	}
+	return edge.From + "|" + edge.To + "|" + edge.Kind + "|" + optional
+}
+
+func cloneLockfile(lf *lockfile.Lockfile) *lockfile.Lockfile {
+	if lf == nil {
+		return nil
+	}
+	clone := *lf
+	clone.Packages = make([]lockfile.Package, 0, len(lf.Packages))
+	for _, pkg := range lf.Packages {
+		clone.Packages = append(clone.Packages, clonePackage(pkg))
+	}
+	clone.Edges = append([]lockfile.Edge(nil), lf.Edges...)
+	clone.Targets = append([]lockfile.Target(nil), lf.Targets...)
+	return &clone
+}
+
+func clonePackage(pkg lockfile.Package) lockfile.Package {
+	clone := pkg
+	clone.Capabilities = append([]lockfile.Capability(nil), pkg.Capabilities...)
+	return clone
+}
+
+func normalizeLockfile(lf *lockfile.Lockfile) *lockfile.Lockfile {
+	encoded, err := lockfile.Marshal(lf)
+	if err != nil {
+		return lf
+	}
+	normalized, diagnostics := lockfile.Parse("targeted-update.ts-lock.toml", encoded)
+	if len(diagnostics) > 0 {
+		return lf
+	}
+	return normalized
 }
 
 func Pack(opts Options, packOpts PackOptions) Result {
