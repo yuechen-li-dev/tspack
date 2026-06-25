@@ -279,7 +279,18 @@ var entries = []DiagnosticHelp{
 			"Remember that unsafe fixes are not applied by default.",
 		},
 	},
-	{Code: "TSPACK_TEST_MODULE_LOAD_FAILED", Title: "Test module failed to load", Summary: "The test backend could not load a test module.", Why: "Tests must load successfully before assertions can run, otherwise failures are not trustworthy.", Fixes: []string{"Inspect backend error details and fix module initialization issues."}},
+	{
+		Code:    "TSPACK_TEST_MODULE_LOAD_FAILED",
+		Title:   "Test module failed to load",
+		Summary: "The test backend could not load a test module.",
+		Why:     "Tests must load successfully before assertions can run, otherwise failures are not trustworthy. A common native xTest authoring mistake is using an unavailable global such as ctx.",
+		Fixes: []string{
+			"Inspect backend error details and fix module initialization issues.",
+			"Use documented native xTest globals: Suite, Fact, Theory, Case, assert, expect, skip, inspect, and runLifecycleScript.",
+			"Use runLifecycleScript for lifecycle behavior fixtures; ctx is not a global.",
+		},
+		RelatedDocs: []string{"docs/native-test-harness.md"},
+	},
 	{
 		Code:    "TSPACK_SNAPSHOT_MISSING",
 		Title:   "Snapshot file is missing",

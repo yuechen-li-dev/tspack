@@ -168,7 +168,27 @@ Acknowledgments may also link to behavior evidence metadata:
 />
 ```
 
-`behaviorFixture` points to a source-controlled xTest behavior fixture, and `behaviorReport` points to an optional JSON report captured from a previous explicit behavior probe. They are evidence references only: `check`, `doctor security`, `why`, `update`, `sync`, and materialization do not execute fixtures or lifecycle scripts and do not generate or update reports. Paths must be safe project-relative paths; fixture paths must end in `.xtest.ts` or `.xtest.tsx`, and report paths must end in `.json`. Missing fixture/report references are warnings, invalid report JSON is a warning, and omitted evidence remains allowed. Future policy may require evidence, but M37e does not.
+`behaviorFixture` points to a source-controlled xTest behavior fixture, and `behaviorReport` points to an optional JSON report captured from a previous explicit behavior probe. They are evidence references only: `check`, `doctor security`, `why`, `update`, `sync`, and materialization do not execute fixtures or lifecycle scripts and do not generate or update reports. Paths must be safe project-relative paths; fixture paths must end in `.xtest.ts` or `.xtest.tsx`, and report paths must end in `.json`. Missing fixture/report references are warnings, including `TSPACK_SECURITY_BEHAVIOR_FIXTURE_MISSING` for missing fixtures; invalid report JSON is a warning, and omitted evidence remains allowed. Future policy may require evidence, but M37e does not.
+
+Behavior fixtures depend on the native xTest globals documented in `docs/native-test-harness.md`. For lifecycle evidence, use `runLifecycleScript` directly in the fixture:
+
+```tsx
+export default (
+  <Suite name="esbuild postinstall behavior">
+    <Fact name="postinstall stays inside guard policy">{async () => {
+      const report = await runLifecycleScript({
+        packageDir: "/absolute/path/to/fixture/package",
+        command: "node install.js",
+      });
+
+      assert.equal(report.exitCode, 0, "postinstall exits successfully");
+      assert.equal(report.violations.length, 0, "postinstall stays inside policy");
+    }}</Fact>
+  </Suite>
+);
+```
+
+`tspack doctor security` validates referenced fixture/report paths and reports their present or missing status, but it does not execute the fixture.
 
 
 ## Lifecycle security audit view (M37d)

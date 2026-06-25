@@ -734,3 +734,13 @@ The M46b gate covers default human `tspack check` readability for noisy informat
 - Switching workspace runtime leaves pack/check/why/lock/package output unchanged.
 - Node auto-prepending for JavaScript script paths is not added.
 - Package-manager delegation to Bun/Deno/npm is not added.
+
+## M48a security acknowledgment and behavior fixture correctness gate
+
+- Split workspace parsing preserves root `security` metadata from the root manifest while merging package manifests.
+- Split workspace lifecycle acknowledgments suppress or mark matching lifecycle capabilities according to current security behavior.
+- `tspack doctor security` sees split-manifest acknowledgments and reports acknowledged/stale/unused counts from the merged IR.
+- Native xTest exposes `runLifecycleScript` as a file global while preserving the imported `lifecycle.runScript` helper.
+- A behavior fixture using the `runLifecycleScript` global passes through the native xTest backend; it remains behavior evidence only, not an OS jail, and it preserves package-manager non-execution.
+- Native xTest globals are documented, and `ctx` is explicitly not documented as a global.
+- `tspack how TSPACK_TEST_MODULE_LOAD_FAILED` mentions available globals and the `runLifecycleScript` behavior-fixture helper.
