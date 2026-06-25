@@ -26,3 +26,10 @@ The reveal flags only affect human rendering. They do not change diagnostic gene
 ## Security visibility
 
 Lifecycle summary output means packages declare scripts, but TSPack's policy blocks lifecycle execution by default. More serious security diagnostics, such as stale or unused acknowledgments and future error-level security blockers, remain visible in default human output. Use `tspack doctor security` for policy posture.
+
+
+## Lifecycle category summaries
+
+Default human `tspack check` groups lifecycle-script-present warnings by lifecycle category: consumer install-time (`preinstall`, `install`, `postinstall`), maintainer publish-time (`prepublishOnly`, `prepublish`, `prepare`, `prepack`, `postpack`, `publish`, `postpublish`), and `other` detected lifecycle hooks. Consumer install-time counts are highlighted separately from maintainer-side counts, and maintainer-only summaries note that those hooks do not run during normal consumer install in npm-style workflows. Execution remains blocked by policy for every category.
+
+Use `tspack check --show-lifecycle` to reveal the individual diagnostics, including `lifecycleCategory`, `consumerInstallTime`, script commands, and pull chains. `tspack check --json` is not summary-only; it continues to emit individual lifecycle diagnostics with classification fields.

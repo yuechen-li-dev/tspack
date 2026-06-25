@@ -8,6 +8,12 @@ import (
 
 const LifecycleScriptKind = "lifecycleScript"
 
+const (
+	LifecycleCategoryConsumerInstall   = "consumer-install"
+	LifecycleCategoryMaintainerPublish = "maintainer-publish"
+	LifecycleCategoryOther             = "other"
+)
+
 var lifecycleScriptNames = []string{
 	"preinstall",
 	"install",
@@ -17,7 +23,48 @@ var lifecycleScriptNames = []string{
 	"postpack",
 	"prepublish",
 	"prepublishOnly",
+	"publish",
 	"postpublish",
+}
+
+var consumerInstallLifecycleScripts = map[string]bool{
+	"preinstall":  true,
+	"install":     true,
+	"postinstall": true,
+}
+
+var maintainerPublishLifecycleScripts = map[string]bool{
+	"prepublishOnly": true,
+	"prepublish":     true,
+	"prepare":        true,
+	"prepack":        true,
+	"postpack":       true,
+	"publish":        true,
+	"postpublish":    true,
+}
+
+type LifecycleClassification struct {
+	ScriptName          string
+	LifecycleCategory   string
+	ConsumerInstallTime bool
+}
+
+func ClassifyLifecycleScript(scriptName string) LifecycleClassification {
+	classification := LifecycleClassification{
+		ScriptName:          scriptName,
+		LifecycleCategory:   LifecycleCategoryOther,
+		ConsumerInstallTime: false,
+	}
+	if consumerInstallLifecycleScripts[scriptName] {
+		classification.LifecycleCategory = LifecycleCategoryConsumerInstall
+		classification.ConsumerInstallTime = true
+		return classification
+	}
+	if maintainerPublishLifecycleScripts[scriptName] {
+		classification.LifecycleCategory = LifecycleCategoryMaintainerPublish
+		return classification
+	}
+	return classification
 }
 
 func IsSupportedLifecycleScript(scriptName string) bool {

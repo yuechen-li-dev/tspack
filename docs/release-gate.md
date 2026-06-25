@@ -744,3 +744,15 @@ The M46b gate covers default human `tspack check` readability for noisy informat
 - A behavior fixture using the `runLifecycleScript` global passes through the native xTest backend; it remains behavior evidence only, not an OS jail, and it preserves package-manager non-execution.
 - Native xTest globals are documented, and `ctx` is explicitly not documented as a global.
 - `tspack how TSPACK_TEST_MODULE_LOAD_FAILED` mentions available globals and the `runLifecycleScript` behavior-fixture helper.
+
+
+### M48b lifecycle script kind classification gate
+
+- Lifecycle scripts are classified as `consumer-install`, `maintainer-publish`, or `other`.
+- Default `tspack check` summaries report category counts and deterministic examples without hiding serious security diagnostics.
+- `tspack check --show-lifecycle` reveals individual lifecycle category details, commands, and pull chains.
+- `tspack check --json` includes individual lifecycle diagnostics with `lifecycleCategory` and `consumerInstallTime`.
+- `tspack doctor security` text and JSON include lifecycle category counts and per-capability classification.
+- Acknowledged, stale, unused, and behavior-fixture/report evidence behavior remains package/script/command based.
+- Lifecycle execution remains blocked by default.
+- No batch suppression, `acknowledgedScriptKinds`, or `--no-security-warnings` policy is implemented.

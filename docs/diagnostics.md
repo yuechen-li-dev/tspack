@@ -330,3 +330,8 @@ A manifest acknowledgment does not match any lifecycle capability in the lockfil
 - `TSPACK_MIGRATE_SOURCE_SCAN_TRUNCATED`: `tspack migrate` hit conservative source scan limits. Migration continues with partial evidence; review imports manually if classification evidence is important.
 - `TSPACK_MIGRATE_SOURCE_PARSE_WARNING`: a source file or source root could not be read or was skipped by a recoverable scan warning. Migration continues and the report lists the affected path.
 - `TSPACK_MIGRATE_SOURCE_SCAN_FAILED`: source roots were discovered but no source files could be read. Migration continues so package.json migration can still produce a draft; use `--no-source-scan` to skip source evidence or review file permissions.
+
+
+### Lifecycle classification details
+
+`TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT` details include `lifecycleScriptName`, `lifecycleCategory`, and `consumerInstallTime` in addition to package, script, command, execution posture, and pull-chain details. Categories are `consumer-install` for `preinstall`/`install`/`postinstall`, `maintainer-publish` for `prepublishOnly`/`prepublish`/`prepare`/`prepack`/`postpack`/`publish`/`postpublish`, and `other` for detected lifecycle hooks outside the known sets. Default human output summarizes this diagnostic family by category; `--show-lifecycle` and JSON output retain individual full-detail diagnostics.

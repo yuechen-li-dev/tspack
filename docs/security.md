@@ -205,3 +205,10 @@ Relationship between security tools:
 - `tspack doctor security` is the read-only summary/report view for lifecycle security posture.
 - `tspack why` and `tspack why --reverse` are reachability and investigation views for packages and lock graph paths.
 - `lifecycle.runScript(...)` in native xTest is an explicit behavior probe for tests; doctor does not run probes.
+
+
+## Lifecycle script categories
+
+TSPack classifies recorded lifecycle capabilities by operational relevance while continuing to block all lifecycle execution by default. Consumer install-time scripts are `preinstall`, `install`, and `postinstall`; these are the highest-relevance hooks for dependency consumers because npm-style installers can run them during dependency installation. Maintainer publish-time scripts are `prepublishOnly`, `prepublish`, `prepare`, `prepack`, `postpack`, `publish`, and `postpublish`; these are generally maintainer workflow hooks and are operationally less urgent for consumers, but TSPack still records them as blocked capabilities. Any detected lifecycle script outside those known sets is categorized as `other` rather than being silently treated as install-time.
+
+Lifecycle diagnostics include `lifecycleScriptName`, `lifecycleCategory`, and `consumerInstallTime`. Human `tspack check` summarizes lifecycle warnings by category and `tspack check --show-lifecycle` reveals every script, command, category, execution posture, and pull chain. `tspack check --json` keeps individual diagnostics with classification fields. `tspack doctor security` reports lifecycle category counts and shows the same classification for acknowledged and unacknowledged capabilities.

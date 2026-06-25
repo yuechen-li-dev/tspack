@@ -40,10 +40,45 @@ func TestFromPackageJSONScriptsAllLifecycleScripts(t *testing.T) {
 		"prepack":        "x",
 		"postpack":       "x",
 		"prepublishOnly": "x",
+		"publish":        "x",
 		"postpublish":    "x",
 	}
 	got := FromPackageJSONScripts(scripts)
-	if len(got) != 9 {
-		t.Fatalf("expected 9 lifecycle capabilities, got %d", len(got))
+	if len(got) != 10 {
+		t.Fatalf("expected 10 lifecycle capabilities, got %d", len(got))
+	}
+}
+
+func TestClassifyLifecycleScript(t *testing.T) {
+	tests := []struct {
+		name                string
+		wantCategory        string
+		wantConsumerInstall bool
+	}{
+		{name: "preinstall", wantCategory: LifecycleCategoryConsumerInstall, wantConsumerInstall: true},
+		{name: "install", wantCategory: LifecycleCategoryConsumerInstall, wantConsumerInstall: true},
+		{name: "postinstall", wantCategory: LifecycleCategoryConsumerInstall, wantConsumerInstall: true},
+		{name: "prepublishOnly", wantCategory: LifecycleCategoryMaintainerPublish, wantConsumerInstall: false},
+		{name: "prepublish", wantCategory: LifecycleCategoryMaintainerPublish, wantConsumerInstall: false},
+		{name: "prepare", wantCategory: LifecycleCategoryMaintainerPublish, wantConsumerInstall: false},
+		{name: "prepack", wantCategory: LifecycleCategoryMaintainerPublish, wantConsumerInstall: false},
+		{name: "postpack", wantCategory: LifecycleCategoryMaintainerPublish, wantConsumerInstall: false},
+		{name: "publish", wantCategory: LifecycleCategoryMaintainerPublish, wantConsumerInstall: false},
+		{name: "postpublish", wantCategory: LifecycleCategoryMaintainerPublish, wantConsumerInstall: false},
+		{name: "weirdLifecycleMaybe", wantCategory: LifecycleCategoryOther, wantConsumerInstall: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ClassifyLifecycleScript(tt.name)
+			if got.ScriptName != tt.name {
+				t.Fatalf("ScriptName got %q want %q", got.ScriptName, tt.name)
+			}
+			if got.LifecycleCategory != tt.wantCategory {
+				t.Fatalf("LifecycleCategory got %q want %q", got.LifecycleCategory, tt.wantCategory)
+			}
+			if got.ConsumerInstallTime != tt.wantConsumerInstall {
+				t.Fatalf("ConsumerInstallTime got %t want %t", got.ConsumerInstallTime, tt.wantConsumerInstall)
+			}
+		})
 	}
 }
