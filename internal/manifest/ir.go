@@ -23,7 +23,7 @@ type ManifestIR struct {
 type Workspace struct {
 	Name             string `json:"name"`
 	Runtime          string `json:"runtime"`
-	RuntimeSpecified bool   `json:"-"`
+	RuntimeSpecified bool   `json:"runtimeSpecified,omitempty"`
 }
 
 func (w *Workspace) UnmarshalJSON(data []byte) error {
@@ -37,7 +37,11 @@ func (w *Workspace) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*w = Workspace(alias)
-	_, w.RuntimeSpecified = raw["runtime"]
+	if specifiedRaw, ok := raw["runtimeSpecified"]; ok {
+		_ = json.Unmarshal(specifiedRaw, &w.RuntimeSpecified)
+	} else {
+		_, w.RuntimeSpecified = raw["runtime"]
+	}
 	return nil
 }
 
@@ -75,12 +79,13 @@ type Package struct {
 }
 
 type RunTarget struct {
-	Name    string         `json:"name"`
-	Runtime string         `json:"runtime"`
-	Command []string       `json:"command"`
-	URL     string         `json:"url"`
-	Cwd     string         `json:"cwd,omitempty"`
-	Ready   *RunReadyCheck `json:"ready,omitempty"`
+	Name            string         `json:"name"`
+	Runtime         string         `json:"runtime"`
+	ExplicitRuntime string         `json:"explicitRuntime,omitempty"`
+	Command         []string       `json:"command"`
+	URL             string         `json:"url"`
+	Cwd             string         `json:"cwd,omitempty"`
+	Ready           *RunReadyCheck `json:"ready,omitempty"`
 }
 
 type RunReadyCheck struct {
@@ -385,8 +390,11 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 				add("TSPACK_RUN_DUPLICATE_TARGET", "duplicate run target name: "+rt.Name)
 			}
 			seenRunTargets[rt.Name] = struct{}{}
-			if rt.Runtime != "system" && rt.Runtime != "node" && rt.Runtime != "bun" && rt.Runtime != "deno" {
+			if rt.Runtime != "" && rt.Runtime != "system" && rt.Runtime != "node" && rt.Runtime != "bun" && rt.Runtime != "deno" {
 				add("TSPACK_RUN_INVALID_RUNTIME", rp+".runtime is invalid")
+			}
+			if rt.ExplicitRuntime != "" && rt.ExplicitRuntime != rt.Runtime {
+				add("TSPACK_RUN_INVALID_RUNTIME", rp+".explicitRuntime must match runtime")
 			}
 			if rt.Cwd != "" && rt.Cwd != "workspace" && rt.Cwd != "package" {
 				add("TSPACK_RUN_INVALID_CWD", rp+".cwd must be workspace or package")

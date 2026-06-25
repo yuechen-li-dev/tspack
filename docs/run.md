@@ -81,7 +81,7 @@ A RunTarget with `runtime: "bun"` treats `command` as the Bun argv payload. TSPa
 bun server.js
 ```
 
-This is runtime execution only. TSPack does not call `bun run`, does not read `package.json` scripts, does not run lifecycle hooks, and does not delegate package-manager operations to Bun. `runtime: "system"` continues to execute the declared argv directly, and workspace `runtime="bun"` does not automatically rewrite or inherit into RunTargets.
+This is runtime execution only. TSPack does not call `bun run`, does not read `package.json` scripts, does not run lifecycle hooks, and does not delegate package-manager operations to Bun. `runtime: "system"` continues to execute the declared argv directly, and workspace `runtime="bun"` is inherited by RunTargets that omit `runtime`; explicit RunTarget runtime still wins.
 
 If Bun is not on `PATH`, `tspack run` fails before execution with `TSPACK_RUN_RUNTIME_NOT_FOUND`, including `runtime: bun`, `executable: bun`, the target name, and a hint to install Bun or change the RunTarget runtime. TSPack does not fall back to Node.js, system execution, npm, or npx.
 
@@ -127,7 +127,29 @@ Status output includes the effective cwd, for example `Cwd: workspace (/repo)` o
 
 The workspace runtime profile selects the project runtime identity, for example `<Workspace runtime="bun">`. It does not delegate package resolution, lockfile ownership, sync/materialization, check, pack, or lifecycle policy to npm, Bun, or Deno. TSPack still owns those policies.
 
-RunTarget `runtime` is the process-launch backend for a single target. An explicit RunTarget runtime wins over the workspace runtime profile. Workspace runtime profiles do not automatically inherit into RunTargets yet, so a workspace with `runtime="bun"` still requires `runtime: "bun"` on a RunTarget that should launch through Bun.
+RunTarget `runtime` is the process-launch backend for a single target. Runtime resolution is explicit target runtime > workspace runtime profile > default `nodejs`. An explicit RunTarget runtime preserves previous behavior and wins over the workspace runtime profile. A RunTarget without `runtime` inherits the workspace runtime profile, so a workspace with `runtime="bun"` launches that target through Bun and a workspace with `runtime="deno"` launches it through Deno. If a target should remain Node/system under a Bun/Deno workspace profile, set `runtime` explicitly on the RunTarget.
+
+### Runtime inheritance examples
+
+```tsx
+<Workspace runtime="bun">
+  <Package name="app" version="1.0.0" kind="app">
+    <RunTargets rows={[{ name: "dev", command: ["server.js"] }]} />
+  </Package>
+</Workspace>
+```
+
+The `dev` target omits `runtime`, so it resolves to `bun (workspace)` and executes as `bun server.js`.
+
+```tsx
+<Workspace runtime="bun">
+  <Package name="app" version="1.0.0" kind="app">
+    <RunTargets rows={[{ name: "dev-node", runtime: "node", command: ["node", "server.js"] }]} />
+  </Package>
+</Workspace>
+```
+
+The `dev-node` target resolves to `node (explicit)`, so Bun does not override it. With no workspace runtime and no target runtime, the target resolves to `nodejs (default)`.
 
 ### RunTarget runtime values
 

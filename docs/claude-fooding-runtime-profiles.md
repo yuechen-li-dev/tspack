@@ -20,7 +20,7 @@ TSPack owns:
 - lifecycle security policy
 - package-manager semantics
 
-The runtime profile currently affects reporting and appropriate explicit runtime execution paths. Workspace runtime does not yet imply RunTarget inheritance. Explicit `RunTarget.runtime` wins, so a workspace declared as `runtime="deno"` can still launch an explicitly declared `runtime: "bun"` target with Bun.
+The runtime profile currently affects reporting and appropriate explicit runtime execution paths. RunTargets without explicit runtime inherit the workspace runtime profile. Explicit `RunTarget.runtime` wins, so a workspace declared as `runtime="deno"` can still launch an explicitly declared `runtime: "bun"` target with Bun.
 
 ## Remediation / implementation summary
 
@@ -97,7 +97,7 @@ What does not change:
 - no `bun install`, `bun add`, or `bun pm`
 - no `deno task`, `deno install`, `deno add`, `deno cache`, or `deno vendor`
 - no deno.json, deno.lock, import maps, or JSR support
-- no workspace runtime inheritance into RunTargets yet
+- unspecified RunTargets inherit the workspace runtime profile
 - no native xTest runtime switching
 - no JavaScript bridge runtime switching
 - no resolver/materializer changes
@@ -108,7 +108,7 @@ What does not change:
 
 Possible future work, if explicitly designed:
 
-- workspace runtime inheritance/defaulting for RunTargets
+- further RunTarget runtime ergonomics after workspace inheritance/defaulting
 - runtime-profile-aware native xTest backend
 - runtime-profile-aware JavaScript bridge backend
 - Deno import-map/JSR design, if justified

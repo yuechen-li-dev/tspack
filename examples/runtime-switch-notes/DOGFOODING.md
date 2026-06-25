@@ -175,3 +175,5 @@ Outcome A / LGTM for M43e: the sample is ready to be treated as a release-smoke 
 The runtime-profile thesis mostly holds for the manifest line itself: `runtime="nodejs"` is visible in `doctor runtime`, does not delegate package-manager behavior, and explicit RunTargets keep Node.js/Bun/Deno execution separate. The one-line runtime profile story is less proven for the broader workflow because inspect and format/lint surfaces still have environment-dependent gaps.
 
 Before release closeout, keep the environment skip conditions explicit rather than installing browsers or Biome implicitly. With those skips documented, this example is a useful end-to-end release smoke.
+
+M47a note: the one-line workspace runtime switch now affects RunTargets that omit `runtime`; explicit runtime targets continue to preserve their declared runtime.

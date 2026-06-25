@@ -722,3 +722,15 @@ The M46b gate covers default human `tspack check` readability for noisy informat
 - Serious security diagnostics and all error-level diagnostics remain visible in default human output.
 - `tspack check --json` remains complete and includes every individual conflict and lifecycle diagnostic.
 - Warning summarization must not change exit-code semantics, diagnostic codes, lockfile schema, resolver behavior, lifecycle execution behavior, or security policy.
+
+## M47a RunTarget runtime inheritance gate
+
+- Unspecified RunTargets inherit the workspace runtime profile.
+- Explicit RunTarget runtime wins over workspace runtime.
+- No workspace runtime defaults unresolved RunTargets to `nodejs`.
+- `tspack run --list` shows the resolved runtime source.
+- `tspack run --list --json` includes `runtimeSource` when available.
+- `tspack doctor runtime` mentions RunTarget inheritance and explicit precedence.
+- Switching workspace runtime leaves pack/check/why/lock/package output unchanged.
+- Node auto-prepending for JavaScript script paths is not added.
+- Package-manager delegation to Bun/Deno/npm is not added.

@@ -345,18 +345,21 @@ func runtimeProfileDetails(selected string) map[string]any {
 	executable := runtimeProfileExecutable(selected)
 	_, err := exec.LookPath(executable)
 	return map[string]any{
-		"selected":                selected,
-		"executable":              executable,
-		"available":               err == nil,
-		"status":                  runtimeProfileSupportStatus(selected),
-		"lifecycleOwner":          "tspack",
-		"packageManagerDelegated": false,
-		"dependencyResolution":    "TSPack",
-		"lockfile":                "ts-lock.toml",
-		"materialization":         "TSPack",
-		"securityPolicy":          "TSPack",
-		"lifecyclePolicy":         "TSPack",
-		"ownershipNote":           "TSPack owns package resolution, lockfiles, sync/materialization, check, pack, and lifecycle policy; runtime profile does not delegate those to npm/bun/deno.",
+		"selected":                           selected,
+		"executable":                         executable,
+		"available":                          err == nil,
+		"status":                             runtimeProfileSupportStatus(selected),
+		"lifecycleOwner":                     "tspack",
+		"packageManagerDelegated":            false,
+		"dependencyResolution":               "TSPack",
+		"lockfile":                           "ts-lock.toml",
+		"materialization":                    "TSPack",
+		"securityPolicy":                     "TSPack",
+		"lifecyclePolicy":                    "TSPack",
+		"ownershipNote":                      "TSPack owns package resolution, lockfiles, sync/materialization, check, pack, and lifecycle policy; runtime profile does not delegate those to npm/bun/deno.",
+		"runTargetInheritance":               true,
+		"explicitRunTargetRuntimePrecedence": true,
+		"runTargetInheritanceNote":           "RunTargets without explicit runtime inherit the workspace runtime profile; explicit RunTarget runtime wins.",
 	}
 }
 
