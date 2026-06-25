@@ -628,9 +628,11 @@ func doctorDetailValue(value any) string {
 }
 
 type doctorLifecycleCapability struct {
-	PackageID string
-	Script    string
-	Command   string
+	PackageID   string
+	Script      string
+	Command     string
+	Category    string
+	InstallTime bool
 }
 
 func doctorSecurity(root string) doctorBuilder {
@@ -774,10 +776,23 @@ func doctorLifecycleSecurityChecks(root string, lf *lockfile.Lockfile, acknowled
 	unacknowledgedCount := 0
 	staleCount := 0
 	packagesWithLifecycle := map[string]bool{}
+	categoryCounts := map[string]int{
+		"consumerInstall":   0,
+		"maintainerPublish": 0,
+		"other":             0,
+	}
 
 	checks := []DoctorCheck{}
 	for _, lifecycleCapability := range capabilities {
 		packagesWithLifecycle[lifecycleCapability.PackageID] = true
+		switch lifecycleCapability.Category {
+		case capability.LifecycleCategoryConsumerInstall:
+			categoryCounts["consumerInstall"]++
+		case capability.LifecycleCategoryMaintainerPublish:
+			categoryCounts["maintainerPublish"]++
+		default:
+			categoryCounts["other"]++
+		}
 		exactKey := doctorLifecycleAcknowledgementKey(lifecycleCapability.PackageID, lifecycleCapability.Script, lifecycleCapability.Command)
 		_, acknowledged := ackByExactKey[exactKey]
 		if acknowledged {
@@ -829,6 +844,8 @@ func doctorLifecycleSecurityChecks(root string, lf *lockfile.Lockfile, acknowled
 			"staleAcknowledgments":         staleCount,
 			"unusedAcknowledgments":        len(unusedAcknowledgements),
 			"packagesWithLifecycleScripts": len(packagesWithLifecycle),
+			"lifecycleCategories":          categoryCounts,
+			"execution":                    "blocked by default",
 		},
 	})
 
@@ -887,10 +904,13 @@ func collectDoctorLifecycleCapabilities(lf *lockfile.Lockfile) []doctorLifecycle
 			if script == "" {
 				script = pkgCapability.Detail
 			}
+			classification := capability.ClassifyLifecycleScript(script)
 			capabilities = append(capabilities, doctorLifecycleCapability{
-				PackageID: pkg.ID,
-				Script:    script,
-				Command:   pkgCapability.Command,
+				PackageID:   pkg.ID,
+				Script:      script,
+				Command:     pkgCapability.Command,
+				Category:    classification.LifecycleCategory,
+				InstallTime: classification.ConsumerInstallTime,
 			})
 		}
 	}
@@ -915,11 +935,14 @@ func doctorLifecycleCapabilityCheck(root string, lifecycleCapability doctorLifec
 	status := "warning"
 	message := "package declares lifecycle script; execution is blocked by default"
 	details := map[string]any{
-		"package":      lifecycleCapability.PackageID,
-		"script":       lifecycleCapability.Script,
-		"command":      lifecycleCapability.Command,
-		"execution":    "blocked",
-		"acknowledged": acknowledged,
+		"package":             lifecycleCapability.PackageID,
+		"lifecycleScriptName": lifecycleCapability.Script,
+		"script":              lifecycleCapability.Script,
+		"command":             lifecycleCapability.Command,
+		"lifecycleCategory":   lifecycleCapability.Category,
+		"consumerInstallTime": lifecycleCapability.InstallTime,
+		"execution":           "blocked",
+		"acknowledged":        acknowledged,
 	}
 	if acknowledged {
 		status = "ok"

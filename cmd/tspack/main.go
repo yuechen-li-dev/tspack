@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tspack/tspack/internal/capability"
 	"github.com/tspack/tspack/internal/check"
 	"github.com/tspack/tspack/internal/diag"
 	"github.com/tspack/tspack/internal/how"
@@ -41,12 +42,15 @@ type CheckJSONSummary struct {
 }
 
 type CheckJSONDiagnostic struct {
-	Code     string      `json:"code"`
-	Severity string      `json:"severity"`
-	Message  string      `json:"message"`
-	File     string      `json:"file,omitempty"`
-	Details  interface{} `json:"details,omitempty"`
-	Fixes    interface{} `json:"fixes,omitempty"`
+	Code                string      `json:"code"`
+	Severity            string      `json:"severity"`
+	Message             string      `json:"message"`
+	File                string      `json:"file,omitempty"`
+	LifecycleScriptName string      `json:"lifecycleScriptName,omitempty"`
+	LifecycleCategory   string      `json:"lifecycleCategory,omitempty"`
+	ConsumerInstallTime *bool       `json:"consumerInstallTime,omitempty"`
+	Details             interface{} `json:"details,omitempty"`
+	Fixes               interface{} `json:"fixes,omitempty"`
 }
 
 type WhyJSONReport struct {
@@ -129,6 +133,8 @@ type WhyJSONCapability struct {
 	Script                string `json:"script,omitempty"`
 	Command               string `json:"command,omitempty"`
 	Execution             string `json:"execution,omitempty"`
+	LifecycleCategory     string `json:"lifecycleCategory,omitempty"`
+	ConsumerInstallTime   bool   `json:"consumerInstallTime"`
 	Acknowledged          bool   `json:"acknowledged"`
 	AcknowledgementReason string `json:"acknowledgementReason,omitempty"`
 	BehaviorFixture       string `json:"behaviorFixture,omitempty"`
@@ -1048,6 +1054,8 @@ func printWhyCapabilities(lockPackages []why.LockPackageRef) {
 				printedHeader = true
 			}
 			fmt.Printf("  %s %s: %s\n", capability.Kind, capability.Script, capability.Command)
+			fmt.Printf("    lifecycleCategory: %s\n", capability.LifecycleCategory)
+			fmt.Printf("    consumerInstallTime: %t\n", capability.ConsumerInstallTime)
 			fmt.Println("    execution: blocked by default")
 			if capability.Acknowledged {
 				fmt.Println("    acknowledged: true")
@@ -1268,17 +1276,48 @@ func versionConflictSummaryDiagnostic(conflicts []diag.Diagnostic) diag.Diagnost
 }
 
 func lifecycleSummaryDiagnostic(lifecycle []diag.Diagnostic) diag.Diagnostic {
-	examples := lifecycleExamples(lifecycle, 3)
+	counts := lifecycleCategoryCounts(lifecycle)
+	consumerExamples := lifecycleExamplesByCategory(lifecycle, capability.LifecycleCategoryConsumerInstall, 2)
+	maintainerExamples := lifecycleExamplesByCategory(lifecycle, capability.LifecycleCategoryMaintainerPublish, 3)
+	otherExamples := lifecycleExamplesByCategory(lifecycle, capability.LifecycleCategoryOther, 3)
+	details := []string{}
+	if len(consumerExamples) > 0 {
+		details = append(details, "Consumer examples: "+strings.Join(consumerExamples, ", "))
+	}
+	if len(maintainerExamples) > 0 {
+		details = append(details, "Maintainer examples: "+strings.Join(maintainerExamples, ", "))
+	}
+	if len(otherExamples) > 0 {
+		details = append(details, "Other examples: "+strings.Join(otherExamples, ", "))
+	}
+	if counts[capability.LifecycleCategoryConsumerInstall] == 0 && counts[capability.LifecycleCategoryMaintainerPublish] > 0 && counts[capability.LifecycleCategoryOther] == 0 {
+		details = append(details, "These do not run during normal consumer install in npm-style workflows.")
+	}
+	details = append(details,
+		"Run `tspack check --show-lifecycle` for full script and pull-chain details.",
+		"Run `tspack doctor security` for policy posture.",
+	)
+	message := lifecycleSummaryMessage(counts)
 	return diag.Diagnostic{
 		Code:     "TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT",
 		Severity: diag.SeverityWarning,
-		Message:  fmt.Sprintf("Lifecycle scripts: %d packages declare lifecycle scripts; execution is blocked by policy.", len(lifecycle)),
-		Details: []string{
-			"Examples: " + strings.Join(examples, ", "),
-			"Run `tspack check --show-lifecycle` for full script and pull-chain details.",
-			"Run `tspack doctor security` for policy posture.",
-		},
+		Message:  message,
+		Details:  details,
 	}
+}
+
+func lifecycleSummaryMessage(counts map[string]int) string {
+	parts := []string{}
+	if counts[capability.LifecycleCategoryConsumerInstall] > 0 {
+		parts = append(parts, fmt.Sprintf("%d consumer install-time scripts", counts[capability.LifecycleCategoryConsumerInstall]))
+	}
+	if counts[capability.LifecycleCategoryMaintainerPublish] > 0 {
+		parts = append(parts, fmt.Sprintf("%d maintainer-side scripts", counts[capability.LifecycleCategoryMaintainerPublish]))
+	}
+	if counts[capability.LifecycleCategoryOther] > 0 {
+		parts = append(parts, fmt.Sprintf("%d other lifecycle scripts", counts[capability.LifecycleCategoryOther]))
+	}
+	return "Lifecycle scripts: " + strings.Join(parts, " and ") + " found; execution is blocked by policy."
 }
 
 func versionConflictExamples(conflicts []diag.Diagnostic, limit int) []string {
@@ -1308,12 +1347,64 @@ func versionConflictExamples(conflicts []diag.Diagnostic, limit int) []string {
 func lifecycleExamples(lifecycle []diag.Diagnostic, limit int) []string {
 	examples := []string{}
 	for _, diagnostic := range sortedDiagnosticsForExamples(lifecycle) {
-		examples = append(examples, lifecyclePackageName(diagnostic))
+		examples = append(examples, lifecyclePackageAndScript(diagnostic))
 		if len(examples) >= limit {
 			return examples
 		}
 	}
 	return examples
+}
+
+func lifecycleExamplesByCategory(lifecycle []diag.Diagnostic, category string, limit int) []string {
+	examples := []string{}
+	for _, diagnostic := range sortedDiagnosticsForExamples(lifecycle) {
+		if lifecycleDiagnosticDetail(diagnostic, "lifecycleCategory") != category {
+			continue
+		}
+		examples = append(examples, lifecyclePackageAndScript(diagnostic))
+		if len(examples) >= limit {
+			return examples
+		}
+	}
+	return examples
+}
+
+func lifecycleCategoryCounts(lifecycle []diag.Diagnostic) map[string]int {
+	counts := map[string]int{
+		capability.LifecycleCategoryConsumerInstall:   0,
+		capability.LifecycleCategoryMaintainerPublish: 0,
+		capability.LifecycleCategoryOther:             0,
+	}
+	for _, diagnostic := range lifecycle {
+		category := lifecycleDiagnosticDetail(diagnostic, "lifecycleCategory")
+		if category == "" {
+			category = capability.LifecycleCategoryOther
+		}
+		counts[category]++
+	}
+	return counts
+}
+
+func lifecyclePackageAndScript(diagnostic diag.Diagnostic) string {
+	script := lifecycleDiagnosticDetail(diagnostic, "lifecycleScriptName")
+	if script == "" {
+		script = lifecycleDiagnosticDetail(diagnostic, "script")
+	}
+	if script == "" {
+		return lifecyclePackageName(diagnostic)
+	}
+	return lifecyclePackageName(diagnostic) + " " + script
+}
+
+func lifecycleDiagnosticDetail(diagnostic diag.Diagnostic, key string) string {
+	prefix := key + ": "
+	for _, detail := range diagnostic.Details {
+		trimmed := strings.TrimSpace(detail)
+		if strings.HasPrefix(trimmed, prefix) {
+			return strings.TrimPrefix(trimmed, prefix)
+		}
+	}
+	return ""
 }
 
 func lifecyclePackageName(diagnostic diag.Diagnostic) string {
@@ -1375,6 +1466,12 @@ func buildCheckJSONReport(opts project.Options, result project.Result) CheckJSON
 		}
 		if d.File != "" {
 			jd.File = d.File
+		}
+		if d.Code == "TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT" {
+			jd.LifecycleScriptName = lifecycleDiagnosticDetail(d, "lifecycleScriptName")
+			jd.LifecycleCategory = lifecycleDiagnosticDetail(d, "lifecycleCategory")
+			consumerInstallTime := lifecycleDiagnosticDetail(d, "consumerInstallTime") == "true"
+			jd.ConsumerInstallTime = &consumerInstallTime
 		}
 		if len(d.Details) > 0 {
 			jd.Details = d.Details
@@ -1472,6 +1569,8 @@ func buildWhyJSONLockPackage(lockPackage why.LockPackageRef) WhyJSONLockPackage 
 			Script:                capability.Script,
 			Command:               capability.Command,
 			Execution:             capability.Execution,
+			LifecycleCategory:     capability.LifecycleCategory,
+			ConsumerInstallTime:   capability.ConsumerInstallTime,
 			Acknowledged:          capability.Acknowledged,
 			AcknowledgementReason: capability.AcknowledgementReason,
 			BehaviorFixture:       capability.BehaviorFixture,

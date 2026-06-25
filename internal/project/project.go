@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/tspack/tspack/internal/bridge"
-	"github.com/tspack/tspack/internal/capability"
+	capmodel "github.com/tspack/tspack/internal/capability"
 	"github.com/tspack/tspack/internal/check"
 	"github.com/tspack/tspack/internal/diag"
 	"github.com/tspack/tspack/internal/graph"
@@ -667,10 +667,14 @@ func lifecycleCapabilityDiagnostics(lf *lockfile.Lockfile, acknowledgements map[
 					staleAcknowledgements[staleKey] = staleLifecycleAcknowledgement{Acknowledgement: acknowledgement, ActualCommand: capability.Command}
 				}
 			}
+			classification := capmodel.ClassifyLifecycleScript(capability.Script)
 			details := []string{
 				"package: " + pkg.ID,
+				"lifecycleScriptName: " + capability.Script,
 				"script: " + capability.Script,
 				"command: " + capability.Command,
+				"lifecycleCategory: " + classification.LifecycleCategory,
+				"consumerInstallTime: " + fmt.Sprintf("%t", classification.ConsumerInstallTime),
 				"execution: blocked by default",
 			}
 			paths := pathsByPackage[pkg.ID]
@@ -732,7 +736,7 @@ func lifecycleAcknowledgementSet(ir *manifest.ManifestIR) map[string]manifest.Ac
 		return acknowledgements
 	}
 	for _, acknowledgement := range ir.Security.AcknowledgedCapabilities {
-		if acknowledgement.Kind != capability.LifecycleScriptKind {
+		if acknowledgement.Kind != capmodel.LifecycleScriptKind {
 			continue
 		}
 		key := lifecycleAcknowledgementKey(acknowledgement.Package, acknowledgement.Script, acknowledgement.Command)
@@ -742,11 +746,11 @@ func lifecycleAcknowledgementSet(ir *manifest.ManifestIR) map[string]manifest.Ac
 }
 
 func lifecycleAcknowledgementKey(packageID string, script string, command string) string {
-	return packageID + "|" + capability.LifecycleScriptKind + "|" + script + "|" + command
+	return packageID + "|" + capmodel.LifecycleScriptKind + "|" + script + "|" + command
 }
 
 func lifecycleStaleAcknowledgementKey(packageID string, script string) string {
-	return packageID + "|" + capability.LifecycleScriptKind + "|" + script
+	return packageID + "|" + capmodel.LifecycleScriptKind + "|" + script
 }
 
 func isLifecycleCapability(capability lockfile.Capability) bool {

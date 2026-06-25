@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	capmodel "github.com/tspack/tspack/internal/capability"
 	"github.com/tspack/tspack/internal/diag"
 	"github.com/tspack/tspack/internal/graph"
 	"github.com/tspack/tspack/internal/lockfile"
@@ -49,6 +50,8 @@ type LockPackageRef struct {
 type CapabilityRef struct {
 	Kind, Script, Command string
 	Execution             string
+	LifecycleCategory     string
+	ConsumerInstallTime   bool
 	Acknowledged          bool
 	AcknowledgementReason string
 	BehaviorFixture       string
@@ -344,6 +347,7 @@ func lockPackageRef(pkg lockfile.Package, acknowledgements []manifest.Acknowledg
 		if script == "" {
 			script = capability.Detail
 		}
+		classification := capmodel.ClassifyLifecycleScript(script)
 		acknowledgement, acknowledged := lifecycleAcknowledgementForCapability(pkg.ID, script, capability.Command, acknowledgements)
 		evidence := securityevidence.Evidence{BehaviorFixtureStatus: securityevidence.StatusNone, BehaviorReportStatus: securityevidence.StatusNone}
 		if acknowledged {
@@ -354,6 +358,8 @@ func lockPackageRef(pkg lockfile.Package, acknowledgements []manifest.Acknowledg
 			Script:                script,
 			Command:               capability.Command,
 			Execution:             "blocked",
+			LifecycleCategory:     classification.LifecycleCategory,
+			ConsumerInstallTime:   classification.ConsumerInstallTime,
 			Acknowledged:          acknowledged,
 			AcknowledgementReason: acknowledgement.Reason,
 			BehaviorFixture:       evidence.BehaviorFixture,

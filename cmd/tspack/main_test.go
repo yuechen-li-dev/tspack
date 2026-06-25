@@ -29,10 +29,13 @@ type checkJSONSummary struct {
 }
 
 type checkJSONDiagnostic struct {
-	Code     string   `json:"code"`
-	Severity string   `json:"severity"`
-	Message  string   `json:"message"`
-	Details  []string `json:"details"`
+	Code                string   `json:"code"`
+	Severity            string   `json:"severity"`
+	Message             string   `json:"message"`
+	LifecycleScriptName string   `json:"lifecycleScriptName"`
+	LifecycleCategory   string   `json:"lifecycleCategory"`
+	ConsumerInstallTime *bool    `json:"consumerInstallTime"`
+	Details             []string `json:"details"`
 }
 type updateDryRunJSONReport struct {
 	Command string `json:"command"`
@@ -3116,8 +3119,9 @@ func TestCLICheckSummarizesNoisyWarningsWithRevealFlags(t *testing.T) {
 		"TSPACK_LOCK_VERSION_CONFLICT: Version conflicts: 2 packages have multiple resolved versions.",
 		"Examples: @types/estree (1.0.8, 1.0.9), js-tokens (4.0.0, 9.0.1)",
 		"Run `tspack check --show-conflicts` for full conflict diagnostics.",
-		"TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT: Lifecycle scripts: 2 packages declare lifecycle scripts; execution is blocked by policy.",
-		"Examples: culori, esbuild",
+		"TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT: Lifecycle scripts: 1 consumer install-time scripts and 1 maintainer-side scripts found; execution is blocked by policy.",
+		"Consumer examples: culori postinstall",
+		"Maintainer examples: esbuild prepare",
 		"Run `tspack check --show-lifecycle` for full script and pull-chain details.",
 		"Run `tspack doctor security` for policy posture.",
 		"TSPACK_SECURITY_ACKNOWLEDGED_CAPABILITY_UNUSED",
@@ -3148,6 +3152,8 @@ func TestCLICheckSummarizesNoisyWarningsWithRevealFlags(t *testing.T) {
 		"TSPACK_LOCK_VERSION_CONFLICT: package \"js-tokens\" appears at multiple versions",
 		"TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT: package declares install-time lifecycle script",
 		"package: npm:culori@4.0.0",
+		"lifecycleCategory: consumer-install",
+		"consumerInstallTime: true",
 		"pulled by:",
 		"app:target:core -> npm:culori@4.0.0",
 	} {
@@ -3176,6 +3182,22 @@ func TestCLICheckSummarizesNoisyWarningsWithRevealFlags(t *testing.T) {
 	}
 	if countDiagnostics(report.Diagnostics, "TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT") != 2 {
 		t.Fatalf("json should include all lifecycle diagnostics: %#v", report.Diagnostics)
+	}
+	foundConsumer := false
+	foundMaintainer := false
+	for _, diagnostic := range report.Diagnostics {
+		if diagnostic.Code != "TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT" {
+			continue
+		}
+		if diagnostic.LifecycleCategory == "consumer-install" && diagnostic.ConsumerInstallTime != nil && *diagnostic.ConsumerInstallTime {
+			foundConsumer = true
+		}
+		if diagnostic.LifecycleCategory == "maintainer-publish" && diagnostic.ConsumerInstallTime != nil && !*diagnostic.ConsumerInstallTime {
+			foundMaintainer = true
+		}
+	}
+	if !foundConsumer || !foundMaintainer {
+		t.Fatalf("json lifecycle diagnostics missing classification: %#v", report.Diagnostics)
 	}
 }
 

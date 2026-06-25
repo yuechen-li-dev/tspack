@@ -645,7 +645,7 @@ func TestDoctorSecurityNoLifecycleCapabilities(t *testing.T) {
 		t.Fatalf("doctor security text failed: %v\n%s", err, string(b))
 	}
 	text := string(b)
-	for _, expected := range []string{"Security", "lifecycle summary: ok", "no lifecycle script capabilities recorded", "totalLifecycleCapabilities: 0", "lifecycle execution posture: ok"} {
+	for _, expected := range []string{"Security", "lifecycle summary: ok", "no lifecycle script capabilities recorded", "totalLifecycleCapabilities: 0", `"consumerInstall":0`, `"maintainerPublish":0`, `"other":0`, "lifecycle execution posture: ok"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("doctor security text missing %q:\n%s", expected, text)
 		}
@@ -761,8 +761,12 @@ kind = "runtime"
 	if summary.Status != "warning" || summary.Details["totalLifecycleCapabilities"] != float64(3) || summary.Details["acknowledged"] != float64(1) || summary.Details["unacknowledged"] != float64(1) || summary.Details["staleAcknowledgments"] != float64(1) || summary.Details["unusedAcknowledgments"] != float64(1) {
 		t.Fatalf("unexpected lifecycle summary: %#v", summary)
 	}
+	categories, ok := summary.Details["lifecycleCategories"].(map[string]any)
+	if !ok || categories["consumerInstall"] != float64(3) || categories["maintainerPublish"] != float64(0) || categories["other"] != float64(0) {
+		t.Fatalf("unexpected lifecycle categories: %#v", summary.Details["lifecycleCategories"])
+	}
 	unack := checks["lifecycle npm:unack@1.0.0 postinstall"]
-	if unack.Status != "warning" || unack.Details["execution"] != "blocked" || unack.Details["acknowledged"] != false || unack.Details["command"] != "node build.js" {
+	if unack.Status != "warning" || unack.Details["execution"] != "blocked" || unack.Details["acknowledged"] != false || unack.Details["command"] != "node build.js" || unack.Details["lifecycleCategory"] != "consumer-install" || unack.Details["consumerInstallTime"] != true {
 		t.Fatalf("unexpected unacknowledged lifecycle check: %#v", unack)
 	}
 	pulledBy, ok := unack.Details["pulledBy"].([]any)
@@ -770,7 +774,7 @@ kind = "runtime"
 		t.Fatalf("missing pulled-by path: %#v", unack.Details)
 	}
 	ack := checks["lifecycle npm:ack@1.0.0 postinstall"]
-	if ack.Status != "ok" || ack.Details["acknowledged"] != true || ack.Details["reason"] == "" {
+	if ack.Status != "ok" || ack.Details["acknowledged"] != true || ack.Details["reason"] == "" || ack.Details["lifecycleCategory"] != "consumer-install" {
 		t.Fatalf("unexpected acknowledged lifecycle check: %#v", ack)
 	}
 	if ack.Details["behaviorFixture"] != "security/ack-postinstall.valid.xtest.tsx" || ack.Details["behaviorFixtureStatus"] != "present" {
