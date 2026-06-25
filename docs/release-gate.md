@@ -817,3 +817,14 @@ The M46b gate covers default human `tspack check` readability for noisy informat
 - Acknowledged exact lifecycle capabilities and matching lifecycle-category acknowledgments can pass; lifecycle execution remains blocked.
 - The command does not mutate lockfiles, stores, or materialization and does not run lifecycle scripts or behavior fixtures.
 - Normal update and outdated behavior remains unchanged.
+
+## M50d rolling policy dogfood and closeout gate
+
+- A realistic update-policy fixture exists under `examples/update-policy-notes` with app, library, and shared utility packages.
+- The command matrix covers outdated human/JSON/per-package reports, policy dry-run human/JSON reports, check, check lifecycle details, doctor security human/JSON, and dry-run-only guardrails.
+- No-mutation assertions pass for report/planning paths: lockfile bytes remain unchanged, store population is not caused by policy dry-run, materialization remains absent, and lifecycle scripts/behavior fixtures are not executed.
+- Human outdated output remains grouped and readable for shared tool declarations while preserving `--per-package` expansion.
+- Outdated JSON and policy dry-run JSON remain CI-stable with policy fields, compatibility declaration-level dependencies, non-null summary counts, stable candidate arrays, `effectiveAction`, `securityGateStatus`, and `securityGateReasons`.
+- Security-gated plan statuses are verified for ready, review-capable, blocked-by-security, blocked-by-policy, unclassified, not-applicable, and noop buckets as applicable.
+- Dry-run-only guardrails remain: `update --policy` without `--dry-run` fails, and targeted policy planning remains rejected.
+- Dogfood documentation records current limitations, including no policy-driven mutation, no targeted policy planning, no external vulnerability feed, and no React single-version/coherence policy.

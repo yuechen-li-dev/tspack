@@ -1,0 +1,121 @@
+[lock]
+format = 1
+tool = 'tspack'
+
+[[package]]
+ID = 'npm:typescript@5.8.0'
+Name = 'typescript'
+Version = '5.8.0'
+Source = 'npm'
+Integrity = 'sha512-fixture-typescript'
+Hash = 'sha256:fixture-typescript'
+
+[[package]]
+ID = 'npm:vite@5.4.21'
+Name = 'vite'
+Version = '5.4.21'
+Source = 'npm'
+Integrity = 'sha512-fixture-vite'
+Hash = 'sha256:fixture-vite'
+
+[[package]]
+ID = 'npm:esbuild@0.21.0'
+Name = 'esbuild'
+Version = '0.21.0'
+Source = 'npm'
+Integrity = 'sha512-fixture-esbuild'
+Hash = 'sha256:fixture-esbuild'
+
+[[package]]
+ID = 'npm:@biomejs/biome@1.9.4'
+Name = '@biomejs/biome'
+Version = '1.9.4'
+Source = 'npm'
+Integrity = 'sha512-fixture-biome'
+Hash = 'sha256:fixture-biome'
+
+[[package]]
+ID = 'npm:rollup@4.20.0'
+Name = 'rollup'
+Version = '4.20.0'
+Source = 'npm'
+Integrity = 'sha512-fixture-rollup'
+Hash = 'sha256:fixture-rollup'
+
+  [[package.capability]]
+  kind = 'lifecycleScript'
+  script = 'prepare'
+  command = 'node ./scripts/prepare-release.js'
+
+[[package]]
+ID = 'npm:react@18.3.1'
+Name = 'react'
+Version = '18.3.1'
+Source = 'npm'
+Integrity = 'sha512-fixture-react'
+Hash = 'sha256:fixture-react'
+
+[[package]]
+ID = 'npm:react-dom@18.3.1'
+Name = 'react-dom'
+Version = '18.3.1'
+Source = 'npm'
+Integrity = 'sha512-fixture-react-dom'
+Hash = 'sha256:fixture-react-dom'
+
+[[package]]
+ID = 'workspace:@tspack-examples/update-policy-utils#fixture'
+Name = '@tspack-examples/update-policy-utils'
+Version = '0.1.0'
+Source = 'workspace'
+Path = '.'
+Workspace = '@tspack-examples/update-policy-utils'
+Hash = 'sha256:fixture-utils'
+
+[[edge]]
+From = '@tspack-examples/update-policy-app:tool'
+To = 'npm:typescript@5.8.0'
+Kind = 'tool'
+Optional = false
+
+[[edge]]
+From = '@tspack-examples/update-policy-lib:tool'
+To = 'npm:typescript@5.8.0'
+Kind = 'tool'
+Optional = false
+
+[[edge]]
+From = '@tspack-examples/update-policy-utils:tool'
+To = 'npm:typescript@5.8.0'
+Kind = 'tool'
+Optional = false
+
+[[edge]]
+From = '@tspack-examples/update-policy-app:target:app'
+To = 'workspace:@tspack-examples/update-policy-utils#fixture'
+Kind = 'runtime'
+Optional = false
+
+[[target]]
+Package = '@tspack-examples/update-policy-app'
+Name = 'app'
+Export = '.'
+Entry = 'src/app.tsx'
+Runtime = 'public/app.js'
+Types = 'public/app.d.ts'
+
+[[target]]
+Package = '@tspack-examples/update-policy-lib'
+Name = 'lib'
+Export = '.'
+Entry = 'src/lib.tsx'
+Runtime = 'dist/lib.js'
+Types = 'dist/lib.d.ts'
+
+[[target]]
+Package = '@tspack-examples/update-policy-utils'
+Name = 'utils'
+Export = '.'
+Entry = 'src/utils.ts'
+Runtime = 'dist/utils.js'
+Types = 'dist/utils.d.ts'
