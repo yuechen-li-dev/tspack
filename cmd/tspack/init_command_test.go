@@ -114,6 +114,10 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, ".tspack", "types", "tspack-manifest.d.ts")); err != nil {
 			t.Fatalf("missing manifest type support: %v", err)
 		}
+		assertGeneratedTSPackTSConfig(t, root)
+		if !strings.Contains(string(b), "Generated tsconfig.tspack.json for TSPack manifest editor support") {
+			t.Fatalf("init output missing editor support note: %s", string(b))
+		}
 		if _, err := os.Stat(filepath.Join(root, "tspack-env.d.ts")); err != nil {
 			t.Fatalf("missing tspack env type support: %v", err)
 		}
@@ -183,7 +187,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, "manifest.tsx")); !os.IsNotExist(err) {
 			t.Fatalf("dry-run should not write files")
 		}
-		if !strings.Contains(string(b), "Would write") || !strings.Contains(string(b), "src/main.ts") || !strings.Contains(string(b), ".tspack/types/tspack-manifest.d.ts") || !strings.Contains(string(b), "tspack-env.d.ts") {
+		if !strings.Contains(string(b), "Would write") || !strings.Contains(string(b), "src/main.ts") || !strings.Contains(string(b), ".tspack/types/tspack-manifest.d.ts") || !strings.Contains(string(b), "tsconfig.tspack.json") || !strings.Contains(string(b), "tspack-env.d.ts") {
 			t.Fatalf("dry-run output missing file list: %s", string(b))
 		}
 
@@ -197,6 +201,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, ".tspack", "types", "tspack-manifest.d.ts")); err != nil {
 			t.Fatalf("missing manifest type support: %v", err)
 		}
+		assertGeneratedTSPackTSConfig(t, root)
 		if _, err := os.Stat(filepath.Join(root, "tspack-env.d.ts")); err != nil {
 			t.Fatalf("missing tspack env type support: %v", err)
 		}
@@ -228,6 +233,39 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 				t.Fatalf("app manifest missing %q\n%s", want, m)
 			}
 		}
+	})
+
+	t.Run("existing tsconfig is left unchanged with note", func(t *testing.T) {
+		root := t.TempDir()
+		existingTSConfig := `{
+  "compilerOptions": {
+    "target": "ES2020"
+  },
+  "include": ["**/*.tsx"]
+}
+`
+		if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(existingTSConfig), 0o644); err != nil {
+			t.Fatalf("write existing tsconfig: %v", err)
+		}
+
+		cmd := exec.Command("go", "run", "./cmd/tspack", "init", "--root", root, "--kind", "app", "--name", "acme-demo")
+		cmd.Dir = repo
+		b, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("init with existing tsconfig failed: %v\n%s", err, string(b))
+		}
+
+		afterBytes, err := os.ReadFile(filepath.Join(root, "tsconfig.json"))
+		if err != nil {
+			t.Fatalf("read existing tsconfig: %v", err)
+		}
+		if string(afterBytes) != existingTSConfig {
+			t.Fatalf("existing tsconfig should be left unchanged; got:\n%s", string(afterBytes))
+		}
+		if !strings.Contains(string(b), "Existing tsconfig.json was left unchanged") {
+			t.Fatalf("init output missing existing tsconfig note: %s", string(b))
+		}
+		assertGeneratedTSPackTSConfig(t, root)
 	})
 
 	t.Run("generated manifests parse through frontend and validate", func(t *testing.T) {
@@ -360,26 +398,25 @@ func TestInitManifestTypeSupportDriftAndTypecheck(t *testing.T) {
 			if err != nil {
 				t.Fatalf("init failed: %v\n%s", err, string(b))
 			}
-			tsconfig := `{
-  "compilerOptions": {
-    "strict": true,
-    "noEmit": true,
-    "target": "ES2020",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "jsx": "preserve"
-  },
-  "include": ["manifest.tsx", "tspack-env.d.ts"]
-}
-`
-			if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(tsconfig), 0o644); err != nil {
-				t.Fatalf("write tsconfig: %v", err)
+			manifestBytes, err := os.ReadFile(filepath.Join(root, "manifest.tsx"))
+			if err != nil {
+				t.Fatalf("read manifest: %v", err)
+			}
+			typeBytes, err := os.ReadFile(filepath.Join(root, ".tspack", "types", "tspack-manifest.d.ts"))
+			if err != nil {
+				t.Fatalf("read manifest declarations: %v", err)
+			}
+			if !strings.Contains(string(manifestBytes), `from "tspack/manifest"`) {
+				t.Fatalf("generated manifest should import tspack/manifest:\n%s", string(manifestBytes))
+			}
+			if !strings.Contains(string(typeBytes), "declare module 'tspack/manifest'") && !strings.Contains(string(typeBytes), `declare module "tspack/manifest"`) {
+				t.Fatalf("generated type surface should declare tspack/manifest module")
 			}
 			tscPath, err := filepath.Abs(filepath.Join(repo, "manifest-frontend", "node_modules", "typescript", "bin", "tsc"))
 			if err != nil {
 				t.Fatalf("resolve tsc path: %v", err)
 			}
-			tsc := exec.Command("node", tscPath, "--project", filepath.Join(root, "tsconfig.json"), "--noEmit")
+			tsc := exec.Command("node", tscPath, "--project", filepath.Join(root, "tsconfig.tspack.json"), "--noEmit")
 			tsc.Dir = repo
 			out, err := tsc.CombinedOutput()
 			if err != nil {
@@ -387,6 +424,68 @@ func TestInitManifestTypeSupportDriftAndTypecheck(t *testing.T) {
 			}
 		})
 	}
+}
+
+func assertGeneratedTSPackTSConfig(t *testing.T, root string) {
+	t.Helper()
+
+	configBytes, err := os.ReadFile(filepath.Join(root, "tsconfig.tspack.json"))
+	if err != nil {
+		t.Fatalf("missing generated TSPack tsconfig: %v", err)
+	}
+
+	var config map[string]any
+	if err := json.Unmarshal(configBytes, &config); err != nil {
+		t.Fatalf("generated TSPack tsconfig should parse as JSON: %v", err)
+	}
+
+	compilerOptions, ok := config["compilerOptions"].(map[string]any)
+	if !ok {
+		t.Fatalf("generated TSPack tsconfig missing compilerOptions: %#v", config)
+	}
+	if compilerOptions["jsx"] != "preserve" {
+		t.Fatalf("generated TSPack tsconfig should preserve JSX, got %#v", compilerOptions["jsx"])
+	}
+	paths, ok := compilerOptions["paths"].(map[string]any)
+	if !ok {
+		t.Fatalf("generated TSPack tsconfig missing paths: %#v", compilerOptions)
+	}
+	manifestPathValues, ok := paths["tspack/manifest"].([]any)
+	if !ok || len(manifestPathValues) != 1 || manifestPathValues[0] != ".tspack/types/tspack-manifest.d.ts" {
+		t.Fatalf("generated TSPack tsconfig should map tspack/manifest to local declarations: %#v", paths["tspack/manifest"])
+	}
+
+	includeSet := jsonStringArraySet(t, config["include"])
+	for _, want := range []string{"manifest.tsx", "package.manifest.tsx", "**/*.manifest.tsx", "**/*.xtest.tsx", ".tspack/types/**/*.d.ts"} {
+		if !includeSet[want] {
+			t.Fatalf("generated TSPack tsconfig missing include %q in %#v", want, includeSet)
+		}
+	}
+
+	excludeSet := jsonStringArraySet(t, config["exclude"])
+	for _, want := range []string{"src/**", "dist/**", "node_modules/**", ".tspack/store/**", "tspack-artifacts/**"} {
+		if !excludeSet[want] {
+			t.Fatalf("generated TSPack tsconfig missing exclude %q in %#v", want, excludeSet)
+		}
+	}
+}
+
+func jsonStringArraySet(t *testing.T, value any) map[string]bool {
+	t.Helper()
+
+	values, ok := value.([]any)
+	if !ok {
+		t.Fatalf("expected JSON string array, got %#v", value)
+	}
+	set := map[string]bool{}
+	for _, value := range values {
+		text, ok := value.(string)
+		if !ok {
+			t.Fatalf("expected JSON string array member, got %#v", value)
+		}
+		set[text] = true
+	}
+	return set
 }
 
 func loadManifestIR(opts project.Options) (map[string]any, error) {

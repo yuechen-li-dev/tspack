@@ -1,16 +1,30 @@
 # Manifest (M1 subset)
 
 `manifest.tsx` is a **typed document**, not an executable TypeScript program.
-TSPack parses/analyzes AST and never executes user manifest code.
+TSPack parses/analyzes AST and never executes user manifest code. Manifest TSX is TSPack DSL syntax, not React component code.
 
 ## Authoring type surface
 
 TSPack provides a local TypeScript authoring surface at `tspack/manifest`.
 - Import helpers, policy types, and JSX manifest elements directly from `tspack/manifest`.
 - `tspack init` writes project-local declaration support (`.tspack/types/tspack-manifest.d.ts` and `tspack-env.d.ts`) so standard TypeScript tooling resolves the module without an npm package or editor extension.
+- `tspack init` also writes `tsconfig.tspack.json` for editor and type-surface support of manifest files.
+- `tsconfig.tspack.json` uses `jsx: preserve` so manifest TSX does not require React or `react/jsx-runtime`.
 - This surface is for editor autocomplete/typechecking only.
 - Parser, normalized IR, and Go validation remain authoritative.
 - Manifests are still statically parsed; helper functions are not runtime-executed.
+
+## TypeScript/editor boundary
+
+TSPack owns these TSX/type contexts:
+
+- `manifest.tsx`
+- `package.manifest.tsx`
+- `**/*.manifest.tsx`
+- `**/*.xtest.tsx`
+- `.tspack/types/**/*.d.ts`
+
+App and framework tooling owns normal app source such as `src/**/*.ts`, `src/**/*.tsx`, app test files, and framework configs. If an app `tsconfig.json` includes root TSX broadly, exclude TSPack-owned files there and use `tsconfig.tspack.json` when editing manifests. TSPack parses only manifest entrypoints as manifest DSL.
 
 ## M1 constraints
 

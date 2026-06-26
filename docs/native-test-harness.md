@@ -441,6 +441,10 @@ Type assertion calls shaped like `assert.type<TExpected>(value, "reason")` are d
 
 List mode remains non-executing and does not run the typecheck lane. Normal run, batch run, compact output, and JSON output include selected type assertion failures. Filtered runs ignore type assertion failures in unselected Fact/Theory bodies when the assertion can be mapped to a test context; Theory diagnostics attach to the Theory base rather than to every case.
 
+## TypeScript/editor boundary
+
+`*.xtest.tsx` files are TSPack native tests. They are loaded by `tspack test`, not by React, Vitest, or Jest. Unless an app intentionally wires TSPack native tests into its own tooling, exclude `**/*.xtest.tsx` from normal app `tsconfig.json` and app test-runner globs. The native test globals and components remain the ones listed in this document.
+
 Current M34g limitations:
 
 - Assignability only; no exact type equality helper.

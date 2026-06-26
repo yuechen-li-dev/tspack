@@ -103,3 +103,7 @@ Before 0.1.0, verify bounded-parallel store population does not affect determini
 - Run `go test ./internal/project ./internal/store -run 'Update|Store|Parallel|Jobs|DryRun|Target|Concurrent' -count=1`.
 - Optional local measurement command: `TSPACK_STORE_JOBS=1 go test ./internal/project -bench StorePopulation -run '^$'`, then repeat with `TSPACK_STORE_JOBS=8` if a store-population benchmark is available in the working tree. CI must not assert a fixed speedup.
 - Self-host smoke and `./scripts/build-release.sh` must still pass after parallel store population.
+
+## v0.1.3 known fix
+
+- `tspack init` generates `tsconfig.tspack.json` so VS Code and TypeScript can understand `manifest.tsx` through local `tspack/manifest` declarations without requiring React or `react/jsx-runtime`.

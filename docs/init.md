@@ -1,7 +1,7 @@
 # `tspack init` (M30)
 
 `tspack init` scaffolds a readable starter `manifest.tsx` and a matching source entry file.
-Generated manifests import from `tspack/manifest`, so TS-aware editors provide autocomplete/typechecking while authoring.
+Generated manifests import from `tspack/manifest`, so TS-aware editors provide autocomplete/typechecking while authoring. Init also generates `tsconfig.tspack.json` so manifest TSX is checked as TSPack DSL instead of React TSX.
 
 ## Kinds
 
@@ -14,6 +14,7 @@ Generated manifests import from `tspack/manifest`, so TS-aware editors provide a
 - `src/index.ts` for libraries
 - `src/main.ts` for apps
 - `.tspack/types/tspack-manifest.d.ts` (local manifest authoring declaration surface)
+- `tsconfig.tspack.json` (editor/type support for TSPack-owned manifest and xTest TSX files)
 - `tspack-env.d.ts` (project-level TypeScript reference for `tspack/manifest`)
 
 ## Flags
@@ -55,6 +56,8 @@ By default, `tspack init` refuses to overwrite existing generated files and emit
 
 ## Manifest authoring type support
 
-The generated declaration files exist only for local editor/autocomplete/typechecking support.
+The generated declaration files and `tsconfig.tspack.json` exist only for local editor/autocomplete/typechecking support.
 They are not runtime helpers and are not the manifest parser or validator source of truth.
-If removed, regenerate them by rerunning `tspack init --force` in the project root.
+`tsconfig.tspack.json` maps `tspack/manifest` to `.tspack/types/tspack-manifest.d.ts`, includes TSPack-owned manifest and `*.xtest.tsx` files, excludes app source, and uses `jsx: preserve` so React and `react/jsx-runtime` are not required for manifest editing.
+If an existing `tsconfig.json` is present, init leaves it unchanged and prints guidance to exclude TSPack-owned files if the app config includes root TSX broadly.
+If removed, regenerate these files by rerunning `tspack init --force` in the project root.

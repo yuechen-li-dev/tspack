@@ -31,6 +31,7 @@ The installer downloads GitHub Release artifacts, verifies the checksum entry, a
 
 ```bash
 tspack init --kind library --name my-package
+# init also writes tsconfig.tspack.json and local manifest editor types.
 tspack update
 tspack check
 tspack check --format
