@@ -439,6 +439,7 @@ Phase 8 expected behavior coverage should verify:
 - Targeted update output includes the selected dependency context and reports no-op targeted plans without lockfile writes when the selected dependency is already wanted/current.
 - JSON modes keep stdout machine-readable; progress is suppressed or kept off stdout.
 - `--quiet` suppresses update progress/status lines while leaving diagnostics and errors on stderr.
+- `run --once` and test harnesses that wait for stdout/stderr readiness must terminate the whole launched process tree after readiness, so inherited stdout/stderr pipes cannot keep CLI tests waiting forever.
 
 ## Non-goal checks
 

@@ -102,6 +102,7 @@ func startRunTargetInDir(root string, cwdPath string, target manifest.RunTarget,
 	}
 	cmd := exec.Command(launchCommand[0], launchCommand[1:]...)
 	cmd.Dir = cwdPath
+	configureRunTargetProcess(cmd)
 	readyCheck := newReadyCheck(resolved)
 	stdoutMatcher, stderrMatcher := readyCheck.outputMatchers()
 	var stdoutPipe io.ReadCloser
@@ -293,11 +294,12 @@ func terminate(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil
 	}
-	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+	pid := cmd.Process.Pid
+	if err := signalRunTargetProcessGroup(pid, syscall.SIGTERM); err != nil {
 		return err
 	}
 	time.AfterFunc(2*time.Second, func() {
-		_ = cmd.Process.Kill()
+		_ = signalRunTargetProcessGroup(pid, syscall.SIGKILL)
 	})
 	return nil
 }
