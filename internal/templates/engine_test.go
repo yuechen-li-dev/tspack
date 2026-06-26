@@ -40,6 +40,8 @@ func TestBuiltinStaticLoadsAndRenders(t *testing.T) {
 		`entry: "src/main.ts"`,
 		`runtime: "dist/main.js"`,
 		`types: "dist/main.d.ts"`,
+		`@biomejs/biome`,
+		`category: "consumer-install"`,
 	} {
 		if !strings.Contains(manifestText, want) {
 			t.Fatalf("static manifest target missing %q:\n%s", want, manifestText)
@@ -62,6 +64,12 @@ func TestBuiltinStaticLoadsAndRenders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal lockfile: %v", err)
 	}
+	packageJSON, err := os.ReadFile(filepath.Join(root, "package.json"))
+	if err != nil {
+		t.Fatalf("read package.json: %v", err)
+	}
+	assertNoLifecycleScripts(t, string(packageJSON))
+
 	_, diagnostics := lockfile.Parse("ts-lock.toml", lockBytes)
 	for _, diagnostic := range diagnostics {
 		if diagnostic.Code == "TSPACK_LOCK_INVALID_TARGET" {
@@ -114,11 +122,17 @@ func TestBuiltinReactLoadsAndRenders(t *testing.T) {
 		t.Fatalf("read manifest: %v", err)
 	}
 	manifestText := string(manifest)
-	for _, want := range []string{`name="Hello React" runtime="bun"`, `name="hello-react"`, `react-dom`, `@vitejs/plugin-react`, `strategy: "manual"`} {
+	for _, want := range []string{`name="Hello React" runtime="bun"`, `name="hello-react"`, `react-dom`, `@vitejs/plugin-react`, `@biomejs/biome`, `category: "consumer-install"`, `strategy: "manual"`} {
 		if !strings.Contains(manifestText, want) {
 			t.Fatalf("manifest missing %q:\n%s", want, manifestText)
 		}
 	}
+
+	packageJSON, err := os.ReadFile(filepath.Join(root, "package.json"))
+	if err != nil {
+		t.Fatalf("read package.json: %v", err)
+	}
+	assertNoLifecycleScripts(t, string(packageJSON))
 
 	if _, err := tmpl.ResolveValues(map[string]string{"projectName": "bad", "packageName": "bad", "runtime": "npm"}); err == nil || !strings.Contains(err.Error(), "TSPACK_TEMPLATE_VARIABLE_INVALID") {
 		t.Fatalf("expected invalid runtime error, got %v", err)
@@ -185,14 +199,20 @@ func TestBuiltinReactLibraryLoadsAndRenders(t *testing.T) {
 			t.Fatalf("package.json missing %q:\n%s", want, packageText)
 		}
 	}
-	for _, forbidden := range []string{"postinstall", "prepare", "prepublish"} {
-		if strings.Contains(packageText, forbidden) {
-			t.Fatalf("package.json should not include lifecycle script %q:\n%s", forbidden, packageText)
-		}
-	}
+	assertNoLifecycleScripts(t, packageText)
 
 	if _, err := tmpl.ResolveValues(map[string]string{"projectName": "bad", "packageName": "bad", "runtime": "npm"}); err == nil || !strings.Contains(err.Error(), "TSPACK_TEMPLATE_VARIABLE_INVALID") {
 		t.Fatalf("expected invalid runtime error, got %v", err)
+	}
+}
+
+func assertNoLifecycleScripts(t *testing.T, packageText string) {
+	t.Helper()
+
+	for _, forbidden := range []string{"postinstall", "prepare", "prepublish", "preinstall", "install"} {
+		if strings.Contains(packageText, forbidden) {
+			t.Fatalf("package.json should not include lifecycle script %q:\n%s", forbidden, packageText)
+		}
 	}
 }
 

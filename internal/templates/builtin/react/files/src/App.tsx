@@ -5,7 +5,8 @@ export function App() {
         <p className="eyebrow">TSPack React template</p>
         <h1>React + Vite + TypeScript</h1>
         <p>
-          Edit <code>src/App.tsx</code> and run TSPack commands from the project root.
+          Edit <code>src/App.tsx</code> and run TSPack commands from the project
+          root.
         </p>
       </section>
     </main>

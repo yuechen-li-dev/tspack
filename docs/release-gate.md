@@ -454,6 +454,11 @@ Phase 8 expected behavior coverage should verify:
 - `npm run typecheck:manifest-api` in `manifest-frontend/` validates `tspack/manifest` authoring declarations against typed fixtures.
 - Stricter standalone test-file typecheck is tracked as future M31c work.
 
+
+### Generated template smoke gate (M55c)
+
+Before v0.1.3 release, run static, react, and react-library generated template smokes through `tspack update`, `tspack sync`, `tspack check`, `tspack check --format`, and `tspack update --policy --dry-run`. React-library should also pass its typecheck/build/build-types and pack dry-run/verify flows. Lifecycle diagnostics from known generated-template tool closures must remain visible and acknowledged according to manifest policy, lifecycle execution must remain blocked, `check --format` must use the project/materialized Biome backend, and generated `package.json` files must contain no lifecycle scripts.
+
 ## Lifecycle capability smoke
 
 Create a fake npm registry package with a `postinstall` script that would write a marker file if executed. Run `tspack update` and verify `ts-lock.toml` records a `lifecycleScript` capability with the raw command. Run `tspack check` and verify `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT` is reported as a warning. Run `tspack sync` and verify the marker file is not created.
