@@ -112,6 +112,73 @@ The existing manifest frontend can parse only approved imports/helpers/elements 
 
 For M57a, docs-only examples are safer than declaration stubs because a stub that typechecks but is not preserved by the collector would imply support that does not exist. A future phase should add parser fixtures that prove Python nodes round-trip into an experimental IR field before exposing editor declarations.
 
+## Modularity and high-locality rule
+
+Future Python work must enter after manifest parsing through a narrow backend seam. The goal is not to scatter `if ecosystem == "pypi"` branches through resolver, lockfile, check, pack, run, security, templates, and CLI code. If a future implementation requires edits across many unrelated packages, stop and design a seam first.
+
+TypeScript remains special at the frontend layer because `manifest.tsx` is the canonical manifest authoring language. That does not make the TypeScript/npm implementation the shape every backend must copy. Python should be an ecosystem/backend module behind shared interfaces, not a second frontend and not a set of conditionals smeared over the npm path.
+
+Preferred direction:
+
+```text
+manifest.tsx
+  -> manifest frontend IR
+  -> language-neutral project/package IR
+  -> backend module interface
+       - typescript/npm backend
+       - experimental python/pypi backend later
+       - future ecosystems later
+```
+
+Good future shape:
+
+- Python-specific code lives under a high-locality module such as `internal/ecosystems/python` or `internal/backends/python`.
+- npm-specific behavior remains localized in a TypeScript/npm backend or existing npm production path.
+- shared code talks to backends through small interfaces.
+- existing TypeScript/npm tests and behavior stay unchanged unless a deliberate shared seam is introduced.
+
+Bad future shape:
+
+- `pypi` branches scattered through npm resolver code, store code, lockfile validation, `check`, `pack`, `run`, security policy, template selection, and CLI command handlers.
+- Python package roots forced into TypeScript target fields.
+- Python tools resolved through Node runtime or `node_modules/.bin` code.
+- npm lifecycle-script security semantics reused as if they were Python build semantics.
+
+## Backend module seam sketch
+
+A future seam can start smaller than this, but the design center should be a backend module interface with responsibilities like:
+
+```go
+type EcosystemBackend interface {
+    ID() EcosystemID
+    NormalizePackage(input BackendPackageInput) (ProjectPackage, []diag.Diagnostic)
+    ValidatePackage(pkg ProjectPackage) []diag.Diagnostic
+    VersionScheme() VersionScheme
+    RangeScheme() RangeScheme
+    Resolve(ctx context.Context, req ResolveRequest) (ResolveResult, []diag.Diagnostic)
+    Materialize(ctx context.Context, req MaterializeRequest) []diag.Diagnostic
+    Check(ctx context.Context, req CheckRequest) []diag.Diagnostic
+    Explain(ctx context.Context, req ExplainRequest) (ExplainResult, []diag.Diagnostic)
+    Project(ctx context.Context, req ProjectionRequest) (ProjectionResult, []diag.Diagnostic)
+    SecurityModel() SecurityModel
+}
+```
+
+M57a does not implement this interface. The sketch is here to keep future work modular. A tiny future implementation might begin with only `ID`, package normalization, version/range schemes, validation, and projection hooks, leaving resolution and materialization unsupported for Python.
+
+Proposed responsibility boundaries:
+
+| Responsibility | Shared layer | TypeScript/npm backend | Experimental Python/PyPI backend |
+| --- | --- | --- | --- |
+| package model normalization | owns common `ProjectPackage` shape | maps npm package targets, exports, JS/TS types | maps Python package roots, modules, extras, entry points |
+| dependency source handling | routes by backend/source kind | owns `npm` registry semantics and npm semver ranges | owns `pypi` source semantics and PEP 440 specifiers |
+| lockfile encoding/validation | stores ecosystem-aware package records | validates npm tarball/integrity metadata | validates wheel/sdist/hash/tag metadata later |
+| resolution/materialization | dispatches to selected backend | owns npm resolver, store, materialization | projection-only or `uv`-backed initially |
+| runtime/tool execution | dispatches by runtime/tool environment | owns nodejs/bun/deno and npm bin lookup | owns Python interpreter, `uv run`/venv, Python tool lookup later |
+| security policy | aggregates backend security findings | owns npm lifecycle-script capabilities | owns Python build backend, sdist, native wheel, external index, missing hash categories |
+| projection | detects drift and writes generated files | owns package.json/TS projections | owns pyproject/tool config/uv provenance projections later |
+| templates/concepts | stores concept metadata and composition | owns TS/npm concepts | owns future Python concepts without hardcoded template explosion |
+
 ## Internal IR impact
 
 Language-neutral or mostly neutral today:
@@ -248,7 +315,7 @@ M57a should not implement PyPI resolution. The preferred path is hybrid and dele
 3. TSPack imports `uv` lock/report metadata for explanation, check, and security diagnostics.
 4. A TSPack-native PyPI resolver should be considered only if policy, cross-ecosystem lock integration, or audit requirements justify the complexity.
 
-This keeps TSPack from becoming another Python package manager while still letting it express a typed project contract.
+This keeps TSPack from becoming another Python package manager while still letting it express a typed project contract. The npm resolver should not learn Python internals; shared orchestration should dispatch to a backend that either reports unsupported Python resolution or delegates to `uv`.
 
 ## Projection strategy
 
@@ -278,7 +345,7 @@ Python supply-chain risk does not map 1:1 to npm lifecycle scripts. Future secur
 - platform-specific wheels that produce different installed artifacts;
 - build isolation and backend dependency risk.
 
-Lifecycle acknowledgments should not be blindly reused. Python likely needs capabilities such as `pythonBuildBackend`, `sourceDistributionBuild`, `nativeWheel`, and `externalIndex` with explicit audit details.
+Lifecycle acknowledgments should not be blindly reused. Python likely needs capabilities such as `pythonBuildBackend`, `sourceDistributionBuild`, `nativeWheel`, `externalIndex`, and `missingHashes` with explicit audit details. These should live in the Python security model rather than being bolted onto npm lifecycle checks.
 
 ## RunTarget considerations
 
@@ -293,7 +360,7 @@ RunTarget("dev", ["uvicorn", "python_demo.app:app", "--reload"])
 RunTarget("build", ["python", "-m", "build"])
 ```
 
-Current behavior has JavaScript runtime assumptions. A future Python runtime model should support:
+Current behavior has JavaScript runtime assumptions. Python execution should not be bolted into Node runtime code; a future Python runtime/tool model should support:
 
 - `runtime: "python"` or `runtime: { kind: "python", version: ">=3.11" }`;
 - command execution through `uv run`, a project venv, or explicit system Python;
@@ -328,6 +395,7 @@ These should be concept-aware template overlays, not a combinatorial set of hard
 ### Phase 1: Manifest frontend API sketch only
 
 - Add experimental TypeScript declaration stubs only after parser/collector preservation exists.
+- Add the smallest backend seam types needed to prevent Python conditionals from spreading through npm code.
 - Prove `PythonPackage`, `PyPI`, and `PythonRuntime` declarations compile and round-trip into experimental IR.
 - Do not add resolver behavior.
 
@@ -355,6 +423,7 @@ These should be concept-aware template overlays, not a combinatorial set of hard
 
 ## Open questions
 
+- What is the smallest backend interface that avoids smeared ecosystem conditionals without over-abstracting before Python behavior exists?
 - Should the public API use `PythonPackage(...)` or a generic `Package({ ecosystem: "pypi", ... })` once IR is ecosystem-aware?
 - Should `PyPI(...)` include extras in the source helper, e.g. `PyPI("fastapi", spec, { extras: [...] })`, or should extras live on the dependency intent?
 - How much `pyproject.toml` should TSPack project before it becomes too much config ownership?
