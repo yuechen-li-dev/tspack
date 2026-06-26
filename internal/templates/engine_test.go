@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 )
 
 func TestBuiltinStaticLoadsAndRenders(t *testing.T) {
@@ -27,8 +29,44 @@ func TestBuiltinStaticLoadsAndRenders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
-	if !strings.Contains(string(manifest), `name="Hello" runtime="bun"`) {
-		t.Fatalf("manifest not rendered:\n%s", string(manifest))
+	manifestText := string(manifest)
+	if !strings.Contains(manifestText, `name="Hello" runtime="bun"`) {
+		t.Fatalf("manifest not rendered:\n%s", manifestText)
+	}
+
+	for _, want := range []string{
+		`name: "app"`,
+		`export: "."`,
+		`entry: "src/main.ts"`,
+		`runtime: "dist/main.js"`,
+		`types: "dist/main.d.ts"`,
+	} {
+		if !strings.Contains(manifestText, want) {
+			t.Fatalf("static manifest target missing %q:\n%s", want, manifestText)
+		}
+	}
+
+	generatedTarget := lockfile.Target{
+		Package: "hello",
+		Name:    "app",
+		Export:  ".",
+		Entry:   "src/main.ts",
+		Runtime: "dist/main.js",
+		Types:   "dist/main.d.ts",
+	}
+	lock := &lockfile.Lockfile{
+		Lock:    lockfile.LockHeader{Format: lockfile.FormatVersion, Tool: lockfile.ToolName},
+		Targets: []lockfile.Target{generatedTarget},
+	}
+	lockBytes, err := lockfile.Marshal(lock)
+	if err != nil {
+		t.Fatalf("marshal lockfile: %v", err)
+	}
+	_, diagnostics := lockfile.Parse("ts-lock.toml", lockBytes)
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == "TSPACK_LOCK_INVALID_TARGET" {
+			t.Fatalf("static target should satisfy lock target contract: %#v", diagnostic)
+		}
 	}
 }
 
