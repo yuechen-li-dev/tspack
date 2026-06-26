@@ -39,3 +39,9 @@ Future template work should add concept overlays rather than hardcoded template 
 ## CLI help future
 
 M56a keeps help output human-readable and deterministic. Structured JSON help such as `tspack help commands --json` or `tspack help init --json` remains future work rather than a release blocker for v0.1.3.
+
+## Experimental Python module design
+
+M57a records an exploratory Python module/domain design in `docs/design/python-module-experiment.md`. The direction is one manifest frontend with multiple project/package backends: `manifest.tsx` remains the universal typed contract, while TypeScript/npm remains the product focus today and Python/PyPI stays experimental future work.
+
+This is not Python support yet. The roadmap explicitly excludes `manifest.py`, executable Python project configuration, PyPI resolver implementation, `uv` integration, lockfile renaming, packaging publication, and changes to existing TypeScript/npm behavior for this milestone.
