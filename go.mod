@@ -1,4 +1,4 @@
-module github.com/tspack/tspack
+module github.com/yuechen-li-dev/tspack
 
 go 1.22
 
