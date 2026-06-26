@@ -282,6 +282,9 @@ func validate(file string, lf *Lockfile) []diag.Diagnostic {
 			out = append(out, errD("TSPACK_LOCK_DUPLICATE_PACKAGE", "duplicate package id", p.ID))
 		}
 		ids[p.ID] = struct{}{}
+		// Lockfile package sources remain the current npm/git/path/workspace set.
+		// Reserved ecosystem vocabulary such as PyPI must not become valid here
+		// without a real backend and lockfile schema decision.
 		switch p.Source {
 		case "npm":
 			if p.Version == "" || (p.Integrity == "" && p.Hash == "") {

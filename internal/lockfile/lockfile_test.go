@@ -7,9 +7,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/graph"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
 )
+
+func hasLockDiagnosticCode(diagnostics []diag.Diagnostic, code string) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == code {
+			return true
+		}
+	}
+	return false
+}
 
 func TestParseAndMarshal(t *testing.T) {
 	b, _ := os.ReadFile("../../fixtures/lockfiles/minimal.ts-lock.toml")
@@ -213,4 +223,12 @@ func TestCheckVersionConflicts(t *testing.T) {
 			t.Fatalf("expected no diagnostics, got %#v", res.Diagnostics)
 		}
 	})
+}
+
+func TestLockfileRejectsReservedPyPISource(t *testing.T) {
+	lf := []byte("[lock]\nformat = 1\n\n[[package]]\nid = 'pypi:requests@2.0.0'\nname = 'requests'\nsource = 'pypi'\nversion = '2.0.0'\n")
+	_, diags := Parse("ts-lock.toml", lf)
+	if !hasLockDiagnosticCode(diags, "TSPACK_LOCK_INVALID_SOURCE") {
+		t.Fatalf("expected reserved pypi source to be rejected: %#v", diags)
+	}
 }

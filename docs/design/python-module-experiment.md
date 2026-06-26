@@ -431,6 +431,10 @@ These should be concept-aware template overlays, not a combinatorial set of hard
 - What is the minimum security model that provides value without pretending all Python build risk is solved?
 - How should cross-ecosystem workspaces handle packages that generate TypeScript clients from Python services or vice versa?
 
+## M57b ecosystem/backend seam note
+
+M57b adds the follow-up seam inventory in [`ecosystem-backend-seam.md`](./ecosystem-backend-seam.md). That spike keeps `manifest.tsx` as the universal frontend, records current npm/TypeScript assumptions, and introduces only small internal vocabulary so future Python-family/PyPI work can stay high-locality. It explicitly separates package ecosystem, backend, runtime family, runtime implementation, environment/materialization strategy, execution/build mode, version/range scheme, and security/build risk. It does not add Python runtime, resolver, templates, PyPI sources, `manifest.py`, uv integration, `runtime: "python"`, or lockfile behavior.
+
 ## Outcome
 
 Outcome A for M57a is design success: the design is documented, Python is explicitly experimental, no `manifest.py` is introduced, and no current TypeScript/npm behavior changes.
