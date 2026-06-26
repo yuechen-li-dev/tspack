@@ -218,3 +218,158 @@ to = "../a.txt"
 		t.Fatalf("expected invalid template, got %v", err)
 	}
 }
+
+func TestRawTemplateLoadsBuiltinsAndLocal(t *testing.T) {
+	for _, name := range []string{"static", "react", "react-library"} {
+		raw, err := LoadRawBuiltin(name)
+		if err != nil {
+			t.Fatalf("load raw builtin %s: %v", name, err)
+		}
+		if raw.Name != name || raw.Source.Kind != SourceKindBuiltin || raw.Format != 1 {
+			t.Fatalf("unexpected raw builtin %s: %#v", name, raw)
+		}
+	}
+
+	templateRoot := makeLocalTemplate(t, `hello {{projectName}}\n`, "hello.txt")
+	raw, err := LoadRawLocal(templateRoot)
+	if err != nil {
+		t.Fatalf("load raw local: %v", err)
+	}
+	if raw.Name != "local" || raw.Source.Kind != SourceKindLocal || raw.Source.Path == "" {
+		t.Fatalf("unexpected raw local: %#v", raw)
+	}
+}
+
+func TestTemplateIRNormalizationValidation(t *testing.T) {
+	raw, err := LoadRawBuiltin("react-library")
+	if err != nil {
+		t.Fatalf("load raw react-library: %v", err)
+	}
+	ir, err := Normalize(raw)
+	if err != nil {
+		t.Fatalf("normalize react-library: %v", err)
+	}
+	if !contains(ir.Concepts, "react.library") || len(ir.Files) == 0 || ir.Source.Kind != SourceKindBuiltin {
+		t.Fatalf("unexpected ir: %#v", ir)
+	}
+
+	raw.Variables["runtime"] = Variable{Default: "npm", Allowed: []string{"nodejs", "bun", "deno"}}
+	if _, err := Normalize(raw); err == nil || !strings.Contains(err.Error(), "TSPACK_TEMPLATE_VARIABLE_INVALID") {
+		t.Fatalf("expected invalid default, got %v", err)
+	}
+}
+
+func TestTemplateIRRejectsDuplicateDestination(t *testing.T) {
+	templateRoot := makeLocalTemplate(t, "hello", "same.txt")
+	metadataPath := filepath.Join(templateRoot, MetadataFile)
+	metadata, err := os.ReadFile(metadataPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata = append(metadata, []byte(`
+[[files]]
+from = "files/hello.txt.tmpl"
+to = "same.txt"
+`)...)
+	if err := os.WriteFile(metadataPath, metadata, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = LoadLocal(templateRoot)
+	if err == nil || !strings.Contains(err.Error(), "TSPACK_TEMPLATE_PATH_INVALID") {
+		t.Fatalf("expected duplicate destination error, got %v", err)
+	}
+}
+
+func TestTemplatePlanBindsAndChecksBeforeApply(t *testing.T) {
+	tmpl, err := LoadBuiltin("react")
+	if err != nil {
+		t.Fatalf("load react: %v", err)
+	}
+	values, err := tmpl.ResolveValues(map[string]string{"projectName": "Hello", "packageName": "@acme/hello", "runtime": "bun"})
+	if err != nil {
+		t.Fatalf("resolve values: %v", err)
+	}
+	plan, err := tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+	if err != nil {
+		t.Fatalf("plan react: %v", err)
+	}
+	if plan.TemplateName != "react" || plan.Values["runtime"] != "bun" || len(plan.Files) != len(tmpl.Files) {
+		t.Fatalf("unexpected plan: %#v", plan)
+	}
+	if plan.Files[0].DestinationPath == "" || plan.Files[0].SourcePath == "" {
+		t.Fatalf("plan did not resolve paths: %#v", plan.Files[0])
+	}
+}
+
+func TestTemplatePlanUnknownPlaceholderDoesNotWrite(t *testing.T) {
+	templateRoot := makeLocalTemplate(t, "hello {{missing}}\n", "hello.txt")
+	tmpl, err := LoadLocal(templateRoot)
+	if err != nil {
+		t.Fatalf("load local: %v", err)
+	}
+	dest := t.TempDir()
+	values, err := tmpl.ResolveValues(map[string]string{"projectName": "world"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = tmpl.Apply(ApplyOptions{Destination: dest, Values: values})
+	if err == nil || !strings.Contains(err.Error(), "TSPACK_TEMPLATE_UNKNOWN_VARIABLE") {
+		t.Fatalf("expected unknown variable error, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dest, "hello.txt")); !os.IsNotExist(statErr) {
+		t.Fatalf("expected planning failure to avoid writes, stat err: %v", statErr)
+	}
+}
+
+func TestApplyPlanWritesExpectedFiles(t *testing.T) {
+	templateRoot := makeLocalTemplate(t, "hello {{projectName}}\n", "hello.txt")
+	tmpl, err := LoadLocal(templateRoot)
+	if err != nil {
+		t.Fatalf("load local: %v", err)
+	}
+	dest := t.TempDir()
+	values, err := tmpl.ResolveValues(map[string]string{"projectName": "world"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := tmpl.Plan(PlanOptions{Destination: dest, Values: values})
+	if err != nil {
+		t.Fatalf("plan local: %v", err)
+	}
+	if err := ApplyPlan(plan); err != nil {
+		t.Fatalf("apply plan: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(dest, "hello.txt"))
+	if err != nil {
+		t.Fatalf("read generated file: %v", err)
+	}
+	if string(content) != "hello world\n" {
+		t.Fatalf("unexpected content: %q", string(content))
+	}
+}
+
+func makeLocalTemplate(t *testing.T, renderedContent string, destination string) string {
+	t.Helper()
+	templateRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(templateRoot, "files"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	metadata := `format = 1
+name = "local"
+description = "Local template"
+kind = "app"
+concepts = ["custom.app"]
+[variables.projectName]
+default = "demo"
+[[files]]
+from = "files/hello.txt.tmpl"
+to = "` + destination + `"
+`
+	if err := os.WriteFile(filepath.Join(templateRoot, MetadataFile), []byte(metadata), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(templateRoot, "files", "hello.txt.tmpl"), []byte(renderedContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return templateRoot
+}

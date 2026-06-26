@@ -19,10 +19,22 @@ var builtinFS embed.FS
 
 const MetadataFile = "tspack-template.toml"
 
+const (
+	SourceKindBuiltin = "built-in"
+	SourceKindLocal   = "local"
+)
+
 var conceptNameRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]*(\.[A-Za-z][A-Za-z0-9-]*)*$`)
+var variableNameRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 var placeholderRe = regexp.MustCompile(`\{\{([A-Za-z][A-Za-z0-9_]*)\}\}`)
 
-type Template struct {
+type TemplateSource struct {
+	Kind string
+	Root string
+	Path string
+}
+
+type RawTemplate struct {
 	Format      int                 `toml:"format"`
 	Name        string              `toml:"name"`
 	Description string              `toml:"description"`
@@ -30,6 +42,21 @@ type Template struct {
 	Concepts    []string            `toml:"concepts"`
 	Variables   map[string]Variable `toml:"variables"`
 	Files       []File              `toml:"files"`
+	Source      TemplateSource
+	sourceFS    fs.FS
+}
+
+// Template is the normalized semantic template model used by listing and planning.
+// Future overlays and composition should normalize into this layer before planning.
+type Template struct {
+	Format      int
+	Name        string
+	Description string
+	Kind        string
+	Concepts    []string
+	Variables   map[string]Variable
+	Files       []File
+	Source      TemplateSource
 	source      fs.FS
 	root        string
 }
@@ -52,8 +79,26 @@ type ApplyOptions struct {
 	DryRun      bool
 }
 
+type PlanOptions struct {
+	Destination string
+	Values      map[string]string
+	Force       bool
+}
+
+type TemplatePlan struct {
+	TemplateName string
+	TemplateKind string
+	Concepts     []string
+	Values       map[string]string
+	Files        []PlannedFile
+}
+
 type PlannedFile struct {
-	Path string
+	Path            string
+	SourcePath      string
+	DestinationPath string
+	Rendered        bool
+	content         []byte
 }
 
 func BuiltinNames() []string {
@@ -71,15 +116,23 @@ func BuiltinNames() []string {
 	return names
 }
 
-func LoadBuiltin(name string) (*Template, error) {
+func LoadRawBuiltin(name string) (*RawTemplate, error) {
 	if name == "" {
 		name = "static"
 	}
 	root := filepath.ToSlash(filepath.Join("builtin", name))
-	return loadFromFS(builtinFS, root)
+	return loadRawFromFS(builtinFS, root, TemplateSource{Kind: SourceKindBuiltin, Root: root, Path: name})
 }
 
-func LoadLocal(path string) (*Template, error) {
+func LoadBuiltin(name string) (*Template, error) {
+	raw, err := LoadRawBuiltin(name)
+	if err != nil {
+		return nil, err
+	}
+	return Normalize(raw)
+}
+
+func LoadRawLocal(path string) (*RawTemplate, error) {
 	clean, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("TSPACK_TEMPLATE_NOT_FOUND: %w", err)
@@ -91,7 +144,15 @@ func LoadLocal(path string) (*Template, error) {
 	if info.IsDir() {
 		return nil, fmt.Errorf("TSPACK_TEMPLATE_NOT_FOUND: %s", filepath.Join(path, MetadataFile))
 	}
-	return loadFromFS(os.DirFS(clean), ".")
+	return loadRawFromFS(os.DirFS(clean), ".", TemplateSource{Kind: SourceKindLocal, Root: ".", Path: clean})
+}
+
+func LoadLocal(path string) (*Template, error) {
+	raw, err := LoadRawLocal(path)
+	if err != nil {
+		return nil, err
+	}
+	return Normalize(raw)
 }
 
 func Load(nameOrPath string) (*Template, error) {
@@ -117,22 +178,41 @@ func looksLikePath(value string) bool {
 	return strings.HasPrefix(value, ".") || strings.HasPrefix(value, string(filepath.Separator)) || strings.ContainsAny(value, `/\`)
 }
 
-func loadFromFS(source fs.FS, root string) (*Template, error) {
+func loadRawFromFS(source fs.FS, root string, sourceInfo TemplateSource) (*RawTemplate, error) {
 	metadataPath := pathJoin(root, MetadataFile)
 	data, err := fs.ReadFile(source, metadataPath)
 	if err != nil {
 		return nil, fmt.Errorf("TSPACK_TEMPLATE_NOT_FOUND: %s", metadataPath)
 	}
-	var tmpl Template
-	if err := toml.Unmarshal(data, &tmpl); err != nil {
+	var raw RawTemplate
+	if err := toml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("TSPACK_TEMPLATE_INVALID: %w", err)
 	}
-	tmpl.source = source
-	tmpl.root = root
+	raw.Source = sourceInfo
+	raw.sourceFS = source
+	return &raw, nil
+}
+
+func Normalize(raw *RawTemplate) (*Template, error) {
+	if raw == nil {
+		return nil, errors.New("TSPACK_TEMPLATE_INVALID: template is nil")
+	}
+	tmpl := &Template{
+		Format:      raw.Format,
+		Name:        raw.Name,
+		Description: raw.Description,
+		Kind:        raw.Kind,
+		Concepts:    append([]string{}, raw.Concepts...),
+		Variables:   copyVariables(raw.Variables),
+		Files:       append([]File{}, raw.Files...),
+		Source:      raw.Source,
+		source:      raw.sourceFS,
+		root:        raw.Source.Root,
+	}
 	if err := tmpl.Validate(); err != nil {
 		return nil, err
 	}
-	return &tmpl, nil
+	return tmpl, nil
 }
 
 func (t *Template) Validate() error {
@@ -145,13 +225,14 @@ func (t *Template) Validate() error {
 		}
 	}
 	for name, variable := range t.Variables {
-		if name == "" || !regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`).MatchString(name) {
+		if name == "" || !variableNameRe.MatchString(name) {
 			return fmt.Errorf("TSPACK_TEMPLATE_INVALID: invalid variable name %q", name)
 		}
 		if len(variable.Allowed) > 0 && variable.Default != "" && !contains(variable.Allowed, variable.Default) {
 			return fmt.Errorf("TSPACK_TEMPLATE_VARIABLE_INVALID: default for %s is not allowed", name)
 		}
 	}
+	seenDestinations := map[string]bool{}
 	for _, file := range t.Files {
 		if err := validateTemplatePath(file.From); err != nil {
 			return fmt.Errorf("TSPACK_TEMPLATE_PATH_INVALID: from %q", file.From)
@@ -159,6 +240,10 @@ func (t *Template) Validate() error {
 		if err := validateTemplatePath(file.To); err != nil {
 			return fmt.Errorf("TSPACK_TEMPLATE_PATH_INVALID: to %q", file.To)
 		}
+		if seenDestinations[file.To] {
+			return fmt.Errorf("TSPACK_TEMPLATE_PATH_INVALID: duplicate destination %q", file.To)
+		}
+		seenDestinations[file.To] = true
 		if _, err := fs.Stat(t.source, pathJoin(t.root, file.From)); err != nil {
 			return fmt.Errorf("TSPACK_TEMPLATE_NOT_FOUND: %s", file.From)
 		}
@@ -189,12 +274,18 @@ func (t *Template) ResolveValues(overrides map[string]string) (map[string]string
 	return values, nil
 }
 
-func (t *Template) Apply(opts ApplyOptions) ([]PlannedFile, error) {
+func (t *Template) Plan(opts PlanOptions) (*TemplatePlan, error) {
 	dest, err := filepath.Abs(opts.Destination)
 	if err != nil {
 		return nil, fmt.Errorf("TSPACK_TEMPLATE_WRITE_FAILED: %w", err)
 	}
-	planned := []PlannedFile{}
+	plan := &TemplatePlan{
+		TemplateName: t.Name,
+		TemplateKind: t.Kind,
+		Concepts:     append([]string{}, t.Concepts...),
+		Values:       copyStringMap(opts.Values),
+		Files:        []PlannedFile{},
+	}
 	for _, file := range t.Files {
 		target, err := safeJoin(dest, file.To)
 		if err != nil {
@@ -206,35 +297,47 @@ func (t *Template) Apply(opts ApplyOptions) ([]PlannedFile, error) {
 		if !opts.Force && exists(target) {
 			return nil, fmt.Errorf("TSPACK_TEMPLATE_FILE_EXISTS: %s (use --force to overwrite)", file.To)
 		}
-		planned = append(planned, PlannedFile{Path: file.To})
-	}
-	if opts.DryRun {
-		return planned, nil
-	}
-	for _, file := range t.Files {
 		data, err := fs.ReadFile(t.source, pathJoin(t.root, file.From))
 		if err != nil {
 			return nil, fmt.Errorf("TSPACK_TEMPLATE_NOT_FOUND: %s", file.From)
 		}
-		content := string(data)
-		if strings.HasSuffix(file.From, ".tmpl") {
-			content, err = render(content, opts.Values)
+		rendered := strings.HasSuffix(file.From, ".tmpl")
+		if rendered {
+			content, err := render(string(data), opts.Values)
 			if err != nil {
 				return nil, err
 			}
+			data = []byte(content)
 		}
-		target, err := safeJoin(dest, file.To)
-		if err != nil {
-			return nil, err
+		plan.Files = append(plan.Files, PlannedFile{Path: file.To, SourcePath: file.From, DestinationPath: target, Rendered: rendered, content: data})
+	}
+	return plan, nil
+}
+
+func (t *Template) Apply(opts ApplyOptions) ([]PlannedFile, error) {
+	plan, err := t.Plan(PlanOptions{Destination: opts.Destination, Values: opts.Values, Force: opts.Force})
+	if err != nil {
+		return nil, err
+	}
+	if opts.DryRun {
+		return plan.Files, nil
+	}
+	if err := ApplyPlan(plan); err != nil {
+		return nil, err
+	}
+	return plan.Files, nil
+}
+
+func ApplyPlan(plan *TemplatePlan) error {
+	for _, file := range plan.Files {
+		if err := os.MkdirAll(filepath.Dir(file.DestinationPath), 0o755); err != nil {
+			return fmt.Errorf("TSPACK_TEMPLATE_WRITE_FAILED: %w", err)
 		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return nil, fmt.Errorf("TSPACK_TEMPLATE_WRITE_FAILED: %w", err)
-		}
-		if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
-			return nil, fmt.Errorf("TSPACK_TEMPLATE_WRITE_FAILED: %w", err)
+		if err := os.WriteFile(file.DestinationPath, file.content, 0o644); err != nil {
+			return fmt.Errorf("TSPACK_TEMPLATE_WRITE_FAILED: %w", err)
 		}
 	}
-	return planned, nil
+	return nil
 }
 
 func render(input string, values map[string]string) (string, error) {
@@ -277,6 +380,23 @@ func safeJoin(root string, rel string) (string, error) {
 		return "", fmt.Errorf("TSPACK_TEMPLATE_PATH_INVALID: %s", rel)
 	}
 	return target, nil
+}
+
+func copyVariables(input map[string]Variable) map[string]Variable {
+	out := map[string]Variable{}
+	for name, variable := range input {
+		variable.Allowed = append([]string{}, variable.Allowed...)
+		out[name] = variable
+	}
+	return out
+}
+
+func copyStringMap(input map[string]string) map[string]string {
+	out := map[string]string{}
+	for name, value := range input {
+		out[name] = value
+	}
+	return out
 }
 
 func pathJoin(parts ...string) string { return filepath.ToSlash(filepath.Join(parts...)) }
