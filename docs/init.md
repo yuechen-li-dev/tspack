@@ -21,7 +21,7 @@ Generated manifests import from `tspack/manifest`, so TS-aware editors provide a
 
 - `--kind <library|app>` (required)
 - `--name <package-name>` (required)
-- `--version <version>` (default: `0.1.0`)
+- `--version <version>` (default: `0.1.0` for generated package manifests)
 - `--license <license>` (default: `MIT`)
 - `--force` (overwrite generated files)
 - `--dry-run` (print plan only)
