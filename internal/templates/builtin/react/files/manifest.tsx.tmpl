@@ -34,9 +34,13 @@ const deps = defineDeps({
   reactDom: dep(npm("react-dom", "^19.0.0"), { key: "react-dom" }),
   typescript: tool(npm("typescript", "^5.0.0")),
   vite: tool(npm("vite", "^5.0.0")),
-  viteReact: tool(npm("@vitejs/plugin-react", "^4.0.0"), { key: "@vitejs/plugin-react" }),
+  viteReact: tool(npm("@vitejs/plugin-react", "^4.0.0"), {
+    key: "@vitejs/plugin-react",
+  }),
   reactTypes: tool(npm("@types/react", "^19.0.0"), { key: "@types/react" }),
-  reactDomTypes: tool(npm("@types/react-dom", "^19.0.0"), { key: "@types/react-dom" }),
+  reactDomTypes: tool(npm("@types/react-dom", "^19.0.0"), {
+    key: "@types/react-dom",
+  }),
   biome: tool(npm("@biomejs/biome", "^1.9.4"), { key: "@biomejs/biome" }),
 });
 
@@ -61,7 +65,16 @@ export default define(
       }}
     >
       <Policies types={types} boundaries={boundaries} />
-      <Tools values={[deps.typescript, deps.vite, deps.viteReact, deps.reactTypes, deps.reactDomTypes, deps.biome]} />
+      <Tools
+        values={[
+          deps.typescript,
+          deps.vite,
+          deps.viteReact,
+          deps.reactTypes,
+          deps.reactDomTypes,
+          deps.biome,
+        ]}
+      />
       <Targets
         rows={[
           {
@@ -101,16 +114,79 @@ export default define(
     </Package>
     <UpdatePolicy
       rows={[
-        { name: "typescript", kind: "tool", strategy: "rolling", level: "minor", reason: "Keep TypeScript current within compatible compiler minor updates." },
-        { name: "vite", kind: "tool", strategy: "rolling", level: "minor", reason: "Keep Vite current within compatible minor updates." },
-        { name: "@vitejs/plugin-react", kind: "tool", strategy: "rolling", level: "minor", reason: "Keep the Vite React plugin aligned with Vite minor updates." },
-        { name: "@types/react", kind: "tool", strategy: "rolling", level: "minor", reason: "Keep React type declarations current within compatible minor updates." },
-        { name: "@types/react-dom", kind: "tool", strategy: "rolling", level: "minor", reason: "Keep React DOM type declarations current within compatible minor updates." },
-        { name: "@biomejs/biome", kind: "tool", strategy: "rolling", level: "minor", reason: "Keep formatter tooling current within compatible minor updates." },
-        { name: "react", kind: "dep", strategy: "manual", reason: "React runtime upgrades are coordinated manually." },
-        { name: "react-dom", kind: "dep", strategy: "manual", reason: "React DOM runtime upgrades are coordinated manually." },
+        {
+          name: "typescript",
+          kind: "tool",
+          strategy: "rolling",
+          level: "minor",
+          reason:
+            "Keep TypeScript current within compatible compiler minor updates.",
+        },
+        {
+          name: "vite",
+          kind: "tool",
+          strategy: "rolling",
+          level: "minor",
+          reason: "Keep Vite current within compatible minor updates.",
+        },
+        {
+          name: "@vitejs/plugin-react",
+          kind: "tool",
+          strategy: "rolling",
+          level: "minor",
+          reason: "Keep the Vite React plugin aligned with Vite minor updates.",
+        },
+        {
+          name: "@types/react",
+          kind: "tool",
+          strategy: "rolling",
+          level: "minor",
+          reason:
+            "Keep React type declarations current within compatible minor updates.",
+        },
+        {
+          name: "@types/react-dom",
+          kind: "tool",
+          strategy: "rolling",
+          level: "minor",
+          reason:
+            "Keep React DOM type declarations current within compatible minor updates.",
+        },
+        {
+          name: "@biomejs/biome",
+          kind: "tool",
+          strategy: "rolling",
+          level: "minor",
+          reason:
+            "Keep formatter tooling current within compatible minor updates.",
+        },
+        {
+          name: "react",
+          kind: "dep",
+          strategy: "manual",
+          reason: "React runtime upgrades are coordinated manually.",
+        },
+        {
+          name: "react-dom",
+          kind: "dep",
+          strategy: "manual",
+          reason: "React DOM runtime upgrades are coordinated manually.",
+        },
       ]}
     />
-    <Security acknowledgedLifecycleCategories={[{ category: "maintainer-publish", reason: "Template dependencies are inert until explicitly updated; maintainer-publish lifecycle scripts remain blocked by default." }]} />
-  </Workspace>
+    <Security
+      acknowledgedLifecycleCategories={[
+        {
+          category: "consumer-install",
+          reason:
+            "Generated app tooling may use install-time binary selectors; TSPack blocks lifecycle execution by default and records the capability for review.",
+        },
+        {
+          category: "maintainer-publish",
+          reason:
+            "Template dependencies are inert until explicitly updated; maintainer-publish lifecycle scripts remain blocked by default.",
+        },
+      ]}
+    />
+  </Workspace>,
 );
