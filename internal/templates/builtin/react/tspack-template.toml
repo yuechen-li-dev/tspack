@@ -1,0 +1,79 @@
+format = 1
+name = "react"
+description = "React + Vite + TypeScript app"
+kind = "app"
+concepts = [
+  "tspack.workspace",
+  "tspack.manifestBoundary",
+  "tspack.securityPolicy",
+  "tspack.updatePolicy",
+  "typescript.app",
+  "vite.app",
+  "react.app",
+  "browser.spa"
+]
+
+[variables.projectName]
+description = "Project display name"
+default = "my-app"
+
+[variables.packageName]
+description = "Package name"
+default = "my-app"
+
+[variables.runtime]
+description = "Workspace runtime"
+default = "nodejs"
+allowed = ["nodejs", "bun", "deno"]
+
+[[files]]
+from = "files/manifest.tsx.tmpl"
+to = "manifest.tsx"
+
+[[files]]
+from = "files/package.json.tmpl"
+to = "package.json"
+
+[[files]]
+from = "files/tsconfig.tspack.json"
+to = "tsconfig.tspack.json"
+
+[[files]]
+from = "files/tsconfig.json"
+to = "tsconfig.json"
+
+[[files]]
+from = "files/tspack-types/tspack-manifest.d.ts"
+to = ".tspack/types/tspack-manifest.d.ts"
+
+[[files]]
+from = "files/tspack-env.d.ts"
+to = "tspack-env.d.ts"
+
+[[files]]
+from = "files/biome.json"
+to = "biome.json"
+
+[[files]]
+from = "files/vite.config.ts"
+to = "vite.config.ts"
+
+[[files]]
+from = "files/index.html.tmpl"
+to = "index.html"
+
+[[files]]
+from = "files/src/main.tsx"
+to = "src/main.tsx"
+
+[[files]]
+from = "files/src/App.tsx"
+to = "src/App.tsx"
+
+[[files]]
+from = "files/src/style.css"
+to = "src/style.css"
+
+[[files]]
+from = "files/README.md.tmpl"
+to = "README.md"

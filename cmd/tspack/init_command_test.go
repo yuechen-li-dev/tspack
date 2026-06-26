@@ -41,6 +41,71 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		}
 	})
 
+	t.Run("list includes react template concepts", func(t *testing.T) {
+		cmd := exec.Command("go", "run", "./cmd/tspack", "init", "--list-templates")
+		cmd.Dir = repo
+		b, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("list templates failed: %v\n%s", err, string(b))
+		}
+		for _, want := range []string{"static", "react", "react.app", "vite.app", "browser.spa"} {
+			if !strings.Contains(string(b), want) {
+				t.Fatalf("template list missing %q:\n%s", want, string(b))
+			}
+		}
+	})
+
+	t.Run("react template generation", func(t *testing.T) {
+		root := t.TempDir()
+		cmd := exec.Command("go", "run", "./cmd/tspack", "init", "--root", root, "--template", "react", "--name", "hello-react", "--package", "@acme/hello-react", "--runtime", "bun")
+		cmd.Dir = repo
+		b, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("react init failed: %v\n%s", err, string(b))
+		}
+		for _, want := range []string{"react.app", "vite.app", "browser.spa"} {
+			if !strings.Contains(string(b), want) {
+				t.Fatalf("init output missing concept %q:\n%s", want, string(b))
+			}
+		}
+		for _, rel := range []string{"manifest.tsx", "tsconfig.tspack.json", "tsconfig.json", "biome.json", "vite.config.ts", "package.json", "index.html", "src/main.tsx", "src/App.tsx", "src/style.css", "README.md"} {
+			if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
+				t.Fatalf("missing generated file %s: %v", rel, err)
+			}
+		}
+		assertGeneratedTSPackTSConfig(t, root)
+		assertGeneratedReactAppTSConfig(t, root)
+
+		manifestBytes, err := os.ReadFile(filepath.Join(root, "manifest.tsx"))
+		if err != nil {
+			t.Fatalf("read manifest: %v", err)
+		}
+		manifestText := string(manifestBytes)
+		for _, want := range []string{`name="hello-react" runtime="bun"`, `name="@acme/hello-react"`, `runtime: "node"`, `command: ["vite", "build"]`, `strategy: "manual"`} {
+			if !strings.Contains(manifestText, want) {
+				t.Fatalf("manifest missing %q:\n%s", want, manifestText)
+			}
+		}
+
+		packageBytes, err := os.ReadFile(filepath.Join(root, "package.json"))
+		if err != nil {
+			t.Fatalf("read package.json: %v", err)
+		}
+		if strings.Contains(string(packageBytes), "postinstall") || strings.Contains(string(packageBytes), "prepare") {
+			t.Fatalf("package.json should not include lifecycle scripts:\n%s", string(packageBytes))
+		}
+	})
+
+	t.Run("react template rejects invalid runtime", func(t *testing.T) {
+		root := t.TempDir()
+		cmd := exec.Command("go", "run", "./cmd/tspack", "init", "--root", root, "--template", "react", "--name", "hello-react", "--runtime", "npm")
+		cmd.Dir = repo
+		b, err := cmd.CombinedOutput()
+		if err == nil || !strings.Contains(string(b), "TSPACK_TEMPLATE_VARIABLE_INVALID") {
+			t.Fatalf("expected invalid runtime diagnostic: %v\n%s", err, string(b))
+		}
+	})
+
 	t.Run("invalid kind", func(t *testing.T) {
 		root := t.TempDir()
 		cmd := exec.Command("go", "run", "./cmd/tspack", "init", "--root", root, "--kind", "service", "--name", "acme-demo")
@@ -426,6 +491,41 @@ func TestInitManifestTypeSupportDriftAndTypecheck(t *testing.T) {
 				t.Fatalf("tsc typecheck failed: %v\n%s", err, string(out))
 			}
 		})
+	}
+}
+
+func assertGeneratedReactAppTSConfig(t *testing.T, root string) {
+	t.Helper()
+
+	configBytes, err := os.ReadFile(filepath.Join(root, "tsconfig.json"))
+	if err != nil {
+		t.Fatalf("missing generated app tsconfig: %v", err)
+	}
+
+	var config map[string]any
+	if err := json.Unmarshal(configBytes, &config); err != nil {
+		t.Fatalf("generated app tsconfig should parse as JSON: %v", err)
+	}
+
+	compilerOptions, ok := config["compilerOptions"].(map[string]any)
+	if !ok {
+		t.Fatalf("generated app tsconfig missing compilerOptions: %#v", config)
+	}
+	if compilerOptions["jsx"] != "react-jsx" {
+		t.Fatalf("generated app tsconfig should use React JSX, got %#v", compilerOptions["jsx"])
+	}
+	if compilerOptions["moduleResolution"] != "Bundler" {
+		t.Fatalf("generated app tsconfig should use bundler resolution, got %#v", compilerOptions["moduleResolution"])
+	}
+	if compilerOptions["noEmit"] != true || compilerOptions["strict"] != true {
+		t.Fatalf("generated app tsconfig should be strict/noEmit: %#v", compilerOptions)
+	}
+
+	excludeSet := jsonStringArraySet(t, config["exclude"])
+	for _, want := range []string{"manifest.tsx", "package.manifest.tsx", "**/*.manifest.tsx", "**/*.xtest.tsx", ".tspack/**", "tspack-artifacts/**", "dist/**"} {
+		if !excludeSet[want] {
+			t.Fatalf("generated app tsconfig missing exclude %q in %#v", want, excludeSet)
+		}
 	}
 }
 

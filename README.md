@@ -80,6 +80,8 @@ Start with [docs/README.md](docs/README.md), especially the [0.1.0 release notes
 
 ```sh
 tspack init --template static
+# or start a practical frontend app:
+tspack init --template react --name my-app
 ```
 
-The static template creates a minimal TypeScript browser app and prints the next `tspack update`, `tspack sync`, `tspack run dev`, and `tspack check` steps. React/Vite and remote template workflows are planned later.
+The default static template creates a minimal TypeScript browser app. The explicit React template creates a React + Vite + TypeScript app and prints the next `tspack update`, `tspack sync`, `tspack run dev`, and `tspack check` steps. Remote template workflows are planned later.
