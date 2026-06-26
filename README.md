@@ -1,5 +1,11 @@
 # TSPack
 
+TSPack is an early TypeScript lifecycle tool centered on deterministic intent (`manifest.tsx`) and deterministic resolved truth (`ts-lock.toml`). It is pre-0.1.0 software and should not be treated as production-stable yet.
+
+Core thesis: **Declare targets. Resolve sources. Enforce boundaries. Lock reality. Pack exactly.**
+
+The repository is self-hosted after bootstrap: an existing source build or trusted binary is still required first, then TSPack manages, checks, and describes its own repo contract. See `docs/self-hosting.md` and the practical 0.1.0 checklist in `docs/release-0.1.0.md`.
+
 ## Installation
 
 For now, download release artifacts from GitHub Releases or run `scripts/install.sh` from a trusted checkout. The Unix installer downloads the matching release archive, verifies its SHA256 entry from `checksums.txt`, and installs `tspack` to `$HOME/.local/bin` unless `TSPACK_INSTALL_DIR` is set.
@@ -18,12 +24,6 @@ steps:
   - run: tspack test --root .
 ```
 
-
-TSPack is a TypeScript lifecycle tool centered on deterministic intent (`manifest.tsx`) and deterministic resolved truth (`ts-lock.toml`).
-
-TSPack is self-hosted after bootstrap; see `docs/self-hosting.md`.
-
-Core thesis: **Declare targets. Resolve sources. Enforce boundaries. Lock reality. Pack exactly.**
 
 ## Command surface
 
@@ -49,7 +49,7 @@ Core thesis: **Declare targets. Resolve sources. Enforce boundaries. Lock realit
 - `manifest.tsx` and `package.manifest.tsx` are restricted documents; they are **not executed**.
 - `ts-lock.toml` is resolved truth.
 - `node_modules` is a generated compatibility artifact, not source of truth.
-- Fetch is not execute: dependency lifecycle scripts are not run by default.
+- Fetch is not execute: dependency lifecycle scripts are blocked by default, and `Security` policy/`doctor security` make that posture auditable.
 - Workspace `runtime` selects `nodejs`, `bun`, or `deno` as a runtime profile; TSPack still owns dependency resolution, lockfiles, materialization, checks, packing, and lifecycle policy. See `docs/runtime-switch-demo.md` for the one-line runtime switch fixture.
 
 ## Non-goals (current)
@@ -74,6 +74,8 @@ See:
 - `docs/commands.md`
 - `docs/design-non-goals.md`
 - `docs/release-gate.md`
+- `docs/self-hosting.md`
+- `docs/release-0.1.0.md`
 
 
 - `tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. See `docs/format-lint.md`.
