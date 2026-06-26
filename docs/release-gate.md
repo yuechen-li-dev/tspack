@@ -943,3 +943,11 @@ The 0.1.0 release gate includes cold-update throughput hardening for `tspack upd
 - The generated manifest parses, `tspack check` passes, `tspack check --format` passes, and `tspack update --policy --dry-run --json` produces a policy plan or documents any registry requirement.
 - Generated `package.json` has no lifecycle scripts.
 - Template rendering remains inert: no template command execution, dependency installation, update execution, resolver changes, remote templates, or package-manager behavior changes.
+
+## v0.1.3 / M54c inspect test stability gate
+
+- `npm --prefix manifest-frontend test` must pass on a normal checkout without requiring Playwright browser installation, a developer-specific Chrome/Edge path, or Linux `DISPLAY` / Xvfb setup.
+- Inspect unit tests for Windows Chromium discovery use fake environment and filesystem probes for Edge and Chrome standard install locations, including paths with spaces and `%LocalAppData%` fallback.
+- Windows Chromium discovery fallback order is deterministic: Playwright-managed Chromium is attempted by the inspect backend first, then Windows Edge/Chrome fallback discovery prefers Edge before Chrome in the documented candidate order when Playwright Chromium is unavailable.
+- Browser-required inspect integration cases skip with an explicit Playwright Chromium availability reason when Playwright browsers are not installed; unit tests for JSON failure serialization, diagnostic mapping, URL backend routing, and Windows path fallback remain active.
+- Local Windows smoke remains available with installed browsers or `--browser-path`, and missing-browser JSON failures should remain valid machine-readable inspect results.
