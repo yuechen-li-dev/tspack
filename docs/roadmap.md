@@ -22,3 +22,7 @@ This roadmap records known post-`0.1.0` work without turning the first release i
 - Zero-bootstrap self-hosting.
 - Production stability claims.
 - New package-manager, resolver, lockfile schema, lifecycle execution, or security model behavior.
+
+## Template roadmap
+
+M54a adds the concept-aware inert template engine and built-in static template. A React/Vite template is planned next. Remote templates, registries, and interactive prompts remain later work.

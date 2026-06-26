@@ -1,0 +1,65 @@
+format = 1
+name = "static"
+description = "Static TypeScript browser app"
+kind = "app"
+concepts = [
+  "tspack.workspace",
+  "tspack.manifestBoundary",
+  "tspack.updatePolicy",
+  "tspack.securityPolicy",
+  "typescript.app",
+  "browser.static"
+]
+
+[variables.projectName]
+description = "Project display name"
+default = "my-app"
+
+[variables.packageName]
+description = "Package name"
+default = "my-app"
+
+[variables.runtime]
+description = "Workspace runtime"
+default = "nodejs"
+allowed = ["nodejs", "bun", "deno"]
+
+[[files]]
+from = "files/manifest.tsx.tmpl"
+to = "manifest.tsx"
+
+[[files]]
+from = "files/package.json.tmpl"
+to = "package.json"
+
+[[files]]
+from = "files/tsconfig.tspack.json"
+to = "tsconfig.tspack.json"
+
+[[files]]
+from = "files/tspack-types/tspack-manifest.d.ts"
+to = ".tspack/types/tspack-manifest.d.ts"
+
+[[files]]
+from = "files/tspack-env.d.ts"
+to = "tspack-env.d.ts"
+
+[[files]]
+from = "files/biome.json"
+to = "biome.json"
+
+[[files]]
+from = "files/index.html.tmpl"
+to = "index.html"
+
+[[files]]
+from = "files/src/main.ts.tmpl"
+to = "src/main.ts"
+
+[[files]]
+from = "files/src/style.css"
+to = "src/style.css"
+
+[[files]]
+from = "files/README.md.tmpl"
+to = "README.md"

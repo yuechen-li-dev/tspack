@@ -244,3 +244,7 @@ M50a does not apply policy-driven updates. The policy annotates `tspack outdated
 ### UpdatePolicy planning command
 
 The declared `<UpdatePolicy />` can be inspected with `tspack outdated` and planned with `tspack update --policy --dry-run`. The policy planning command is read-only in M50b: it classifies candidates into allowed, blocked, unclassified, and not-applicable buckets, but it does not apply rolling updates, enforce security gates, or mutate lockfiles/stores/materialization.
+
+## Init templates and manifest authoring
+
+`tspack init` templates generate the initial `manifest.tsx` and the editor boundary files (`tsconfig.tspack.json`, `.tspack/types/tspack-manifest.d.ts`, and `tspack-env.d.ts`). The generated manifest is the ongoing project contract; generated config files are tooling projections for authoring support.

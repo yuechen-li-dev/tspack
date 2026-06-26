@@ -28,13 +28,16 @@ func TestInitHelpIncludesCommand(t *testing.T) {
 func TestInitValidationAndWriteFlow(t *testing.T) {
 	repo := filepath.Join("..", "..")
 
-	t.Run("missing kind", func(t *testing.T) {
+	t.Run("default static template without kind", func(t *testing.T) {
 		root := t.TempDir()
 		cmd := exec.Command("go", "run", "./cmd/tspack", "init", "--root", root, "--name", "acme-demo")
 		cmd.Dir = repo
 		b, err := cmd.CombinedOutput()
-		if err == nil || !strings.Contains(string(b), "TSPACK_INIT_KIND_REQUIRED") {
-			t.Fatalf("expected missing kind diagnostic: %v\n%s", err, string(b))
+		if err != nil || !strings.Contains(string(b), `Created project from template "static"`) {
+			t.Fatalf("expected default static template: %v\n%s", err, string(b))
+		}
+		if _, err := os.Stat(filepath.Join(root, "index.html")); err != nil {
+			t.Fatalf("missing static index.html: %v", err)
 		}
 	})
 

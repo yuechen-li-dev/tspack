@@ -61,3 +61,27 @@ They are not runtime helpers and are not the manifest parser or validator source
 `tsconfig.tspack.json` maps `tspack/manifest` to `.tspack/types/tspack-manifest.d.ts`, includes TSPack-owned manifest and `*.xtest.tsx` files, excludes app source, and uses `jsx: preserve` so React and `react/jsx-runtime` are not required for manifest editing.
 If an existing `tsconfig.json` is present, init leaves it unchanged and prints guidance to exclude TSPack-owned files if the app config includes root TSX broadly.
 If removed, regenerate these files by rerunning `tspack init --force` in the project root.
+
+## Template engine (M54a)
+
+By default, `tspack init` now renders the built-in `static` template through the same inert template engine used by local templates. Use `--template <name-or-path>` to select a built-in template name or a local directory containing `tspack-template.toml`.
+
+Template flags:
+
+- `--template <name-or-path>` selects a built-in template or local template directory.
+- `--list-templates` prints built-in templates with kind, description, and concepts.
+- `--name <projectName>` sets the template `projectName` variable; otherwise the current directory name is used.
+- `--package <packageName>` sets the template `packageName` variable; otherwise it follows `projectName`.
+- `--runtime <nodejs|bun|deno>` sets the workspace runtime variable when the template declares it.
+- `--force` overwrites only files declared by the selected template.
+
+Templates are data only: they copy files, create parent directories, and replace `{{variableName}}` placeholders in `.tmpl` inputs. Templates cannot run shell commands, install packages, fetch remote code, execute lifecycle scripts, or delete arbitrary files.
+
+Successful template init prints the selected template concepts and next steps:
+
+```sh
+tspack update
+tspack sync
+tspack run dev
+tspack check
+```
