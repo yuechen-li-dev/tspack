@@ -979,3 +979,16 @@ The 0.1.0 release gate includes cold-update throughput hardening for `tspack upd
 - Invalid template metadata, invalid variable defaults, invalid paths, existing files, and write failures keep existing `TSPACK_TEMPLATE_*` diagnostic codes.
 - Generated static, React app, React library, and local template smokes must continue to pass with equivalent generated files, concepts, variable substitution, and safety behavior.
 - Template rendering remains inert: no command execution, dependency installation, remote fetching, package-manager changes, overlay behavior, inheritance, or concept validator execution is introduced.
+
+## M56a CLI help experience gate
+
+Before v0.1.3 release, verify the CLI help surface is documentation-grade rather than a flat usage dump:
+
+- Default `tspack` / `tspack --help` output is semantic and concise, includes common workflows, and no longer contains `M0 scaffold` wording.
+- `tspack help commands` groups commands by project setup, dependency lifecycle, validation/diagnostics, execution/testing, packaging, and maintenance/info.
+- `tspack help workflow` explains the `init -> update -> sync -> check -> run/pack` lifecycle.
+- `tspack help concepts` explains Manifest, Lockfile, Templates, Security, RunTargets, and diagnostics.
+- Command-specific semantic help exists for core commands, including `init`, `update`, `sync`, `check`, `run`, `why`, `outdated`, `pack`, `doctor`, `test`, `inspect`, `migrate`, `format`, and `how`.
+- Core `--help` aliases such as `tspack init --help`, `tspack check --help`, `tspack run --help`, `tspack pack --help`, and `tspack inspect --help` route to the matching semantic command page without changing command behavior.
+- Successful template init output prints concise next-step hints for static, React app, React library, and local templates without executing any commands.
+- Exhaustive flag-oriented help remains available through `tspack help all` for advanced/reference use.

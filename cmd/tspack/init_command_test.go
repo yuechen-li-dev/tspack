@@ -12,9 +12,9 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/project"
 )
 
-func TestInitHelpIncludesCommand(t *testing.T) {
+func TestInitLegacyHelpIncludesCommand(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	cmd := exec.Command("go", "run", "./cmd/tspack", "help")
+	cmd := exec.Command("go", "run", "./cmd/tspack", "help", "all")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil {
@@ -33,7 +33,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		cmd := exec.Command("go", "run", "./cmd/tspack", "init", "--root", root, "--name", "acme-demo")
 		cmd.Dir = repo
 		b, err := cmd.CombinedOutput()
-		if err != nil || !strings.Contains(string(b), `Created project from template "static"`) {
+		if err != nil || !strings.Contains(string(b), `Created TSPack project: acme-demo`) {
 			t.Fatalf("expected default static template: %v\n%s", err, string(b))
 		}
 		if _, err := os.Stat(filepath.Join(root, "index.html")); err != nil {

@@ -100,6 +100,8 @@ The generated project keeps `manifest.tsx` as the source of truth and writes `pa
 tspack update
 tspack sync
 tspack run dev
+
+# Optional validation before committing:
 tspack check
 tspack check --format
 tspack update --policy --dry-run
@@ -110,4 +112,12 @@ React library starter:
 
 ```sh
 tspack init --template react-library --name ui-kit --package @local/ui-kit
+tspack update
+tspack sync
+tspack run typecheck
+tspack run build
+tspack run build-types
+tspack pack --verify --package @local/ui-kit
 ```
+
+For CLI-native documentation, run `tspack help init`, `tspack help workflow`, or `tspack help concepts`.

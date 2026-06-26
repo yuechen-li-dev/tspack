@@ -270,9 +270,27 @@ type lockDiffPackageChange struct {
 
 func main() {
 	args := os.Args[1:]
-	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		printHelp()
+	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
+		printDefaultHelp()
 		return
+	}
+	if args[0] == "help" {
+		topic := ""
+		if len(args) > 1 {
+			topic = args[1]
+		}
+		if !printHelpTopic(topic) {
+			fmt.Fprintf(os.Stderr, "unknown help topic: %s\n\n", topic)
+			printDefaultHelp()
+			os.Exit(1)
+		}
+		return
+	}
+
+	if len(args) > 1 && (args[1] == "--help" || args[1] == "-h" || args[1] == "help") {
+		if printHelpTopic(args[0]) {
+			return
+		}
 	}
 
 	if args[0] == "--version" || args[0] == "version" || args[0] == "-v" {
@@ -336,7 +354,7 @@ func main() {
 	}
 
 	fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", args[0])
-	printHelp()
+	printDefaultHelp()
 	os.Exit(1)
 }
 
@@ -346,8 +364,8 @@ func printVersion() {
 	fmt.Printf("built %s\n", version.Date)
 }
 
-func printHelp() {
-	fmt.Println("tspack - TypeScript-first package manager (M0 scaffold)")
+func printLegacyHelp() {
+	fmt.Println("tspack - TypeScript-first project/package manager")
 	fmt.Println()
 	fmt.Println("Usage:")
 	fmt.Println("  tspack help")
@@ -379,25 +397,11 @@ func printHelp() {
 }
 
 func printCheckHelp() {
-	fmt.Println("Usage:")
-	fmt.Println("  tspack check [--root .] [--json] [--format] [--explain <file>] [--show-conflicts] [--show-lifecycle]")
-	fmt.Println()
-	fmt.Println("Flags:")
-	fmt.Println("  --format           Run read-only format check as part of check")
-	fmt.Println("  --json             Emit JSON diagnostics")
-	fmt.Println("  --explain <file>   Explain check findings for one file")
-	fmt.Println("  --show-conflicts   Show individual version conflict diagnostics instead of summary")
-	fmt.Println("  --show-lifecycle   Show individual lifecycle script diagnostics instead of summary")
+	printCommandHelp("check")
 }
 
 func printInspectHelp() {
-	fmt.Println("Usage:")
-	fmt.Println("  tspack inspect <url> [experimental] [--run target] [--env KEY=VALUE] [--url <url>] [--browser auto|vscode|playwright-chromium|chromium|browser-path|host-path|cdp] [--host-path path] [--browser-path path] [--cdp endpoint] [--list-targets] [--target index-or-id] [--target-url substring] [--viewport WxH] [--selector css] [--point x,y] [--json] [--out file] [--text file]")
-	fmt.Println()
-	fmt.Println("Notes:")
-	fmt.Println("  URL inspect uses the browser backend by default.")
-	fmt.Println("  --run starts a declared RunTarget, waits for readiness, and then inspects its URL.")
-	fmt.Println("  --json keeps inspect result JSON on stdout; progress and run-target logs stay on stderr.")
+	printCommandHelp("inspect")
 }
 
 func runInspectCommand(args []string) {
