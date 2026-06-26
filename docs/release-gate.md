@@ -885,3 +885,12 @@ The 0.1.0 release gate includes cold-update throughput hardening for `tspack upd
 - Invalid `TSPACK_STORE_JOBS` values fail clearly before store workers start.
 - Performance benchmark or smoke commands are documented; CI must not require an exact wall-clock speedup.
 - Workers must not print nondeterministically or run lifecycle scripts.
+
+## v0.1.3 / M53c editor-tooling boundary gate
+
+- `tspack init` generates `tsconfig.tspack.json` alongside `manifest.tsx` and `.tspack/types/tspack-manifest.d.ts`.
+- Generated manifests resolve `tspack/manifest` through the project-local declaration surface.
+- Manifest TSX typechecking uses `jsx: preserve` and does not require React or `react/jsx-runtime`.
+- App `tsconfig.json` files generated or advised by init exclude TSPack-owned files: manifests, `*.xtest.tsx`, `.tspack/**`, `tspack-artifacts/**`, and `dist/**`.
+- Existing app `tsconfig.json` handling is safe: init must not destructively rewrite it, and must print guidance when it leaves the file unchanged.
+- Docs explain the TSPack-owned TSX boundary for manifests and native xTest files.

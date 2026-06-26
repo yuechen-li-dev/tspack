@@ -83,6 +83,11 @@ func runInitCommand(args []string) {
 	for _, f := range files {
 		fmt.Printf("  %s\n", f.path)
 	}
+	fmt.Println("Generated tsconfig.tspack.json for TSPack manifest editor support.")
+	fmt.Println("VS Code may need ‘TypeScript: Restart TS Server’ if it already had the project open.")
+	if _, err := os.Stat(filepath.Join(cfg.root, "tsconfig.json")); err == nil {
+		fmt.Println("Existing tsconfig.json was left unchanged. If your app TypeScript config includes manifest.tsx or *.xtest.tsx, exclude TSPack-owned files or use tsconfig.tspack.json for manifest editing.")
+	}
 }
 
 func parseInitArgs(args []string) (initConfig, []string) {
@@ -166,10 +171,41 @@ func buildInitFiles(cfg initConfig) []plannedFile {
 		{path: "manifest.tsx", content: manifest},
 		{path: entryPath, content: entry},
 		{path: ".tspack/types/tspack-manifest.d.ts", content: initManifestTypesDTS},
+		{path: "tsconfig.tspack.json", content: initTSPackTSConfigJSON},
 		{path: "tspack-env.d.ts", content: initTSPackEnvDTS},
 		{path: "biome.json", content: string(defaultBiomeConfigBytes())},
 	}
 }
+
+const initTSPackTSConfigJSON = `{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "preserve",
+    "strict": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "tspack/manifest": [".tspack/types/tspack-manifest.d.ts"]
+    }
+  },
+  "include": [
+    "manifest.tsx",
+    "package.manifest.tsx",
+    "**/*.manifest.tsx",
+    "**/*.xtest.tsx",
+    ".tspack/types/**/*.d.ts"
+  ],
+  "exclude": [
+    "src/**",
+    "dist/**",
+    "node_modules/**",
+    ".tspack/store/**",
+    "tspack-artifacts/**"
+  ]
+}
+`
 
 const initTSPackEnvDTS = `/// <reference path="./.tspack/types/tspack-manifest.d.ts" />
 `
