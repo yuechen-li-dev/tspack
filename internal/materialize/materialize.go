@@ -58,6 +58,8 @@ type NodeModulesMaterializer struct{}
 
 const markerFile = ".tspack-materialized"
 
+const maxMaterializeDependencyDepth = 64
+
 func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) Result {
 	_ = ctx
 	out := Result{}
@@ -105,7 +107,7 @@ func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) R
 
 	rootEdges := collectRootEdges(req.Lock.Edges)
 	rootVisible := map[string]lockfile.Package{}
-	seen := map[string]struct{}{}
+	state := newMaterializeState()
 	for _, e := range rootEdges {
 		pkg, ok := pkgs[e.To]
 		if !ok {
@@ -117,7 +119,7 @@ func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) R
 			continue
 		}
 		rootVisible[pkg.ID] = pkg
-		materializePkg(req, &out, pkgs, edgesByFrom, pkg, nmRoot, seen)
+		materializePkg(req, &out, pkgs, edgesByFrom, pkg, nmRoot, state)
 	}
 	materializeRootBins(req, &out, nmRoot, rootVisible)
 	return finalize(out)
@@ -147,17 +149,76 @@ func collectRootEdges(edges []lockfile.Edge) []lockfile.Edge {
 	return out
 }
 
-func materializePkg(req Request, out *Result, pkgs map[string]lockfile.Package, edgesByFrom map[string][]lockfile.Edge, pkg lockfile.Package, parentNodeModules string, seen map[string]struct{}) {
+type materializeState struct {
+	seenLocations map[string]struct{}
+	stack         []string
+	inStack       map[string]int
+}
+
+func newMaterializeState() *materializeState {
+	return &materializeState{
+		seenLocations: map[string]struct{}{},
+		inStack:       map[string]int{},
+	}
+}
+
+func (s *materializeState) containsPackage(pkgID string) bool {
+	_, ok := s.inStack[pkgID]
+	return ok
+}
+
+func (s *materializeState) push(pkgID string) {
+	s.stack = append(s.stack, pkgID)
+	s.inStack[pkgID]++
+}
+
+func (s *materializeState) pop(pkgID string) {
+	if len(s.stack) > 0 {
+		s.stack = s.stack[:len(s.stack)-1]
+	}
+	remaining := s.inStack[pkgID] - 1
+	if remaining <= 0 {
+		delete(s.inStack, pkgID)
+		return
+	}
+	s.inStack[pkgID] = remaining
+}
+
+func (s *materializeState) pathWith(pkgID string) string {
+	path := append([]string{}, s.stack...)
+	path = append(path, pkgID)
+	return strings.Join(path, " -> ")
+}
+
+func materializePkg(req Request, out *Result, pkgs map[string]lockfile.Package, edgesByFrom map[string][]lockfile.Edge, pkg lockfile.Package, parentNodeModules string, state *materializeState) {
 	dest, err := safePackagePath(parentNodeModules, pkg.Name)
 	if err != nil {
 		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_INVALID_DESTINATION", Severity: diag.SeverityError, Message: err.Error(), Details: []string{pkg.ID}})
 		return
 	}
 	key := pkg.ID + "@" + dest
-	if _, ok := seen[key]; ok {
+	if _, ok := state.seenLocations[key]; ok {
 		return
 	}
-	seen[key] = struct{}{}
+	state.seenLocations[key] = struct{}{}
+	cycleLeaf := state.containsPackage(pkg.ID)
+	if !cycleLeaf && len(state.stack) >= maxMaterializeDependencyDepth {
+		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{
+			Code:     "TSPACK_MATERIALIZE_PATH_DEPTH_EXCEEDED",
+			Severity: diag.SeverityError,
+			File:     dest,
+			Message:  "materialization dependency path exceeded safety depth",
+			Details: []string{
+				pkg.ID,
+				fmt.Sprintf("depth=%d", len(state.stack)+1),
+				fmt.Sprintf("max=%d", maxMaterializeDependencyDepth),
+				state.pathWith(pkg.ID),
+				"hint: likely dependency cycle or materializer traversal bug",
+			},
+		})
+		return
+	}
+
 	hash, ok := PackageStoreHash(pkg)
 	if !ok {
 		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_PACKAGE_HASH_MISSING", Severity: diag.SeverityError, Message: "package missing store hash", Details: []string{pkg.ID}})
@@ -182,6 +243,13 @@ func materializePkg(req Request, out *Result, pkgs map[string]lockfile.Package, 
 	}
 	out.Written = append(out.Written, WrittenPath{Path: dest, Kind: "package", PackageID: pkg.ID})
 
+	if cycleLeaf {
+		return
+	}
+
+	state.push(pkg.ID)
+	defer state.pop(pkg.ID)
+
 	childNM := filepath.Join(dest, "node_modules")
 	for _, edge := range edgesByFrom[pkg.ID] {
 		dep, ok := pkgs[edge.To]
@@ -189,7 +257,7 @@ func materializePkg(req Request, out *Result, pkgs map[string]lockfile.Package, 
 			out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_EDGE_UNKNOWN_PACKAGE", Severity: diag.SeverityError, Message: "edge points to unknown package", Details: []string{edge.From, edge.To}})
 			continue
 		}
-		materializePkg(req, out, pkgs, edgesByFrom, dep, childNM, seen)
+		materializePkg(req, out, pkgs, edgesByFrom, dep, childNM, state)
 	}
 }
 

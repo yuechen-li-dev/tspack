@@ -52,6 +52,12 @@ Before writing package content, materializer:
 
 No fetch or resolve happens in materialization.
 
+## Graph safety (M53c)
+
+`tspack sync` materialization is graph-safe for dependency cycles and shared dependency subgraphs. The node_modules writer tracks package identity on the active materialization path: it still writes the required package entry for a direct dependency edge, but if that package already appears on the current path, it does not recursively descend into that package again. This prevents unbounded paths such as `node_modules/a/node_modules/b/node_modules/a/node_modules/b/...` while preserving the existing strict nested compatibility layout.
+
+A defensive dependency-depth guard also stops materialization with `TSPACK_MATERIALIZE_PATH_DEPTH_EXCEEDED` before future traversal bugs can create OS path-length failures. Cycle handling should normally prevent this guard from firing for ordinary cyclic graphs.
+
 ## Link modes (M10)
 
 Supported:
