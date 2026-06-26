@@ -2,9 +2,11 @@ package materialize
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
@@ -186,6 +188,105 @@ func TestDeterministicAndLinkMode(t *testing.T) {
 	assertCode(t, bad, "TSPACK_MATERIALIZE_UNSUPPORTED_LINK_MODE")
 }
 
+func TestMaterializeCircularDependenciesStayBounded(t *testing.T) {
+	ws := t.TempDir()
+	s, _ := store.Open(t.TempDir())
+	aHash := putPkg(t, s, "npm:a@1.0.0", "a")
+	bHash := putPkg(t, s, "npm:b@1.0.0", "b")
+	lf := &lockfile.Lockfile{
+		Packages: []lockfile.Package{
+			{ID: "npm:a@1.0.0", Name: "a", Hash: aHash},
+			{ID: "npm:b@1.0.0", Name: "b", Hash: bHash},
+		},
+		Edges: []lockfile.Edge{
+			{From: "app:target:core", To: "npm:a@1.0.0", Kind: "runtime"},
+			{From: "npm:a@1.0.0", To: "npm:b@1.0.0", Kind: "runtime"},
+			{From: "npm:b@1.0.0", To: "npm:a@1.0.0", Kind: "runtime"},
+		},
+	}
+
+	res := NodeModulesMaterializer{}.Materialize(context.Background(), Request{WorkspaceRoot: ws, Lock: lf, Store: s, Options: Options{LinkMode: LinkModeCopy}})
+	if len(res.Diagnostics) > 0 {
+		t.Fatalf("diags: %#v", res.Diagnostics)
+	}
+
+	nm := filepath.Join(ws, "node_modules")
+	mustExist(t, filepath.Join(nm, "a", "package.json"))
+	mustExist(t, filepath.Join(nm, "a", "node_modules", "b", "package.json"))
+	mustExist(t, filepath.Join(nm, "a", "node_modules", "b", "node_modules", "a", "package.json"))
+	assertNoRepeatedPackagePattern(t, nm, []string{"a", "b", "a", "b"})
+	assertMaxNodeModulesDepth(t, nm, 3)
+}
+
+func TestMaterializeSharedDependencyDeterministicAndBounded(t *testing.T) {
+	ws := t.TempDir()
+	s, _ := store.Open(t.TempDir())
+	aHash := putPkg(t, s, "npm:a@1.0.0", "a")
+	bHash := putPkg(t, s, "npm:b@1.0.0", "b")
+	cHash := putPkg(t, s, "npm:c@1.0.0", "c")
+	lf := &lockfile.Lockfile{
+		Packages: []lockfile.Package{
+			{ID: "npm:a@1.0.0", Name: "a", Hash: aHash},
+			{ID: "npm:b@1.0.0", Name: "b", Hash: bHash},
+			{ID: "npm:c@1.0.0", Name: "c", Hash: cHash},
+		},
+		Edges: []lockfile.Edge{
+			{From: "app:target:core", To: "npm:b@1.0.0", Kind: "runtime"},
+			{From: "app:target:core", To: "npm:a@1.0.0", Kind: "runtime"},
+			{From: "npm:a@1.0.0", To: "npm:c@1.0.0", Kind: "runtime"},
+			{From: "npm:b@1.0.0", To: "npm:c@1.0.0", Kind: "runtime"},
+		},
+	}
+
+	m := NodeModulesMaterializer{}
+	first := m.Materialize(context.Background(), Request{WorkspaceRoot: ws, Lock: lf, Store: s, Options: Options{LinkMode: LinkModeCopy}})
+	if len(first.Diagnostics) > 0 {
+		t.Fatalf("first diags: %#v", first.Diagnostics)
+	}
+	firstTree := collectMaterializedPaths(t, filepath.Join(ws, "node_modules"))
+
+	second := m.Materialize(context.Background(), Request{WorkspaceRoot: ws, Lock: lf, Store: s, Options: Options{Clean: true, LinkMode: LinkModeCopy}})
+	if len(second.Diagnostics) > 0 {
+		t.Fatalf("second diags: %#v", second.Diagnostics)
+	}
+	secondTree := collectMaterializedPaths(t, filepath.Join(ws, "node_modules"))
+
+	if len(firstTree) != len(secondTree) {
+		t.Fatalf("tree path count changed: first=%d second=%d", len(firstTree), len(secondTree))
+	}
+	for i := range firstTree {
+		if firstTree[i] != secondTree[i] {
+			t.Fatalf("tree path changed at %d: %q != %q", i, firstTree[i], secondTree[i])
+		}
+	}
+
+	nm := filepath.Join(ws, "node_modules")
+	mustExist(t, filepath.Join(nm, "a", "node_modules", "c", "package.json"))
+	mustExist(t, filepath.Join(nm, "b", "node_modules", "c", "package.json"))
+	assertMaxNodeModulesDepth(t, nm, 2)
+}
+
+func TestMaterializePathDepthGuardReportsClearDiagnostic(t *testing.T) {
+	ws := t.TempDir()
+	s, _ := store.Open(t.TempDir())
+	packages := make([]lockfile.Package, 0, maxMaterializeDependencyDepth+2)
+	edges := []lockfile.Edge{{From: "app:target:core", To: "npm:p00@1.0.0", Kind: "runtime"}}
+	for i := 0; i < maxMaterializeDependencyDepth+2; i++ {
+		name := fmt.Sprintf("p%02d", i)
+		id := fmt.Sprintf("npm:%s@1.0.0", name)
+		hash := putPkg(t, s, id, name)
+		packages = append(packages, lockfile.Package{ID: id, Name: name, Hash: hash})
+		if i > 0 {
+			from := fmt.Sprintf("npm:p%02d@1.0.0", i-1)
+			edges = append(edges, lockfile.Edge{From: from, To: id, Kind: "runtime"})
+		}
+	}
+	lf := &lockfile.Lockfile{Packages: packages, Edges: edges}
+
+	res := NodeModulesMaterializer{}.Materialize(context.Background(), Request{WorkspaceRoot: ws, Lock: lf, Store: s, Options: Options{LinkMode: LinkModeCopy}})
+	assertCode(t, res, "TSPACK_MATERIALIZE_PATH_DEPTH_EXCEEDED")
+}
+
 func putPkg(t *testing.T, s *store.Store, id, name string) string {
 	t.Helper()
 	d := t.TempDir()
@@ -206,6 +307,54 @@ func mustExist(t *testing.T, p string) {
 	t.Helper()
 	if _, err := os.Stat(p); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func collectMaterializedPaths(t *testing.T, root string) []string {
+	t.Helper()
+	paths := []string{}
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		paths = append(paths, filepath.ToSlash(rel))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return paths
+}
+
+func assertNoRepeatedPackagePattern(t *testing.T, root string, pattern []string) {
+	t.Helper()
+	paths := collectMaterializedPaths(t, root)
+	needle := strings.Join(pattern, "/node_modules/")
+	for _, path := range paths {
+		if strings.Contains(path, needle) {
+			t.Fatalf("found repeated package pattern %q in %q", needle, path)
+		}
+	}
+}
+
+func assertMaxNodeModulesDepth(t *testing.T, root string, maxDepth int) {
+	t.Helper()
+	paths := collectMaterializedPaths(t, root)
+	for _, path := range paths {
+		depth := strings.Count(path, "node_modules") + 1
+		if path == "." {
+			depth = 0
+		}
+		if depth > maxDepth {
+			t.Fatalf("materialized path depth %d exceeds max %d: %s", depth, maxDepth, path)
+		}
+		if len(path) >= 240 {
+			t.Fatalf("materialized relative path should stay comfortably below Windows MAX_PATH: len=%d path=%s", len(path), path)
+		}
 	}
 }
 

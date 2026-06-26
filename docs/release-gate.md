@@ -396,6 +396,15 @@ Backend and config smoke should include:
 - project `biome.jsonc` suppresses the temporary default-config stderr message;
 - executable-bit and root `.bin` materialization regression coverage.
 
+M53c materializer graph-safety gate:
+
+- circular dependency materialization fixture syncs without `TSPACK_MATERIALIZE_WRITE_FAILED`;
+- shared dependency graph materializes bounded paths for each required strict-layout entry;
+- no repeated infinite `node_modules/a/node_modules/b/...` cycle pattern appears;
+- `TSPACK_MATERIALIZE_PATH_DEPTH_EXCEEDED` guard is covered for an absurd synthetic chain;
+- self-host smoke still passes;
+- Windows path-depth safety is considered with bounded component-depth assertions.
+
 Phase 8 expected behavior coverage should verify:
 
 - `format --check` does not pass Biome `--check`;
