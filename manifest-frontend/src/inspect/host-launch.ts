@@ -102,17 +102,45 @@ export async function launchInspectableHost(options: LaunchHostOptions): Promise
     baseArgs.push(options.url);
   }
 
-  const launchOnce = async (args: string[]): Promise<{ child: ChildProcess; readStderr: () => string; readStdout: () => string }> => {
-    const child = spawn(options.executablePath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const launchOnce = async (args: string[]): Promise<{
+    child: ChildProcess;
+    readStderr: () => string;
+    readStdout: () => string;
+    readSpawnError: () => Error | undefined;
+  }> => {
     let stderr = '';
     let stdout = '';
+    let spawnError: Error | undefined;
+    let child: ChildProcess;
+
+    try {
+      child = spawn(options.executablePath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw formatLaunchFailure('TSPACK_INSPECT_HOST_LAUNCH_FAILED', {
+        args,
+        exitCode: null,
+        signal: null,
+        stderr: message,
+        stdout: ''
+      });
+    }
+
     child.stderr?.on('data', (chunk) => {
       stderr += chunk.toString();
     });
     child.stdout?.on('data', (chunk) => {
       stdout += chunk.toString();
     });
-    return { child, readStderr: () => stderr, readStdout: () => stdout };
+    (child as ChildProcess & { on?: (event: string, listener: (error: Error) => void) => void }).on?.('error', (error: Error) => {
+      spawnError = error;
+    });
+    return {
+      child,
+      readStderr: () => stderr,
+      readStdout: () => stdout,
+      readSpawnError: () => spawnError
+    };
   };
 
   const forceNoSandbox = process.env.TSPACK_INSPECT_HOST_NO_SANDBOX === '1';
@@ -122,6 +150,7 @@ export async function launchInspectableHost(options: LaunchHostOptions): Promise
   let child = launched.child;
   let readStderr = launched.readStderr;
   let readStdout = launched.readStdout;
+  let readSpawnError = launched.readSpawnError;
   let noSandboxUsed = forceNoSandbox;
 
   const cleanup = async (): Promise<void> => {
@@ -142,6 +171,16 @@ export async function launchInspectableHost(options: LaunchHostOptions): Promise
   const waitUntilReady = async (): Promise<void> => {
     const startedAt = Date.now();
     while (Date.now() - startedAt < 5000) {
+      const spawnError = readSpawnError();
+      if (spawnError) {
+        throw formatLaunchFailure('TSPACK_INSPECT_HOST_LAUNCH_FAILED', {
+          args,
+          exitCode: child.exitCode,
+          signal: child.signalCode,
+          stderr: `${readStderr()} ${spawnError.message}`.trim(),
+          stdout: readStdout()
+        });
+      }
       if (child.exitCode !== null) {
         throw formatLaunchFailure('TSPACK_INSPECT_HOST_LAUNCH_FAILED', {
           args,
@@ -184,6 +223,7 @@ export async function launchInspectableHost(options: LaunchHostOptions): Promise
       child = launched.child;
       readStderr = launched.readStderr;
       readStdout = launched.readStdout;
+      readSpawnError = launched.readSpawnError;
       noSandboxUsed = true;
       try {
         await waitUntilReady();

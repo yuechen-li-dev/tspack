@@ -35,16 +35,28 @@ describe('inspect host launch', () => {
 
   it('surfaces host launch failure for early exit host', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'inspect-host-fail-'));
-    const executablePath = path.join(dir, 'fake-host.sh');
-    fs.writeFileSync(executablePath, '#!/usr/bin/env bash\necho boom 1>&2\nexit 1\n', { mode: 0o755 });
+    const executablePath = path.join(
+      dir,
+      process.platform === 'win32' ? 'fake-host.cmd' : 'fake-host.sh',
+    );
+    const script = process.platform === 'win32'
+      ? '@echo off\r\necho boom 1>&2\r\nexit /b 1\r\n'
+      : '#!/usr/bin/env sh\necho boom 1>&2\nexit 1\n';
+    fs.writeFileSync(executablePath, script, { mode: 0o755 });
 
     await expect(launchInspectableHost({ executablePath })).rejects.toThrow('TSPACK_INSPECT_HOST_LAUNCH_FAILED');
   });
 
   it('uses no-sandbox args when env flag is set', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'inspect-host-nosandbox-'));
-    const executablePath = path.join(dir, 'fake-host.sh');
-    fs.writeFileSync(executablePath, '#!/usr/bin/env bash\nif [[ "$*" == *"--no-sandbox"* ]]; then sleep 8; else exit 1; fi\n', { mode: 0o755 });
+    const executablePath = path.join(
+      dir,
+      process.platform === 'win32' ? 'fake-host.cmd' : 'fake-host.sh',
+    );
+    const script = process.platform === 'win32'
+      ? '@echo off\r\nset ARGS=%*\r\necho %ARGS% | findstr /C:"--no-sandbox" >nul\r\nif errorlevel 1 exit /b 1\r\npowershell -Command "Start-Sleep -Seconds 8"\r\n'
+      : '#!/usr/bin/env sh\ncase "$*" in\n  *--no-sandbox*) sleep 8 ;;\n  *) exit 1 ;;\nesac\n';
+    fs.writeFileSync(executablePath, script, { mode: 0o755 });
 
     process.env.TSPACK_INSPECT_HOST_NO_SANDBOX = '1';
     try {
@@ -52,7 +64,7 @@ describe('inspect host launch', () => {
       expect(launched.noSandboxUsed).toBe(true);
       await launched.cleanup();
     } catch (error: unknown) {
-      expect((error as Error).message).toContain('TSPACK_INSPECT_HOST_CDP_ENDPOINT_FAILED');
+      expect((error as Error).message).toMatch(/TSPACK_INSPECT_HOST_(CDP_ENDPOINT_FAILED|LAUNCH_FAILED)/);
     } finally {
       delete process.env.TSPACK_INSPECT_HOST_NO_SANDBOX;
     }

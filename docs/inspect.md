@@ -92,6 +92,24 @@ URL inspection:
 - `tspack inspect <url> --browser webkit` (Playwright WebKit backend when WebKit is available)
 - `tspack inspect <url> --host-path /path/to/chrome`
 
+### Windows local requirements
+
+- `tspack inspect <url>` on Windows is intended for local desktop dogfooding, not Linux/Xvfb-style headless shims.
+- Preferred happy path:
+  - build the bridge first: `npm --prefix manifest-frontend run build`
+  - ensure a Playwright Chromium runtime is installed: `npx --prefix manifest-frontend playwright install chromium`
+- When Playwright Chromium is missing, the Windows Chromium URL backend now distinguishes a missing browser runtime from a page-load failure and keeps `--json` output parseable.
+- Windows Chromium fallback probes these standard installed-browser paths when Playwright-managed Chromium is unavailable:
+  - `%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe`
+  - `%ProgramFiles%\Microsoft\Edge\Application\msedge.exe`
+  - `%LocalAppData%\Microsoft\Edge\Application\msedge.exe`
+  - `%ProgramFiles%\Google\Chrome\Application\chrome.exe`
+  - `%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe`
+  - `%LocalAppData%\Google\Chrome\Application\chrome.exe`
+- You can always bypass discovery with `--browser-path "<full path to chrome-or-edge.exe>"`.
+- Explicit `--browser vscode` uses Windows-friendly executable lookup and should no longer fail only because PATH parsing assumed Unix separators.
+- Windows browser diagnostics must not suggest Linux-only `DISPLAY` / Xvfb setup for ordinary URL inspect.
+
 VS Code/Electron app UI inspection:
 
 - launch the app yourself with remote debugging:
@@ -145,6 +163,7 @@ VS Code/Electron inspection is an explicit editor/host path, not the generic URL
 - `--run-ready-timeout <seconds>` (default 30)
 
 When `--json` is set and `--run` is used, progress and run-target logs go to stderr and JSON output remains on stdout.
+When `--json` is set for direct URL/browser inspection, handled failures also emit valid JSON on stdout with structured diagnostics instead of mixing human error text into stdout.
 
 ## Source hints
 
@@ -179,6 +198,7 @@ Target/input:
 
 Browser/backend:
 - `TSPACK_INSPECT_BROWSER_UNSUPPORTED`
+- `TSPACK_INSPECT_BROWSER_NOT_FOUND`
 - `TSPACK_INSPECT_BROWSER_LAUNCH_FAILED`
 - `TSPACK_INSPECT_BRIDGE_MISSING`
 - `TSPACK_INSPECT_FAILED`

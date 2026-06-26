@@ -904,3 +904,21 @@ The 0.1.0 release gate includes cold-update throughput hardening for `tspack upd
 - App `tsconfig.json` files generated or advised by init exclude TSPack-owned files: manifests, `*.xtest.tsx`, `.tspack/**`, `tspack-artifacts/**`, and `dist/**`.
 - Existing app `tsconfig.json` handling is safe: init must not destructively rewrite it, and must print guidance when it leaves the file unchanged.
 - Docs explain the TSPack-owned TSX boundary for manifests and native xTest files.
+
+## v0.1.3 / M53e Windows local inspect gate
+
+- Build the inspect bridge locally on Windows with `npm --prefix manifest-frontend run build` before running inspect smoke.
+- `go run ./cmd/tspack inspect --help` works without requiring the bridge at runtime and prints inspect-specific help.
+- `go run ./cmd/tspack inspect http://127.0.0.1:9 --json` emits valid JSON on stdout even on failure.
+- Unreachable local URL smoke reports a stable browser/page diagnostic and does not print Linux-only `DISPLAY` / Xvfb guidance on Windows.
+- Local server smoke covers:
+  - `go run ./cmd/tspack inspect http://127.0.0.1:4171 --json`
+  - `go run ./cmd/tspack inspect http://127.0.0.1:4171 --selector body --json`
+- Browser path with spaces works through `--browser-path`, for example `C:\Program Files\Google\Chrome\Application\chrome.exe`.
+- Windows Chromium missing-browser behavior is distinct from page-load failure:
+  - missing browser runtime should report `TSPACK_INSPECT_BROWSER_NOT_FOUND` with Windows-appropriate remediation
+  - unreachable page should report `TSPACK_INSPECT_PAGE_LOAD_FAILED`
+- Windows Chromium fallback probes standard Edge/Chrome install locations when Playwright-managed Chromium is missing, but explicit `--browser-path` remains the override.
+- Explicit `--browser vscode` uses Windows-aware executable discovery and must not fail only because PATH parsing assumed Unix separators.
+- `npx --prefix manifest-frontend playwright install --list` or equivalent local evidence is recorded during release prep so browser availability is explicit.
+- Full Phase 11 inspect expansion, deeper browser-matrix coverage, and broader editor-host workflows remain post-0.1.3 scope.

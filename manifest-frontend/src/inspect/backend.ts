@@ -27,12 +27,145 @@ export type InspectBackendProbe = {
   reason?: string;
 };
 
+type ExistsSync = (filePath: string) => boolean;
+type EnvMap = Record<string, string | undefined>;
+
+type InspectLaunchFailure = {
+  code: string;
+  message: string;
+  details: string[];
+  fixes: string[];
+};
+
+const WINDOWS_EDGE_CANDIDATES = [
+  ["ProgramFiles(x86)", "Microsoft", "Edge", "Application", "msedge.exe"],
+  ["ProgramFiles", "Microsoft", "Edge", "Application", "msedge.exe"],
+  ["LocalAppData", "Microsoft", "Edge", "Application", "msedge.exe"],
+];
+
+const WINDOWS_CHROME_CANDIDATES = [
+  ["ProgramFiles", "Google", "Chrome", "Application", "chrome.exe"],
+  ["ProgramFiles(x86)", "Google", "Chrome", "Application", "chrome.exe"],
+  ["LocalAppData", "Google", "Chrome", "Application", "chrome.exe"],
+];
+
+const WINDOWS_VSCODE_CANDIDATES = [
+  ["LocalAppData", "Programs", "Microsoft VS Code", "Code.exe"],
+  ["ProgramFiles", "Microsoft VS Code", "Code.exe"],
+  ["ProgramFiles(x86)", "Microsoft VS Code", "Code.exe"],
+  ["LocalAppData", "Programs", "VSCodium", "VSCodium.exe"],
+  ["ProgramFiles", "VSCodium", "VSCodium.exe"],
+  ["ProgramFiles(x86)", "VSCodium", "VSCodium.exe"],
+];
+
 export function buildInspectAnalyzerExpression(
   selector: string | undefined,
   points: Array<{ x: number; y: number }>,
 ): string {
   const analyzerArgs = { selector, points };
   return `(${INSPECT_ANALYZER_SCRIPT})(${JSON.stringify(analyzerArgs)})`;
+}
+
+function joinEnvPath(
+  env: EnvMap,
+  segments: string[],
+): string | undefined {
+  if (segments.length === 0) {
+    return undefined;
+  }
+
+  const base = env[segments[0]];
+  if (!base) {
+    return undefined;
+  }
+
+  return path.join(base, ...segments.slice(1));
+}
+
+function findExistingPath(
+  candidates: Array<string | undefined>,
+  existsSync: ExistsSync = fs.existsSync,
+): string | null {
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function windowsExecutableExtensions(env: EnvMap): string[] {
+  const pathext = env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD";
+  const extensions = pathext
+    .split(";")
+    .map((value: string) => value.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (extensions.length === 0) {
+    return [".exe", ".cmd", ".bat", ".com"];
+  }
+
+  return extensions;
+}
+
+function findExecutableOnPath(
+  names: string[],
+  env: EnvMap = process.env,
+  existsSync: ExistsSync = fs.existsSync,
+): string | null {
+  const pathEntries = (env.PATH ?? "")
+    .split(path.delimiter)
+    .map((value: string) => value.trim())
+    .filter(Boolean);
+  const extensions =
+    process.platform === "win32" ? windowsExecutableExtensions(env) : [""];
+
+  for (const entry of pathEntries) {
+    for (const name of names) {
+      const hasExtension = path.extname(name) !== "";
+      if (hasExtension) {
+        const candidate = path.join(entry, name);
+        if (existsSync(candidate)) {
+          return candidate;
+        }
+        continue;
+      }
+
+      for (const extension of extensions) {
+        const suffix = extension === "" ? "" : extension;
+        const candidate = path.join(entry, `${name}${suffix}`);
+        if (existsSync(candidate)) {
+          return candidate;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+export function findWindowsChromiumExecutable(
+  env: EnvMap = process.env,
+  existsSync: ExistsSync = fs.existsSync,
+): string | null {
+  const explicitCandidates = [
+    ...WINDOWS_EDGE_CANDIDATES.map((candidate) => joinEnvPath(env, candidate)),
+    ...WINDOWS_CHROME_CANDIDATES.map((candidate) => joinEnvPath(env, candidate)),
+  ];
+
+  const explicitMatch = findExistingPath(explicitCandidates, existsSync);
+  if (explicitMatch) {
+    return explicitMatch;
+  }
+
+  return findExecutableOnPath(
+    ["msedge", "msedge.exe", "chrome", "chrome.exe", "chromium", "chromium.exe"],
+    env,
+    existsSync,
+  );
 }
 
 type InspectAnalyzerPayload = {
@@ -115,20 +248,24 @@ function probePlatformWebViewEnvironment(): PlatformWebViewProbeResult {
 }
 
 export function findVSCodeExecutable(): string | null {
-  const candidates = ["code", "code-insiders", "codium"];
-  const pathParts = (process.env.PATH ?? "").split(":").filter(Boolean);
-  for (const name of candidates) {
-    for (const part of pathParts) {
-      const fullPath = `${part}/${name}`;
-      if (fs.existsSync(fullPath)) {
-        return fullPath;
-      }
+  if (process.platform === "win32") {
+    const explicitCandidates = WINDOWS_VSCODE_CANDIDATES.map((candidate) =>
+      joinEnvPath(process.env, candidate),
+    );
+    const explicitMatch = findExistingPath(explicitCandidates);
+    if (explicitMatch) {
+      return explicitMatch;
     }
   }
-  return null;
+
+  return findExecutableOnPath(["code", "code-insiders", "codium", "code-oss"]);
 }
 
 export function resolveVSCodeElectronExecutable(wrapperPath: string): string {
+  if (process.platform === "win32") {
+    return wrapperPath;
+  }
+
   const wrapperName = path.basename(wrapperPath);
   const variants: Record<string, string[]> = {
     code: ["/usr/share/code/code"],
@@ -218,7 +355,77 @@ type PlaywrightBrowserTypeName = "chromium" | "webkit";
 type PlaywrightBrowserOverrides = {
   executablePath?: string;
   browserName?: InspectBrowserName;
+  backend?: UIInspectResult["browser"]["backend"];
 };
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isPlaywrightBrowserMissingError(error: unknown): boolean {
+  const message = messageOf(error);
+  return (
+    message.includes("Executable doesn't exist at") ||
+    message.includes("Please run the following command to download new browsers") ||
+    message.includes("browserType.launch: Executable doesn't exist")
+  );
+}
+
+function buildBrowserMissingFailure(
+  browserTypeName: PlaywrightBrowserTypeName,
+  fallbackExecutablePath?: string,
+): InspectLaunchFailure {
+  const browserLabel = browserTypeName === "chromium" ? "Chromium" : "WebKit";
+  const fixes = [
+    `Install the Playwright ${browserLabel} browser with: npx playwright install ${browserTypeName}`,
+  ];
+  const details = [
+    `Playwright ${browserLabel} browser runtime is not installed or could not be located.`,
+  ];
+
+  if (process.platform === "win32") {
+    if (fallbackExecutablePath) {
+      details.push(
+        `Windows fallback browser found at: ${fallbackExecutablePath}`,
+      );
+      fixes.push(
+        `Pass the browser directly with: --browser-path "${fallbackExecutablePath}"`,
+      );
+    } else if (browserTypeName === "chromium") {
+      details.push(
+        "No Windows Edge/Chrome fallback executable was discovered in the standard install locations.",
+      );
+      fixes.push(
+        "Install Microsoft Edge or Google Chrome, or pass an explicit browser path with --browser-path.",
+      );
+    }
+  }
+
+  return {
+    code: "TSPACK_INSPECT_BROWSER_NOT_FOUND",
+    message: `TSPACK_INSPECT_BROWSER_NOT_FOUND: Playwright ${browserLabel} browser is unavailable`,
+    details,
+    fixes,
+  };
+}
+
+function buildBrowserLaunchFailure(error: unknown): InspectLaunchFailure {
+  const underlying = messageOf(error);
+  return {
+    code: "TSPACK_INSPECT_BROWSER_LAUNCH_FAILED",
+    message: `TSPACK_INSPECT_BROWSER_LAUNCH_FAILED: ${underlying}`,
+    details: [underlying],
+    fixes: [],
+  };
+}
+
+function throwLaunchFailure(failure: InspectLaunchFailure): never {
+  const extraDetails = [...failure.details, ...failure.fixes];
+  if (extraDetails.length === 0) {
+    throw new Error(failure.message);
+  }
+  throw new Error(`${failure.message} | ${extraDetails.join(" | ")}`);
+}
 
 async function inspectWithPlaywrightBrowser(
   options: InspectOptions,
@@ -239,10 +446,46 @@ async function inspectWithPlaywrightBrowser(
       executablePath: overrides?.executablePath,
     });
   } catch (error: unknown) {
+    if (
+      process.platform === "win32" &&
+      browserTypeName === "chromium" &&
+      !overrides?.executablePath &&
+      isPlaywrightBrowserMissingError(error)
+    ) {
+      const fallbackExecutablePath = findWindowsChromiumExecutable();
+      if (fallbackExecutablePath) {
+        try {
+          browser = await browserType.launch({
+            executablePath: fallbackExecutablePath,
+          });
+          overrides = {
+            ...overrides,
+            executablePath: fallbackExecutablePath,
+            backend: "browser-path",
+          };
+        } catch (fallbackError: unknown) {
+          if (isPlaywrightBrowserMissingError(fallbackError)) {
+            throwLaunchFailure(
+              buildBrowserMissingFailure(
+                browserTypeName,
+                fallbackExecutablePath,
+              ),
+            );
+          }
+          throwLaunchFailure(buildBrowserLaunchFailure(fallbackError));
+        }
+      } else {
+        throwLaunchFailure(buildBrowserMissingFailure(browserTypeName));
+      }
+    }
+
     if (error instanceof Error && error.message.startsWith("TSPACK_INSPECT_")) {
       throw error;
     }
-    throw new Error("TSPACK_INSPECT_BROWSER_LAUNCH_FAILED");
+    if (isPlaywrightBrowserMissingError(error)) {
+      throwLaunchFailure(buildBrowserMissingFailure(browserTypeName));
+    }
+    throwLaunchFailure(buildBrowserLaunchFailure(error));
   }
 
   try {
@@ -265,7 +508,10 @@ async function inspectWithPlaywrightBrowser(
 
     return {
       target: { url: options.url as string },
-      browser: { name: overrides?.browserName ?? browserTypeName },
+      browser: {
+        name: overrides?.browserName ?? browserTypeName,
+        backend: overrides?.backend ?? "playwright",
+      },
       viewport: {
         width: options.viewport.width,
         height: options.viewport.height,
@@ -296,6 +542,7 @@ async function inspectWithWebKit(
 ): Promise<UIInspectResult> {
   return inspectWithPlaywrightBrowser(options, "webkit", {
     browserName: "webkit",
+    backend: "playwright",
   });
 }
 
@@ -459,7 +706,10 @@ export async function runInspect(
   }
 
   if (backend === "playwright-chromium" || backend === "chromium") {
-    return inspectWithChromium(options, { browserName: "chromium" });
+    return inspectWithChromium(options, {
+      browserName: "chromium",
+      backend: "playwright",
+    });
   }
 
   if (backend === "playwright-webkit" || backend === "webkit") {
@@ -473,6 +723,7 @@ export async function runInspect(
     return inspectWithChromium(options, {
       executablePath: browserPath,
       browserName: "chromium",
+      backend: "browser-path",
     });
   }
 
@@ -515,11 +766,15 @@ export async function runInspect(
     return inspectWithChromium(options, {
       executablePath: probe.executablePath,
       browserName: "chromium",
+      backend: "vscode",
     });
   }
 
   if (backend === "auto") {
-    return inspectWithChromium(options, { browserName: "chromium" });
+    return inspectWithChromium(options, {
+      browserName: "chromium",
+      backend: "playwright",
+    });
   }
 
   throw new Error("TSPACK_INSPECT_BROWSER_UNSUPPORTED");

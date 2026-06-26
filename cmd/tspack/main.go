@@ -390,7 +390,24 @@ func printCheckHelp() {
 	fmt.Println("  --show-lifecycle   Show individual lifecycle script diagnostics instead of summary")
 }
 
+func printInspectHelp() {
+	fmt.Println("Usage:")
+	fmt.Println("  tspack inspect <url> [experimental] [--run target] [--env KEY=VALUE] [--url <url>] [--browser auto|vscode|playwright-chromium|chromium|browser-path|host-path|cdp] [--host-path path] [--browser-path path] [--cdp endpoint] [--list-targets] [--target index-or-id] [--target-url substring] [--viewport WxH] [--selector css] [--point x,y] [--json] [--out file] [--text file]")
+	fmt.Println()
+	fmt.Println("Notes:")
+	fmt.Println("  URL inspect uses the browser backend by default.")
+	fmt.Println("  --run starts a declared RunTarget, waits for readiness, and then inspects its URL.")
+	fmt.Println("  --json keeps inspect result JSON on stdout; progress and run-target logs stay on stderr.")
+}
+
 func runInspectCommand(args []string) {
+	for _, arg := range args[1:] {
+		if arg == "--help" || arg == "-h" || arg == "help" {
+			printInspectHelp()
+			return
+		}
+	}
+
 	root := "."
 	runTarget := ""
 	runReadyTimeout := 30

@@ -1,8 +1,8 @@
-import { inspectAndWrite, parsePoint, parseViewport } from './inspect/index.js';
+import { buildInspectFailureResult, inspectAndWrite, parsePoint, parseViewport } from './inspect/index.js';
+import { formatInspectJson } from './inspect/format.js';
 import type { InspectOptions } from './inspect/index.js';
 
-async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+function parseInspectCliArgs(args: string[]): InspectOptions {
   const cursor = args[0] === 'inspect' ? 1 : 0;
   let url: string | undefined;
   const options: Omit<InspectOptions, 'url'> = {
@@ -44,10 +44,35 @@ async function main(): Promise<void> {
     throw new Error(`unknown flag: ${arg}`);
   }
 
-  await inspectAndWrite({ ...options, url });
+  return { ...options, url };
+}
+
+async function main(): Promise<void> {
+  const options = parseInspectCliArgs(process.argv.slice(2));
+  await inspectAndWrite(options);
 }
 
 main().catch((error: unknown) => {
+  let options: InspectOptions | undefined;
+  try {
+    options = parseInspectCliArgs(process.argv.slice(2));
+  } catch {
+    // Keep the raw CLI parse failure for non-JSON mode.
+  }
+  const jsonRequested = options?.json ?? process.argv.slice(2).includes('--json');
+
+  if (jsonRequested) {
+    const failure = buildInspectFailureResult(options ?? {
+      browser: 'auto',
+      viewport: { width: 1440, height: 900 },
+      points: [],
+      json: true
+    }, error);
+    process.stdout.write(formatInspectJson(failure));
+    process.exit(1);
+    return;
+  }
+
   process.stderr.write(`${(error as Error).message}\n`);
   process.exit(1);
 });

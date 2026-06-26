@@ -107,3 +107,4 @@ Before 0.1.0, verify bounded-parallel store population does not affect determini
 ## v0.1.3 known fix
 
 - `tspack init` generates `tsconfig.tspack.json` so VS Code and TypeScript can understand `manifest.tsx` through local `tspack/manifest` declarations without requiring React or `react/jsx-runtime`.
+- `tspack inspect` local Windows URL smoke now keeps `--json` stdout parseable on handled failures, distinguishes missing-browser versus page-load failures more precisely, and uses Windows-aware browser / VS Code executable discovery.

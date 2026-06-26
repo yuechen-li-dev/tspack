@@ -6,10 +6,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { formatInspectJson, formatInspectText } from "../src/inspect/format.js";
-import { parsePoint, parseViewport } from "../src/inspect/index.js";
+import {
+  buildInspectFailureResult,
+  parsePoint,
+  parseViewport,
+} from "../src/inspect/index.js";
 import {
   buildInspectAnalyzerExpression,
   findVSCodeExecutable,
+  findWindowsChromiumExecutable,
   resolveInspectBackend,
   resolveVSCodeElectronExecutable,
   runInspect,
@@ -334,7 +339,7 @@ describe("inspect parsing", () => {
         json: true,
       }),
     ).rejects.toThrow(
-      /TSPACK_INSPECT_(PAGE_LOAD_FAILED|BROWSER_LAUNCH_FAILED)/,
+      /TSPACK_INSPECT_(PAGE_LOAD_FAILED|BROWSER_LAUNCH_FAILED|BROWSER_NOT_FOUND)/,
     );
 
     await expect(
@@ -346,7 +351,7 @@ describe("inspect parsing", () => {
         json: true,
       }),
     ).rejects.toThrow(
-      /TSPACK_INSPECT_(PAGE_LOAD_FAILED|BROWSER_LAUNCH_FAILED)/,
+      /TSPACK_INSPECT_(PAGE_LOAD_FAILED|BROWSER_LAUNCH_FAILED|BROWSER_NOT_FOUND)/,
     );
   }, 15000);
 
@@ -422,7 +427,64 @@ describe("inspect parsing", () => {
     fs.writeFileSync(wrapperPath, "#!/usr/bin/env bash\n", { mode: 0o755 });
     fs.writeFileSync(electronPath, "binary", { mode: 0o755 });
 
-    expect(resolveVSCodeElectronExecutable(wrapperPath)).toBe(electronPath);
+    const resolved = resolveVSCodeElectronExecutable(wrapperPath);
+    if (process.platform === "win32") {
+      expect(resolved).toBe(wrapperPath);
+      return;
+    }
+
+    expect(resolved).toBe(electronPath);
+  });
+
+  it("discovers Windows Chromium candidates with space-containing paths", () => {
+    const fakeEnv = {
+      ProgramFiles: "C:\\Program Files",
+      "ProgramFiles(x86)": "C:\\Program Files (x86)",
+      LocalAppData: "C:\\Users\\me\\AppData\\Local",
+    } as NodeJS.ProcessEnv;
+    const seenPaths: string[] = [];
+    const result = findWindowsChromiumExecutable(fakeEnv, (candidate) => {
+      seenPaths.push(candidate);
+      return (
+        candidate ===
+        "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+      );
+    });
+
+    expect(result).toBe(
+      "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+    );
+    expect(seenPaths.some((candidate) => candidate.includes("Program Files"))).toBe(
+      true,
+    );
+  });
+
+  it("builds JSON-friendly inspect failures with structured diagnostics", () => {
+    const failure = buildInspectFailureResult(
+      {
+        url: "http://127.0.0.1:9",
+        browser: "auto",
+        viewport: { width: 1440, height: 900 },
+        points: [],
+        json: true,
+      },
+      new Error(
+        "TSPACK_INSPECT_BROWSER_NOT_FOUND: Playwright Chromium browser is unavailable | Playwright Chromium browser runtime is not installed or could not be located. | Install the Playwright Chromium browser with: npx playwright install chromium",
+      ),
+    );
+
+    expect(failure.target.url).toBe("http://127.0.0.1:9");
+    expect(failure.browser.backend).toBe("playwright");
+    expect(failure.browser.name).toBe("chromium");
+    expect(failure.root).toBeNull();
+    expect(failure.diagnostics[0].code).toBe("TSPACK_INSPECT_BROWSER_NOT_FOUND");
+    expect(failure.diagnostics[0].details).toContain(
+      "Playwright Chromium browser runtime is not installed or could not be located.",
+    );
+    expect(failure.diagnostics[0].fixes).toContain(
+      "Install the Playwright Chromium browser with: npx playwright install chromium",
+    );
+    expect(() => JSON.parse(formatInspectJson(failure))).not.toThrow();
   });
 
   it("falls back to Target.getTargets when /json/list has no inspectable targets", async () => {

@@ -1524,6 +1524,23 @@ func TestHelpMarksInspectExperimental(t *testing.T) {
 	}
 }
 
+func TestInspectHelpDoesNotRequireBridge(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	cmd := exec.Command("go", "run", "./cmd/tspack", "inspect", "--help")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("inspect --help failed: %v\n%s", err, string(b))
+	}
+	text := string(b)
+	if strings.Contains(text, "TSPACK_INSPECT_BRIDGE_MISSING") {
+		t.Fatalf("inspect --help should not require bridge:\n%s", text)
+	}
+	if !strings.Contains(text, "tspack inspect <url> [experimental]") {
+		t.Fatalf("inspect subcommand help missing usage:\n%s", text)
+	}
+}
+
 func writeRunFrontendStub(t *testing.T, irJSON string) {
 	t.Helper()
 	repo := filepath.Join("..", "..")
