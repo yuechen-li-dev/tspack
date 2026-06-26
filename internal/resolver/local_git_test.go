@@ -9,9 +9,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/tspack/tspack/internal/graph"
-	"github.com/tspack/tspack/internal/lockfile"
-	"github.com/tspack/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/graph"
+	"github.com/yuechen-li-dev/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/manifest"
 )
 
 func TestResolveGitRevBranchAndLifecycle(t *testing.T) {

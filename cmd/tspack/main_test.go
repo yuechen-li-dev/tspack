@@ -14,9 +14,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tspack/tspack/internal/lockfile"
-	"github.com/tspack/tspack/internal/manifest"
-	"github.com/tspack/tspack/internal/project"
+	"github.com/yuechen-li-dev/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/project"
 )
 
 type checkJSONReport struct {

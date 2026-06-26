@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/tspack/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 )
 
 func TestFromPackageJSONScriptsLifecycleOnlySorted(t *testing.T) {

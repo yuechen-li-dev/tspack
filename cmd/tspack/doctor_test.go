@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tspack/tspack/internal/lockfile"
-	"github.com/tspack/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/manifest"
 )
 
 func writeManifestStub(t *testing.T, repo string) {

@@ -14,16 +14,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tspack/tspack/internal/capability"
-	"github.com/tspack/tspack/internal/check"
-	"github.com/tspack/tspack/internal/diag"
-	"github.com/tspack/tspack/internal/how"
-	"github.com/tspack/tspack/internal/lockfile"
-	"github.com/tspack/tspack/internal/manifest"
-	"github.com/tspack/tspack/internal/project"
-	"github.com/tspack/tspack/internal/testcmd"
-	"github.com/tspack/tspack/internal/version"
-	"github.com/tspack/tspack/internal/why"
+	"github.com/yuechen-li-dev/tspack/internal/capability"
+	"github.com/yuechen-li-dev/tspack/internal/check"
+	"github.com/yuechen-li-dev/tspack/internal/diag"
+	"github.com/yuechen-li-dev/tspack/internal/how"
+	"github.com/yuechen-li-dev/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/project"
+	"github.com/yuechen-li-dev/tspack/internal/testcmd"
+	"github.com/yuechen-li-dev/tspack/internal/version"
+	"github.com/yuechen-li-dev/tspack/internal/why"
 )
 
 type CheckJSONReport struct {

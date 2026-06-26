@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tspack/tspack/internal/diag"
-	"github.com/tspack/tspack/internal/graph"
-	"github.com/tspack/tspack/internal/lockfile"
-	"github.com/tspack/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/diag"
+	"github.com/yuechen-li-dev/tspack/internal/graph"
+	"github.com/yuechen-li-dev/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/manifest"
 )
 
 func TestNodejsRuntimeBaselineWhyEquivalence(t *testing.T) {

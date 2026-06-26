@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tspack/tspack/internal/lockfile"
-	"github.com/tspack/tspack/internal/resolver"
+	"github.com/yuechen-li-dev/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/resolver"
 )
 
 func TestUpdateThenSyncWithFakeRegistryPopulatesStore(t *testing.T) {

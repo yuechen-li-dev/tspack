@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tspack/tspack/internal/diag"
+	"github.com/yuechen-li-dev/tspack/internal/diag"
 )
 
 const watchDebounce = 200 * time.Millisecond

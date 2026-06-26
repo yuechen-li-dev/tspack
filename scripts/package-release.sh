@@ -95,7 +95,7 @@ commit="${GITHUB_SHA:-$(git rev-parse --short=12 HEAD 2>/dev/null || printf unkn
 GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build \
   -tags tspack_embedded_bridges \
   -trimpath \
-  -ldflags "-X github.com/tspack/tspack/internal/version.Version=$version -X github.com/tspack/tspack/internal/version.Commit=$commit -X github.com/tspack/tspack/internal/version.Date=$build_date" \
+  -ldflags "-X github.com/yuechen-li-dev/tspack/internal/version.Version=$version -X github.com/yuechen-li-dev/tspack/internal/version.Commit=$commit -X github.com/yuechen-li-dev/tspack/internal/version.Date=$build_date" \
   -o "$package_dir/$binary_name" \
   ./cmd/tspack
 

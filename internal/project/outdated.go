@@ -8,13 +8,13 @@ import (
 	"strings"
 
 	semver "github.com/Masterminds/semver/v3"
-	"github.com/tspack/tspack/internal/capability"
-	"github.com/tspack/tspack/internal/check"
-	"github.com/tspack/tspack/internal/diag"
-	"github.com/tspack/tspack/internal/graph"
-	"github.com/tspack/tspack/internal/lockfile"
-	"github.com/tspack/tspack/internal/manifest"
-	"github.com/tspack/tspack/internal/resolver"
+	"github.com/yuechen-li-dev/tspack/internal/capability"
+	"github.com/yuechen-li-dev/tspack/internal/check"
+	"github.com/yuechen-li-dev/tspack/internal/diag"
+	"github.com/yuechen-li-dev/tspack/internal/graph"
+	"github.com/yuechen-li-dev/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/resolver"
 )
 
 type OutdatedResult struct {

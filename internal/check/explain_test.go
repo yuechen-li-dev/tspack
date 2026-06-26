@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/tspack/tspack/internal/graph"
-	"github.com/tspack/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/graph"
+	"github.com/yuechen-li-dev/tspack/internal/manifest"
 )
 
 func TestExplainReachabilityRulesAndImportDecisions(t *testing.T) {

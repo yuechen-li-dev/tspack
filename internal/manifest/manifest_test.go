@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/tspack/tspack/internal/diag"
+	"github.com/yuechen-li-dev/tspack/internal/diag"
 )
 
 func hasDiagnosticCode(diagnostics []diag.Diagnostic, code string) bool {

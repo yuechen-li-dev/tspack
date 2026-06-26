@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/tspack/tspack/internal/lockfile"
-	"github.com/tspack/tspack/internal/store"
+	"github.com/yuechen-li-dev/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/store"
 )
 
 func BenchmarkStorePopulation(b *testing.B) {

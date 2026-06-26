@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/tspack/tspack/internal/bridge"
+	"github.com/yuechen-li-dev/tspack/internal/bridge"
 )
 
 type manifestFrontendBridgeResolution = bridge.Resolution

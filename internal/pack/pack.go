@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tspack/tspack/internal/diag"
-	"github.com/tspack/tspack/internal/graph"
+	"github.com/yuechen-li-dev/tspack/internal/diag"
+	"github.com/yuechen-li-dev/tspack/internal/graph"
 )
 
 type Options struct {

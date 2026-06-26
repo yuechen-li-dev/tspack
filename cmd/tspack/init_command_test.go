@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tspack/tspack/internal/project"
+	"github.com/yuechen-li-dev/tspack/internal/project"
 )
 
 func TestInitHelpIncludesCommand(t *testing.T) {

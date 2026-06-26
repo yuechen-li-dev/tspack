@@ -40,9 +40,9 @@ git status --short
 Release scripts inject metadata with:
 
 ```text
--X github.com/tspack/tspack/internal/version.Version=<version>
--X github.com/tspack/tspack/internal/version.Commit=<commit>
--X github.com/tspack/tspack/internal/version.Date=<build-date>
+-X github.com/yuechen-li-dev/tspack/internal/version.Version=<version>
+-X github.com/yuechen-li-dev/tspack/internal/version.Commit=<commit>
+-X github.com/yuechen-li-dev/tspack/internal/version.Date=<build-date>
 ```
 
 ## Distribution checks
