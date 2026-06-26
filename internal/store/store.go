@@ -81,12 +81,16 @@ func (s *Store) PutArtifact(a Artifact) (StoreRef, []diag.Diagnostic) {
 		if d := s.writeBlobIfMissing(ref.StorePath, a.Bytes); d != nil {
 			return StoreRef{}, d
 		}
-		if d := extractTarGz(a.Bytes, ref.ExtractedPath); d != nil {
-			return StoreRef{}, d
+		if _, err := os.Stat(ref.ExtractedPath); err != nil {
+			if d := extractTarGz(a.Bytes, ref.ExtractedPath); d != nil {
+				return StoreRef{}, d
+			}
 		}
 	} else {
-		if d := copyTree(a.RootDir, ref.ExtractedPath); d != nil {
-			return StoreRef{}, d
+		if _, err := os.Stat(ref.ExtractedPath); err != nil {
+			if d := copyTree(a.RootDir, ref.ExtractedPath); d != nil {
+				return StoreRef{}, d
+			}
 		}
 	}
 	meta := a.Metadata
@@ -181,15 +185,12 @@ func writeMetadata(path string, md PackageMetadata) []diag.Diagnostic {
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_METADATA_INVALID", err.Error())}
 	}
 	b = append(b, '\n')
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", err.Error())}
-	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := writeFileAtomic(path, b, 0o644); err != nil {
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", err.Error())}
 	}
 	return nil
 }
+
 func (s *Store) writeBlobIfMissing(path string, data []byte) []diag.Diagnostic {
 	if _, err := os.Stat(path); err == nil {
 		return nil
@@ -197,24 +198,44 @@ func (s *Store) writeBlobIfMissing(path string, data []byte) []diag.Diagnostic {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", err.Error())}
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", err.Error())}
-	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := writeFileAtomic(path, data, 0o644); err != nil {
+		if _, statErr := os.Stat(path); statErr == nil {
+			return nil
+		}
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", err.Error())}
 	}
 	return nil
 }
 
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpPath, mode); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
+}
+
 func extractTarGz(data []byte, dest string) []diag.Diagnostic {
-	if err := os.RemoveAll(dest + ".tmp"); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_EXTRACT_FAILED", err.Error())}
 	}
-	tmp := dest + ".tmp"
-	if err := os.MkdirAll(tmp, 0o755); err != nil {
+	tmp, err := os.MkdirTemp(filepath.Dir(dest), filepath.Base(dest)+".*.tmp")
+	if err != nil {
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_EXTRACT_FAILED", err.Error())}
 	}
+	defer os.RemoveAll(tmp)
 	gz, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_EXTRACT_FAILED", err.Error())}
@@ -274,8 +295,10 @@ func extractTarGz(data []byte, dest string) []diag.Diagnostic {
 			}
 		}
 	}
-	_ = os.RemoveAll(dest)
 	if err := os.Rename(tmp, dest); err != nil {
+		if _, statErr := os.Stat(dest); statErr == nil {
+			return nil
+		}
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_EXTRACT_FAILED", err.Error())}
 	}
 	return nil
@@ -331,19 +354,21 @@ func copyTree(root, dest string) []diag.Diagnostic {
 	if destErr != nil {
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", destErr.Error())}
 	}
-	tmp := dest + ".tmp"
+	tmpParent := filepath.Dir(dest)
+	if err := os.MkdirAll(tmpParent, 0o755); err != nil {
+		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", err.Error())}
+	}
+	tmp, tmpErr := os.MkdirTemp(tmpParent, filepath.Base(dest)+".*.tmp")
+	if tmpErr != nil {
+		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", tmpErr.Error())}
+	}
+	defer os.RemoveAll(tmp)
 	cleanTmp, tmpErr := filepath.Abs(filepath.Clean(tmp))
 	if tmpErr != nil {
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", tmpErr.Error())}
 	}
 	if cleanRoot == cleanDest {
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_SELF_COPY_DETECTED", "store copy source and destination are the same path")}
-	}
-	if err := os.RemoveAll(tmp); err != nil {
-		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", err.Error())}
-	}
-	if err := os.MkdirAll(tmp, 0o755); err != nil {
-		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", err.Error())}
 	}
 	err := filepath.WalkDir(cleanRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -396,8 +421,13 @@ func copyTree(root, dest string) []diag.Diagnostic {
 	if err != nil {
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", err.Error())}
 	}
-	_ = os.RemoveAll(dest)
+	if err := os.RemoveAll(dest); err != nil {
+		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", err.Error())}
+	}
 	if err := os.Rename(tmp, dest); err != nil {
+		if _, statErr := os.Stat(dest); statErr == nil {
+			return nil
+		}
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", err.Error())}
 	}
 	return nil

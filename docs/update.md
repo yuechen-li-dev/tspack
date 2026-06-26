@@ -20,3 +20,9 @@ JSON output from `tspack update --policy --dry-run --json` contains the normaliz
 `effectiveAction` is `update` for allowed-and-passed candidates, `review` for allowed candidates requiring review, `blocked` for allowed candidates blocked by security, and `skip` for policy-blocked, unclassified, no-op, and not-applicable candidates.
 
 `--policy` without `--dry-run` remains rejected. Targeted policy planning remains rejected. Normal `tspack update` behavior is unchanged.
+
+## Store population throughput
+
+Normal `tspack update` separates deterministic resolution from artifact population. Resolution decides the package graph and lockfile content first; missing store artifacts are then fetched, extracted, hashed, and committed with bounded parallel workers; final diagnostics and lockfile writes remain deterministic.
+
+Set `TSPACK_STORE_JOBS=1` to force sequential store population. Set `TSPACK_STORE_JOBS=N` with a positive integer to tune local cold-update throughput. Invalid values fail clearly. `tspack update --dry-run` and `tspack update --policy --dry-run` remain read-only: they may resolve metadata, but they do not populate `.tspack/store`, write `ts-lock.toml`, materialize `node_modules`, or run lifecycle scripts.

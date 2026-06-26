@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/tspack/tspack/internal/diag"
@@ -24,6 +25,7 @@ import (
 )
 
 type fakeClient struct {
+	mu               sync.Mutex
 	meta             map[string]*resolver.PackageMetadata
 	metaErr          map[string]error
 	tar              map[string][]byte
@@ -33,6 +35,8 @@ type fakeClient struct {
 }
 
 func (f *fakeClient) PackageMetadata(_ context.Context, name string) (*resolver.PackageMetadata, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.metaCalls = append(f.metaCalls, name)
 	f.packageMetaCalls++
 	if f.metaErr != nil {
@@ -47,6 +51,8 @@ func (f *fakeClient) PackageMetadata(_ context.Context, name string) (*resolver.
 	return m, nil
 }
 func (f *fakeClient) Tarball(_ context.Context, url string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.tarCalls = append(f.tarCalls, url)
 	b, ok := f.tar[url]
 	if !ok {

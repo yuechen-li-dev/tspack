@@ -26,8 +26,7 @@ func TestUpdateProgressReportsPhasesAndPackageFetches(t *testing.T) {
 	for _, want := range []string{
 		"resolving packages...",
 		"populating store...",
-		"fetching [1/2] npm:dep-a@1.0.0",
-		"fetching [2/2] npm:left-pad@1.2.0",
+		"populating store: 2 packages with 2 workers",
 		"writing lockfile...",
 		"update complete",
 	} {
@@ -142,8 +141,8 @@ func TestUpdateProgressReportsStoreTarballFailure(t *testing.T) {
 	if !hasErrCode(res.Diagnostics, "TSPACK_RESOLVE_NPM_TARBALL_FETCH_FAILED") {
 		t.Fatalf("expected store tarball fetch diagnostic, got %#v", res.Diagnostics)
 	}
-	if !strings.Contains(progress.String(), "fetching [1/2] npm:dep-a@1.0.0") {
-		t.Fatalf("expected fetch progress before store failure, got %q", progress.String())
+	if !strings.Contains(progress.String(), "populating store: 2 packages with 2 workers") {
+		t.Fatalf("expected deterministic store population progress before store failure, got %q", progress.String())
 	}
 }
 
@@ -205,7 +204,10 @@ type storeFailureClient struct {
 }
 
 func (c *storeFailureClient) Tarball(ctx context.Context, url string) ([]byte, error) {
-	if c.failAfterResolve && strings.Contains(url, "dep-a-1.0.0.tgz") && len(c.tarCalls) >= 2 {
+	c.fakeClient.mu.Lock()
+	shouldFail := c.failAfterResolve && strings.Contains(url, "dep-a-1.0.0.tgz") && len(c.tarCalls) >= 2
+	c.fakeClient.mu.Unlock()
+	if shouldFail {
 		return nil, errors.New("store fetch failed")
 	}
 	return c.fakeClient.Tarball(ctx, url)
