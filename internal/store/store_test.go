@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"github.com/tspack/tspack/internal/diag"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -244,5 +245,41 @@ func mustNotExist(t *testing.T, path string) {
 	t.Helper()
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("expected %s to be absent, got %v", path, err)
+	}
+}
+
+func TestPutArtifactConcurrentDuplicateTargetSafe(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "package.json"), `{"name":"dup","version":"1.0.0"}`)
+
+	const workers = 8
+	errs := make(chan []diag.Diagnostic, workers)
+	refs := make(chan StoreRef, workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			ref, diags := s.PutArtifact(Artifact{ID: "path:dup", Name: "dup", Version: "1.0.0", Source: "path", Kind: ArtifactPathTree, RootDir: root, Metadata: PackageMetadata{Name: "dup", Version: "1.0.0", Source: "path", PackageID: "path:dup"}})
+			errs <- diags
+			refs <- ref
+		}()
+	}
+	var hash string
+	for i := 0; i < workers; i++ {
+		if diags := <-errs; len(diags) > 0 {
+			t.Fatalf("put artifact failed: %#v", diags)
+		}
+		ref := <-refs
+		if hash == "" {
+			hash = ref.Hash
+		}
+		if ref.Hash != hash {
+			t.Fatalf("hash mismatch: %q != %q", ref.Hash, hash)
+		}
+	}
+	if diags := s.Verify(hash); len(diags) > 0 {
+		t.Fatalf("verify failed: %#v", diags)
 	}
 }

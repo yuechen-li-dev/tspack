@@ -57,7 +57,7 @@
 
 ## `tspack update` progress
 
-- Text-mode `tspack update` writes simple status lines to **stderr** for resolve, store population/fetch, lockfile write, and completion phases.
+- Text-mode `tspack update` writes simple status lines to **stderr** for resolve, bounded-parallel store population, lockfile write, and completion phases. Workers never print per-package output directly, so human output remains deterministic.
 - Progress is deliberately plain text: no spinner, progress bar, ANSI control sequence, terminal-width logic, or interactive UI.
 - Normal human stdout remains the existing lockfile diff output; progress is not written to stdout.
 - `tspack update <query>` starts with targeted context such as `updating target dependency: react` before the shared update phases.
@@ -156,3 +156,7 @@ The JSON output identifies the command and mode, echoes the CDP endpoint, and in
 ### Policy update planning
 
 `tspack update --policy --dry-run` produces a read-only, security-gated update plan from the declared `<UpdatePolicy />`. It reuses outdated metadata and policy evaluation, reports ready, needs-review, security-blocked, policy-blocked, unclassified, and not-applicable buckets, and never writes the lockfile. Security gates use existing TSPack lifecycle capability and acknowledgment policy: unacknowledged consumer-install lifecycle scripts block readiness, unacknowledged maintainer-publish lifecycle scripts require review, and exact or lifecycle-category acknowledgments can pass while lifecycle execution remains blocked. `--json` emits a stable `policyPlan` object plus the normalized `dryRun` object with `securityGatesEvaluated: true`, candidate security statuses, `wouldApply`, and ready/securityBlocked/reviewRequired counts. `--policy` requires `--dry-run`; mutation and targeted policy planning remain future work.
+
+### Store population parallelism
+
+`tspack update` keeps resolution and lockfile output deterministic, then populates missing `.tspack/store` artifacts with a bounded worker pool. The default worker count is conservative and bounded by CPU count; set `TSPACK_STORE_JOBS=1` to force sequential store population for debugging or regression comparisons, or set a positive integer such as `TSPACK_STORE_JOBS=4` for local tuning. Invalid non-positive or non-integer values fail the update with a clear diagnostic before store work starts. Dry-run and policy dry-run paths remain read-only and do not populate the store.

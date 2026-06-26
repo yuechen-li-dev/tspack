@@ -8,8 +8,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/tspack/tspack/internal/bridge"
 	capmodel "github.com/tspack/tspack/internal/capability"
@@ -277,37 +280,18 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 		out = append(out, errDiag("TSPACK_UPDATE_STORE_OPEN_FAILED", "failed to open store", err.Error()))
 		return Result{Diagnostics: out, UpdateTarget: targetResult}
 	}
-	packagesToPopulate := packagesNeedingStorePopulation(st, res.Lock.Packages)
-	populateIndex := 0
-	populateTotal := len(packagesToPopulate)
-	for i := range res.Lock.Packages {
-		pkg := &res.Lock.Packages[i]
-		if pkg.Hash != "" && st.Has(pkg.Hash) {
-			continue
-		}
-		populateIndex++
-		switch pkg.Source {
-		case "npm":
-			progress.Step("fetching [%d/%d] %s", populateIndex, populateTotal, pkg.ID)
-			body, fetchErr := client.Tarball(context.Background(), findTarballURL(pkg, client))
-			if fetchErr != nil {
-				out = append(out, errDiag("TSPACK_RESOLVE_NPM_TARBALL_FETCH_FAILED", "failed to fetch npm tarball", pkg.ID, fetchErr.Error()))
-				continue
-			}
-			ref, diags := st.PutArtifact(store.Artifact{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, Hash: pkg.Hash, Integrity: pkg.Integrity, Kind: store.ArtifactNPMTarball, Bytes: body, Metadata: store.PackageMetadata{Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, PackageID: pkg.ID, Integrity: pkg.Integrity, Capabilities: pkg.Capabilities}})
-			out = append(out, diags...)
-			if len(diags) == 0 {
-				pkg.Hash = ref.Hash
-			}
-		case "path", "workspace":
-			progress.Step("populating [%d/%d] %s", populateIndex, populateTotal, pkg.ID)
-			abs := filepath.Join(opts.RootDir, filepath.FromSlash(pkg.Path))
-			ref, diags := st.PutArtifact(store.Artifact{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, Hash: pkg.Hash, Kind: store.ArtifactPathTree, RootDir: abs, Metadata: store.PackageMetadata{Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, PackageID: pkg.ID, Capabilities: pkg.Capabilities}})
-			out = append(out, diags...)
-			if len(diags) == 0 {
-				pkg.Hash = ref.Hash
-			}
-		}
+	jobs, jobsErr := storeJobsFromEnv()
+	if jobsErr != nil {
+		out = append(out, errDiag("TSPACK_UPDATE_STORE_JOBS_INVALID", "invalid TSPACK_STORE_JOBS", jobsErr.Error()))
+		return Result{Diagnostics: out, UpdateTarget: targetResult}
+	}
+	// Resolution above remains deterministic and serial. Only artifact fetch/copy/extract
+	// store population runs with bounded parallelism, and results are applied back to
+	// the lockfile in package order before deterministic lockfile output is written.
+	populateResult := populateStoreParallel(context.Background(), st, client, opts.RootDir, res.Lock.Packages, jobs, progress)
+	out = append(out, populateResult.Diagnostics...)
+	for _, populated := range populateResult.Packages {
+		res.Lock.Packages[populated.Index].Hash = populated.Hash
 	}
 	if hasErrors(out) {
 		return Result{Diagnostics: out, UpdateTarget: targetResult}
@@ -333,6 +317,156 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 
 func lockDiffHasPackageChanges(diff lockfile.Diff) bool {
 	return len(diff.PackagesAdded) > 0 || len(diff.PackagesRemoved) > 0 || len(diff.PackagesChanged) > 0
+}
+
+type populatedPackage struct {
+	Index int
+	Hash  string
+}
+
+type storePopulateResult struct {
+	Packages    []populatedPackage
+	Diagnostics []diag.Diagnostic
+}
+
+type storePopulateJob struct {
+	Index int
+	Pkg   lockfile.Package
+}
+
+type storePopulateWorkerResult struct {
+	Index       int
+	PackageKey  string
+	Hash        string
+	Diagnostics []diag.Diagnostic
+}
+
+func defaultStoreJobs() int {
+	jobs := runtime.NumCPU() * 2
+	if jobs < 2 {
+		jobs = 2
+	}
+	if jobs > 8 {
+		jobs = 8
+	}
+	return jobs
+}
+
+func storeJobsFromEnv() (int, error) {
+	value := strings.TrimSpace(os.Getenv("TSPACK_STORE_JOBS"))
+	if value == "" {
+		return defaultStoreJobs(), nil
+	}
+	jobs, err := strconv.Atoi(value)
+	if err != nil || jobs <= 0 {
+		return 0, fmt.Errorf("TSPACK_STORE_JOBS must be a positive integer, got %q", value)
+	}
+	return jobs, nil
+}
+
+func populateStoreParallel(ctx context.Context, st *store.Store, client resolver.NPMRegistryClient, rootDir string, packages []lockfile.Package, jobs int, progress Progress) storePopulateResult {
+	packagesToPopulate := packagesNeedingStorePopulation(st, packages)
+	if len(packagesToPopulate) == 0 {
+		return storePopulateResult{}
+	}
+	workerCount := jobs
+	if workerCount > len(packagesToPopulate) {
+		workerCount = len(packagesToPopulate)
+	}
+	progress.Step("populating store: %d packages with %d workers", len(packagesToPopulate), workerCount)
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	jobCh := make(chan storePopulateJob)
+	resultCh := make(chan storePopulateWorkerResult, len(packagesToPopulate))
+	var wg sync.WaitGroup
+	for worker := 0; worker < workerCount; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobCh {
+				select {
+				case <-ctx.Done():
+					resultCh <- storePopulateWorkerResult{Index: job.Index, PackageKey: job.Pkg.ID}
+					continue
+				default:
+				}
+				result := populateOneStorePackage(ctx, st, client, rootDir, job)
+				if hasErrors(result.Diagnostics) {
+					cancel()
+				}
+				resultCh <- result
+			}
+		}()
+	}
+	go func() {
+		defer close(jobCh)
+		for _, pkg := range packagesToPopulate {
+			select {
+			case <-ctx.Done():
+				return
+			case jobCh <- storePopulateJob{Index: packageIndex(packages, pkg), Pkg: pkg}:
+			}
+		}
+	}()
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	results := make([]storePopulateWorkerResult, 0, len(packagesToPopulate))
+	for result := range resultCh {
+		results = append(results, result)
+	}
+	sort.SliceStable(results, func(i, j int) bool {
+		if results[i].PackageKey == results[j].PackageKey {
+			return results[i].Index < results[j].Index
+		}
+		return results[i].PackageKey < results[j].PackageKey
+	})
+	out := storePopulateResult{Packages: make([]populatedPackage, 0, len(results))}
+	for _, result := range results {
+		out.Diagnostics = append(out.Diagnostics, result.Diagnostics...)
+		if len(result.Diagnostics) == 0 && result.Hash != "" {
+			out.Packages = append(out.Packages, populatedPackage{Index: result.Index, Hash: result.Hash})
+		}
+	}
+	return out
+}
+
+func populateOneStorePackage(ctx context.Context, st *store.Store, client resolver.NPMRegistryClient, rootDir string, job storePopulateJob) storePopulateWorkerResult {
+	pkg := job.Pkg
+	result := storePopulateWorkerResult{Index: job.Index, PackageKey: pkg.ID}
+	if pkg.Hash != "" && st.Has(pkg.Hash) {
+		result.Hash = pkg.Hash
+		return result
+	}
+	switch pkg.Source {
+	case "npm":
+		body, fetchErr := client.Tarball(ctx, findTarballURL(&pkg, client))
+		if fetchErr != nil {
+			result.Diagnostics = append(result.Diagnostics, errDiag("TSPACK_RESOLVE_NPM_TARBALL_FETCH_FAILED", "failed to fetch npm tarball", pkg.ID, fetchErr.Error()))
+			return result
+		}
+		ref, diags := st.PutArtifact(store.Artifact{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, Hash: pkg.Hash, Integrity: pkg.Integrity, Kind: store.ArtifactNPMTarball, Bytes: body, Metadata: store.PackageMetadata{Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, PackageID: pkg.ID, Integrity: pkg.Integrity, Capabilities: pkg.Capabilities}})
+		result.Diagnostics = append(result.Diagnostics, diags...)
+		result.Hash = ref.Hash
+	case "path", "workspace":
+		abs := filepath.Join(rootDir, filepath.FromSlash(pkg.Path))
+		ref, diags := st.PutArtifact(store.Artifact{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, Hash: pkg.Hash, Kind: store.ArtifactPathTree, RootDir: abs, Metadata: store.PackageMetadata{Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, PackageID: pkg.ID, Capabilities: pkg.Capabilities}})
+		result.Diagnostics = append(result.Diagnostics, diags...)
+		result.Hash = ref.Hash
+	}
+	return result
+}
+
+func packageIndex(packages []lockfile.Package, target lockfile.Package) int {
+	for i, pkg := range packages {
+		if pkg.ID == target.ID && pkg.Source == target.Source && pkg.Version == target.Version && pkg.Path == target.Path {
+			return i
+		}
+	}
+	return 0
 }
 
 func packagesNeedingStorePopulation(st *store.Store, packages []lockfile.Package) []lockfile.Package {

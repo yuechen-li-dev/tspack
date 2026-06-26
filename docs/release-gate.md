@@ -870,3 +870,18 @@ Release smoke for M51a must verify:
 - Formatter output embedded in JSON diagnostics has no raw ANSI escape sequences.
 - Top-level `tspack --help` advertises `check --format`.
 - Missing formatter backend under `check --format` emits `TSPACK_FORMAT_BACKEND_MISSING` with the underlying Biome diagnostic in details.
+
+
+## M53a parallel store population gate
+
+The 0.1.0 release gate includes cold-update throughput hardening for `tspack update`:
+
+- Store population is bounded-parallel only after deterministic resolution; resolver semantics and selected versions must not change.
+- Lockfile bytes, package key sets, capability/security metadata, and update summary counts are deterministic between `TSPACK_STORE_JOBS=1` and `TSPACK_STORE_JOBS>1`.
+- Targeted update preservation still passes with parallel store population.
+- `update --dry-run` does not populate store artifacts.
+- `update --policy --dry-run` does not populate store artifacts.
+- Store writes are race-safe: unique temp paths are used, existing artifacts are reused, duplicate concurrent targets are accepted when the committed artifact already exists, and metadata remains deterministic.
+- Invalid `TSPACK_STORE_JOBS` values fail clearly before store workers start.
+- Performance benchmark or smoke commands are documented; CI must not require an exact wall-clock speedup.
+- Workers must not print nondeterministically or run lifecycle scripts.

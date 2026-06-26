@@ -57,3 +57,12 @@ git status --short
 - Verify uploaded artifacts and `checksums.txt`.
 - Run `scripts/install.sh` against the release artifacts.
 - Run a `setup-tspack` action smoke after the release exists.
+
+## M53a cold update throughput smoke
+
+Before 0.1.0, verify bounded-parallel store population does not affect deterministic package-manager semantics:
+
+- Compare a cold update fixture with `TSPACK_STORE_JOBS=1` and with the default or `TSPACK_STORE_JOBS=4`; lockfiles must match byte-for-byte and package counts must match.
+- Run `go test ./internal/project ./internal/store -run 'Update|Store|Parallel|Jobs|DryRun|Target|Concurrent' -count=1`.
+- Optional local measurement command: `TSPACK_STORE_JOBS=1 go test ./internal/project -bench StorePopulation -run '^$'`, then repeat with `TSPACK_STORE_JOBS=8` if a store-population benchmark is available in the working tree. CI must not assert a fixed speedup.
+- Self-host smoke and `./scripts/build-release.sh` must still pass after parallel store population.
