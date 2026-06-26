@@ -77,6 +77,14 @@ A future backend may use virtual environments, uv environments, caches, or inter
 - No lockfile rename, lockfile migration, package-manager behavior changes, release publication, or new CLI product surface.
 - No production acceptance of `pypi` manifest sources or lockfile package sources.
 
+## M57c project/package IR fixture spike
+
+M57c adds a small internal `internal/projectir` fixture layer that can represent both the current TypeScript/npm package shape and a reserved Python-family/PyPI package shape. This is representation capacity only: the fixtures are constructed directly in Go tests rather than authored through `manifest.tsx`, parsed from lockfiles, resolved, synchronized, materialized, packed, run, or exposed through CLI help.
+
+The locality decision is to keep the IR spike beside existing manifest IR instead of churning `internal/manifest.Package` or npm target structs. TypeScript/npm fixture data can carry npm target-like backend data, while Python-family fixture data can carry import roots, `Requires-Python`, entry points, build-system intent, extras, markers, and PEP 440 specifier strings without smearing those fields into npm targets.
+
+The Python-family/PyPI fixture continues to use reserved descriptor status and reserved runtime axes (`python-family`, `cpython`, `uvManaged` or `hermetic`, and `interpreted`). It proves the data can stay high-locality, but it does not make `pypi` a valid manifest or lockfile source and does not add Python runtime, resolver, uv integration, templates, pyproject projection, or package-manager behavior.
+
 ## Future Python-family/PyPI plug-in shape
 
 A future Python-family/PyPI backend should own Python-family source validation, PEP 440 parsing/specifiers, build/index security categories, uv or PyPI delegation, pyproject projection, and runtime/tool execution. It should model package ecosystem, runtime family, concrete runtime implementation, environment/materialization strategy, execution/build mode, version/range scheme, and security/build risk separately. Shared code should route through backend descriptors or narrow interfaces so Python-family behavior stays localized instead of scattering `if ecosystem == "pypi"` or `if runtime == "python"` branches across resolver, lockfile, check, pack, run, security, templates, and CLI code.
