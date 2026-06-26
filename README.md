@@ -21,6 +21,8 @@ steps:
 
 TSPack is a TypeScript lifecycle tool centered on deterministic intent (`manifest.tsx`) and deterministic resolved truth (`ts-lock.toml`).
 
+TSPack is self-hosted after bootstrap; see `docs/self-hosting.md`.
+
 Core thesis: **Declare targets. Resolve sources. Enforce boundaries. Lock reality. Pack exactly.**
 
 ## Command surface

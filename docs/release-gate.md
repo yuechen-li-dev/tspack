@@ -103,6 +103,19 @@ The migrate release smoke should cover the package.json-to-draft onboarding path
 - No LLM calls are made.
 
 
+
+### M52a self-hosting dogfood gate
+
+The M52a self-hosting gate proves that TSPack can manage and check this repository after the existing source bootstrap path has produced a working CLI/frontend pair:
+
+- A root `manifest.tsx` exists and models the Go CLI/backend, manifest frontend, VS Code extension, dogfood examples, and release/install script surfaces.
+- `tspack run --list --root .`, `tspack check --root .`, `tspack check --format --root .`, `tspack doctor security --root .`, `tspack outdated --root .`, and `tspack update --policy --dry-run --root .` work against the repository contract after bootstrap.
+- The bootstrap boundary is documented: existing Go/npm build paths create the first usable CLI/frontend; self-hosting does not claim a zero-bootstrap build.
+- Root `Security` and `UpdatePolicy` declarations are present when feasible and remain conservative.
+- Generated artifacts stay ignored, and read-only self-host commands do not unexpectedly mutate tracked repository state.
+- `scripts/self-host-smoke.sh` covers the routine read-only command matrix and `scripts/self-host-smoke.sh --release` covers the optional release-build RunTarget.
+- Existing direct validation remains intact: `npm --prefix manifest-frontend run build`, `go test ./...`, and `./scripts/build-release.sh`.
+
 ### M45c Unix install script gate
 
 The M45c installer gate covers `scripts/install.sh` as the first human Unix install path for GitHub Release artifacts:

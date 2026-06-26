@@ -1,0 +1,2213 @@
+[lock]
+format = 1
+
+[[package]]
+ID = 'npm:@biomejs/biome@2.5.1'
+Name = '@biomejs/biome'
+Version = '2.5.1'
+Source = 'npm'
+Integrity = 'sha512-IXWLCxKmae+rI7LOHS1B3EbVisQ6GRAWbhN9msa6KjNCyFWrvKZWR4oUdinaNssrV852OrSHuSPa95h1GPJc7Q=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:9d818b81a23f9957e2ffa7ee9f2f9117ed266429057e337c12909b25fd1e389e'
+
+[[package]]
+ID = 'npm:@biomejs/cli-darwin-arm64@2.5.1'
+Name = '@biomejs/cli-darwin-arm64'
+Version = '2.5.1'
+Source = 'npm'
+Integrity = 'sha512-npqDzvqv7vFaWRiNN1Te71siRgPaqS9MpqgYCdP/CrUbkJ7ApezaeaKjueKHRN/JH/6lRjJQAHi8acQDCAz22w=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:c18c973cee269db5e0ac34021d43c8591adc3733c9a0e7027ccbe7bba359791c'
+
+[[package]]
+ID = 'npm:@biomejs/cli-darwin-x64@2.5.1'
+Name = '@biomejs/cli-darwin-x64'
+Version = '2.5.1'
+Source = 'npm'
+Integrity = 'sha512-RgwTqPAM8g2tn1j+b5oRjF/DbSBX8a4gwojtuG9XuhfK7GgomvZ9+T+tqjXiVbjLEeGJOoL6VEk8mvRTVeSybw=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:07b4ee2d7ee0f69fb9c94d85a67b39cc94bde807bc939c55cbe8e36291daffdb'
+
+[[package]]
+ID = 'npm:@biomejs/cli-linux-arm64-musl@2.5.1'
+Name = '@biomejs/cli-linux-arm64-musl'
+Version = '2.5.1'
+Source = 'npm'
+Integrity = 'sha512-WMcvMLgByyTqVxGlq918NBBYliq9FRR9GAQVETHb+VjGVqXCZFfHlZHC1FX4ibuYY/Hg6TJE3rHU0xVrdJXNRw=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:49b17832566508724bb36dd144ac222271aadc0077d52336863afc5d243b959c'
+
+[[package]]
+ID = 'npm:@biomejs/cli-linux-arm64@2.5.1'
+Name = '@biomejs/cli-linux-arm64'
+Version = '2.5.1'
+Source = 'npm'
+Integrity = 'sha512-yhV35CzZh38VyMvTEXi3JTjxZBs++oCKK9KG8vB6VI5+uvQvZNR3BFWEKKzuOmx9DJJj7sQpZ4LQJcmbGTs3+Q=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:ca437ca2c6dd287a3b2fbb950af75d6e358a31b9f0ada96647d02e6ebfd6c9fc'
+
+[[package]]
+ID = 'npm:@biomejs/cli-linux-x64-musl@2.5.1'
+Name = '@biomejs/cli-linux-x64-musl'
+Version = '2.5.1'
+Source = 'npm'
+Integrity = 'sha512-ANTowtlLmPYm5yeMckWY8Xzb9Ix+JJP3tgHR/n6xRj1VWyIzzWtfRfih9hv9VmClwadpBvZduISZIbBsIlYG3A=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:f2eedb0852021d1f74ee9a8f3cacf16fe6fe405fb37317b90112d1bcd9037792'
+
+[[package]]
+ID = 'npm:@biomejs/cli-linux-x64@2.5.1'
+Name = '@biomejs/cli-linux-x64'
+Version = '2.5.1'
+Source = 'npm'
+Integrity = 'sha512-J/7uHSX7NfoYDI7HijAkd8lnQIOrRb2W7j3X+tw4R+N5ExvXGsyXFiGdQcfcxfOmNQmZVSQOCDk757fwpzqQcg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:14a593b991b7955b64e3f7ee5a0a81ce38029d8f4301d54dc9e30e873f1bb782'
+
+[[package]]
+ID = 'npm:@biomejs/cli-win32-arm64@2.5.1'
+Name = '@biomejs/cli-win32-arm64'
+Version = '2.5.1'
+Source = 'npm'
+Integrity = 'sha512-zgXnKNgWPC4iPF7Y1lR3STUeCUuZRpD6IiOrC7TZTlh0Lx6FiVUT05myuMQHQ9D+1cc7uyMldi4forE6lp0ivQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:c0c6363be1bd41978a78ccc28b28c5bbd4213eebd80d88b72cadb3c8e806f318'
+
+[[package]]
+ID = 'npm:@biomejs/cli-win32-x64@2.5.1'
+Name = '@biomejs/cli-win32-x64'
+Version = '2.5.1'
+Source = 'npm'
+Integrity = 'sha512-6uxpR9hvaglANkZemeSiN/FhYgkGasrEGn267eXIWvjrjJ2LhDlk251IhjVJq6MXzkV2/bcXwLwSroLyPtqRZg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:122917f84b4e69436508806325d1bbc3b77fcf67e05618eaee19c0977f4498f8'
+
+[[package]]
+ID = 'npm:@esbuild/aix-ppc64@0.21.5'
+Name = '@esbuild/aix-ppc64'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-1SDgH6ZSPTlggy1yI6+Dbkiz8xzpHJEVAlF/AM1tHPLsf5STom9rwtjE4hKAF20FfXXNTFqEYXyJNWh1GiZedQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:d591d7475b7f6a11f8ca7ebe0583d8ac23a01f0db733951a098683d2a693b113'
+
+[[package]]
+ID = 'npm:@esbuild/android-arm64@0.21.5'
+Name = '@esbuild/android-arm64'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-c0uX9VAUBQ7dTDCjq+wdyGLowMdtR/GoC2U5IYk/7D1H1JYC0qseD7+11iMP2mRLN9RcCMRcjC4YMclCzGwS/A=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:33bebaca5e742580b62e57149567365892b0522a923c1da518202f3df7d097e0'
+
+[[package]]
+ID = 'npm:@esbuild/android-arm@0.21.5'
+Name = '@esbuild/android-arm'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-vCPvzSjpPHEi1siZdlvAlsPxXl7WbOVUBBAowWug4rJHb68Ox8KualB+1ocNvT5fjv6wpkX6o/iEpbDrf68zcg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:47dd145fd6c903c4cbcc644ddb4c3d3ec3796663c2005b3206bff8baf26317e4'
+
+[[package]]
+ID = 'npm:@esbuild/android-x64@0.21.5'
+Name = '@esbuild/android-x64'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-D7aPRUUNHRBwHxzxRvp856rjUHRFW1SdQATKXH2hqA0kAZb1hKmi02OpYRacl0TxIGz/ZmXWlbZgjwWYaCakTA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:60da2ff76af231451167b37bb7564623a4c5610ee17a507a43c27089087bbb52'
+
+[[package]]
+ID = 'npm:@esbuild/darwin-arm64@0.21.5'
+Name = '@esbuild/darwin-arm64'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-DwqXqZyuk5AiWWf3UfLiRDJ5EDd49zg6O9wclZ7kUMv2WRFr4HKjXp/5t8JZ11QbQfUS6/cRCKGwYhtNAY88kQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:4145466ca315b652cb2548bfe9ee705a888fb95d39107a664ef82a7afb2db5ca'
+
+[[package]]
+ID = 'npm:@esbuild/darwin-x64@0.21.5'
+Name = '@esbuild/darwin-x64'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-se/JjF8NlmKVG4kNIuyWMV/22ZaerB+qaSi5MdrXtd6R08kvs2qCN4C09miupktDitvh8jRFflwGFBQcxZRjbw=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:adaf34486bdca8560c42aa172ee2a4307b6988689938d696a8f24fe4d93703e4'
+
+[[package]]
+ID = 'npm:@esbuild/freebsd-arm64@0.21.5'
+Name = '@esbuild/freebsd-arm64'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-5JcRxxRDUJLX8JXp/wcBCy3pENnCgBR9bN6JsY4OmhfUtIHe3ZW0mawA7+RDAcMLrMIZaf03NlQiX9DGyB8h4g=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:809db57b387d7883582c8535ac7480d064378f1760270fa5058b00708d0d0c57'
+
+[[package]]
+ID = 'npm:@esbuild/freebsd-x64@0.21.5'
+Name = '@esbuild/freebsd-x64'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-J95kNBj1zkbMXtHVH29bBriQygMXqoVQOQYA+ISs0/2l3T9/kj42ow2mpqerRBxDJnmkUDCaQT/dfNXWX/ZZCQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:8b2512a6bfc48504c38fa15c2647452a08f56017dcff139de04ee0049a189d5c'
+
+[[package]]
+ID = 'npm:@esbuild/linux-arm64@0.21.5'
+Name = '@esbuild/linux-arm64'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-ibKvmyYzKsBeX8d8I7MH/TMfWDXBF3db4qM6sy+7re0YXya+K1cem3on9XgdT2EQGMu4hQyZhan7TeQ8XkGp4Q=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:228f2bee5d3d75bc247a60543448a3c1f224b03c2e38b0270c7ef57668ee05ff'
+
+[[package]]
+ID = 'npm:@esbuild/linux-arm@0.21.5'
+Name = '@esbuild/linux-arm'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-bPb5AHZtbeNGjCKVZ9UGqGwo8EUu4cLq68E95A53KlxAPRmUyYv2D6F0uUI65XisGOL1hBP5mTronbgo+0bFcA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:77a1c0a3cb89e522130630599573f9c6037cb64c975424f0d82e9c45cec39fdd'
+
+[[package]]
+ID = 'npm:@esbuild/linux-ia32@0.21.5'
+Name = '@esbuild/linux-ia32'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-YvjXDqLRqPDl2dvRODYmmhz4rPeVKYvppfGYKSNGdyZkA01046pLWyRKKI3ax8fbJoK5QbxblURkwK/MWY18Tg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:f9f2d8aaa959ad37f56c81158c3b29c77a6fe92cb325ec89869ebf41d410d7e6'
+
+[[package]]
+ID = 'npm:@esbuild/linux-loong64@0.21.5'
+Name = '@esbuild/linux-loong64'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-uHf1BmMG8qEvzdrzAqg2SIG/02+4/DHB6a9Kbya0XDvwDEKCoC8ZRWI5JJvNdUjtciBGFQ5PuBlpEOXQj+JQSg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:291eb33c1fe249622c2bfc1f024ea659b92021dd8aec711efe2b8f479812da46'
+
+[[package]]
+ID = 'npm:@esbuild/linux-mips64el@0.21.5'
+Name = '@esbuild/linux-mips64el'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-IajOmO+KJK23bj52dFSNCMsz1QP1DqM6cwLUv3W1QwyxkyIWecfafnI555fvSGqEKwjMXVLokcV5ygHW5b3Jbg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:18a230944b6e69287daa66569c78644e6f1359a1befcbf8696f3b4ebaa849afa'
+
+[[package]]
+ID = 'npm:@esbuild/linux-ppc64@0.21.5'
+Name = '@esbuild/linux-ppc64'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-1hHV/Z4OEfMwpLO8rp7CvlhBDnjsC3CttJXIhBi+5Aj5r+MBvy4egg7wCbe//hSsT+RvDAG7s81tAvpL2XAE4w=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:f7d2dbf200305ae7032562064cb53e033b17e101aa77b57399cd7f7a303bd638'
+
+[[package]]
+ID = 'npm:@esbuild/linux-riscv64@0.21.5'
+Name = '@esbuild/linux-riscv64'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-2HdXDMd9GMgTGrPWnJzP2ALSokE/0O5HhTUvWIbD3YdjME8JwvSCnNGBnTThKGEB91OZhzrJ4qIIxk/SBmyDDA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:3a15ed3a8e97ed8fa036bb024c98e81a3ff881e3d5df209bf70fcff755beb601'
+
+[[package]]
+ID = 'npm:@esbuild/linux-s390x@0.21.5'
+Name = '@esbuild/linux-s390x'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-zus5sxzqBJD3eXxwvjN1yQkRepANgxE9lgOW2qLnmr8ikMTphkjgXu1HR01K4FJg8h1kEEDAqDcZQtbrRnB41A=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:5becbfbf7ec3498da2c24e7a997b06c4fb27ab81581b7bb7ea0e22e9200317f4'
+
+[[package]]
+ID = 'npm:@esbuild/linux-x64@0.21.5'
+Name = '@esbuild/linux-x64'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-1rYdTpyv03iycF1+BhzrzQJCdOuAOtaqHTWJZCWvijKD2N5Xu0TtVC8/+1faWqcP9iBCWOmjmhoH94dH82BxPQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:d3c7e7e0991f28e987c8a8f1163ffebf326dfff80228afc7f12669a120591fe4'
+
+[[package]]
+ID = 'npm:@esbuild/netbsd-x64@0.21.5'
+Name = '@esbuild/netbsd-x64'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-Woi2MXzXjMULccIwMnLciyZH4nCIMpWQAs049KEeMvOcNADVxo0UBIQPfSmxB3CWKedngg7sWZdLvLczpe0tLg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:d053b586dda74fc169617028b94029e7b706f08e16d0f21a1cec526444782098'
+
+[[package]]
+ID = 'npm:@esbuild/openbsd-x64@0.21.5'
+Name = '@esbuild/openbsd-x64'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-HLNNw99xsvx12lFBUwoT8EVCsSvRNDVxNpjZ7bPn947b8gJPzeHWyNVhFsaerc0n3TsbOINvRP2byTZ5LKezow=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:09498d1eac58456fa40b41d0b0b90eb486f64954925045ebfd5d7e35aefe7708'
+
+[[package]]
+ID = 'npm:@esbuild/sunos-x64@0.21.5'
+Name = '@esbuild/sunos-x64'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-6+gjmFpfy0BHU5Tpptkuh8+uw3mnrvgs+dSPQXQOv3ekbordwnzTVEb4qnIvQcYXq6gzkyTnoZ9dZG+D4garKg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:f5191f6cd0d181938f50b940b4c46c69e207ba1de545d4892333ddec0101b752'
+
+[[package]]
+ID = 'npm:@esbuild/win32-arm64@0.21.5'
+Name = '@esbuild/win32-arm64'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-Z0gOTd75VvXqyq7nsl93zwahcTROgqvuAcYDUr+vOv8uHhNSKROyU961kgtCD1e95IqPKSQKH7tBTslnS3tA8A=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:9b1741229e8b491db5f98a855e7457d81c4dde0a4c5313ddb6a3841a6b32ba7f'
+
+[[package]]
+ID = 'npm:@esbuild/win32-ia32@0.21.5'
+Name = '@esbuild/win32-ia32'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-SWXFF1CL2RVNMaVs+BBClwtfZSvDgtL//G/smwAc5oVK/UPu2Gu9tIaRgFmYFFKrmg3SyAjSrElf0TiJ1v8fYA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:01aeb458925e6e12b0bcd134b9e6c671db2d0a65757249bfaf8b1a9af076648f'
+
+[[package]]
+ID = 'npm:@esbuild/win32-x64@0.21.5'
+Name = '@esbuild/win32-x64'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-tQd/1efJuzPC6rCFwEvLtci/xNFcTZknmXs98FYDfGE4wP9ClFV98nyKrzJKVPMhdDnjzLhdUyMX4PsQAPjwIw=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:a0a749db5cf2f00bbfdcd0e47c30dc6d7b6817191ae009ff46d48fc75133c888'
+
+[[package]]
+ID = 'npm:@jridgewell/sourcemap-codec@1.5.5'
+Name = '@jridgewell/sourcemap-codec'
+Version = '1.5.5'
+Source = 'npm'
+Integrity = 'sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:47ad3b0d20a2e5e31ed65049829440fb1e3d4ac554d93f8040562c1821816585'
+
+[[package.capability]]
+kind = 'lifecycleScript'
+script = 'prepublishOnly'
+command = 'npm run-s -n build test'
+
+[[package]]
+ID = 'npm:@rollup/rollup-android-arm-eabi@4.62.2'
+Name = '@rollup/rollup-android-arm-eabi'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-6o7ZLZK+BeenkZCFNDXqpbjw9bD6nuWonvS/lwQJp7NoVVxm6p3qE7qQ5jGuBjiFsgvqjD8mZAU5oWxTmbOeOg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:69a97f25f90e28795cf045041732001dc71472af6411713d97ae1424b2336758'
+
+[[package]]
+ID = 'npm:@rollup/rollup-android-arm64@4.62.2'
+Name = '@rollup/rollup-android-arm64'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-BaH7BllCACHoH1LguOU56UItGfUWjujlO65kS9LAodViaN4bwIKd7oeW/ZHJ/4ljr/7MIiENnNy3HJ0zXv8Zkw=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:d397887e52084a7cedf650a2f3e2c6d97f258d0e2272f113b3606f8cae744454'
+
+[[package]]
+ID = 'npm:@rollup/rollup-darwin-arm64@4.62.2'
+Name = '@rollup/rollup-darwin-arm64'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-v39RCCvj4He82I9sFmk+M1VZ0PLM9sfsLVikjfx2hYBNALhrrOR2D3JjQA6AhlaSOgcR+RzrKY7e1+bT6SUO/A=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:d88076f79b94bbc7d4b0aa2f15b60d22cc743a32d26bc96b9be261de7306ed4d'
+
+[[package]]
+ID = 'npm:@rollup/rollup-darwin-x64@4.62.2'
+Name = '@rollup/rollup-darwin-x64'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-yl0y2vq3S3lHeuXhEdss6TWfKW8vkujImO12tn4ZkG/4oghr09LvdYm2RElVjokTQiUvDUGXLGsYeLqUMCKpGA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:9c5a5a78642d0245d8cfb901f3798fafb505e01f16e15987c49533135997b77a'
+
+[[package]]
+ID = 'npm:@rollup/rollup-freebsd-arm64@4.62.2'
+Name = '@rollup/rollup-freebsd-arm64'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-tT4pvt4qXD+vEoezupCWi+a1F0vvDiksiHc+PxRlYTOH1I6/X4id9jPxTP+Fg+545euaFT1jJVs4CEdHZAU1vw=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:78bdfd11de99f06d09c6342edc23177bf7d477602aa1e5ce4370015f9011b6b3'
+
+[[package]]
+ID = 'npm:@rollup/rollup-freebsd-x64@4.62.2'
+Name = '@rollup/rollup-freebsd-x64'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-6nU5F2wCW+qvCBhTn1pdIU3bzsIoF7EUwsCDRxilWGprQR6yd508YnH9+OKFCwpfS8pjZqDUmnCAr7exax0XCg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:b04fceb2c63b666597a9389c3874630ef6888b2f73dad087a7f9bd848e7c0588'
+
+[[package]]
+ID = 'npm:@rollup/rollup-linux-arm-gnueabihf@4.62.2'
+Name = '@rollup/rollup-linux-arm-gnueabihf'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-n1GJHPOvpIfhi3TmrCeh6S6URt9BFCt0KQE3qvexyGCTAKpR4Lg+eWvNZEqu7epxwus/8ElT3hacYEucm49SZg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:15d7e7d42d07afdc6c7092d0361d05c5c8bfbee7f4b51a84409d271f3b6919c1'
+
+[[package]]
+ID = 'npm:@rollup/rollup-linux-arm-musleabihf@4.62.2'
+Name = '@rollup/rollup-linux-arm-musleabihf'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-JqgflS8wEB+UXV/vS1RpRbifGBeN4D5lz8D8oOFbFZw4vedvdOgCFAjfBmIMdW3yL10XpQQ0Ambepw6MXrhOnA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:e2305229848f5562f76c97b96ca992a7408467fef38355bef7f2948882fd074a'
+
+[[package]]
+ID = 'npm:@rollup/rollup-linux-arm64-gnu@4.62.2'
+Name = '@rollup/rollup-linux-arm64-gnu'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-wnFJkogWvN4jm/hQRF2UBaeUmk20j5+DmHvoyWii2b8HJDyvz1MF2OU/6ynXt2KR63rbZLWkFpoytpdc/yBuSA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:0f59dcf1c9f6ab3d6faac78f11a1ab2ebf6b94e07f813b291b518cfd1a18e340'
+
+[[package]]
+ID = 'npm:@rollup/rollup-linux-arm64-musl@4.62.2'
+Name = '@rollup/rollup-linux-arm64-musl'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-HVu2bp0zhvJ8xHEV9+UUs7S90VadmBSY3LcIMvozbPo4AuMGDWlz3ymHLHZPX4hR67TKTt8Qp5PJ5RBg/i+RMQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:c1c9078519802730a489aaf48bf3274ccf0c7651da3396aa10d9707919f3bd2f'
+
+[[package]]
+ID = 'npm:@rollup/rollup-linux-loong64-gnu@4.62.2'
+Name = '@rollup/rollup-linux-loong64-gnu'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-mQqqAV8QaoSgr9I2fKDLY2BAVvmKjWoGiu/cSYQonsLvtqwEn1E4QYfnCOcp5zoEqNhsDYin1s6jx/VJmrxlZg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:46b40afb65173d1d50097af5135f05ccf629b3f43df96cb925890e8debfa2815'
+
+[[package]]
+ID = 'npm:@rollup/rollup-linux-loong64-musl@4.62.2'
+Name = '@rollup/rollup-linux-loong64-musl'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-IxKLoxCQ2IWi6bT2akyDUBGsOImDKB+sPp4EsTmwFQ/fMwpCKm8uLSSgP/Kx/QYUgKis6SEZ5/Nlhup0DIA0PQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:3c4ec108b2f1600c120a63633e70d5008e9e8f23012bd7731f9dfce71ad73594'
+
+[[package]]
+ID = 'npm:@rollup/rollup-linux-ppc64-gnu@4.62.2'
+Name = '@rollup/rollup-linux-ppc64-gnu'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-Mk5ha2RQSgyFfmYYLkBpPnUk8D8FriBxesO1u9O75X0mHgXL1UQcH5Itl2lurWL2tj0RxV9b9tJgipac0hRY9A=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:e6ef6caec5f70bc289e591da2251a820ac92e632779694ccbf5a70a3bbb28f9d'
+
+[[package]]
+ID = 'npm:@rollup/rollup-linux-ppc64-musl@4.62.2'
+Name = '@rollup/rollup-linux-ppc64-musl'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-CjvEnqJL/0/TQ3TXX3OPIJ/kmBellrWd4heXUmHeJlTnmwjKpSJzoehLaL6Xk0ZnMHBu9dZuFADNOrtjF4v+2w=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:6c983c40d913b7a05986bf15ba243fa11359002ecd858763987655ea5ae35140'
+
+[[package]]
+ID = 'npm:@rollup/rollup-linux-riscv64-gnu@4.62.2'
+Name = '@rollup/rollup-linux-riscv64-gnu'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-1SiZbzwdkaDURsew/tSOrooKiYy7EQGT6m8ufavAi9NEyQb/6VuIxFXAL1fqa4iZe3g4NbNk4P7J32z2tw5Mgg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:91e0c4fa1b03d32eb7ab260a4fd417065cc0e5c57d7cf7d18629e32734389ea7'
+
+[[package]]
+ID = 'npm:@rollup/rollup-linux-riscv64-musl@4.62.2'
+Name = '@rollup/rollup-linux-riscv64-musl'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-nQts12zJ3NQRoE6uYljOH89v7szzLDvG2JD/vsX+vGXU8w/At1GowTZ5/7qeFQ8m7L55rpR8Okugnuo5bgjy2Q=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:c9661dcac93bd1577fec413d188579cc180407910dca0e9617fc59542b312d86'
+
+[[package]]
+ID = 'npm:@rollup/rollup-linux-s390x-gnu@4.62.2'
+Name = '@rollup/rollup-linux-s390x-gnu'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-E9/ll019jhPIJgpzfZoIkBGhcz+kKNgVWYRY0zr9srBdPPFVpvOKW8VaJKUbeK+eZXyQF9ltME+Kk6affeaPgg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:279daaddc3005da171bc23101a04562820da4fdf6f8d43ea1854b860ab87ec0d'
+
+[[package]]
+ID = 'npm:@rollup/rollup-linux-x64-gnu@4.62.2'
+Name = '@rollup/rollup-linux-x64-gnu'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-5BqxR/pshjey51iliyzTD5Xi3EN0aLmQ2lZ3lvefVV9c82BvrLo2/6OT55iifpWBufs6kdwWbuOKS841DrmK9A=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:5d28e2577c2cded50f62061c3bd7c047d86016bc527ede8552aad0a32147f807'
+
+[[package]]
+ID = 'npm:@rollup/rollup-linux-x64-musl@4.62.2'
+Name = '@rollup/rollup-linux-x64-musl'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-uNN83XxQrRAh/w0/pmAfibcwyb6YWt4gP+dpnQKPVJshAloQ785ii8CT8ZCIxkGg9opVsvAlGhFitSm6D1Jjpg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:0d61c4745bfa74793229f99bdf8ad7d5d88d059d9fe29b2248acab82e7bd4c8b'
+
+[[package]]
+ID = 'npm:@rollup/rollup-openbsd-x64@4.62.2'
+Name = '@rollup/rollup-openbsd-x64'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-srjEIxSH3LRnJN6THczDHWQplqEMFiAJrTab0msUryh9kwNpkICf3Ea6q6MN/2cZwRFUNx5w+h6Hpi4QuHS6Zg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:5d6e09119ac7022f79571dd1b464f723df606182ad3173f927ce1921d4816383'
+
+[[package]]
+ID = 'npm:@rollup/rollup-openharmony-arm64@4.62.2'
+Name = '@rollup/rollup-openharmony-arm64'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-8hOJnxgbyObnCm5AlRA3A931xX19xq80RjVTKgJOvEKWqJruP/Uf12IbAOaDjjEXYRewwHLfmF0YRIdK3OwKWA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:3c8e2ef48ebe8648fdfea8afec3057b21aa39e8060ed500746faa8e3fe20d8a0'
+
+[[package]]
+ID = 'npm:@rollup/rollup-win32-arm64-msvc@4.62.2'
+Name = '@rollup/rollup-win32-arm64-msvc'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-mmF4AY1i0hG/bLWUctUq59gtmgaSIRa3cu/A3JFRp/sCNEme2bgDEiDS22P9FbnJB8NJNF4jPJiSP5RHQpUTDg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:e4d4484653132e5f08ea80c947302b8ea911d9c69d2ce5d4e49161fe984334b3'
+
+[[package]]
+ID = 'npm:@rollup/rollup-win32-ia32-msvc@4.62.2'
+Name = '@rollup/rollup-win32-ia32-msvc'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-DZgkknc6jhHrk46V25vbAM0zZkyP0nSDkJB8/dRkLTxv470dOmWDqGoEJl/9A0dFfS7yE3REOwNDxpHwSLSt0Q=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:833191ed452d8fc4a068002d89593468ffc454024f9bbdfd787a78611ed97214'
+
+[[package]]
+ID = 'npm:@rollup/rollup-win32-x64-gnu@4.62.2'
+Name = '@rollup/rollup-win32-x64-gnu'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-T6xr6ucWSFto+VGajA8YH26LdpHRuP4YLHEKAtCWvJDOlnmWcDZVCI2Jmjr+IFHDlt2zRaTAKE4tfjTaWLgJBg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:f530cc6c12c512e7a7725a2b3d21c82f2329ecc8088248c22f34a18d38a05953'
+
+[[package]]
+ID = 'npm:@rollup/rollup-win32-x64-msvc@4.62.2'
+Name = '@rollup/rollup-win32-x64-msvc'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-BfzEnDJOt9T8M989/lA37EcJgat01wLRnoi5dQf3QzOH7jzpqTAzdDbVfRljVr5r+jzKqpbHeyOfAaXxAd0PAA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:b945849f90d307d1740b55283bf56b1747406008ae9347d6e2e1e224d4273e15'
+
+[[package]]
+ID = 'npm:@types/estree@1.0.9'
+Name = '@types/estree'
+Version = '1.0.9'
+Source = 'npm'
+Integrity = 'sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:ec8f3c0dfb21497db5a3480c45a6cf6f9b18d3b337b2ea4d03e3ef2a9c2bb358'
+
+[[package]]
+ID = 'npm:@types/node@22.20.0'
+Name = '@types/node'
+Version = '22.20.0'
+Source = 'npm'
+Integrity = 'sha512-QWlFW2wf3nTjC13/DqRnBpR4ZO36VJH/JVBkA/vcnmbTBNQIlnObqyqZE1tUR7+Ni23Lda8R1BxMfbXRpCUx5g=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:94e07dec077aef58bf4e9837e486c6f63345e1131c69ca294404a740bd9da286'
+
+[[package]]
+ID = 'npm:@types/vscode@1.125.0'
+Name = '@types/vscode'
+Version = '1.125.0'
+Source = 'npm'
+Integrity = 'sha512-0icm/ZQAaism87P0ekHqi4/Ju9du+Tm0RUW+y7vqRsxY2cY0FNRX1nAnaW7nT6npPt2tfHiheZ55Zm9UhqonFA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:ebbd799a819ece6f80369d83ac21fec36c04effbfd51cc472cc76f124d0c5d6a'
+
+[[package]]
+ID = 'npm:@vitest/expect@2.1.9'
+Name = '@vitest/expect'
+Version = '2.1.9'
+Source = 'npm'
+Integrity = 'sha512-UJCIkTBenHeKT1TTlKMJWy1laZewsRIzYighyYiJKZreqtdxSos/S1t+ktRMQWu2CKqaarrkeszJx1cgC5tGZw=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:c8b0c6992cffde8da3027c78be14ae556f0087782e5f65f7b1f3f05926759119'
+
+[[package]]
+ID = 'npm:@vitest/mocker@2.1.9'
+Name = '@vitest/mocker'
+Version = '2.1.9'
+Source = 'npm'
+Integrity = 'sha512-tVL6uJgoUdi6icpxmdrn5YNo3g3Dxv+IHJBr0GXHaEdTcw3F+cPKnsXFhli6nO+f/6SDKPHEK1UN+k+TQv0Ehg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:8f66b54c1760cb8133470876b0aef71b159b07e60fba1f0ac93652a9801aac5c'
+
+[[package]]
+ID = 'npm:@vitest/pretty-format@2.1.9'
+Name = '@vitest/pretty-format'
+Version = '2.1.9'
+Source = 'npm'
+Integrity = 'sha512-KhRIdGV2U9HOUzxfiHmY8IFHTdqtOhIzCpd8WRdJiE7D/HUcZVD0EgQCVjm+Q9gkUXWgBvMmTtZgIG48wq7sOQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:5ca6c282a3a4fe1178c2a8dc3426a5d6abd5473e479b2143519f2337b20b1069'
+
+[[package]]
+ID = 'npm:@vitest/runner@2.1.9'
+Name = '@vitest/runner'
+Version = '2.1.9'
+Source = 'npm'
+Integrity = 'sha512-ZXSSqTFIrzduD63btIfEyOmNcBmQvgOVsPNPe0jYtESiXkhd8u2erDLnMxmGrDCwHCCHE7hxwRDCT3pt0esT4g=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:559e84801d50ad8be3aa254c0afdae89d78f8034943d98d467b1b9b5971b0b69'
+
+[[package]]
+ID = 'npm:@vitest/snapshot@2.1.9'
+Name = '@vitest/snapshot'
+Version = '2.1.9'
+Source = 'npm'
+Integrity = 'sha512-oBO82rEjsxLNJincVhLhaxxZdEtV0EFHMK5Kmx5sJ6H9L183dHECjiefOAdnqpIgT5eZwT04PoggUnW88vOBNQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:0b9d940b0f99d8d93e6a2f8dc9226ac8e27292bb0ac00e4850bcad1bf0c68460'
+
+[[package]]
+ID = 'npm:@vitest/spy@2.1.9'
+Name = '@vitest/spy'
+Version = '2.1.9'
+Source = 'npm'
+Integrity = 'sha512-E1B35FwzXXTs9FHNK6bDszs7mtydNi5MIfUWpceJ8Xbfb1gBMscAnwLbEu+B44ed6W3XjL9/ehLPHR1fkf1KLQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:c01b4566db5058a6f2d4caf6f8f587eebba2328e0b896e260c2da038e2cbb2fa'
+
+[[package]]
+ID = 'npm:@vitest/utils@2.1.9'
+Name = '@vitest/utils'
+Version = '2.1.9'
+Source = 'npm'
+Integrity = 'sha512-v0psaMSkNJ3A2NMrUEHFRzJtDPFn+/VWZ5WxImB21T9fjucJRmS7xCS3ppEnARb9y11OAzaD+P2Ps+b+BGX5iQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:cd1fb0b5aa9809c31cacd425f413c8f23ae4abed6d9cddd4927b84f2ddc6aa06'
+
+[[package]]
+ID = 'npm:assertion-error@2.0.1'
+Name = 'assertion-error'
+Version = '2.0.1'
+Source = 'npm'
+Integrity = 'sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:73f4a5b3c9b38e4f3123188d4d85a7933ee5fe2f77f8ff04e8867b0938c20f56'
+
+[[package]]
+ID = 'npm:cac@6.7.14'
+Name = 'cac'
+Version = '6.7.14'
+Source = 'npm'
+Integrity = 'sha512-b6Ilus+c3RrdDk+JhLKUAQfzzgLEPy6wcXqS7f/xe1EETvsDP6GORG7SFuOs6cID5YkqchW/LXZbX5bc8j7ZcQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:d6dba561aa03eb1ee42e174eebdf1692d74e7af289b9b381400226813b4952be'
+
+[[package.capability]]
+kind = 'lifecycleScript'
+script = 'prepublishOnly'
+command = 'npm run build && cp mod.js mod.mjs'
+
+[[package]]
+ID = 'npm:chai@5.3.3'
+Name = 'chai'
+Version = '5.3.3'
+Source = 'npm'
+Integrity = 'sha512-4zNhdJD/iOjSH0A05ea+Ke6MU5mmpQcbQsSOkgdaUMJ9zTlDTD/GYlwohmIE2u0gaxHYiVHEn1Fw9mZ/ktJWgw=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:b842b0c79ca60a407e883e7f740049552dc402e6c8019ffffc058868c554f00f'
+
+[[package]]
+ID = 'npm:check-error@2.1.3'
+Name = 'check-error'
+Version = '2.1.3'
+Source = 'npm'
+Integrity = 'sha512-PAJdDJusoxnwm1VwW07VWwUN1sl7smmC3OKggvndJFadxxDRyFJBX/ggnu/KE4kQAB7a3Dp8f/YXC1FlUprWmA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:8e249638e449af571a62783cbc6686fe2defba14f2d6ee59a60168b5379d6df0'
+
+[[package]]
+ID = 'npm:debug@4.4.3'
+Name = 'debug'
+Version = '4.4.3'
+Source = 'npm'
+Integrity = 'sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:89c1ac9c946ee8905a875837114528e97eeae35e03be3190584b2216af43e4a7'
+
+[[package]]
+ID = 'npm:deep-eql@5.0.2'
+Name = 'deep-eql'
+Version = '5.0.2'
+Source = 'npm'
+Integrity = 'sha512-h5k/5U50IJJFpzfL6nO9jaaumfjO/f2NjK/oYB2Djzm4p9L+3T9qWpZqZ2hAbLPuuYq9wrU08WQyBTL5GbPk5Q=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:471837e36a6201c15358852a0daae74af017d6d5e3f6c1c66109f261aa292f36'
+
+[[package]]
+ID = 'npm:es-module-lexer@1.7.0'
+Name = 'es-module-lexer'
+Version = '1.7.0'
+Source = 'npm'
+Integrity = 'sha512-jEQoCwk8hyb2AZziIOLhDqpm5+2ww5uIE6lkO/6jcOCusfk6LhMHpXXfBLXTZ7Ydyt0j4VoUQv6uGNYbdW+kBA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:e41b2e74ac3cc5871fc5bfbc108c114f95f4f743a5b7bb1e0793d0bb57fe25f9'
+
+[[package]]
+ID = 'npm:esbuild@0.21.5'
+Name = 'esbuild'
+Version = '0.21.5'
+Source = 'npm'
+Integrity = 'sha512-mg3OPMV4hXywwpoDxu3Qda5xCKQi+vCTZq8S9J/EpkhB2HzKXq4SNFZE3+NK93JYxc8VMSep+lOUSC/RVKaBqw=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:0f60f3d3dc5efa299e3464d29b6a7dc51d1dff665fe7b036aa95021ce6fd827a'
+
+[[package.capability]]
+kind = 'lifecycleScript'
+script = 'postinstall'
+command = 'node install.js'
+
+[[package]]
+ID = 'npm:estree-walker@3.0.3'
+Name = 'estree-walker'
+Version = '3.0.3'
+Source = 'npm'
+Integrity = 'sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:bbbdfdc16cd9ef099e474f55a4aa344103c01853727136a76ee165fa9d1c72b3'
+
+[[package.capability]]
+kind = 'lifecycleScript'
+script = 'prepublishOnly'
+command = 'tsc && npm test'
+
+[[package]]
+ID = 'npm:expect-type@1.4.0'
+Name = 'expect-type'
+Version = '1.4.0'
+Source = 'npm'
+Integrity = 'sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:c44b3fea7bcae8a4ce328b457da171e8debf553cbeb6a049817975b8e050e3a1'
+
+[[package]]
+ID = 'npm:fsevents@2.3.2'
+Name = 'fsevents'
+Version = '2.3.2'
+Source = 'npm'
+Integrity = 'sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:e17ade950c193fe09adfc7915fe29ac26166c8782d00e7c3879e7e9de02c5428'
+
+[[package.capability]]
+kind = 'lifecycleScript'
+script = 'prepublishOnly'
+command = 'npm run build'
+
+[[package]]
+ID = 'npm:fsevents@2.3.3'
+Name = 'fsevents'
+Version = '2.3.3'
+Source = 'npm'
+Integrity = 'sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:c77e7a5d5ff31dd7acea7c44d4a0455e0528cdacbd24a8cb6c82b66d239b587e'
+
+[[package.capability]]
+kind = 'lifecycleScript'
+script = 'prepublishOnly'
+command = 'npm run build'
+
+[[package]]
+ID = 'npm:loupe@3.2.1'
+Name = 'loupe'
+Version = '3.2.1'
+Source = 'npm'
+Integrity = 'sha512-CdzqowRJCeLU72bHvWqwRBBlLcMEtIvGrlvef74kMnV2AolS9Y8xUv1I0U/MNAWMhBlKIoyuEgoJ0t/bbwHbLQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:af8dbefd220eb7890b48e9b31f5b377ba0eb1ea37b0ffbd0dd5a181d2862f637'
+
+[[package]]
+ID = 'npm:magic-string@0.30.21'
+Name = 'magic-string'
+Version = '0.30.21'
+Source = 'npm'
+Integrity = 'sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:fa49762567dca44e8ccf327f365d250e04c482bf7a4ed0ae7d03659b09ac656f'
+
+[[package]]
+ID = 'npm:ms@2.1.3'
+Name = 'ms'
+Version = '2.1.3'
+Source = 'npm'
+Integrity = 'sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:f6616e15e530ed552f9daa2d3ce71963947c6bc7c98c9b64fd3e673fd02622c6'
+
+[[package]]
+ID = 'npm:nanoid@3.3.15'
+Name = 'nanoid'
+Version = '3.3.15'
+Source = 'npm'
+Integrity = 'sha512-y7Wygv/7mEOvxTuEQDB8StXdMRBWf1kR/tlhAzBRUFkB2jfcLOAxO/SHmOO2zgz1pVgK29/kyupn059/bCHdjA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:1f5c77283e894430f5eb5ee2d157a3cfeba0adf89ac228ccd08d00330bd80408'
+
+[[package]]
+ID = 'npm:pathe@1.1.2'
+Name = 'pathe'
+Version = '1.1.2'
+Source = 'npm'
+Integrity = 'sha512-whLdWMYL2TwI08hn8/ZqAbrVemu0LNaNNJZX73O6qaIdCTfXutsLhMkjdENX0qhsQ9uIimo4/aQOmXkoon2nDQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:8f6d5ae3049560a52ec0c1ac9a6f662942b578ecedf7b55893a2709cdea031f2'
+
+[[package]]
+ID = 'npm:pathval@2.0.1'
+Name = 'pathval'
+Version = '2.0.1'
+Source = 'npm'
+Integrity = 'sha512-//nshmD55c46FuFw26xV/xFAaB5HF9Xdap7HJBBnrKdAd6/GxDBaNA1870O79+9ueg61cZLSVc+OaFlfmObYVQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:af089e2e7a104703a2e59d1f35f785b69381ba4d13a60ca9fb53820cb6bf3a7c'
+
+[[package.capability]]
+kind = 'lifecycleScript'
+script = 'prepare'
+command = 'husky'
+
+[[package]]
+ID = 'npm:picocolors@1.1.1'
+Name = 'picocolors'
+Version = '1.1.1'
+Source = 'npm'
+Integrity = 'sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:d3aedb2807967b7eb37fd11b03b7e3701e725af79c650d0812ff7213f8f882d9'
+
+[[package]]
+ID = 'npm:playwright-core@1.61.1'
+Name = 'playwright-core'
+Version = '1.61.1'
+Source = 'npm'
+Integrity = 'sha512-h7Qlt6m4REp25qvIdvbDtVmD4LqVXfpRxhORv9L0jzETM05p4fuPJ3dKyuSXQxDSbXnmS79HAgi9589lGSpLkg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:3740bba3a3e93b4c7bd7c0f6e3c0e5f8cdce498bef13511e4d534cc99a8ce198'
+
+[[package]]
+ID = 'npm:playwright@1.61.1'
+Name = 'playwright'
+Version = '1.61.1'
+Source = 'npm'
+Integrity = 'sha512-DWnY5o3YbLWK4GovuAVwpqL+1VwGNdUGrRr++8j8PtQQzvAVZUIMjKQ90fY689sEJZJBbZVw1rXaOKSTitkzPQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:2f9c0a0dc4d68c5bd759f4730d7be1d4e9b45fb5ff937a1906069dd4e69252c3'
+
+[[package]]
+ID = 'npm:postcss@8.5.15'
+Name = 'postcss'
+Version = '8.5.15'
+Source = 'npm'
+Integrity = 'sha512-FfR8sjd4em2T6fb3I2MwAJU7HWVMr9zba+enmQeeWFfCbm+UOC/0X4DS8XtpUTMwWMGbjKYP7xjfNekzyGmB3A=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:f674b1612cb8fb65b2328d35ba33fecd6fd85edd65ac8d72eac2ca86dcfb2056'
+
+[[package]]
+ID = 'npm:rollup@4.62.2'
+Name = 'rollup'
+Version = '4.62.2'
+Source = 'npm'
+Integrity = 'sha512-RFnrW4lhXA3s3eqHDZvN654g8OTjzRfqpIRJYczCGB6HzphckVAi/Qh4tbPUbRuDi7s1Llv8g/NspLkttY3gTA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:027a15633b3bb2daf879ad4002488050b636c2c56dc8a3a71348c87cfd363373'
+
+[[package.capability]]
+kind = 'lifecycleScript'
+script = 'postpublish'
+command = 'node scripts/postpublish.js'
+
+[[package.capability]]
+kind = 'lifecycleScript'
+script = 'prepare'
+command = 'husky && npm run prepare:patch && node scripts/check-release.js || npm run build:prepare'
+
+[[package.capability]]
+kind = 'lifecycleScript'
+script = 'prepublishOnly'
+command = 'node scripts/check-release.js && node scripts/prepublish.js'
+
+[[package]]
+ID = 'npm:siginfo@2.0.0'
+Name = 'siginfo'
+Version = '2.0.0'
+Source = 'npm'
+Integrity = 'sha512-ybx0WO1/8bSBLEWXZvEd7gMW3Sn3JFlW3TvX1nREbDLRNQNaeNN8WK0meBwPdAaOI7TtRRRJn/Es1zhrrCHu7g=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:a20fd853c4514049964aca176d4198d58802b28dc481e82cb57f2101b2c7701b'
+
+[[package]]
+ID = 'npm:source-map-js@1.2.1'
+Name = 'source-map-js'
+Version = '1.2.1'
+Source = 'npm'
+Integrity = 'sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:f126a6f9fca487a43219d8cb8c3a955279187a966119d548eb5cd47e999d4853'
+
+[[package]]
+ID = 'npm:stackback@0.0.2'
+Name = 'stackback'
+Version = '0.0.2'
+Source = 'npm'
+Integrity = 'sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:3e663c82d1ccf9748ed446b648ec21a7dd6c5895ecf4a95310a60a320ca55858'
+
+[[package]]
+ID = 'npm:std-env@3.10.0'
+Name = 'std-env'
+Version = '3.10.0'
+Source = 'npm'
+Integrity = 'sha512-5GS12FdOZNliM5mAOxFRg7Ir0pWz8MdpYm6AY6VPkGpbA7ZzmbzNcBJQ0GPvvyWgcY7QAhCgf9Uy89I03faLkg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:0afefeaee9556624b72094e32f94b50bf95c3b738075e6c8286d02bda46eb8d2'
+
+[[package.capability]]
+kind = 'lifecycleScript'
+script = 'prepack'
+command = 'unbuild'
+
+[[package]]
+ID = 'npm:tinybench@2.9.0'
+Name = 'tinybench'
+Version = '2.9.0'
+Source = 'npm'
+Integrity = 'sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:3a38e953c2366359670fb41e7efae2d8a818ac12615fbea6f9d0614010582e39'
+
+[[package.capability]]
+kind = 'lifecycleScript'
+script = 'publish'
+command = 'npm run build && clean-publish'
+
+[[package]]
+ID = 'npm:tinyexec@0.3.2'
+Name = 'tinyexec'
+Version = '0.3.2'
+Source = 'npm'
+Integrity = 'sha512-KQQR9yN7R5+OSwaK0XQoj22pwHoTlgYqmUscPYoknOoWCWfj/5/ABTMRi69FrKU5ffPVh5QcFikpWJI/P1ocHA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:b1244144af932375c498a5705bda5e764e9cb9aca3d278b71ef6a306c693fde8'
+
+[[package.capability]]
+kind = 'lifecycleScript'
+script = 'prepare'
+command = 'npm run build'
+
+[[package]]
+ID = 'npm:tinypool@1.1.1'
+Name = 'tinypool'
+Version = '1.1.1'
+Source = 'npm'
+Integrity = 'sha512-Zba82s87IFq9A9XmjiX5uZA/ARWDrB03OHlq+Vw1fSdt0I+4/Kutwy8BP4Y/y/aORMo61FQ0vIb5j44vSo5Pkg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:a585e687641a5d7566bc636c6b1e7c5d1723141b7247499a12fe2b379cecb60a'
+
+[[package]]
+ID = 'npm:tinyrainbow@1.2.0'
+Name = 'tinyrainbow'
+Version = '1.2.0'
+Source = 'npm'
+Integrity = 'sha512-weEDEq7Z5eTHPDh4xjX789+fHfF+P8boiFB+0vbWzpbnbsEr/GRaohi/uMKxg8RZMXnl1ItAi/IUHWMsjDV7kQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:7489c7a69058d8c751b6fbb26b8506b87c6bcd75ec0da6f655fe716f53d6b146'
+
+[[package]]
+ID = 'npm:tinyspy@3.0.2'
+Name = 'tinyspy'
+Version = '3.0.2'
+Source = 'npm'
+Integrity = 'sha512-n1cw8k1k0x4pgA2+9XrOkFydTerNcJ1zWCO5Nn9scWHTD+5tp8dghT2x1uduQePZTZgd3Tupf+x9BxJjeJi77Q=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:ab2ed4e72eb96caa484315442d7ba3871f4c2acc9143860e4948bf9d36c5c2ae'
+
+[[package]]
+ID = 'npm:typescript@5.9.3'
+Name = 'typescript'
+Version = '5.9.3'
+Source = 'npm'
+Integrity = 'sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:10e108c9cf7d5f2879053dff18515fb405abf2ccef63eaaf017d9c571687a1d3'
+
+[[package]]
+ID = 'npm:undici-types@6.21.0'
+Name = 'undici-types'
+Version = '6.21.0'
+Source = 'npm'
+Integrity = 'sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:cfa1a9a5e18988850e548f4f6b629c58da32dc32bebb116e58ea301e516fd16d'
+
+[[package]]
+ID = 'npm:vite-node@2.1.9'
+Name = 'vite-node'
+Version = '2.1.9'
+Source = 'npm'
+Integrity = 'sha512-AM9aQ/IPrW/6ENLQg3AGY4K1N2TGZdR5e4gu/MmmR2xR3Ll1+dib+nook92g4TV3PXVyeyxdWwtaCAiUL0hMxA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:51a741447a83a9bd531805f477de86ab24b0bb096308b06bf9e4c86bb30c476d'
+
+[[package]]
+ID = 'npm:vite@5.4.21'
+Name = 'vite'
+Version = '5.4.21'
+Source = 'npm'
+Integrity = 'sha512-o5a9xKjbtuhY6Bi5S3+HvbRERmouabWbyUcpXXUA1u+GNUKoROi9byOJ8M0nHbHYHkYICiMlqxkg1KkYmm25Sw=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:1974803337cb6a1a86a6fdcf45a05ff0555220140d5ca70a58306f9f9b895af6'
+
+[[package]]
+ID = 'npm:vitest@2.1.9'
+Name = 'vitest'
+Version = '2.1.9'
+Source = 'npm'
+Integrity = 'sha512-MSmPM9REYqDGBI8439mA4mWhV5sKmDlBKWIYbA3lRb2PTHACE0mgKwA8yQ2xq9vxDTuk4iPrECBAEW2aoFXY0Q=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:1f6a5814f2bb7a5f3337e9ec1dbbd98b5c0dc64bca520d555c8cf64af0d47539'
+
+[[package]]
+ID = 'npm:why-is-node-running@2.3.0'
+Name = 'why-is-node-running'
+Version = '2.3.0'
+Source = 'npm'
+Integrity = 'sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:d2f668f77953509d0079ef05617ac9f5b5f64ed194f8b05872ad12ba06ec9963'
+
+[[edge]]
+From = '@tspack/manifest-frontend:tool'
+To = 'npm:@biomejs/biome@2.5.1'
+Kind = 'tool'
+Optional = false
+
+[[edge]]
+From = '@tspack/manifest-frontend:tool'
+To = 'npm:playwright@1.61.1'
+Kind = 'tool'
+Optional = false
+
+[[edge]]
+From = '@tspack/manifest-frontend:tool'
+To = 'npm:typescript@5.9.3'
+Kind = 'tool'
+Optional = false
+
+[[edge]]
+From = '@tspack/manifest-frontend:tool'
+To = 'npm:vitest@2.1.9'
+Kind = 'tool'
+Optional = false
+
+[[edge]]
+From = '@tspack/vscode-extension:tool'
+To = 'npm:@types/node@22.20.0'
+Kind = 'tool'
+Optional = false
+
+[[edge]]
+From = '@tspack/vscode-extension:tool'
+To = 'npm:@types/vscode@1.125.0'
+Kind = 'tool'
+Optional = false
+
+[[edge]]
+From = '@tspack/vscode-extension:tool'
+To = 'npm:typescript@5.9.3'
+Kind = 'tool'
+Optional = false
+
+[[edge]]
+From = '@tspack/vscode-extension:tool'
+To = 'npm:vitest@2.1.9'
+Kind = 'tool'
+Optional = false
+
+[[edge]]
+From = 'npm:@biomejs/biome@2.5.1'
+To = 'npm:@biomejs/cli-darwin-arm64@2.5.1'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:@biomejs/biome@2.5.1'
+To = 'npm:@biomejs/cli-darwin-x64@2.5.1'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:@biomejs/biome@2.5.1'
+To = 'npm:@biomejs/cli-linux-arm64-musl@2.5.1'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:@biomejs/biome@2.5.1'
+To = 'npm:@biomejs/cli-linux-arm64@2.5.1'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:@biomejs/biome@2.5.1'
+To = 'npm:@biomejs/cli-linux-x64-musl@2.5.1'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:@biomejs/biome@2.5.1'
+To = 'npm:@biomejs/cli-linux-x64@2.5.1'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:@biomejs/biome@2.5.1'
+To = 'npm:@biomejs/cli-win32-arm64@2.5.1'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:@biomejs/biome@2.5.1'
+To = 'npm:@biomejs/cli-win32-x64@2.5.1'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:@types/node@22.20.0'
+To = 'npm:undici-types@6.21.0'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:@vitest/expect@2.1.9'
+To = 'npm:@vitest/spy@2.1.9'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:@vitest/expect@2.1.9'
+To = 'npm:@vitest/utils@2.1.9'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:@vitest/expect@2.1.9'
+To = 'npm:chai@5.3.3'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:@vitest/expect@2.1.9'
+To = 'npm:tinyrainbow@1.2.0'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:@vitest/mocker@2.1.9'
+To = 'npm:@vitest/spy@2.1.9'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:@vitest/mocker@2.1.9'
+To = 'npm:estree-walker@3.0.3'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:@vitest/mocker@2.1.9'
+To = 'npm:magic-string@0.30.21'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:@vitest/pretty-format@2.1.9'
+To = 'npm:tinyrainbow@1.2.0'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:@vitest/runner@2.1.9'
+To = 'npm:@vitest/utils@2.1.9'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:@vitest/runner@2.1.9'
+To = 'npm:pathe@1.1.2'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:@vitest/snapshot@2.1.9'
+To = 'npm:@vitest/pretty-format@2.1.9'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:@vitest/snapshot@2.1.9'
+To = 'npm:magic-string@0.30.21'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:@vitest/snapshot@2.1.9'
+To = 'npm:pathe@1.1.2'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:@vitest/spy@2.1.9'
+To = 'npm:tinyspy@3.0.2'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:@vitest/utils@2.1.9'
+To = 'npm:@vitest/pretty-format@2.1.9'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:@vitest/utils@2.1.9'
+To = 'npm:loupe@3.2.1'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:@vitest/utils@2.1.9'
+To = 'npm:tinyrainbow@1.2.0'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:chai@5.3.3'
+To = 'npm:assertion-error@2.0.1'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:chai@5.3.3'
+To = 'npm:check-error@2.1.3'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:chai@5.3.3'
+To = 'npm:deep-eql@5.0.2'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:chai@5.3.3'
+To = 'npm:loupe@3.2.1'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:chai@5.3.3'
+To = 'npm:pathval@2.0.1'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:debug@4.4.3'
+To = 'npm:ms@2.1.3'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/aix-ppc64@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/android-arm64@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/android-arm@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/android-x64@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/darwin-arm64@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/darwin-x64@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/freebsd-arm64@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/freebsd-x64@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/linux-arm64@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/linux-arm@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/linux-ia32@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/linux-loong64@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/linux-mips64el@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/linux-ppc64@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/linux-riscv64@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/linux-s390x@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/linux-x64@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/netbsd-x64@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/openbsd-x64@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/sunos-x64@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/win32-arm64@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/win32-ia32@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.21.5'
+To = 'npm:@esbuild/win32-x64@0.21.5'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:estree-walker@3.0.3'
+To = 'npm:@types/estree@1.0.9'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:magic-string@0.30.21'
+To = 'npm:@jridgewell/sourcemap-codec@1.5.5'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:playwright@1.61.1'
+To = 'npm:fsevents@2.3.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:playwright@1.61.1'
+To = 'npm:playwright-core@1.61.1'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:postcss@8.5.15'
+To = 'npm:nanoid@3.3.15'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:postcss@8.5.15'
+To = 'npm:picocolors@1.1.1'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:postcss@8.5.15'
+To = 'npm:source-map-js@1.2.1'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-android-arm-eabi@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-android-arm64@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-darwin-arm64@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-darwin-x64@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-freebsd-arm64@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-freebsd-x64@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-linux-arm-gnueabihf@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-linux-arm-musleabihf@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-linux-arm64-gnu@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-linux-arm64-musl@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-linux-loong64-gnu@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-linux-loong64-musl@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-linux-ppc64-gnu@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-linux-ppc64-musl@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-linux-riscv64-gnu@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-linux-riscv64-musl@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-linux-s390x-gnu@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-linux-x64-gnu@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-linux-x64-musl@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-openbsd-x64@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-openharmony-arm64@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-win32-arm64-msvc@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-win32-ia32-msvc@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-win32-x64-gnu@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@rollup/rollup-win32-x64-msvc@4.62.2'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:@types/estree@1.0.9'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:rollup@4.62.2'
+To = 'npm:fsevents@2.3.3'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:vite-node@2.1.9'
+To = 'npm:cac@6.7.14'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vite-node@2.1.9'
+To = 'npm:debug@4.4.3'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vite-node@2.1.9'
+To = 'npm:es-module-lexer@1.7.0'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vite-node@2.1.9'
+To = 'npm:pathe@1.1.2'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vite-node@2.1.9'
+To = 'npm:vite@5.4.21'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vite@5.4.21'
+To = 'npm:esbuild@0.21.5'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vite@5.4.21'
+To = 'npm:fsevents@2.3.3'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:vite@5.4.21'
+To = 'npm:postcss@8.5.15'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vite@5.4.21'
+To = 'npm:rollup@4.62.2'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:@vitest/expect@2.1.9'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:@vitest/mocker@2.1.9'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:@vitest/pretty-format@2.1.9'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:@vitest/runner@2.1.9'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:@vitest/snapshot@2.1.9'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:@vitest/spy@2.1.9'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:@vitest/utils@2.1.9'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:chai@5.3.3'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:debug@4.4.3'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:expect-type@1.4.0'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:magic-string@0.30.21'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:pathe@1.1.2'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:std-env@3.10.0'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:tinybench@2.9.0'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:tinyexec@0.3.2'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:tinypool@1.1.1'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:tinyrainbow@1.2.0'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:vite-node@2.1.9'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:vite@5.4.21'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:vitest@2.1.9'
+To = 'npm:why-is-node-running@2.3.0'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:why-is-node-running@2.3.0'
+To = 'npm:siginfo@2.0.0'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:why-is-node-running@2.3.0'
+To = 'npm:stackback@0.0.2'
+Kind = 'runtime'
+Optional = false
