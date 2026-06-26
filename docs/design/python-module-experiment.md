@@ -435,6 +435,12 @@ These should be concept-aware template overlays, not a combinatorial set of hard
 
 M57b adds the follow-up seam inventory in [`ecosystem-backend-seam.md`](./ecosystem-backend-seam.md). That spike keeps `manifest.tsx` as the universal frontend, records current npm/TypeScript assumptions, and introduces only small internal vocabulary so future Python-family/PyPI work can stay high-locality. It explicitly separates package ecosystem, backend, runtime family, runtime implementation, environment/materialization strategy, execution/build mode, version/range scheme, and security/build risk. It does not add Python runtime, resolver, templates, PyPI sources, `manifest.py`, uv integration, `runtime: "python"`, or lockfile behavior.
 
+## M57c note: internal IR representation only
+
+M57c takes the next safe step by adding only an internal `internal/projectir` fixture layer. The fixture layer can construct a TypeScript/npm project package and a hypothetical Python-family/PyPI project package directly in Go tests, preserving ecosystem, backend, dependency intent, range-scheme, runtime-family, runtime-implementation, environment, and execution-mode axes as data.
+
+This remains intentionally below the product surface. There is still no `manifest.py`, no Python manifest frontend API, no PyPI source acceptance in `manifest.tsx`, no lockfile acceptance of `source = "pypi"`, no PyPI resolution, no uv integration, no Python runtime execution, no pyproject projection, and no Python templates. Direct internal fixtures are preferable at this stage because they prove representation locality without promising that users can author or run Python-family packages yet.
+
 ## Outcome
 
 Outcome A for M57a is design success: the design is documented, Python is explicitly experimental, no `manifest.py` is introduced, and no current TypeScript/npm behavior changes.
