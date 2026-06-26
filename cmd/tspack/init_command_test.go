@@ -48,7 +48,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		if err != nil {
 			t.Fatalf("list templates failed: %v\n%s", err, string(b))
 		}
-		for _, want := range []string{"static", "react", "react.app", "vite.app", "browser.spa"} {
+		for _, want := range []string{"static", "react", "react-library", "react.app", "vite.app", "browser.spa", "react.library", "vite.library", "package.exports", "tspack.pack"} {
 			if !strings.Contains(string(b), want) {
 				t.Fatalf("template list missing %q:\n%s", want, string(b))
 			}
@@ -93,6 +93,55 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		}
 		if strings.Contains(string(packageBytes), "postinstall") || strings.Contains(string(packageBytes), "prepare") {
 			t.Fatalf("package.json should not include lifecycle scripts:\n%s", string(packageBytes))
+		}
+	})
+
+	t.Run("react-library template generation", func(t *testing.T) {
+		root := t.TempDir()
+		cmd := exec.Command("go", "run", "./cmd/tspack", "init", "--root", root, "--template", "react-library", "--name", "ui-kit", "--package", "@local/ui-kit", "--runtime", "bun")
+		cmd.Dir = repo
+		b, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("react-library init failed: %v\n%s", err, string(b))
+		}
+		for _, want := range []string{"react.library", "vite.library", "package.exports", "tspack.pack"} {
+			if !strings.Contains(string(b), want) {
+				t.Fatalf("init output missing concept %q:\n%s", want, string(b))
+			}
+		}
+		for _, rel := range []string{"manifest.tsx", "tsconfig.tspack.json", "tsconfig.json", "tsconfig.build.json", "biome.json", "vite.config.ts", "package.json", "src/index.ts", "src/Button.tsx", "src/style.css", "README.md"} {
+			if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
+				t.Fatalf("missing generated file %s: %v", rel, err)
+			}
+		}
+		assertGeneratedTSPackTSConfig(t, root)
+		assertGeneratedReactAppTSConfig(t, root)
+
+		manifestBytes, err := os.ReadFile(filepath.Join(root, "manifest.tsx"))
+		if err != nil {
+			t.Fatalf("read manifest: %v", err)
+		}
+		manifestText := string(manifestBytes)
+		for _, want := range []string{`name="ui-kit" runtime="bun"`, `name="@local/ui-kit"`, `kind="library"`, `peer(npm("react"`, `peers: [deps.react, deps.reactDom]`, `<Publish include={["dist/**", "README.md", "package.json"]}`, `command: ["vite", "build"]`, `command: ["tsc", "-p", "tsconfig.build.json", "--listEmittedFiles"]`} {
+			if !strings.Contains(manifestText, want) {
+				t.Fatalf("manifest missing %q:\n%s", want, manifestText)
+			}
+		}
+
+		packageBytes, err := os.ReadFile(filepath.Join(root, "package.json"))
+		if err != nil {
+			t.Fatalf("read package.json: %v", err)
+		}
+		packageText := string(packageBytes)
+		for _, want := range []string{`"name": "@local/ui-kit"`, `"private": true`, `"exports"`, `"peerDependencies"`, `"react-dom"`} {
+			if !strings.Contains(packageText, want) {
+				t.Fatalf("package.json missing %q:\n%s", want, packageText)
+			}
+		}
+		for _, forbidden := range []string{"postinstall", "prepare", "prepublish"} {
+			if strings.Contains(packageText, forbidden) {
+				t.Fatalf("package.json should not include lifecycle script %q:\n%s", forbidden, packageText)
+			}
 		}
 	})
 

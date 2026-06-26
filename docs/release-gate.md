@@ -951,3 +951,15 @@ The 0.1.0 release gate includes cold-update throughput hardening for `tspack upd
 - Windows Chromium discovery fallback order is deterministic: Playwright-managed Chromium is attempted by the inspect backend first, then Windows Edge/Chrome fallback discovery prefers Edge before Chrome in the documented candidate order when Playwright Chromium is unavailable.
 - Browser-required inspect integration cases skip with an explicit Playwright Chromium availability reason when Playwright browsers are not installed; unit tests for JSON failure serialization, diagnostic mapping, URL backend routing, and Windows path fallback remain active.
 - Local Windows smoke remains available with installed browsers or `--browser-path`, and missing-browser JSON failures should remain valid machine-readable inspect results.
+
+
+## M54d react-library template gate
+
+- `tspack init --list-templates` lists `react-library` alongside `static` and `react`.
+- `react-library` uses the public inert template engine, not a Go special case.
+- Concepts include `react.library`, `vite.library`, `package.exports`, `tspack.pack`, and `typescript.library` to prove a library variation distinct from the React app template.
+- Generated manifest/editor boundaries parse and typecheck.
+- React and React DOM are peer dependencies, not runtime dependencies.
+- Generated `package.json` has no lifecycle scripts.
+- `tspack check`, `tspack check --format`, and `tspack update --policy --dry-run --json` pass without unclassified dependencies for the generated project.
+- Static and React app templates continue to generate and pass focused regression tests.

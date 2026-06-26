@@ -87,6 +87,77 @@ func TestBuiltinReactLoadsAndRenders(t *testing.T) {
 	}
 }
 
+func TestBuiltinReactLibraryLoadsAndRenders(t *testing.T) {
+	tmpl, err := LoadBuiltin("react-library")
+	if err != nil {
+		t.Fatalf("load react-library: %v", err)
+	}
+	for _, concept := range []string{"react.library", "vite.library", "package.exports", "tspack.pack", "typescript.library"} {
+		if !contains(tmpl.Concepts, concept) {
+			t.Fatalf("react-library template missing concept %q: %#v", concept, tmpl.Concepts)
+		}
+	}
+
+	root := t.TempDir()
+	values, err := tmpl.ResolveValues(map[string]string{"projectName": "UI Kit", "packageName": "@local/ui-kit", "runtime": "deno"})
+	if err != nil {
+		t.Fatalf("resolve values: %v", err)
+	}
+	if _, err := tmpl.Apply(ApplyOptions{Destination: root, Values: values}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	wantFiles := []string{
+		"manifest.tsx",
+		"tsconfig.tspack.json",
+		"tsconfig.json",
+		"tsconfig.build.json",
+		"biome.json",
+		"vite.config.ts",
+		"package.json",
+		"src/index.ts",
+		"src/Button.tsx",
+		"src/style.css",
+		"README.md",
+	}
+	for _, rel := range wantFiles {
+		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
+			t.Fatalf("missing generated file %s: %v", rel, err)
+		}
+	}
+
+	manifest, err := os.ReadFile(filepath.Join(root, "manifest.tsx"))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	manifestText := string(manifest)
+	for _, want := range []string{`name="UI Kit" runtime="deno"`, `name="@local/ui-kit"`, `peer(npm("react"`, `<Publish include={["dist/**", "README.md", "package.json"]}`, `command: ["tsc", "-p", "tsconfig.build.json", "--listEmittedFiles"]`} {
+		if !strings.Contains(manifestText, want) {
+			t.Fatalf("manifest missing %q:\n%s", want, manifestText)
+		}
+	}
+
+	packageJSON, err := os.ReadFile(filepath.Join(root, "package.json"))
+	if err != nil {
+		t.Fatalf("read package.json: %v", err)
+	}
+	packageText := string(packageJSON)
+	for _, want := range []string{`"peerDependencies"`, `"react"`, `"exports"`, `"private": true`} {
+		if !strings.Contains(packageText, want) {
+			t.Fatalf("package.json missing %q:\n%s", want, packageText)
+		}
+	}
+	for _, forbidden := range []string{"postinstall", "prepare", "prepublish"} {
+		if strings.Contains(packageText, forbidden) {
+			t.Fatalf("package.json should not include lifecycle script %q:\n%s", forbidden, packageText)
+		}
+	}
+
+	if _, err := tmpl.ResolveValues(map[string]string{"projectName": "bad", "packageName": "bad", "runtime": "npm"}); err == nil || !strings.Contains(err.Error(), "TSPACK_TEMPLATE_VARIABLE_INVALID") {
+		t.Fatalf("expected invalid runtime error, got %v", err)
+	}
+}
+
 func TestLocalTemplateSafetyAndOverwrite(t *testing.T) {
 	templateRoot := t.TempDir()
 	if err := os.Mkdir(filepath.Join(templateRoot, "files"), 0o755); err != nil {

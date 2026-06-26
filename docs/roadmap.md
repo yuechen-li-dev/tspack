@@ -30,3 +30,8 @@ M54a adds the concept-aware inert template engine and built-in static template. 
 ## Template roadmap notes
 
 M54b adds the built-in React + Vite app template. React library, Next.js, Vue, Tailwind, router-enabled, remote, and package-manager-specialized templates remain future work.
+
+
+## Template overlay future
+
+Future template work should add concept overlays rather than hardcoded template explosion. Planned overlays include `ui.mui`, `ui.shadcn`, `ui.antd`, `style.tailwind`, and `router.react-router`. A Next.js template remains future work and is intentionally separate from the M54d React library template.

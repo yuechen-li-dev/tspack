@@ -104,3 +104,10 @@ tspack check
 tspack check --format
 tspack update --policy --dry-run
 ```
+
+
+React library starter:
+
+```sh
+tspack init --template react-library --name ui-kit --package @local/ui-kit
+```
