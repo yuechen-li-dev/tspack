@@ -1,83 +1,76 @@
 # TSPack
 
-TSPack is an early TypeScript lifecycle tool centered on deterministic intent (`manifest.tsx`) and deterministic resolved truth (`ts-lock.toml`). It is pre-0.1.0 software and should not be treated as production-stable yet.
+TSPack is an early TypeScript project lifecycle manager built around explicit manifests, deterministic lockfiles, blocked-by-default lifecycle scripts, and policy-aware updates.
 
-Core thesis: **Declare targets. Resolve sources. Enforce boundaries. Lock reality. Pack exactly.**
+## Status
 
-The repository is self-hosted after bootstrap: an existing source build or trusted binary is still required first, then TSPack manages, checks, and describes its own repo contract. See `docs/self-hosting.md` and the practical 0.1.0 checklist in `docs/release-0.1.0.md`.
+TSPack is preparing for its first public `v0.1.0` release. It is useful for early dogfooding and release-candidate validation, but it is not production-stable and the CLI, manifest API, and generated artifacts may still change.
 
-## Installation
+The repository is self-hosted after bootstrap: a trusted source checkout or binary is required first, then TSPack can manage, check, audit, and describe its own project contract. See [self-hosting](docs/self-hosting.md) and the [0.1.0 release checklist](docs/release-0.1.0.md).
 
-For now, download release artifacts from GitHub Releases or run `scripts/install.sh` from a trusted checkout. The Unix installer downloads the matching release archive, verifies its SHA256 entry from `checksums.txt`, and installs `tspack` to `$HOME/.local/bin` unless `TSPACK_INSTALL_DIR` is set.
+## Why
 
-Review installer scripts before running them from raw URLs. A canonical hosted installer endpoint is future work.
+- npm lifecycle scripts can execute arbitrary package code by default.
+- TSPack detects dependency lifecycle capabilities and blocks lifecycle execution by default.
+- Package and update intent should be declared and reviewed instead of outsourced to unbounded bot churn.
+- `manifest.tsx` is the project contract; `ts-lock.toml` is resolved truth.
 
-After the first public release is available, GitHub Actions workflows can install TSPack with the first-party setup action:
+## Install
 
-```yaml
-steps:
-  - uses: yuechen-li-dev/tspack/.github/actions/setup-tspack@v1
-    with:
-      version: latest
+After `v0.1.0` is published, download release artifacts from GitHub Releases. Release archives are expected to include SHA256 coverage through `checksums.txt`.
 
-  - run: tspack check --root .
-  - run: tspack test --root .
-```
-
-
-## Command surface
-
-| Group | Command | Purpose | Mutation / Stability |
-|---|---|---|---|
-| Core package | `tspack init` | Scaffold a starter `manifest.tsx` + entry source. | No install/update/sync/build side effects. |
-| Core package | `tspack migrate` | Generate a package.json-based `manifest.migrated.tsx` draft and migration report for human/LLM review; package-lock, source import scanning, script classification, RunTarget suggestions, and `--check` validation are report-only evidence. | Dry-run by default; `--check` validates without writing, `--write --check` writes only after validation passes, and migration never runs scripts or writes `ts-lock.toml`. |
-| Core package | `tspack check` | Validate manifest/frontend, graph, boundaries, and lock consistency. Supports `--json`, `--explain <file>`, and optional `--format` read-only formatting validation. | Does not mutate lock. |
-| Core package | `tspack update` | Resolve and write deterministic `ts-lock.toml` (or plan-only with `--dry-run`); text mode reports plain progress on stderr and supports `--quiet`. | Mutates lock (except `--dry-run`). |
-| Core package | `tspack sync` | Materialize compatibility `node_modules` from lock/store. | Does not mutate lock. |
-| Core package | `tspack why` `tspack how` | Explain dependency/target reachability and presence; `why --json` emits structured explanations and diagnostics; `why --reverse` shows which roots pull a locked package in. | Does not mutate lock. |
-| Core package | `tspack pack` | Build deterministic package archives. | Does not mutate lock. |
-| Native harness | `tspack test` | Run native xTest/Vitest command loop. | May write test outputs; no lock/manifest mutation. |
-| Native harness | `tspack artifact` | Run standalone suite-level native artifact units. | May write artifact output; no lock/manifest mutation. |
-| Native harness | `tspack bench` | Run native benchmark units (`*.benchmark.tsx`). | May write benchmark outputs; no lock/manifest mutation. |
-| Native harness | `tspack doom` | Run quarantined prophecy/doom units (`*.prophecy.tsx`). | May write doom outputs; no lock/manifest mutation. |
-| Runtime / inspection | `tspack run [target]` | Start, list (`--list [--json]`), or package-scope (`--package <name>`) declared manifest `RunTargets`. | **Not npm scripts**; no lock/manifest mutation. |
-| Runtime / inspection | `tspack inspect <url\|target>` | Structural UI inspection; supports declared run target inspection. | **Experimental**; backend surface may evolve. |
-| Runtime / inspection | `tspack doctor runtime` | Report the selected workspace runtime profile and executable availability. | Read-only; no package-manager delegation. |
-
-## Core contracts
-
-- `manifest.tsx` and `package.manifest.tsx` are restricted documents; they are **not executed**.
-- `ts-lock.toml` is resolved truth.
-- `node_modules` is a generated compatibility artifact, not source of truth.
-- Fetch is not execute: dependency lifecycle scripts are blocked by default, and `Security` policy/`doctor security` make that posture auditable.
-- Workspace `runtime` selects `nodejs`, `bun`, or `deno` as a runtime profile; TSPack still owns dependency resolution, lockfiles, materialization, checks, packing, and lifecycle policy. See `docs/runtime-switch-demo.md` for the one-line runtime switch fixture.
-
-## Non-goals (current)
-
-TSPack does **not** aim to become:
-- npm-script compatibility mode
-- arbitrary task runner
-- build/bundler tool
-- publish pipeline
-
-`inspect` remains experimental and should not be treated as a stable contract yet.
-
-## Testing
+From a trusted checkout, Unix users can run:
 
 ```bash
-go test ./...
-cd manifest-frontend && npm test
+TSPACK_VERSION=v0.1.0 sh scripts/install.sh
 ```
 
-See:
-- `docs/product-contract.md`
-- `docs/commands.md`
-- `docs/design-non-goals.md`
-- `docs/release-gate.md`
-- `docs/self-hosting.md`
-- `docs/release-0.1.0.md`
+The installer downloads GitHub Release artifacts, verifies the checksum entry, and installs `tspack` to `$HOME/.local/bin` unless `TSPACK_INSTALL_DIR` is set. Review installer scripts before running them from raw URLs. `get.tspack.dev` is not live.
 
+## Quickstart
 
-- `tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. See `docs/format-lint.md`.
+```bash
+tspack init --kind library --name my-package
+tspack update
+tspack check
+tspack check --format
+tspack doctor security
+tspack outdated
+tspack update --policy --dry-run
+```
 
-- `tspack doctor` adds non-mutating environment diagnostics. See `docs/doctor.md`.
+Useful release sanity checks:
+
+```bash
+tspack --version
+tspack --help
+```
+
+## Core features
+
+- `manifest.tsx` / `package.manifest.tsx` project contracts.
+- Deterministic `ts-lock.toml` lockfiles.
+- `update`, `sync`, and content-addressed store population.
+- `check` and read-only `check --format` validation.
+- Blocked-by-default dependency lifecycle security policy.
+- `doctor security` lifecycle capability audit surface.
+- Declared RunTargets with runtime inheritance.
+- Native xTest harness.
+- `outdated` plus declared UpdatePolicy dry-run planning.
+- `pack`, `why`, and `how` release/audit helpers.
+
+## Self-hosting
+
+TSPack is self-hosted after bootstrap. The root `manifest.tsx` and `ts-lock.toml` describe this repository, and `./scripts/self-host-smoke.sh` exercises the intended dogfood path. See [docs/self-hosting.md](docs/self-hosting.md).
+
+## Known limitations
+
+- First public early release; not production-stable.
+- Inspect/browser deep testing is deferred until after `0.1.0`.
+- Policy-driven update mutation is not implemented; `update --policy --dry-run` is read-only planning.
+- The `setup-tspack` action implementation exists, but hosted smoke waits until the first release exists.
+- Homebrew, mise, npm bootstrapper, and `get.tspack.dev` distribution channels are future work.
+
+## Docs
+
+Start with [docs/README.md](docs/README.md), especially the [0.1.0 release notes](docs/releases/v0.1.0.md), [roadmap](docs/roadmap.md), [distribution](docs/distribution.md), [security](docs/security.md), and [release readiness checklist](docs/release-0.1.0.md).

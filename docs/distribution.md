@@ -135,4 +135,4 @@ Build a specific release archive locally with:
 
 `scripts/install.sh` downloads these GitHub Release artifacts on Unix platforms. `get.tspack.dev` remains a future TODO and is not a live distribution surface yet.
 
-Before the public `v0.1` release, release builds should inject explicit CLI version metadata if the command surface grows a stable `tspack --version` entrypoint.
+`tspack --version` prints version, commit, and build date metadata. `scripts/build-release.sh` and `scripts/package-release.sh` inject this metadata with Go ldflags; release workflow builds pass the release tag as the version and `GITHUB_SHA` as the commit.

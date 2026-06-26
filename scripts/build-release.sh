@@ -54,7 +54,15 @@ assert_expected_inspect_diagnostic() {
 
 go run ./tools/generate-embedded-bridges
 mkdir -p dist
-go build -tags tspack_embedded_bridges -o dist/tspack ./cmd/tspack
+build_date="${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+version="${TSPACK_VERSION:-0.1.0-dev}"
+commit="${GITHUB_SHA:-$(git rev-parse --short=12 HEAD 2>/dev/null || printf unknown)}"
+
+go build \
+  -tags tspack_embedded_bridges \
+  -ldflags "-X github.com/tspack/tspack/internal/version.Version=$version -X github.com/tspack/tspack/internal/version.Commit=$commit -X github.com/tspack/tspack/internal/version.Date=$build_date" \
+  -o dist/tspack \
+  ./cmd/tspack
 
 if [ -e "$hidden_dist_backup" ]; then
   echo "$hidden_dist_backup already exists; remove or restore it before running release smoke." >&2

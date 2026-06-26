@@ -615,6 +615,23 @@ func TestCLIHelpAndUnsupportedCommands(t *testing.T) {
 	}
 }
 
+func TestCLIVersionPrintsMetadata(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	cmd := exec.Command("go", "run", "./cmd/tspack", "--version")
+	cmd.Dir = repo
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("version failed: %v\n%s", err, string(output))
+	}
+
+	text := string(output)
+	for _, expected := range []string{"tspack ", "commit ", "built "} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("version output missing %q: %s", expected, text)
+		}
+	}
+}
+
 func TestCLIUpdateDryRunUnknownFlagFailsDeterministically(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	cmd := exec.Command("go", "run", "./cmd/tspack", "update", "--dry-run", "--unknown")
