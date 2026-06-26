@@ -583,3 +583,11 @@ func TestUpdatePolicyValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestManifestRejectsReservedPyPISourceKind(t *testing.T) {
+	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[{"key":"requests","kind":"dep","source":{"kind":"pypi","package":"requests","range":">=2"}}],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	_, diags := LoadBytes("test.json", []byte(j))
+	if !hasDiagnosticCode(diags, "TSPACK_IR_INVALID_SOURCE_KIND") {
+		t.Fatalf("expected reserved pypi source to be rejected: %#v", diags)
+	}
+}

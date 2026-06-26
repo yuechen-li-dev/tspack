@@ -228,6 +228,10 @@ var (
 	targetNameRe    = regexp.MustCompile(`^[A-Za-z0-9_/-]+$`)
 )
 
+// Workspace runtime profiles are JavaScript execution runtimes today.
+// Future Python-family execution should be modeled through separate runtime
+// family, implementation, and environment axes rather than a flat "python"
+// value bolted into this JS runtime list.
 func isValidRuntimeProfile(value string) bool {
 	switch value {
 	case "nodejs", "bun", "deno":
@@ -608,6 +612,10 @@ func DependencyIdentity(d DependencyIntent) string {
 }
 
 func depIdentity(d DependencyIntent) string { return DependencyIdentity(d) }
+
+// validateDep accepts the current TypeScript/npm-era source kinds only.
+// PyPI is intentionally not accepted here; future ecosystems should add source
+// validation through a backend seam with their own version/range semantics.
 func validateDep(add func(string, string, ...string), pp string, i int, d DependencyIntent) {
 	allowed := map[string]bool{"runtime": true, "dep": true, "peer": true, "tool": true, "type": true, "test": true, "workspace": true}
 	if !allowed[d.Kind] {

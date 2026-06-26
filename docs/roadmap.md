@@ -47,3 +47,9 @@ M57a records an exploratory Python module/domain design in `docs/design/python-m
 This is not Python support yet. The roadmap explicitly excludes `manifest.py`, executable Python project configuration, PyPI resolver implementation, `uv` integration, lockfile renaming, packaging publication, and changes to existing TypeScript/npm behavior for this milestone.
 
 Future Python work should be high-locality: Python-specific behavior belongs behind an ecosystem/backend seam, not as scattered `pypi` conditionals across the TypeScript/npm resolver, run, security, lockfile, pack, template, and CLI paths.
+
+## M57b ecosystem/backend seam spike
+
+M57b adds a small ecosystem/backend seam spike in `docs/design/ecosystem-backend-seam.md` plus internal vocabulary for the production TypeScript/npm backend and reserved Python-family/PyPI design terms. The intent is high locality: future ecosystem behavior should live behind backend-owned validation/resolution/materialization/security/runtime seams instead of scattered conditionals. The seam separates package ecosystem, backend, runtime family, runtime implementation, environment/materialization strategy, execution/build mode, version/range scheme, and security/build risk so CPython, PyPy, Cython/native-extension, Triton, Mojo, Numba, and JAX-style systems do not collapse into one flat `python` runtime.
+
+This remains architecture groundwork only. TSPack still has no Python runtime, Python resolver, PyPI source acceptance, uv integration, Python templates, pyproject projection, `manifest.py`, `runtime: "python"`, lockfile rename, or package-manager behavior change. TypeScript/npm remains the only production behavior, and venv-like layouts are future implementation details rather than user-facing project model.
