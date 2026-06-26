@@ -4,9 +4,9 @@ TSPack is an early TypeScript project lifecycle manager built around explicit ma
 
 ## Status
 
-TSPack is preparing for its first public `v0.1.0` release. It is useful for early dogfooding and release-candidate validation, but it is not production-stable and the CLI, manifest API, and generated artifacts may still change.
+TSPack is preparing for its `v0.1.3` patch release. It is useful for early dogfooding and release-candidate validation, but it is not production-stable and the CLI, manifest API, and generated artifacts may still change.
 
-The repository is self-hosted after bootstrap: a trusted source checkout or binary is required first, then TSPack can manage, check, audit, and describe its own project contract. See [self-hosting](docs/self-hosting.md) and the [0.1.0 release checklist](docs/release-0.1.0.md).
+The repository is self-hosted after bootstrap: a trusted source checkout or binary is required first, then TSPack can manage, check, audit, and describe its own project contract. See [self-hosting](docs/self-hosting.md) and the [release gate](docs/release-gate.md).
 
 ## Why
 
@@ -17,12 +17,12 @@ The repository is self-hosted after bootstrap: a trusted source checkout or bina
 
 ## Install
 
-After `v0.1.0` is published, download release artifacts from GitHub Releases. Release archives are expected to include SHA256 coverage through `checksums.txt`.
+After `v0.1.3` is published, download release artifacts from GitHub Releases. Release archives are expected to include SHA256 coverage through `checksums.txt`.
 
 From a trusted checkout, Unix users can run:
 
 ```bash
-TSPACK_VERSION=v0.1.0 sh scripts/install.sh
+TSPACK_VERSION=v0.1.3 sh scripts/install.sh
 ```
 
 The installer downloads GitHub Release artifacts, verifies the checksum entry, and installs `tspack` to `$HOME/.local/bin` unless `TSPACK_INSTALL_DIR` is set. Review installer scripts before running them from raw URLs. `get.tspack.dev` is not live.
@@ -66,15 +66,15 @@ TSPack is self-hosted after bootstrap. The root `manifest.tsx` and `ts-lock.toml
 
 ## Known limitations
 
-- First public early release; not production-stable.
-- Inspect/browser deep testing is deferred until after `0.1.0`.
+- Early patch release; not production-stable.
+- Browser-required inspect tests may skip when Playwright Chromium is unavailable.
 - Policy-driven update mutation is not implemented; `update --policy --dry-run` is read-only planning.
 - The `setup-tspack` action implementation exists, but hosted smoke waits until the first release exists.
 - Homebrew, mise, npm bootstrapper, and `get.tspack.dev` distribution channels are future work.
 
 ## Docs
 
-Start with [docs/README.md](docs/README.md), especially the [0.1.0 release notes](docs/releases/v0.1.0.md), [roadmap](docs/roadmap.md), [distribution](docs/distribution.md), [security](docs/security.md), and [release readiness checklist](docs/release-0.1.0.md).
+Start with [docs/README.md](docs/README.md), especially the [v0.1.3 release notes](docs/releases/v0.1.3.md), [roadmap](docs/roadmap.md), [distribution](docs/distribution.md), [security](docs/security.md), and [release gate](docs/release-gate.md).
 
 ### Quickstart template
 
