@@ -89,9 +89,13 @@ if [ "$goos" = "windows" ]; then
   archive_name="${package_name}.zip"
 fi
 
+build_date="${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+commit="${GITHUB_SHA:-$(git rev-parse --short=12 HEAD 2>/dev/null || printf unknown)}"
+
 GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build \
   -tags tspack_embedded_bridges \
   -trimpath \
+  -ldflags "-X github.com/tspack/tspack/internal/version.Version=$version -X github.com/tspack/tspack/internal/version.Commit=$commit -X github.com/tspack/tspack/internal/version.Date=$build_date" \
   -o "$package_dir/$binary_name" \
   ./cmd/tspack
 

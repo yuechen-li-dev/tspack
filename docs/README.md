@@ -1,11 +1,26 @@
 # TSPack Docs
 
-- [Self-hosting](self-hosting.md)
-- [0.1.0 release readiness](release-0.1.0.md)
+## Release and status
+
+- [0.1.0 release notes](releases/v0.1.0.md)
+- [0.1.0 release readiness and tagging checklist](release-0.1.0.md)
+- [Roadmap and known limitations](roadmap.md)
+- [Release gate](release-gate.md)
 - [Distribution](distribution.md)
+- [Self-hosting](self-hosting.md)
+
+## Core concepts and commands
+
+- [Product contract](product-contract.md)
+- [Manifest](manifest.md)
+- [Commands](commands.md)
 - [Security](security.md)
-- [Update policy and outdated planning](update.md)
+- [Update, outdated, and UpdatePolicy](update.md)
 - [Run targets](run.md)
 - [Check and format](check.md)
+- [Format and lint backend](format-lint.md)
 - [Diagnostics](diagnostics.md)
-- [Release gate](release-gate.md)
+- [Native xTest harness](native-test-harness.md)
+- [Migration](migrate.md)
+- [Pack](pack.md)
+- [Why](why.md)

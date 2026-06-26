@@ -22,6 +22,7 @@ import (
 	"github.com/tspack/tspack/internal/manifest"
 	"github.com/tspack/tspack/internal/project"
 	"github.com/tspack/tspack/internal/testcmd"
+	"github.com/tspack/tspack/internal/version"
 	"github.com/tspack/tspack/internal/why"
 )
 
@@ -267,8 +268,6 @@ type lockDiffPackageChange struct {
 	To   lockDiffPackage `json:"to"`
 }
 
-const version = "tspack 0.0.0-dev"
-
 func main() {
 	args := os.Args[1:]
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
@@ -277,7 +276,7 @@ func main() {
 	}
 
 	if args[0] == "--version" || args[0] == "version" || args[0] == "-v" {
-		fmt.Println(version)
+		printVersion()
 		return
 	}
 	if args[0] == "check" || args[0] == "update" || args[0] == "sync" || args[0] == "pack" || args[0] == "why" || args[0] == "outdated" {
@@ -339,6 +338,12 @@ func main() {
 	fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", args[0])
 	printHelp()
 	os.Exit(1)
+}
+
+func printVersion() {
+	fmt.Printf("tspack %s\n", version.Version)
+	fmt.Printf("commit %s\n", version.Commit)
+	fmt.Printf("built %s\n", version.Date)
 }
 
 func printHelp() {
