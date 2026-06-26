@@ -60,3 +60,32 @@ tspack init --template ./path/to/template --name demo
 ```
 
 The path must point to a directory containing `tspack-template.toml`.
+
+## Built-in `react` template
+
+The built-in `react` template generates a plain React + Vite + TypeScript browser app through the same inert template engine used by local templates and the built-in `static` template.
+
+```sh
+tspack init --template react --name my-app
+```
+
+Concepts:
+
+- `tspack.workspace`
+- `tspack.manifestBoundary`
+- `tspack.securityPolicy`
+- `tspack.updatePolicy`
+- `typescript.app`
+- `vite.app`
+- `react.app`
+- `browser.spa`
+
+Variables:
+
+- `projectName` from `--name`
+- `packageName` from `--package`, defaulting to `projectName`
+- `runtime` from `--runtime`, allowed values `nodejs`, `bun`, and `deno`
+
+Generated files include `manifest.tsx`, `tsconfig.tspack.json`, `tsconfig.json`, `biome.json`, `vite.config.ts`, `package.json`, `index.html`, `src/main.tsx`, `src/App.tsx`, `src/style.css`, and `README.md`. The app tsconfig uses React JSX and excludes TSPack manifest/xTest files, while `tsconfig.tspack.json` preserves JSX for manifest editing and maps `tspack/manifest` to generated local declarations.
+
+The manifest declares `react` and `react-dom` as runtime dependencies, Vite/TypeScript/plugin/type packages as tools, Node-backed Vite run targets (`dev`, `build`, and `preview`), manual React runtime update policy, rolling minor tooling update policy, and a maintainer-publish lifecycle category acknowledgment. `package.json` is compatibility glue only and contains no lifecycle scripts.

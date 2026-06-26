@@ -933,3 +933,13 @@ The 0.1.0 release gate includes cold-update throughput hardening for `tspack upd
 - Generated static projects include `tsconfig.tspack.json` and local `tspack/manifest` editor declarations.
 - Generated static projects should pass `tspack check` and `tspack check --format` after the manifest frontend is available.
 - Templates remain inert data and do not execute commands, install packages, or fetch remote code.
+
+## M54b React template gate
+
+- `tspack init --list-templates` lists both `static` and `react` and shows `react.app`, `vite.app`, and `browser.spa` concepts.
+- `tspack init --template react --name my-app` uses the public inert template engine; no Go code special-cases React.
+- The generated React app includes `manifest.tsx`, `tsconfig.tspack.json`, app `tsconfig.json`, `biome.json`, `vite.config.ts`, `package.json`, `index.html`, `src/main.tsx`, `src/App.tsx`, `src/style.css`, and `README.md`.
+- `tsconfig.tspack.json` keeps the TSPack manifest/editor boundary separate from app TSX, and app `tsconfig.json` uses React JSX while excluding manifests, xTests, `.tspack/**`, artifacts, and `dist/**`.
+- The generated manifest parses, `tspack check` passes, `tspack check --format` passes, and `tspack update --policy --dry-run --json` produces a policy plan or documents any registry requirement.
+- Generated `package.json` has no lifecycle scripts.
+- Template rendering remains inert: no template command execution, dependency installation, update execution, resolver changes, remote templates, or package-manager behavior changes.

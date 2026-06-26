@@ -85,3 +85,22 @@ tspack sync
 tspack run dev
 tspack check
 ```
+
+## React app template
+
+`tspack init` still defaults to the built-in `static` template. Use the explicit `react` template for a practical React + Vite + TypeScript app:
+
+```sh
+tspack init --template react --name my-app
+```
+
+The generated project keeps `manifest.tsx` as the source of truth and writes `package.json`, `tsconfig.json`, `tsconfig.tspack.json`, `vite.config.ts`, `index.html`, and `src/**` as compatibility/tooling files. Next steps:
+
+```sh
+tspack update
+tspack sync
+tspack run dev
+tspack check
+tspack check --format
+tspack update --policy --dry-run
+```
