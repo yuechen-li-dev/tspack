@@ -89,3 +89,22 @@ Variables:
 Generated files include `manifest.tsx`, `tsconfig.tspack.json`, `tsconfig.json`, `biome.json`, `vite.config.ts`, `package.json`, `index.html`, `src/main.tsx`, `src/App.tsx`, `src/style.css`, and `README.md`. The app tsconfig uses React JSX and excludes TSPack manifest/xTest files, while `tsconfig.tspack.json` preserves JSX for manifest editing and maps `tspack/manifest` to generated local declarations.
 
 The manifest declares `react` and `react-dom` as runtime dependencies, Vite/TypeScript/plugin/type packages as tools, Node-backed Vite run targets (`dev`, `build`, and `preview`), manual React runtime update policy, rolling minor tooling update policy, and a maintainer-publish lifecycle category acknowledgment. `package.json` is compatibility glue only and contains no lifecycle scripts.
+
+
+## React library template
+
+`react-library` generates a React + Vite + TypeScript component library starter:
+
+```sh
+tspack init --template react-library --name ui-kit --package @local/ui-kit
+```
+
+Concepts: `tspack.workspace`, `tspack.manifestBoundary`, `tspack.securityPolicy`, `tspack.updatePolicy`, `tspack.pack`, `typescript.library`, `vite.library`, `react.library`, `package.exports`, `package.peerDependencies`, and `browser.components`.
+
+Generated files include `manifest.tsx`, `tsconfig.tspack.json`, `tsconfig.json`, `tsconfig.build.json`, `biome.json`, `package.json`, `vite.config.ts`, `src/index.ts`, `src/Button.tsx`, `src/style.css`, and `README.md`. The template deliberately does not create an app `index.html`; it is a reusable component library shape rather than a SPA.
+
+React and React DOM are modeled as peer dependencies in the manifest and compatibility `package.json`. Tooling dependencies remain tools. The compatibility `package.json` includes module/type export metadata and is marked `private` to avoid accidental npm publication. TSPack pack flows remain the intended publication path.
+
+Run targets are intentionally simple and Node-oriented: `build` runs Vite library mode, `build-types` emits declarations with `tsc -p tsconfig.build.json`, and `typecheck` runs `tsc -p tsconfig.json --noEmit`. TSPack does not sequence those targets yet, so run both `build` and `build-types` before pack verification.
+
+The editor boundary mirrors the other built-in templates: `tsconfig.tspack.json` covers TSPack-owned manifest files without requiring the React JSX runtime, while the library `tsconfig.json` uses `jsx: "react-jsx"` and excludes TSPack-owned files.

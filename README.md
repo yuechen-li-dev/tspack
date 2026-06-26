@@ -85,3 +85,6 @@ tspack init --template react --name my-app
 ```
 
 The default static template creates a minimal TypeScript browser app. The explicit React template creates a React + Vite + TypeScript app and prints the next `tspack update`, `tspack sync`, `tspack run dev`, and `tspack check` steps. Remote template workflows are planned later.
+
+
+Built-in templates include `static`, `react` for React + Vite apps, and `react-library` for React + Vite component libraries.

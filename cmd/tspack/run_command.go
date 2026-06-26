@@ -275,13 +275,16 @@ type runErr struct{ code, msg string }
 func waitReady(waitCh <-chan error, readyCheck runReadyCheck, timeout time.Duration) *runErr {
 	deadline := time.Now().Add(timeout)
 	for {
-		select {
-		case <-waitCh:
-			return &runErr{"TSPACK_RUN_PROCESS_EXITED_EARLY", "process exited before ready"}
-		default:
-		}
 		if readyCheck.ready() {
 			return nil
+		}
+		select {
+		case <-waitCh:
+			if readyCheck.ready() {
+				return nil
+			}
+			return &runErr{"TSPACK_RUN_PROCESS_EXITED_EARLY", "process exited before ready"}
+		default:
 		}
 		if time.Now().After(deadline) {
 			return &runErr{"TSPACK_RUN_READY_TIMEOUT", "ready check timed out"}

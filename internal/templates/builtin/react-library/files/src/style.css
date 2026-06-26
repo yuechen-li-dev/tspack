@@ -1,0 +1,18 @@
+.tspack-button {
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 0.65rem 1rem;
+}
+
+.tspack-button--primary {
+  background: #4263eb;
+  color: #ffffff;
+}
+
+.tspack-button--secondary {
+  background: #edf2ff;
+  color: #243b73;
+}

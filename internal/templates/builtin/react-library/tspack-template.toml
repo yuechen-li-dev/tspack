@@ -1,0 +1,82 @@
+format = 1
+name = "react-library"
+description = "React + Vite + TypeScript component library"
+kind = "library"
+concepts = [
+  "tspack.workspace",
+  "tspack.manifestBoundary",
+  "tspack.securityPolicy",
+  "tspack.updatePolicy",
+  "tspack.pack",
+  "typescript.library",
+  "vite.library",
+  "react.library",
+  "package.exports",
+  "package.peerDependencies",
+  "browser.components"
+]
+
+[variables.projectName]
+description = "Project display name"
+default = "ui-kit"
+
+[variables.packageName]
+description = "Package name"
+default = "ui-kit"
+
+[variables.runtime]
+description = "Workspace runtime"
+default = "nodejs"
+allowed = ["nodejs", "bun", "deno"]
+
+[[files]]
+from = "files/manifest.tsx.tmpl"
+to = "manifest.tsx"
+
+[[files]]
+from = "files/package.json.tmpl"
+to = "package.json"
+
+[[files]]
+from = "files/tsconfig.tspack.json"
+to = "tsconfig.tspack.json"
+
+[[files]]
+from = "files/tsconfig.json"
+to = "tsconfig.json"
+
+[[files]]
+from = "files/tsconfig.build.json"
+to = "tsconfig.build.json"
+
+[[files]]
+from = "files/tspack-types/tspack-manifest.d.ts"
+to = ".tspack/types/tspack-manifest.d.ts"
+
+[[files]]
+from = "files/tspack-env.d.ts"
+to = "tspack-env.d.ts"
+
+[[files]]
+from = "files/biome.json"
+to = "biome.json"
+
+[[files]]
+from = "files/vite.config.ts"
+to = "vite.config.ts"
+
+[[files]]
+from = "files/src/index.ts"
+to = "src/index.ts"
+
+[[files]]
+from = "files/src/Button.tsx"
+to = "src/Button.tsx"
+
+[[files]]
+from = "files/src/style.css"
+to = "src/style.css"
+
+[[files]]
+from = "files/README.md.tmpl"
+to = "README.md"

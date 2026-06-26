@@ -1,0 +1,201 @@
+import {
+  define,
+  defineDeps,
+  npm,
+  Package,
+  peer,
+  Policies,
+  Publish,
+  RunTargets,
+  Security,
+  Targets,
+  tool,
+  Tools,
+  UpdatePolicy,
+  Workspace,
+  type BoundaryPolicy,
+  type TypePolicy,
+} from "tspack/manifest";
+
+const types = {
+  declarations: "optional",
+  missingTypes: "warn",
+  publicTypeLeakage: "error",
+  typeOnlyRuntimeLeakage: "error",
+} satisfies TypePolicy;
+
+const boundaries = {
+  undeclaredImports: "error",
+  phantomDependencies: "error",
+  crossTargetImports: "error",
+} satisfies BoundaryPolicy;
+
+const deps = defineDeps({
+  react: peer(npm("react", "^19.0.0")),
+  reactDom: peer(npm("react-dom", "^19.0.0"), { key: "react-dom" }),
+  typescript: tool(npm("typescript", "^5.0.0")),
+  vite: tool(npm("vite", "^5.0.0")),
+  viteReact: tool(npm("@vitejs/plugin-react", "^4.0.0"), {
+    key: "@vitejs/plugin-react",
+  }),
+  reactTypes: tool(npm("@types/react", "^19.0.0"), { key: "@types/react" }),
+  reactDomTypes: tool(npm("@types/react-dom", "^19.0.0"), {
+    key: "@types/react-dom",
+  }),
+  biome: tool(npm("@biomejs/biome", "^1.9.4"), { key: "@biomejs/biome" }),
+});
+
+export default define(
+  <Workspace name="{{projectName}}" runtime="{{runtime}}">
+    <Package
+      name="{{packageName}}"
+      version="0.1.0"
+      kind="library"
+      license="MIT"
+      dependencies={{
+        values: [
+          deps.react,
+          deps.reactDom,
+          deps.typescript,
+          deps.vite,
+          deps.viteReact,
+          deps.reactTypes,
+          deps.reactDomTypes,
+          deps.biome,
+        ],
+      }}
+    >
+      <Policies types={types} boundaries={boundaries} />
+      <Tools
+        values={[
+          deps.typescript,
+          deps.vite,
+          deps.viteReact,
+          deps.reactTypes,
+          deps.reactDomTypes,
+          deps.biome,
+        ]}
+      />
+      <Targets
+        rows={[
+          {
+            name: "library",
+            export: ".",
+            entry: "src/index.ts",
+            runtime: "dist/index.js",
+            types: "dist/index.d.ts",
+            peers: [deps.react, deps.reactDom],
+          },
+        ]}
+      />
+      <RunTargets
+        rows={[
+          {
+            name: "build",
+            runtime: "node",
+            command: ["vite", "build"],
+            ready: { kind: "stdout-match", pattern: "built in" },
+          },
+          {
+            name: "build-types",
+            runtime: "node",
+            command: ["tsc", "-p", "tsconfig.build.json", "--listEmittedFiles"],
+            ready: { kind: "stdout-match", pattern: "TSFILE" },
+          },
+          {
+            name: "typecheck",
+            runtime: "node",
+            command: [
+              "tsc",
+              "-p",
+              "tsconfig.json",
+              "--noEmit",
+              "--pretty",
+              "false",
+              "--diagnostics",
+            ],
+            ready: { kind: "stdout-match", pattern: "Files:" },
+          },
+        ]}
+      />
+      <Publish include={["dist/**", "README.md", "package.json"]} />
+    </Package>
+    <UpdatePolicy
+      rows={[
+        {
+          name: "typescript",
+          kind: "tool",
+          strategy: "rolling",
+          level: "minor",
+          reason:
+            "Keep TypeScript current within compatible compiler minor updates.",
+        },
+        {
+          name: "vite",
+          kind: "tool",
+          strategy: "rolling",
+          level: "minor",
+          reason: "Keep Vite current within compatible minor updates.",
+        },
+        {
+          name: "@vitejs/plugin-react",
+          kind: "tool",
+          strategy: "rolling",
+          level: "minor",
+          reason: "Keep the Vite React plugin aligned with Vite minor updates.",
+        },
+        {
+          name: "@types/react",
+          kind: "tool",
+          strategy: "rolling",
+          level: "minor",
+          reason:
+            "Keep React type declarations current within compatible minor updates.",
+        },
+        {
+          name: "@types/react-dom",
+          kind: "tool",
+          strategy: "rolling",
+          level: "minor",
+          reason:
+            "Keep React DOM type declarations current within compatible minor updates.",
+        },
+        {
+          name: "@biomejs/biome",
+          kind: "tool",
+          strategy: "manual",
+          reason:
+            "Formatter upgrades are kept explicit for reproducible library diffs.",
+        },
+        {
+          name: "react",
+          kind: "peer",
+          strategy: "manual",
+          reason:
+            "React peer compatibility ranges are coordinated manually with consumers.",
+        },
+        {
+          name: "react-dom",
+          kind: "peer",
+          strategy: "manual",
+          reason:
+            "React DOM peer compatibility ranges are coordinated manually with consumers.",
+        },
+      ]}
+    />
+    <Security
+      acknowledgedLifecycleCategories={[
+        {
+          category: "consumer-install",
+          reason:
+            "Generated library tooling may use install-time binary selectors; TSPack blocks lifecycle execution by default and records the capability for review.",
+        },
+        {
+          category: "maintainer-publish",
+          reason:
+            "Template dependencies are inert until explicitly updated; maintainer-publish lifecycle scripts remain blocked by default.",
+        },
+      ]}
+    />
+  </Workspace>,
+);
