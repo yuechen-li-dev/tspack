@@ -30,6 +30,12 @@ export type InspectBackendProbe = {
 type ExistsSync = (filePath: string) => boolean;
 type EnvMap = Record<string, string | undefined>;
 
+export type BrowserDiscoveryHost = {
+  platform: NodeJS.Platform;
+  env: (name: string) => string | undefined;
+  exists: ExistsSync;
+};
+
 type InspectLaunchFailure = {
   code: string;
   message: string;
@@ -66,17 +72,37 @@ export function buildInspectAnalyzerExpression(
   return `(${INSPECT_ANALYZER_SCRIPT})(${JSON.stringify(analyzerArgs)})`;
 }
 
-function joinEnvPath(
+function envLookup(env: EnvMap, name: string): string | undefined {
+  return env[name];
+}
+
+function createBrowserDiscoveryHost(
   env: EnvMap,
+  existsSync: ExistsSync,
+  platform: NodeJS.Platform = process.platform,
+): BrowserDiscoveryHost {
+  return {
+    platform,
+    env: (name: string) => envLookup(env, name),
+    exists: existsSync,
+  };
+}
+
+function joinEnvPath(
+  host: BrowserDiscoveryHost,
   segments: string[],
 ): string | undefined {
   if (segments.length === 0) {
     return undefined;
   }
 
-  const base = env[segments[0]];
+  const base = host.env(segments[0]);
   if (!base) {
     return undefined;
+  }
+
+  if (host.platform === "win32") {
+    return path.win32.join(base, ...segments.slice(1));
   }
 
   return path.join(base, ...segments.slice(1));
@@ -97,8 +123,8 @@ function findExistingPath(
   return null;
 }
 
-function windowsExecutableExtensions(env: EnvMap): string[] {
-  const pathext = env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD";
+function windowsExecutableExtensions(host: BrowserDiscoveryHost): string[] {
+  const pathext = host.env("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD";
   const extensions = pathext
     .split(";")
     .map((value: string) => value.trim().toLowerCase())
@@ -113,22 +139,26 @@ function windowsExecutableExtensions(env: EnvMap): string[] {
 
 function findExecutableOnPath(
   names: string[],
-  env: EnvMap = process.env,
-  existsSync: ExistsSync = fs.existsSync,
+  host: BrowserDiscoveryHost = createBrowserDiscoveryHost(
+    process.env,
+    fs.existsSync,
+  ),
 ): string | null {
-  const pathEntries = (env.PATH ?? "")
-    .split(path.delimiter)
+  const delimiter = host.platform === "win32" ? ";" : path.delimiter;
+  const joinPath = host.platform === "win32" ? path.win32.join : path.join;
+  const pathEntries = (host.env("PATH") ?? "")
+    .split(delimiter)
     .map((value: string) => value.trim())
     .filter(Boolean);
   const extensions =
-    process.platform === "win32" ? windowsExecutableExtensions(env) : [""];
+    host.platform === "win32" ? windowsExecutableExtensions(host) : [""];
 
   for (const entry of pathEntries) {
     for (const name of names) {
       const hasExtension = path.extname(name) !== "";
       if (hasExtension) {
-        const candidate = path.join(entry, name);
-        if (existsSync(candidate)) {
+        const candidate = joinPath(entry, name);
+        if (host.exists(candidate)) {
           return candidate;
         }
         continue;
@@ -136,8 +166,8 @@ function findExecutableOnPath(
 
       for (const extension of extensions) {
         const suffix = extension === "" ? "" : extension;
-        const candidate = path.join(entry, `${name}${suffix}`);
-        if (existsSync(candidate)) {
+        const candidate = joinPath(entry, `${name}${suffix}`);
+        if (host.exists(candidate)) {
           return candidate;
         }
       }
@@ -150,21 +180,29 @@ function findExecutableOnPath(
 export function findWindowsChromiumExecutable(
   env: EnvMap = process.env,
   existsSync: ExistsSync = fs.existsSync,
+  platform: NodeJS.Platform = "win32",
 ): string | null {
+  const host = createBrowserDiscoveryHost(env, existsSync, platform);
   const explicitCandidates = [
-    ...WINDOWS_EDGE_CANDIDATES.map((candidate) => joinEnvPath(env, candidate)),
-    ...WINDOWS_CHROME_CANDIDATES.map((candidate) => joinEnvPath(env, candidate)),
+    ...WINDOWS_EDGE_CANDIDATES.map((candidate) => joinEnvPath(host, candidate)),
+    ...WINDOWS_CHROME_CANDIDATES.map((candidate) => joinEnvPath(host, candidate)),
   ];
 
-  const explicitMatch = findExistingPath(explicitCandidates, existsSync);
+  const explicitMatch = findExistingPath(explicitCandidates, host.exists);
   if (explicitMatch) {
     return explicitMatch;
   }
 
   return findExecutableOnPath(
-    ["msedge", "msedge.exe", "chrome", "chrome.exe", "chromium", "chromium.exe"],
-    env,
-    existsSync,
+    [
+      "msedge",
+      "msedge.exe",
+      "chrome",
+      "chrome.exe",
+      "chromium",
+      "chromium.exe",
+    ],
+    host,
   );
 }
 
@@ -249,10 +287,11 @@ function probePlatformWebViewEnvironment(): PlatformWebViewProbeResult {
 
 export function findVSCodeExecutable(): string | null {
   if (process.platform === "win32") {
+    const host = createBrowserDiscoveryHost(process.env, fs.existsSync, "win32");
     const explicitCandidates = WINDOWS_VSCODE_CANDIDATES.map((candidate) =>
-      joinEnvPath(process.env, candidate),
+      joinEnvPath(host, candidate),
     );
-    const explicitMatch = findExistingPath(explicitCandidates);
+    const explicitMatch = findExistingPath(explicitCandidates, host.exists);
     if (explicitMatch) {
       return explicitMatch;
     }

@@ -369,7 +369,7 @@ describe("inspect parsing", () => {
       const message = error instanceof Error ? error.message : String(error);
       expect(message).not.toContain("TSPACK_INSPECT_VSCODE_NOT_FOUND");
       expect(message).toMatch(
-        /TSPACK_INSPECT_(BROWSER_LAUNCH_FAILED|PAGE_LOAD_FAILED)/,
+        /TSPACK_INSPECT_(BROWSER_LAUNCH_FAILED|PAGE_LOAD_FAILED|BROWSER_NOT_FOUND)/,
       );
     }
   }, 15000);
@@ -436,26 +436,64 @@ describe("inspect parsing", () => {
     expect(resolved).toBe(electronPath);
   });
 
-  it("discovers Windows Chromium candidates with space-containing paths", () => {
+  it("discovers Windows Chromium candidates with fake filesystem paths", () => {
     const fakeEnv = {
       ProgramFiles: "C:\\Program Files",
       "ProgramFiles(x86)": "C:\\Program Files (x86)",
       LocalAppData: "C:\\Users\\me\\AppData\\Local",
     } as NodeJS.ProcessEnv;
-    const seenPaths: string[] = [];
-    const result = findWindowsChromiumExecutable(fakeEnv, (candidate) => {
-      seenPaths.push(candidate);
-      return (
-        candidate ===
-        "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
-      );
-    });
 
-    expect(result).toBe(
+    function findWithExistingPath(existingPath: string): string | null {
+      return findWindowsChromiumExecutable(
+        fakeEnv,
+        (candidate) => candidate === existingPath,
+      );
+    }
+
+    expect(
+      findWithExistingPath(
+        "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+      ),
+    ).toBe(
       "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
     );
-    expect(seenPaths.some((candidate) => candidate.includes("Program Files"))).toBe(
-      true,
+    expect(
+      findWithExistingPath(
+        "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+      ),
+    ).toBe("C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe");
+    expect(
+      findWithExistingPath(
+        "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      ),
+    ).toBe("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe");
+    expect(
+      findWithExistingPath(
+        "C:\\Users\\me\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe",
+      ),
+    ).toBe(
+      "C:\\Users\\me\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe",
+    );
+    expect(findWindowsChromiumExecutable(fakeEnv, () => false)).toBeNull();
+  });
+
+  it("uses deterministic Windows Chromium fallback order", () => {
+    const fakeEnv = {
+      ProgramFiles: "C:\\Program Files",
+      "ProgramFiles(x86)": "C:\\Program Files (x86)",
+      LocalAppData: "C:\\Users\\me\\AppData\\Local",
+    } as NodeJS.ProcessEnv;
+    const existingPaths = new Set([
+      "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    ]);
+
+    const result = findWindowsChromiumExecutable(fakeEnv, (candidate) =>
+      existingPaths.has(candidate),
+    );
+
+    expect(result).toBe(
+      "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
     );
   });
 
