@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
@@ -5027,6 +5028,50 @@ func TestCLIRunRuntimeSwitchExplicitTargetsStayExplicitAcrossWorkspaceProfiles(t
 			runRuntimeSwitchTarget(t, repo, root, fakeBin, "system-hello", "ready from fake system")
 			assertShellCapture(t, filepath.Join(captureDir, "system.txt"), "from-system")
 		})
+	}
+}
+
+func TestRunTargetStopTerminatesProcessGroupAfterStdoutReady(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("process group termination is Unix-specific")
+	}
+	root := t.TempDir()
+	scriptPath := filepath.Join(root, "long-running.sh")
+	script := "#!/bin/sh\n" +
+		"echo ready-from-child\n" +
+		"while true; do sleep 1; done\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	target := manifest.RunTarget{
+		Name:    "long-running",
+		Runtime: "system",
+		Command: []string{scriptPath},
+		Ready: &manifest.RunReadyCheck{
+			Kind:    "stdout-match",
+			Pattern: "ready-from-child",
+			Stream:  "stdout",
+		},
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	session, readyErr := startRunTargetInDir(root, root, target, 5*time.Second, &stdout, &stderr, runEnvOverlay{})
+	if readyErr != nil {
+		t.Fatalf("start run target failed: %s: %s\nstdout:\n%s\nstderr:\n%s", readyErr.code, readyErr.msg, stdout.String(), stderr.String())
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- session.Stop()
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("stop failed: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop did not return after readiness; likely stdout pipe remained open in a child process")
 	}
 }
 
