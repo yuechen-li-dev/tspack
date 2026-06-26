@@ -25,11 +25,11 @@ This roadmap records known post-`0.1.0` work without turning the first release i
 
 ## Template roadmap
 
-M54a adds the concept-aware inert template engine and built-in static template. A React/Vite template is planned next. Remote templates, registries, and interactive prompts remain later work.
+M54a added the concept-aware inert template engine and built-in static template. M54b/M54d added React app and React library built-ins. M55a completes the internal Template IR normalization path for built-in and local templates while preserving current behavior. Remote templates, registries, and interactive prompts remain later work.
 
 ## Template roadmap notes
 
-M54b adds the built-in React + Vite app template. React library, Next.js, Vue, Tailwind, router-enabled, remote, and package-manager-specialized templates remain future work.
+M54b added the built-in React + Vite app template, and M54d added the React library template. Future work remains concept overlays, UI-library overlays, Next.js, Vue, Tailwind, router-enabled templates, concept validators, remote templates, and package-manager-specialized templates.
 
 
 ## Template overlay future

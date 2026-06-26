@@ -963,3 +963,14 @@ The 0.1.0 release gate includes cold-update throughput hardening for `tspack upd
 - Generated `package.json` has no lifecycle scripts.
 - `tspack check`, `tspack check --format`, and `tspack update --policy --dry-run --json` pass without unclassified dependencies for the generated project.
 - Static and React app templates continue to generate and pass focused regression tests.
+
+## v0.1.3 / M55a Template IR normalization gate
+
+- Built-in `static`, `react`, and `react-library` templates load through parsed raw metadata, normalized TemplateIR, concrete TemplatePlan creation, and safe plan application.
+- Local templates use the same RawTemplate -> TemplateIR -> TemplatePlan -> Apply path as built-ins.
+- `tspack init --list-templates` continues to list names, descriptions, kinds, and concepts without rendering files or touching the destination root.
+- No-overwrite, `--force`, destination path traversal rejection, source path validation, and duplicate destination rejection remain centralized before writes.
+- Missing variable and unknown placeholder diagnostics remain stable as `TSPACK_TEMPLATE_VARIABLE_MISSING` and `TSPACK_TEMPLATE_UNKNOWN_VARIABLE`.
+- Invalid template metadata, invalid variable defaults, invalid paths, existing files, and write failures keep existing `TSPACK_TEMPLATE_*` diagnostic codes.
+- Generated static, React app, React library, and local template smokes must continue to pass with equivalent generated files, concepts, variable substitution, and safety behavior.
+- Template rendering remains inert: no command execution, dependency installation, remote fetching, package-manager changes, overlay behavior, inheritance, or concept validator execution is introduced.

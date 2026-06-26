@@ -47,6 +47,12 @@ There are no loops, conditionals, function calls, shell interpolation, environme
 
 Only source paths ending in `.tmpl` are rendered. Other files are copied unchanged. All `from` and `to` paths must be relative, cannot use `..`, and cannot escape the template root or destination root. Existing target files fail with `TSPACK_TEMPLATE_FILE_EXISTS` unless `--force` is used. `--force` overwrites only declared template files and does not delete unrelated files.
 
+## Template pipeline
+
+Template TOML and files are input syntax, not the internal semantic model. The loader first parses metadata into a raw template shape, normalizes it into an internal TemplateIR, then lowers that IR into a concrete TemplatePlan for a specific `tspack init` invocation before any file is written.
+
+This pipeline is internal and behavior-preserving for existing templates. It keeps built-in and local templates on the same path, makes planning dry-run-able, and keeps safety checks centralized around declared file projections. Concepts are metadata today; future template composition work should happen at the IR layer without treating overlays as implemented in v0.1.3.
+
 ## Built-in static template
 
 The built-in `static` template is stored in the repo and loaded through the public template engine. It creates a minimal TypeScript browser app with `manifest.tsx`, `package.json`, `tsconfig.tspack.json`, `biome.json`, `index.html`, `src/main.ts`, `src/style.css`, local manifest types, and a concise README.
