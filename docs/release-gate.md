@@ -113,8 +113,23 @@ The M52a self-hosting gate proves that TSPack can manage and check this reposito
 - The bootstrap boundary is documented: existing Go/npm build paths create the first usable CLI/frontend; self-hosting does not claim a zero-bootstrap build.
 - Root `Security` and `UpdatePolicy` declarations are present when feasible and remain conservative.
 - Generated artifacts stay ignored, and read-only self-host commands do not unexpectedly mutate tracked repository state.
-- `scripts/self-host-smoke.sh` covers the routine read-only command matrix and `scripts/self-host-smoke.sh --release` covers the optional release-build RunTarget.
+- `scripts/self-host-smoke.sh` covers the routine read-only command matrix and `scripts/self-host-smoke.sh --release` covers the optional release build.
 - Existing direct validation remains intact: `npm --prefix manifest-frontend run build`, `go test ./...`, and `./scripts/build-release.sh`.
+
+### M52b self-host closeout and release-readiness gate
+
+The M52b closeout gate keeps the 0.1.0 self-hosting story honest, reproducible, documented, and release-gateable without adding new product features:
+
+- `./scripts/self-host-smoke.sh` passes from the repository root.
+- `./scripts/self-host-smoke.sh --release` remains available for release/manual validation and is not run accidentally by routine smoke.
+- The self-host smoke has clear `--help` usage, fails clearly for missing tools or wrong working directory, builds the manifest frontend bridge, runs the read-only command matrix, and fails on tracked repository mutation.
+- `docs/self-hosting.md` declares the bootstrap boundary: TSPack does not claim a zero-bootstrap build, does not remove package-manager compatibility files, does not model Go modules as npm dependencies, and does not replace release CI in 0.1.0.
+- `docs/release-0.1.0.md` exists and lists concrete pre-tag commands, distribution checks, self-host checks, known deferred items, and tagging notes.
+- `README.md` points to the self-hosting and 0.1.0 release-readiness docs without claiming production stability or zero-bootstrap self-hosting.
+- Deferred post-0.1.0 items are documented, including inspect/browser deep testing, policy-driven mutation, targeted policy planning, setup-tspack hosted smoke after first release, and `get.tspack.dev`.
+- No tracked mutation occurs during routine self-host smoke; ignored generated artifacts may still be created.
+- `setup-tspack` live smoke remains deferred until the first public release exists.
+- Inspect/browser deep testing remains deferred post-0.1.0.
 
 ### M45c Unix install script gate
 
