@@ -75,3 +75,11 @@ TSPack is self-hosted after bootstrap. The root `manifest.tsx` and `ts-lock.toml
 ## Docs
 
 Start with [docs/README.md](docs/README.md), especially the [0.1.0 release notes](docs/releases/v0.1.0.md), [roadmap](docs/roadmap.md), [distribution](docs/distribution.md), [security](docs/security.md), and [release readiness checklist](docs/release-0.1.0.md).
+
+### Quickstart template
+
+```sh
+tspack init --template static
+```
+
+The static template creates a minimal TypeScript browser app and prints the next `tspack update`, `tspack sync`, `tspack run dev`, and `tspack check` steps. React/Vite and remote template workflows are planned later.

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/yuechen-li-dev/tspack/internal/templates"
 )
 
 var (
@@ -15,13 +17,17 @@ var (
 )
 
 type initConfig struct {
-	root    string
-	kind    string
-	name    string
-	version string
-	license string
-	force   bool
-	dryRun  bool
+	root          string
+	kind          string
+	name          string
+	version       string
+	license       string
+	force         bool
+	dryRun        bool
+	template      string
+	listTemplates bool
+	packageName   string
+	runtime       string
 }
 
 type plannedFile struct {
@@ -36,9 +42,14 @@ func runInitCommand(args []string) {
 			fmt.Fprintln(os.Stderr, d)
 		}
 		fmt.Fprintln(os.Stderr, "Examples:")
-		fmt.Fprintln(os.Stderr, "  tspack init --kind library --name @acme/widgets")
-		fmt.Fprintln(os.Stderr, "  tspack init --kind app --name acme-demo")
+		fmt.Fprintln(os.Stderr, "  tspack init --template static --name acme-demo")
+		fmt.Fprintln(os.Stderr, "  tspack init --template ./templates/app --force")
 		os.Exit(1)
+	}
+
+	if cfg.listTemplates {
+		renderTemplateList()
+		return
 	}
 
 	if cfg.root == "/" {
@@ -50,6 +61,18 @@ func runInitCommand(args []string) {
 		os.Exit(1)
 	}
 
+	if cfg.template == "" && cfg.kind != "" {
+		runLegacyInit(cfg)
+		return
+	}
+
+	if err := runTemplateInit(cfg); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func runLegacyInit(cfg initConfig) {
 	files := buildInitFiles(cfg)
 	if !cfg.force {
 		for _, f := range files {
@@ -60,7 +83,6 @@ func runInitCommand(args []string) {
 			}
 		}
 	}
-
 	if cfg.dryRun {
 		fmt.Println("TSPack init dry run")
 		fmt.Println("Would write:")
@@ -69,7 +91,6 @@ func runInitCommand(args []string) {
 		}
 		return
 	}
-
 	for _, f := range files {
 		fp := filepath.Join(cfg.root, f.path)
 		if err := writeGeneratedFile(fp, f.content, cfg.force); err != nil {
@@ -77,7 +98,6 @@ func runInitCommand(args []string) {
 			os.Exit(1)
 		}
 	}
-
 	fmt.Printf("Initialized TSPack %s package %q.\n", cfg.kind, cfg.name)
 	fmt.Println("Wrote:")
 	for _, f := range files {
@@ -88,6 +108,76 @@ func runInitCommand(args []string) {
 	if _, err := os.Stat(filepath.Join(cfg.root, "tsconfig.json")); err == nil {
 		fmt.Println("Existing tsconfig.json was left unchanged. If your app TypeScript config includes manifest.tsx or *.xtest.tsx, exclude TSPack-owned files or use tsconfig.tspack.json for manifest editing.")
 	}
+}
+
+func renderTemplateList() {
+	builtins, err := templates.ListBuiltins()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	fmt.Println("Available templates:")
+	for _, tmpl := range builtins {
+		fmt.Printf("%s  %s  %s\n", tmpl.Name, tmpl.Kind, tmpl.Description)
+		fmt.Printf("concepts: %s\n", strings.Join(tmpl.Concepts, ", "))
+	}
+}
+
+func runTemplateInit(cfg initConfig) error {
+	templateName := cfg.template
+	if templateName == "" {
+		templateName = "static"
+	}
+	tmpl, err := templates.Load(templateName)
+	if err != nil {
+		return err
+	}
+	projectName := cfg.name
+	if projectName == "" {
+		if absRoot, err := filepath.Abs(cfg.root); err == nil {
+			projectName = filepath.Base(absRoot)
+		}
+	}
+	overrides := map[string]string{
+		"projectName": projectName,
+		"packageName": cfg.packageName,
+		"runtime":     cfg.runtime,
+	}
+	if overrides["packageName"] == "" {
+		overrides["packageName"] = projectName
+	}
+	values, err := tmpl.ResolveValues(overrides)
+	if err != nil {
+		return err
+	}
+	planned, err := tmpl.Apply(templates.ApplyOptions{Destination: cfg.root, Values: values, Force: cfg.force, DryRun: cfg.dryRun})
+	if err != nil {
+		return err
+	}
+	if cfg.dryRun {
+		fmt.Printf("TSPack init dry run for template %q\n", tmpl.Name)
+		fmt.Println("Would write:")
+		for _, f := range planned {
+			fmt.Printf("  %s\n", f.Path)
+		}
+		return nil
+	}
+	fmt.Printf("Created project from template %q.\n", tmpl.Name)
+	fmt.Println("Concepts:")
+	for _, concept := range tmpl.Concepts {
+		fmt.Println(concept)
+	}
+	fmt.Println("Next steps:")
+	fmt.Println("tspack update")
+	fmt.Println("tspack sync")
+	fmt.Println("tspack run dev")
+	fmt.Println("tspack check")
+	fmt.Println("Generated tsconfig.tspack.json for manifest editor support.")
+	fmt.Println("If VS Code was already open, run \"TypeScript: Restart TS Server\".")
+	if _, err := os.Stat(filepath.Join(cfg.root, "tsconfig.json")); err == nil {
+		fmt.Println("Existing tsconfig.json was left unchanged. If your app TypeScript config includes manifest.tsx or *.xtest.tsx, exclude TSPack-owned files or use tsconfig.tspack.json for manifest editing.")
+	}
+	return nil
 }
 
 func parseInitArgs(args []string) (initConfig, []string) {
@@ -103,6 +193,29 @@ func parseInitArgs(args []string) (initConfig, []string) {
 				continue
 			}
 			cfg.root = args[i]
+		case "--template":
+			i++
+			if i >= len(args) {
+				diags = append(diags, "TSPACK_TEMPLATE_NOT_FOUND: --template requires a value")
+				continue
+			}
+			cfg.template = args[i]
+		case "--list-templates":
+			cfg.listTemplates = true
+		case "--package":
+			i++
+			if i >= len(args) {
+				diags = append(diags, "TSPACK_TEMPLATE_VARIABLE_MISSING: --package requires a value")
+				continue
+			}
+			cfg.packageName = args[i]
+		case "--runtime":
+			i++
+			if i >= len(args) {
+				diags = append(diags, "TSPACK_TEMPLATE_VARIABLE_MISSING: --runtime requires a value")
+				continue
+			}
+			cfg.runtime = args[i]
 		case "--kind":
 			i++
 			if i >= len(args) {
@@ -144,14 +257,15 @@ func parseInitArgs(args []string) (initConfig, []string) {
 			diags = append(diags, "TSPACK_INIT_WRITE_FAILED: unknown init flag: "+a)
 		}
 	}
-	if cfg.kind == "" {
-		diags = append(diags, "TSPACK_INIT_KIND_REQUIRED: --kind is required")
-	} else if cfg.kind != "library" && cfg.kind != "app" {
+	if cfg.kind != "" && cfg.name == "" {
+		diags = append(diags, "TSPACK_INIT_NAME_REQUIRED: --name is required")
+	} else if cfg.kind != "" && cfg.kind != "library" && cfg.kind != "app" {
 		diags = append(diags, "TSPACK_INIT_INVALID_KIND: --kind must be library or app")
 	}
-	if cfg.name == "" {
-		diags = append(diags, "TSPACK_INIT_NAME_REQUIRED: --name is required")
-	} else if !initPackageNameRe.MatchString(cfg.name) {
+	if cfg.name != "" && !initPackageNameRe.MatchString(cfg.name) {
+		diags = append(diags, "TSPACK_INIT_INVALID_NAME: invalid package name")
+	}
+	if cfg.packageName != "" && !initPackageNameRe.MatchString(cfg.packageName) {
 		diags = append(diags, "TSPACK_INIT_INVALID_NAME: invalid package name")
 	}
 	if !initVersionRe.MatchString(cfg.version) {

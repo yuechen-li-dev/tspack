@@ -1,0 +1,50 @@
+import {
+  define,
+  npm,
+  Package,
+  Policies,
+  RunTargets,
+  Security,
+  Targets,
+  tool,
+  Tools,
+  UpdatePolicy,
+  Workspace,
+  type BoundaryPolicy,
+  type TypePolicy,
+} from "tspack/manifest";
+
+const types = {
+  declarations: "optional",
+  missingTypes: "ignore",
+  publicTypeLeakage: "warn",
+  typeOnlyRuntimeLeakage: "error",
+} satisfies TypePolicy;
+
+const boundaries = {
+  undeclaredImports: "error",
+  phantomDependencies: "error",
+  crossTargetImports: "error",
+} satisfies BoundaryPolicy;
+
+const vite = tool(npm("vite", "^5.0.0"));
+const typescript = tool(npm("typescript", "^5.0.0"));
+
+export default define(
+  <Workspace name="{{projectName}}" runtime="{{runtime}}">
+    <Package name="{{packageName}}" version="0.1.0" kind="app" dependencies={{ values: [vite, typescript] }}>
+      <Policies types={types} boundaries={boundaries} />
+      <Tools values={[vite, typescript]} />
+      <Targets rows={[{ name: "app", export: ".", entry: "src/main.ts", runtime: "dist/main.js", types: "" }]} />
+      <RunTargets rows={[
+        { name: "dev", runtime: "node", command: ["vite", "--host", "127.0.0.1"], url: "http://127.0.0.1:5173", ready: { kind: "http", path: "/" } },
+        { name: "build", runtime: "node", command: ["vite", "build"], url: "http://127.0.0.1:4173" }
+      ]} />
+      <UpdatePolicy rows={[
+        { name: "typescript", packages: ["typescript"], kind: "tool", strategy: "rolling", level: "minor", reason: "Keep TypeScript current within compatible minor updates." },
+        { name: "vite", packages: ["vite"], kind: "tool", strategy: "rolling", level: "minor", reason: "Keep static browser tooling current within compatible minor updates." }
+      ]} />
+      <Security acknowledgedLifecycleCategories={[{ category: "maintainer-publish", reason: "Template starts with explicit tool dependencies only; review package provenance before updating." }]} />
+    </Package>
+  </Workspace>
+);

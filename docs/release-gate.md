@@ -922,3 +922,14 @@ The 0.1.0 release gate includes cold-update throughput hardening for `tspack upd
 - Explicit `--browser vscode` uses Windows-aware executable discovery and must not fail only because PATH parsing assumed Unix separators.
 - `npx --prefix manifest-frontend playwright install --list` or equivalent local evidence is recorded during release prep so browser availability is explicit.
 - Full Phase 11 inspect expansion, deeper browser-matrix coverage, and broader editor-host workflows remain post-0.1.3 scope.
+
+## M54a template init gate
+
+- Built-in `static` template is loaded through the public template engine, not a special Go branch.
+- Local template directories render with the same parser, validation, variables, overwrite behavior, and diagnostics.
+- Concepts are parsed, syntax-validated, listed, and printed after init.
+- Unsafe `from`/`to` paths are rejected.
+- Existing files fail by default; `--force` overwrites only declared template files.
+- Generated static projects include `tsconfig.tspack.json` and local `tspack/manifest` editor declarations.
+- Generated static projects should pass `tspack check` and `tspack check --format` after the manifest frontend is available.
+- Templates remain inert data and do not execute commands, install packages, or fetch remote code.
