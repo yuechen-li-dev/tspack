@@ -44,7 +44,10 @@ Useful release sanity checks:
 
 ```bash
 tspack --version
-tspack --help
+tspack
+tspack help workflow
+tspack help concepts
+tspack help commands
 ```
 
 ## Core features
@@ -79,12 +82,19 @@ Start with [docs/README.md](docs/README.md), especially the [v0.1.3 release note
 ### Quickstart template
 
 ```sh
-tspack init --template static
+tspack init --template static --name hello-static
+tspack update
+tspack sync
+tspack check
+
 # or start a practical frontend app:
 tspack init --template react --name my-app
+tspack update
+tspack sync
+tspack run dev
 ```
 
-The default static template creates a minimal TypeScript browser app. The explicit React template creates a React + Vite + TypeScript app and prints the next `tspack update`, `tspack sync`, `tspack run dev`, and `tspack check` steps. Remote template workflows are planned later.
+The default static template creates a minimal TypeScript browser app. The explicit React template creates a React + Vite + TypeScript app. `tspack init` prints next-step hints, and `tspack help workflow`, `tspack help concepts`, and `tspack help init` explain the lifecycle without requiring source-code reading. Remote template workflows are planned later.
 
 
 Built-in templates include `static`, `react` for React + Vite apps, and `react-library` for React + Vite component libraries.

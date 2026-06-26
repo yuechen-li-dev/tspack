@@ -35,3 +35,7 @@ M54b added the built-in React + Vite app template, and M54d added the React libr
 ## Template overlay future
 
 Future template work should add concept overlays rather than hardcoded template explosion. Planned overlays include `ui.mui`, `ui.shadcn`, `ui.antd`, `style.tailwind`, and `router.react-router`. A Next.js template remains future work and is intentionally separate from the M54d React library template.
+
+## CLI help future
+
+M56a keeps help output human-readable and deterministic. Structured JSON help such as `tspack help commands --json` or `tspack help init --json` remains future work rather than a release blocker for v0.1.3.

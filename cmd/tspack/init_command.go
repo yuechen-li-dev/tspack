@@ -162,22 +162,47 @@ func runTemplateInit(cfg initConfig) error {
 		}
 		return nil
 	}
-	fmt.Printf("Created project from template %q.\n", tmpl.Name)
+	fmt.Printf("Created TSPack project: %s\n", projectName)
+	fmt.Printf("Template: %s\n", tmpl.Name)
 	fmt.Println("Concepts:")
 	for _, concept := range tmpl.Concepts {
 		fmt.Println(concept)
 	}
-	fmt.Println("Next steps:")
-	fmt.Println("tspack update")
-	fmt.Println("tspack sync")
-	fmt.Println("tspack run dev")
-	fmt.Println("tspack check")
+	printInitNextSteps(cfg, tmpl.Name, projectName)
 	fmt.Println("Generated tsconfig.tspack.json for manifest editor support.")
 	fmt.Println("If VS Code was already open, run \"TypeScript: Restart TS Server\".")
 	if _, err := os.Stat(filepath.Join(cfg.root, "tsconfig.json")); err == nil {
 		fmt.Println("Existing tsconfig.json was left unchanged. If your app TypeScript config includes manifest.tsx or *.xtest.tsx, exclude TSPack-owned files or use tsconfig.tspack.json for manifest editing.")
 	}
 	return nil
+}
+
+func printInitNextSteps(cfg initConfig, templateName string, projectName string) {
+	fmt.Println()
+	fmt.Println("Next:")
+	if cfg.root != "." && cfg.root != "" {
+		fmt.Printf("cd %s\n", cfg.root)
+	}
+	fmt.Println("tspack update")
+	fmt.Println("tspack sync")
+	switch templateName {
+	case "react":
+		fmt.Println("tspack run dev")
+	case "react-library":
+		fmt.Println("tspack run typecheck")
+		fmt.Println("tspack run build")
+		fmt.Println("tspack run build-types")
+		packageName := cfg.packageName
+		if packageName == "" {
+			packageName = projectName
+		}
+		fmt.Printf("tspack pack --verify --package %s\n", packageName)
+	case "static":
+		fmt.Println("tspack check")
+		fmt.Println("tspack check --format")
+	default:
+		fmt.Println("tspack check")
+	}
 }
 
 func parseInitArgs(args []string) (initConfig, []string) {
