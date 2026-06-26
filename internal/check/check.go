@@ -1,10 +1,10 @@
 package check
 
 import (
-	"github.com/tspack/tspack/internal/boundary"
-	"github.com/tspack/tspack/internal/diag"
-	"github.com/tspack/tspack/internal/graph"
-	"github.com/tspack/tspack/internal/typesurface"
+	"github.com/yuechen-li-dev/tspack/internal/boundary"
+	"github.com/yuechen-li-dev/tspack/internal/diag"
+	"github.com/yuechen-li-dev/tspack/internal/graph"
+	"github.com/yuechen-li-dev/tspack/internal/typesurface"
 )
 
 type CheckOptions struct {
@@ -12,7 +12,7 @@ type CheckOptions struct {
 	Graph   *graph.WorkspaceGraph
 }
 
-type CheckResult struct { Diagnostics []diag.Diagnostic }
+type CheckResult struct{ Diagnostics []diag.Diagnostic }
 
 func CheckRuntimeBoundaries(opts CheckOptions) CheckResult {
 	return CheckResult{Diagnostics: boundary.Check(boundary.Options{RootDir: opts.RootDir, Graph: opts.Graph})}

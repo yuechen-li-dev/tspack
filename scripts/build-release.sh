@@ -60,7 +60,7 @@ commit="${GITHUB_SHA:-$(git rev-parse --short=12 HEAD 2>/dev/null || printf unkn
 
 go build \
   -tags tspack_embedded_bridges \
-  -ldflags "-X github.com/tspack/tspack/internal/version.Version=$version -X github.com/tspack/tspack/internal/version.Commit=$commit -X github.com/tspack/tspack/internal/version.Date=$build_date" \
+  -ldflags "-X github.com/yuechen-li-dev/tspack/internal/version.Version=$version -X github.com/yuechen-li-dev/tspack/internal/version.Commit=$commit -X github.com/yuechen-li-dev/tspack/internal/version.Date=$build_date" \
   -o dist/tspack \
   ./cmd/tspack
 

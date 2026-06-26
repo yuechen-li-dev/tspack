@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/tspack/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/manifest"
 )
 
 func loadIR(t *testing.T, p string) *manifest.ManifestIR {

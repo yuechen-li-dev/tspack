@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tspack/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/manifest"
 )
 
 type runTargetRef struct {

@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tspack/tspack/internal/embeddedbridges"
+	"github.com/yuechen-li-dev/tspack/internal/embeddedbridges"
 )
 
 func resolveEmbedded(name string) (string, bool) {

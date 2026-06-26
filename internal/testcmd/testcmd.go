@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/tspack/tspack/internal/bridge"
-	"github.com/tspack/tspack/internal/diag"
+	"github.com/yuechen-li-dev/tspack/internal/bridge"
+	"github.com/yuechen-li-dev/tspack/internal/diag"
 )
 
 type Options struct {

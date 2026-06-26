@@ -4,12 +4,12 @@ import (
 	"sort"
 	"strings"
 
-	capmodel "github.com/tspack/tspack/internal/capability"
-	"github.com/tspack/tspack/internal/diag"
-	"github.com/tspack/tspack/internal/graph"
-	"github.com/tspack/tspack/internal/lockfile"
-	"github.com/tspack/tspack/internal/manifest"
-	"github.com/tspack/tspack/internal/securityevidence"
+	capmodel "github.com/yuechen-li-dev/tspack/internal/capability"
+	"github.com/yuechen-li-dev/tspack/internal/diag"
+	"github.com/yuechen-li-dev/tspack/internal/graph"
+	"github.com/yuechen-li-dev/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/securityevidence"
 )
 
 type Options struct {

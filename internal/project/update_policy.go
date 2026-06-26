@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	semver "github.com/Masterminds/semver/v3"
-	"github.com/tspack/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/manifest"
 )
 
 const (

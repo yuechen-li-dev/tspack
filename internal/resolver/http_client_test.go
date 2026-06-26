@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tspack/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/manifest"
 )
 
 func TestHTTPRegistryClientPackageURL(t *testing.T) {

@@ -13,9 +13,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/tspack/tspack/internal/capability"
-	"github.com/tspack/tspack/internal/graph"
-	"github.com/tspack/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/capability"
+	"github.com/yuechen-li-dev/tspack/internal/graph"
+	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 )
 
 func (r *resolverState) resolveNonNPMDependency(ctx context.Context, dep *graph.DependencyNode, from, kind string) {

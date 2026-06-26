@@ -3,7 +3,7 @@ package capability
 import (
 	"sort"
 
-	"github.com/tspack/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 )
 
 const LifecycleScriptKind = "lifecycleScript"

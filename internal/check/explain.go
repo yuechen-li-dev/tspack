@@ -5,10 +5,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/tspack/tspack/internal/boundary"
-	"github.com/tspack/tspack/internal/diag"
-	"github.com/tspack/tspack/internal/graph"
-	"github.com/tspack/tspack/internal/importscan"
+	"github.com/yuechen-li-dev/tspack/internal/boundary"
+	"github.com/yuechen-li-dev/tspack/internal/diag"
+	"github.com/yuechen-li-dev/tspack/internal/graph"
+	"github.com/yuechen-li-dev/tspack/internal/importscan"
 )
 
 type ExplainOptions struct {

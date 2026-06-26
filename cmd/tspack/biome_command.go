@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/tspack/tspack/internal/diag"
+	"github.com/yuechen-li-dev/tspack/internal/diag"
 )
 
 func runFormatCommand(args []string) {

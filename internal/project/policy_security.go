@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"sort"
 
-	capmodel "github.com/tspack/tspack/internal/capability"
-	"github.com/tspack/tspack/internal/lockfile"
-	"github.com/tspack/tspack/internal/manifest"
+	capmodel "github.com/yuechen-li-dev/tspack/internal/capability"
+	"github.com/yuechen-li-dev/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/manifest"
 )
 
 type PolicySecurityGateResult struct {

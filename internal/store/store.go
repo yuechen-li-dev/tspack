@@ -15,8 +15,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/tspack/tspack/internal/diag"
-	"github.com/tspack/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/diag"
+	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 )
 
 type Store struct{ Root string }

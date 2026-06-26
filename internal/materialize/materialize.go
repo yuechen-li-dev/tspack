@@ -11,10 +11,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/tspack/tspack/internal/diag"
-	"github.com/tspack/tspack/internal/graph"
-	"github.com/tspack/tspack/internal/lockfile"
-	"github.com/tspack/tspack/internal/store"
+	"github.com/yuechen-li-dev/tspack/internal/diag"
+	"github.com/yuechen-li-dev/tspack/internal/graph"
+	"github.com/yuechen-li-dev/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/store"
 )
 
 type Materializer interface {
@@ -294,18 +294,22 @@ func materializeRootBins(req Request, out *Result, nmRoot string, pkgs map[strin
 	type candidate struct{ pkgName, absPath, relPath string }
 	candidates := map[string]candidate{}
 	ids := make([]string, 0, len(pkgs))
-	for id := range pkgs { ids = append(ids, id) }
+	for id := range pkgs {
+		ids = append(ids, id)
+	}
 	sort.Strings(ids)
 	for _, id := range ids {
 		pkg := pkgs[id]
 		pkgRoot, err := safePackagePath(nmRoot, pkg.Name)
-		if err != nil { continue }
+		if err != nil {
+			continue
+		}
 		defs, diags := parsePackageBins(pkgRoot)
 		if len(diags) > 0 {
 			out.Diagnostics = append(out.Diagnostics, diags...)
 			continue
 		}
-		sort.SliceStable(defs, func(i,j int) bool { return defs[i].name < defs[j].name })
+		sort.SliceStable(defs, func(i, j int) bool { return defs[i].name < defs[j].name })
 		for _, def := range defs {
 			target := filepath.Join(pkgRoot, filepath.FromSlash(def.relPath))
 			if _, err := os.Stat(target); err != nil {
@@ -320,7 +324,9 @@ func materializeRootBins(req Request, out *Result, nmRoot string, pkgs map[strin
 		}
 	}
 	names := make([]string, 0, len(candidates))
-	for name := range candidates { names = append(names, name) }
+	for name := range candidates {
+		names = append(names, name)
+	}
 	sort.Strings(names)
 	for _, name := range names {
 		cand := candidates[name]
@@ -343,27 +349,37 @@ func materializeRootBins(req Request, out *Result, nmRoot string, pkgs map[strin
 	}
 }
 
-type binDef struct { name, relPath string }
+type binDef struct{ name, relPath string }
 
 func parsePackageBins(pkgRoot string) ([]binDef, []diag.Diagnostic) {
 	p := filepath.Join(pkgRoot, "package.json")
 	b, err := os.ReadFile(p)
-	if err != nil { return nil, nil }
+	if err != nil {
+		return nil, nil
+	}
 	var pkg packageJSON
-	if err := json.Unmarshal(b, &pkg); err != nil { return nil, nil }
+	if err := json.Unmarshal(b, &pkg); err != nil {
+		return nil, nil
+	}
 	switch v := pkg.Bin.(type) {
 	case string:
 		if pkg.Name == "" {
 			return nil, []diag.Diagnostic{{Code: "TSPACK_MATERIALIZE_BIN_INVALID", Severity: diag.SeverityError, File: p, Message: "package bin string requires package name"}}
 		}
-		if err := validateBinPath(v); err != nil { return nil, []diag.Diagnostic{{Code: "TSPACK_MATERIALIZE_BIN_INVALID", Severity: diag.SeverityError, File: p, Message: err.Error(), Details: []string{pkg.Name, v}}} }
+		if err := validateBinPath(v); err != nil {
+			return nil, []diag.Diagnostic{{Code: "TSPACK_MATERIALIZE_BIN_INVALID", Severity: diag.SeverityError, File: p, Message: err.Error(), Details: []string{pkg.Name, v}}}
+		}
 		return []binDef{{name: pkg.Name, relPath: v}}, nil
 	case map[string]interface{}:
 		out := []binDef{}
 		for name, raw := range v {
 			pathStr, ok := raw.(string)
-			if !ok { return nil, []diag.Diagnostic{{Code: "TSPACK_MATERIALIZE_BIN_INVALID", Severity: diag.SeverityError, File: p, Message: "bin map entry must be a string", Details: []string{name}}} }
-			if err := validateBinPath(pathStr); err != nil { return nil, []diag.Diagnostic{{Code: "TSPACK_MATERIALIZE_BIN_INVALID", Severity: diag.SeverityError, File: p, Message: err.Error(), Details: []string{name, pathStr}}} }
+			if !ok {
+				return nil, []diag.Diagnostic{{Code: "TSPACK_MATERIALIZE_BIN_INVALID", Severity: diag.SeverityError, File: p, Message: "bin map entry must be a string", Details: []string{name}}}
+			}
+			if err := validateBinPath(pathStr); err != nil {
+				return nil, []diag.Diagnostic{{Code: "TSPACK_MATERIALIZE_BIN_INVALID", Severity: diag.SeverityError, File: p, Message: err.Error(), Details: []string{name, pathStr}}}
+			}
 			out = append(out, binDef{name: name, relPath: pathStr})
 		}
 		return out, nil

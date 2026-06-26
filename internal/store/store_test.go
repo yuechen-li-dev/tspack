@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
-	"github.com/tspack/tspack/internal/diag"
+	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"os"
 	"path/filepath"
 	"runtime"
