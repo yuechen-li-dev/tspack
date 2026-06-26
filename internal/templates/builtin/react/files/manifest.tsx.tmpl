@@ -100,7 +100,7 @@ export default define(
             name: "build",
             runtime: "node",
             command: ["vite", "build"],
-            url: "http://127.0.0.1:4173",
+            ready: { kind: "stdout-match", pattern: "built in" },
           },
           {
             name: "preview",

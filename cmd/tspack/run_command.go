@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -124,8 +126,15 @@ func startRunTargetInDir(root string, cwdPath string, target manifest.RunTarget,
 	} else {
 		cmd.Stderr = stderr
 	}
+	projectToolBins := projectToolBinDirs(root)
 	cmd.Env = buildRunCommandEnv(resolved.Runtime, root, envOverlay)
 	if err := cmd.Start(); err != nil {
+		if isExecutableNotFoundErr(err) {
+			return nil, &runErr{
+				code: "TSPACK_RUN_TOOL_NOT_FOUND",
+				msg:  missingRunToolMessage(launchCommand[0], resolved.Name, projectToolBins, err),
+			}
+		}
 		return nil, &runErr{code: "TSPACK_RUN_PROCESS_START_FAILED", msg: err.Error()}
 	}
 	var copyWG sync.WaitGroup
@@ -480,7 +489,7 @@ func renderRunTargetRuntimeNotes(workspaceRuntime string) {
 		source = " (default)"
 	}
 	fmt.Fprintf(os.Stdout, "  Workspace runtime profile: %s%s\n", profile, source)
-	fmt.Fprintln(os.Stdout, "  node: resolves bare commands from local tools/.bin; does not prepend node to script paths.")
+	fmt.Fprintln(os.Stdout, "  node: resolves bare commands from project tool bins first; does not prepend node to script paths.")
 	fmt.Fprintln(os.Stdout, "  system: runs commands directly without node-local tool resolution.")
 	fmt.Fprintln(os.Stdout, "  explicit RunTarget runtime overrides the workspace runtime profile.")
 	fmt.Fprintln(os.Stdout, "  unspecified RunTarget runtime inherits the workspace runtime profile.")
@@ -962,7 +971,7 @@ func formatRunTargetCommand(target manifest.RunTarget) string {
 func buildRunCommandEnv(runtime string, root string, overlay runEnvOverlay) []string {
 	env := os.Environ()
 	if runtime == "node" || runtime == "nodejs" {
-		env = prependNodeModulesBinToEnv(env, root)
+		env = prependProjectToolBinsToEnv(env, projectToolBinDirs(root))
 	}
 	return overlayRunEnv(env, overlay)
 }
@@ -989,19 +998,54 @@ func overlayRunEnv(env []string, overlay runEnvOverlay) []string {
 	return filtered
 }
 
-func prependNodeModulesBinToEnv(env []string, root string) []string {
-	bin := filepath.Join(root, "node_modules", ".bin")
-	pathValue := os.Getenv("PATH")
-	newPath := "PATH=" + bin + string(os.PathListSeparator) + pathValue
+func projectToolBinDirs(root string) []string {
+	// sync owns compatibility tool materialization in one project-local bin dir.
+	// run prepends that bin dir before the host PATH for node-backed RunTargets.
+	return []string{filepath.Join(root, "node_modules", ".bin")}
+}
+
+func prependProjectToolBinsToEnv(env []string, binDirs []string) []string {
+	if len(binDirs) == 0 {
+		result := make([]string, len(env))
+		copy(result, env)
+		return result
+	}
+	pathKey := "PATH"
+	pathValue := ""
 	filtered := make([]string, 0, len(env)+1)
 	for _, entry := range env {
-		if strings.HasPrefix(entry, "PATH=") {
+		key, value, hasEquals := strings.Cut(entry, "=")
+		if !hasEquals {
+			filtered = append(filtered, entry)
+			continue
+		}
+		if isPathEnvKey(key) {
+			pathKey = key
+			pathValue = value
 			continue
 		}
 		filtered = append(filtered, entry)
 	}
-	filtered = append(filtered, newPath)
+	prefixes := make([]string, 0, len(binDirs))
+	for _, dir := range binDirs {
+		if dir == "" {
+			continue
+		}
+		prefixes = append(prefixes, dir)
+	}
+	newPathValue := strings.Join(prefixes, string(os.PathListSeparator))
+	if pathValue != "" {
+		newPathValue += string(os.PathListSeparator) + pathValue
+	}
+	filtered = append(filtered, pathKey+"="+newPathValue)
 	return filtered
+}
+
+func isPathEnvKey(key string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(key, "PATH")
+	}
+	return key == "PATH"
 }
 
 func stringSliceBytes(values []string) [][]byte {
@@ -1020,14 +1064,74 @@ func resolveNodeLocalCommand(root string, command []string) []string {
 	if strings.ContainsRune(name, os.PathSeparator) {
 		return command
 	}
-	local := filepath.Join(root, "node_modules", ".bin", name)
-	if info, err := os.Stat(local); err == nil && !info.IsDir() {
-		resolved := make([]string, len(command))
-		copy(resolved, command)
-		resolved[0] = local
-		return resolved
+	for _, binDir := range projectToolBinDirs(root) {
+		if local, ok := resolveCommandInDir(binDir, name); ok {
+			resolved := make([]string, len(command))
+			copy(resolved, command)
+			resolved[0] = local
+			return resolved
+		}
 	}
 	return command
+}
+
+func resolveCommandInDir(dir string, name string) (string, bool) {
+	for _, candidate := range executableCandidatesInDir(dir, name) {
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func executableCandidatesInDir(dir string, name string) []string {
+	candidates := []string{filepath.Join(dir, name)}
+	if runtime.GOOS != "windows" {
+		return candidates
+	}
+	for _, ext := range strings.Split(strings.ToLower(os.Getenv("PATHEXT")), ";") {
+		ext = strings.TrimSpace(ext)
+		if ext == "" {
+			continue
+		}
+		candidates = append(candidates, filepath.Join(dir, name+ext))
+	}
+	if len(candidates) == 1 {
+		candidates = append(candidates,
+			filepath.Join(dir, name+".cmd"),
+			filepath.Join(dir, name+".exe"),
+			filepath.Join(dir, name+".bat"),
+		)
+	}
+	return candidates
+}
+
+func isExecutableNotFoundErr(err error) bool {
+	var execErr *exec.Error
+	return errors.As(err, &execErr) || errors.Is(err, exec.ErrNotFound)
+}
+
+func missingRunToolMessage(executable string, targetName string, projectToolBins []string, err error) string {
+	lines := []string{
+		fmt.Sprintf("Could not find executable %q for run target %q.", executable, targetName),
+		"",
+		"TSPack looked in:",
+	}
+	for _, dir := range projectToolBins {
+		lines = append(lines, "  "+dir)
+	}
+	lines = append(lines,
+		"  PATH",
+		"",
+		"Try:",
+		"  tspack update",
+		"  tspack sync",
+		"",
+		"Underlying error:",
+		"  "+err.Error(),
+	)
+	return strings.Join(lines, "\n")
 }
 
 func resolveWorkspaceRoot(root string) string {

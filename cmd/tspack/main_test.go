@@ -1628,6 +1628,9 @@ const p=Number(process.argv[2]||5201); http.createServer((_,res)=>{res.statusCod
 }
 
 func TestCLIRunNodeLocalBinPrecedence(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows coverage uses direct command-resolution and PATH tests; .cmd child teardown is process-model-specific")
+	}
 	repo := filepath.Join("..", "..")
 	root := t.TempDir()
 	pathBin := t.TempDir()
@@ -1637,10 +1640,12 @@ func TestCLIRunNodeLocalBinPrecedence(t *testing.T) {
 	markerPath := filepath.Join(root, "which-bin.txt")
 	localServer := fmt.Sprintf(`const fs=require('fs'); const http=require('http'); fs.writeFileSync(%q,'local-bin'); http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}).listen(%d,'127.0.0.1'); setInterval(()=>{},1000);`, markerPath, port)
 	_ = os.WriteFile(filepath.Join(root, "local-server.js"), []byte(localServer), 0o644)
+	localPath := filepath.Join(root, "node_modules", ".bin", "fake-dev-server")
+	pathToolPath := filepath.Join(pathBin, "fake-dev-server")
 	local := fmt.Sprintf("#!/bin/sh\nexec node %q\n", filepath.Join(root, "local-server.js"))
 	pathScript := fmt.Sprintf("#!/bin/sh\necho path-bin > %q\nexit 1\n", markerPath)
-	_ = os.WriteFile(filepath.Join(root, "node_modules", ".bin", "fake-dev-server"), []byte(local), 0o755)
-	_ = os.WriteFile(filepath.Join(pathBin, "fake-dev-server"), []byte(pathScript), 0o755)
+	_ = os.WriteFile(localPath, []byte(local), 0o755)
+	_ = os.WriteFile(pathToolPath, []byte(pathScript), 0o755)
 	writeRunFrontendStub(t, fmt.Sprintf(`{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"node",command:["fake-dev-server"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}}]}]}`, port))
 	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--once")
 	cmd.Dir = repo
@@ -1652,6 +1657,52 @@ func TestCLIRunNodeLocalBinPrecedence(t *testing.T) {
 	bm, err := os.ReadFile(markerPath)
 	if err != nil || strings.TrimSpace(string(bm)) != "local-bin" {
 		t.Fatalf("expected local-bin marker, err=%v value=%q\noutput=%s", err, string(bm), string(b))
+	}
+}
+
+func TestResolveNodeLocalCommandUsesProjectToolBin(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "node_modules", ".bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	expected := filepath.Join(binDir, "vite")
+	if runtime.GOOS == "windows" {
+		expected += ".cmd"
+	}
+	if err := os.WriteFile(expected, []byte("stub"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resolved := resolveNodeLocalCommand(root, []string{"vite", "--host", "127.0.0.1"})
+	if len(resolved) != 3 {
+		t.Fatalf("unexpected argv: %#v", resolved)
+	}
+	if resolved[0] != expected {
+		t.Fatalf("expected %q, got %#v", expected, resolved)
+	}
+}
+
+func TestBuildRunCommandEnvPrependsProjectToolBin(t *testing.T) {
+	root := t.TempDir()
+	env := prependProjectToolBinsToEnv([]string{"Path=C:\\Windows\\System32", "HOME=C:\\Users\\test"}, projectToolBinDirs(root))
+	found := ""
+	for _, entry := range env {
+		if strings.HasPrefix(strings.ToLower(entry), "path=") {
+			found = entry
+			break
+		}
+	}
+	if found == "" {
+		t.Fatalf("missing path entry: %#v", env)
+	}
+	wantPrefix := "Path=" + filepath.Join(root, "node_modules", ".bin")
+	if !strings.HasPrefix(found, wantPrefix) {
+		t.Fatalf("path entry %q missing prefix %q", found, wantPrefix)
+	}
+	if !strings.Contains(found, "C:\\Windows\\System32") {
+		t.Fatalf("path entry should preserve existing path: %q", found)
 	}
 }
 

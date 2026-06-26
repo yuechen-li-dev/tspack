@@ -969,6 +969,15 @@ The 0.1.0 release gate includes cold-update throughput hardening for `tspack upd
 - `tspack check`, `tspack check --format`, and `tspack update --policy --dry-run --json` pass without unclassified dependencies for the generated project.
 - Static and React app templates continue to generate and pass focused regression tests.
 
+## M58a Windows project tool materialization gate
+
+- On Windows, npm tarball extraction preserves package contents under the store extracted root rather than dropping files because of path separator handling.
+- `tspack sync` materializes root-visible project tool shims into `node_modules/.bin`, including Windows `.cmd` shims for commands such as `vite` and `tsc`.
+- `tspack run` for `runtime: "node"` prepends the project tool bin before host `PATH` and can resolve Windows `.cmd` shims without global installs or manual PATH edits.
+- Generated `react` apps pass `tspack update`, `tspack sync`, `tspack run build`, and `tspack run dev` on Windows.
+- Generated `react-library` projects pass `tspack update`, `tspack sync`, `tspack run typecheck`, `tspack run build`, and `tspack run build-types` on Windows.
+- Missing project tools fail with `TSPACK_RUN_TOOL_NOT_FOUND` and include the project tool bin search path plus the underlying exec error.
+
 ## v0.1.3 / M55a Template IR normalization gate
 
 - Built-in `static`, `react`, and `react-library` templates load through parsed raw metadata, normalized TemplateIR, concrete TemplatePlan creation, and safe plan application.

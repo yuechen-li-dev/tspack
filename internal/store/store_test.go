@@ -31,6 +31,23 @@ func TestPutTarballAndGetVerify(t *testing.T) {
 	}
 }
 
+func TestTarballRelativePathStripsTopLevelOnWindowsSafeSemantics(t *testing.T) {
+	rel, skip, err := tarballRelativePath("package/package.json")
+	if err != nil || skip || rel != "package.json" {
+		t.Fatalf("package/package.json => rel=%q skip=%t err=%v", rel, skip, err)
+	}
+
+	rel, skip, err = tarballRelativePath("vite/bin/vite.js")
+	if err != nil || skip || rel != "bin/vite.js" {
+		t.Fatalf("vite/bin/vite.js => rel=%q skip=%t err=%v", rel, skip, err)
+	}
+
+	rel, skip, err = tarballRelativePath("package\\bin\\vite.js")
+	if err != nil || skip || rel != "bin/vite.js" {
+		t.Fatalf("package\\\\bin\\\\vite.js => rel=%q skip=%t err=%v", rel, skip, err)
+	}
+}
+
 func TestDedupAndMismatch(t *testing.T) {
 	d := t.TempDir()
 	s, _ := Open(d)
@@ -109,6 +126,25 @@ func TestMetadataDeterministic(t *testing.T) {
 	b2, _ := os.ReadFile(ref2.MetadataPath)
 	if string(b1) != string(b2) {
 		t.Fatal("metadata changed")
+	}
+}
+
+func TestVerifyRejectsBrokenExtractedNPMPayload(t *testing.T) {
+	s, _ := Open(t.TempDir())
+	tgz := makeTarball(t, map[string]string{"package/package.json": `{"name":"a","version":"1.0.0"}`})
+	ref, diags := s.PutArtifact(Artifact{Kind: ArtifactNPMTarball, Bytes: tgz, Metadata: PackageMetadata{Name: "a", Version: "1.0.0", Source: "npm"}})
+	if len(diags) > 0 {
+		t.Fatalf("diags: %v", diags)
+	}
+	if err := os.Remove(filepath.Join(ref.ExtractedPath, "package.json")); err != nil {
+		t.Fatalf("remove extracted package.json: %v", err)
+	}
+	got := s.Verify(ref.Hash)
+	if len(got) == 0 || got[0].Code != "TSPACK_STORE_EXTRACTED_ARTIFACT_INVALID" {
+		t.Fatalf("expected broken extracted artifact diagnostic, got %#v", got)
+	}
+	if s.Has(ref.Hash) {
+		t.Fatal("broken extracted artifact should not count as present")
 	}
 }
 

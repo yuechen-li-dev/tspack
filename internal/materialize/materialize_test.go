@@ -57,9 +57,25 @@ func TestRootBinMaterializationAndStrictness(t *testing.T) {
 	if len(res.Diagnostics) > 0 {
 		t.Fatalf("diags: %#v", res.Diagnostics)
 	}
-	mustExist(t, filepath.Join(ws, "node_modules", ".bin", "tool"))
+	rootBin := filepath.Join(ws, "node_modules", ".bin", "tool")
+	if runtime.GOOS == "windows" {
+		rootBin += ".cmd"
+	}
+	mustExist(t, rootBin)
 	if _, err := os.Stat(filepath.Join(ws, "node_modules", ".bin", "hidden")); err == nil {
 		t.Fatal("transitive-only bin should not be root-exposed")
+	}
+	if runtime.GOOS == "windows" {
+		content, err := os.ReadFile(rootBin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(content)
+		for _, want := range []string{"@ECHO off", `"%~dp0\..\tool\bin\tool.js"`, "%*"} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("windows shim missing %q:\n%s", want, text)
+			}
+		}
 	}
 	if runtime.GOOS != "windows" {
 		st, err := os.Stat(filepath.Join(ws, "node_modules", "tool", "bin", "tool.js"))
@@ -121,8 +137,19 @@ func TestBiomeStyleBinMaterializationAndStrictness(t *testing.T) {
 		}
 	}
 	rootBin := filepath.Join(ws, "node_modules", ".bin", "biome")
+	if runtime.GOOS == "windows" {
+		rootBin += ".cmd"
+	}
 	mustExist(t, rootBin)
-	if target, err := filepath.EvalSymlinks(rootBin); err == nil && target != directBin {
+	if runtime.GOOS == "windows" {
+		content, err := os.ReadFile(rootBin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(content), `..\@biomejs\biome\bin\biome`) {
+			t.Fatalf("expected windows shim to point at direct bin, got:\n%s", string(content))
+		}
+	} else if target, err := filepath.EvalSymlinks(rootBin); err == nil && target != directBin {
 		t.Fatalf("expected root Biome bin to resolve to direct package bin %q, got %q", directBin, target)
 	}
 	transitiveBin := filepath.Join(ws, "node_modules", "@biomejs", "biome", "node_modules", "@example", "hidden-biome", "bin", "biome")

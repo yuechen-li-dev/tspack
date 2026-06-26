@@ -153,7 +153,7 @@ The `dev-node` target resolves to `node (explicit)`, so Bun does not override it
 
 ### RunTarget runtime values
 
-- `node` / `nodejs`: uses Node.js as the runtime identity for local tool execution. It adds local `node_modules/.bin` / TSPack-materialized tool paths as appropriate and resolves the first command token from local tools when it is a bare command name. It does **not** prepend `node` to path-containing script files. For JavaScript files, use `command: ["node", "packages/demo/server.js"]` or make the file executable with a shebang.
+- `node` / `nodejs`: uses Node.js as the runtime identity for local tool execution. After `tspack sync`, TSPack prepends the project materialized tool bin at `node_modules/.bin` before host `PATH` and resolves the first command token from that project bin when it is a bare command name. On Windows this includes `.cmd` shims such as `vite.cmd` and `tsc.cmd`. It does **not** prepend `node` to path-containing script files. For JavaScript files, use `command: ["node", "packages/demo/server.js"]` or make the file executable with a shebang.
 - `bun`: invokes `bun` with the declared argv payload. For example, `command: ["server.js"]` runs as `bun server.js`. TSPack does not run `bun run`, read package scripts, use npm, or use npx as a fallback.
 - `deno`: invokes `deno` with the declared argv payload. For example, `command: ["run", "--allow-net=127.0.0.1:8080", "server.ts"]` runs as `deno run --allow-net=127.0.0.1:8080 server.ts`.
 - `system`: built-in runtime support that executes the declared argv directly as a system command. It does not use node-local tool resolution. For JavaScript files, include `node`, `bun`, or `deno` explicitly if needed. `tspack doctor run` reports this runtime as available without looking for a binary named `system`.
@@ -313,7 +313,7 @@ The `URL:` line is printed when the RunTarget also declares `url`.
 
 ## Local tool-bin behavior
 
-For `node` runtime launches, local compatibility tool resolution depends on strict materialized `node_modules/.bin` entries generated from root-visible dependencies only. TSPack does not infer npm scripts and does not expose transitive-only bins at root.
+For `node` runtime launches, local compatibility tool resolution depends on strict materialized `node_modules/.bin` entries generated from root-visible dependencies only. `tspack sync` owns those shims, and `tspack run` prepends that project tool bin before the host `PATH`. TSPack does not infer npm scripts and does not expose transitive-only bins at root.
 
 ## Related docs
 

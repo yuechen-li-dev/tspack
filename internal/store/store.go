@@ -7,13 +7,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
@@ -66,7 +69,7 @@ func Open(root string) (*Store, error) {
 	return &Store{Root: root}, nil
 }
 
-func (s *Store) Has(hash string) bool { _, ok := s.Get(normalizeHash(hash)); return ok == nil }
+func (s *Store) Has(hash string) bool { return len(s.Verify(normalizeHash(hash))) == 0 }
 
 func (s *Store) PutArtifact(a Artifact) (StoreRef, []diag.Diagnostic) {
 	hash, err := s.computeHash(a)
@@ -81,13 +84,15 @@ func (s *Store) PutArtifact(a Artifact) (StoreRef, []diag.Diagnostic) {
 		if d := s.writeBlobIfMissing(ref.StorePath, a.Bytes); d != nil {
 			return StoreRef{}, d
 		}
-		if _, err := os.Stat(ref.ExtractedPath); err != nil {
+		if !extractedArtifactHealthy(ref.ExtractedPath, "npm") {
+			_ = os.RemoveAll(ref.ExtractedPath)
 			if d := extractTarGz(a.Bytes, ref.ExtractedPath); d != nil {
 				return StoreRef{}, d
 			}
 		}
 	} else {
-		if _, err := os.Stat(ref.ExtractedPath); err != nil {
+		if !extractedArtifactHealthy(ref.ExtractedPath, a.Source) {
+			_ = os.RemoveAll(ref.ExtractedPath)
 			if d := copyTree(a.RootDir, ref.ExtractedPath); d != nil {
 				return StoreRef{}, d
 			}
@@ -138,6 +143,12 @@ func (s *Store) Verify(hash string) []diag.Diagnostic {
 	}
 	if md.Hash != normalizeHash(hash) {
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_HASH_MISMATCH", "metadata hash mismatch")}
+	}
+	if !extractedArtifactHealthy(ref.ExtractedPath, md.Source) {
+		if md.Source == "npm" {
+			return []diag.Diagnostic{errDiag("TSPACK_STORE_EXTRACTED_ARTIFACT_INVALID", "npm extracted artifact is missing package.json")}
+		}
+		return []diag.Diagnostic{errDiag("TSPACK_STORE_EXTRACTED_ARTIFACT_MISSING", "extracted artifact is missing")}
 	}
 	return nil
 }
@@ -224,7 +235,13 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 	if err := os.Chmod(tmpPath, mode); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, path)
+	if err := os.Rename(tmpPath, path); err != nil {
+		if _, statErr := os.Stat(path); statErr == nil {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func extractTarGz(data []byte, dest string) []diag.Diagnostic {
@@ -250,19 +267,14 @@ func extractTarGz(data []byte, dest string) []diag.Diagnostic {
 		if err != nil {
 			return []diag.Diagnostic{errDiag("TSPACK_STORE_EXTRACT_FAILED", err.Error())}
 		}
-		clean := filepath.Clean(hdr.Name)
-		parts := strings.Split(clean, "/")
-		if len(parts) < 2 {
+		relSlash, skip, pathErr := tarballRelativePath(hdr.Name)
+		if pathErr != nil {
+			return []diag.Diagnostic{errDiag("TSPACK_STORE_TARBALL_PATH_TRAVERSAL", pathErr.Error())}
+		}
+		if skip {
 			continue
 		}
-		clean = filepath.Clean(strings.Join(parts[1:], "/"))
-		if clean == "." || clean == "" {
-			continue
-		}
-		if filepath.IsAbs(clean) || strings.Contains(clean, "..") {
-			return []diag.Diagnostic{errDiag("TSPACK_STORE_TARBALL_PATH_TRAVERSAL", "tarball path traversal detected")}
-		}
-		out := filepath.Join(tmp, clean)
+		out := filepath.Join(tmp, filepath.FromSlash(relSlash))
 		if !strings.HasPrefix(out, tmp+string(filepath.Separator)) && out != tmp {
 			return []diag.Diagnostic{errDiag("TSPACK_STORE_TARBALL_PATH_TRAVERSAL", "tarball path traversal detected")}
 		}
@@ -295,13 +307,33 @@ func extractTarGz(data []byte, dest string) []diag.Diagnostic {
 			}
 		}
 	}
-	if err := os.Rename(tmp, dest); err != nil {
-		if _, statErr := os.Stat(dest); statErr == nil {
-			return nil
-		}
+	if err := finalizeAtomicDirectory(tmp, dest); err != nil {
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_EXTRACT_FAILED", err.Error())}
 	}
 	return nil
+}
+
+func tarballRelativePath(name string) (string, bool, error) {
+	slashPath := strings.ReplaceAll(name, "\\", "/")
+	clean := path.Clean(slashPath)
+	if clean == "." || clean == "/" {
+		return "", true, nil
+	}
+	if strings.HasPrefix(clean, "../") || clean == ".." {
+		return "", false, fmt.Errorf("tarball path traversal detected")
+	}
+	parts := strings.Split(clean, "/")
+	if len(parts) < 2 {
+		return "", true, nil
+	}
+	rel := path.Clean(strings.Join(parts[1:], "/"))
+	if rel == "." || rel == "" {
+		return "", true, nil
+	}
+	if strings.HasPrefix(rel, "../") || rel == ".." {
+		return "", false, fmt.Errorf("tarball path traversal detected")
+	}
+	return rel, false, nil
 }
 
 func hashDirectory(root string) (string, error) {
@@ -424,13 +456,50 @@ func copyTree(root, dest string) []diag.Diagnostic {
 	if err := os.RemoveAll(dest); err != nil {
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", err.Error())}
 	}
-	if err := os.Rename(tmp, dest); err != nil {
-		if _, statErr := os.Stat(dest); statErr == nil {
-			return nil
-		}
+	if err := finalizeAtomicDirectory(tmp, dest); err != nil {
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", err.Error())}
 	}
 	return nil
+}
+
+func finalizeAtomicDirectory(tmp string, dest string) error {
+	const attempts = 10
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if err := os.Rename(tmp, dest); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		if _, statErr := os.Stat(dest); statErr == nil {
+			return nil
+		}
+		if !isRetryableRenameErr(lastErr) {
+			return lastErr
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if _, statErr := os.Stat(dest); statErr == nil {
+		return nil
+	}
+	return lastErr
+}
+
+func isRetryableRenameErr(err error) bool {
+	return errors.Is(err, os.ErrPermission)
+}
+
+func extractedArtifactHealthy(root string, source string) bool {
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	if source != "npm" {
+		return true
+	}
+	packageJSON := filepath.Join(root, "package.json")
+	info, err = os.Stat(packageJSON)
+	return err == nil && !info.IsDir()
 }
 
 func shouldSkipLocalArtifactDir(name string) bool {
