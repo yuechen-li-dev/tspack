@@ -5,18 +5,13 @@ provides = ["my-company.design-system"]
 expects = ["react.app"]
 
 [[dependencies]]
-key = "@my-company/design-system"
+key = "clsx"
 source = "npm"
-range = "^1.2.0"
-
-[[tools]]
-key = "@my-company/icon-generator"
-source = "npm"
-range = "^2.0.0"
+range = "^2.1.1"
 
 [[runTargets]]
 name = "generate-icons"
-command = "node scripts/generate-icons.mjs"
+command = "node -e console.log('icons-generated')"
 
 [[files]]
 destination = "src/design-system.ts"

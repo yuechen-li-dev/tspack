@@ -29,7 +29,7 @@ func renderGenericConceptManifest(values map[string]string, templateKind string,
 		return "", err
 	}
 
-	imports := []string{"define", "npm", "Package", "RunTargets", "Targets", "Workspace"}
+	imports := []string{"define", "npm", "Package", "Policies", "RunTargets", "Targets", "Workspace", "type BoundaryPolicy", "type TypePolicy"}
 	if hasAnyDependencyRows(conceptIR) {
 		imports = append(imports, "defineDeps")
 	}
@@ -57,21 +57,49 @@ func renderGenericConceptManifest(values map[string]string, templateKind string,
 	}
 	b.WriteString("} from \"tspack/manifest\";\n\n")
 	b.WriteString(renderConceptCommentLines(conceptIR.Concepts))
+	b.WriteString(`const types = {
+  declarations: "optional",
+  missingTypes: "ignore",
+  publicTypeLeakage: "warn",
+  typeOnlyRuntimeLeakage: "error",
+} satisfies TypePolicy;
+
+const boundaries = {
+  undeclaredImports: "error",
+  phantomDependencies: "error",
+  crossTargetImports: "error",
+} satisfies BoundaryPolicy;
+
+`)
 	renderGenericDependencyConstants(&b, "dependencies", conceptIR.Manifest.Dependencies, "npm")
 	renderGenericDependencyConstants(&b, "tools", conceptIR.Manifest.Tools, "tool")
 	renderGenericDependencyConstants(&b, "peers", conceptIR.Manifest.Peers, "peer")
 	b.WriteString("export default define(\n")
 	b.WriteString(fmt.Sprintf("  <Workspace name=%q runtime=%q>\n", projectName, runtime))
-	b.WriteString(fmt.Sprintf("    <Package name=%q version=\"0.1.0\" kind=%q", packageName, packageKind))
+	b.WriteString("    <Package\n")
+	b.WriteString(fmt.Sprintf("      name=%q\n", packageName))
+	b.WriteString("      version=\"0.1.0\"\n")
+	b.WriteString(fmt.Sprintf("      kind=%q\n", packageKind))
 	if len(conceptIR.Manifest.Dependencies) > 0 {
-		b.WriteString(fmt.Sprintf(" dependencies={{ values: [%s] }}", renderPackageDependencyRefs(conceptIR)))
+		b.WriteString("      dependencies={{\n")
+		b.WriteString("        values: [\n")
+		writeDependencyRefsMultiline(&b, renderPackageDependencyRefList(conceptIR), 10)
+		b.WriteString("        ],\n")
+		b.WriteString("      }}\n")
 	}
 	if len(conceptIR.Manifest.Peers) > 0 {
-		b.WriteString(fmt.Sprintf(" peers={[%s]}", renderDependencyRefs("peers", conceptIR.Manifest.Peers)))
+		b.WriteString("      peers={[\n")
+		writeDependencyRefsMultiline(&b, renderDependencyRefList("peers", conceptIR.Manifest.Peers), 8)
+		b.WriteString("      ]}\n")
 	}
-	b.WriteString(">\n")
+	b.WriteString("    >\n")
+	b.WriteString("      <Policies types={types} boundaries={boundaries} />\n")
 	if len(conceptIR.Manifest.Tools) > 0 {
-		b.WriteString(fmt.Sprintf("      <Tools values={[%s]} />\n", renderDependencyRefs("tools", conceptIR.Manifest.Tools)))
+		b.WriteString("      <Tools\n")
+		b.WriteString("        values={[\n")
+		writeDependencyRefsMultiline(&b, renderDependencyRefList("tools", conceptIR.Manifest.Tools), 10)
+		b.WriteString("        ]}\n")
+		b.WriteString("      />\n")
 	}
 	if len(conceptIR.Manifest.Targets) > 0 {
 		b.WriteString("      <Targets\n        rows={[\n")
@@ -82,6 +110,11 @@ func renderGenericConceptManifest(values map[string]string, templateKind string,
 			writeTSStringField(&b, "entry", target.Entry, 12)
 			writeTSStringField(&b, "runtime", target.Runtime, 12)
 			writeTSStringField(&b, "types", target.Types, 12)
+			if len(conceptIR.Manifest.Dependencies) > 0 {
+				b.WriteString("            deps: [\n")
+				writeDependencyRefsMultiline(&b, renderDependencyRefList("dependencies", conceptIR.Manifest.Dependencies), 14)
+				b.WriteString("            ],\n")
+			}
 			b.WriteString("          },\n")
 		}
 		b.WriteString("        ]}\n      />\n")
@@ -137,9 +170,19 @@ func renderGenericDependencyConstants(b *strings.Builder, name string, deps []co
 			keySuffix = fmt.Sprintf(", { key: %q }", dep.Name)
 		}
 		if helper == "tool" || helper == "peer" {
-			b.WriteString(fmt.Sprintf("  %s: %s(npm(%q, %q)%s),\n", identifier, helper, dep.Name, dep.Range, keySuffix))
+			if keySuffix != "" {
+				b.WriteString(fmt.Sprintf("  %s: %s(npm(%q, %q), {\n", identifier, helper, dep.Name, dep.Range))
+				b.WriteString(fmt.Sprintf("    key: %q,\n", dep.Name))
+				b.WriteString("  }),\n")
+			} else {
+				b.WriteString(fmt.Sprintf("  %s: %s(npm(%q, %q)),\n", identifier, helper, dep.Name, dep.Range))
+			}
 		} else {
-			b.WriteString(fmt.Sprintf("  %s: dep(npm(%q, %q)%s),\n", identifier, dep.Name, dep.Range, keySuffix))
+			if keySuffix != "" {
+				b.WriteString(fmt.Sprintf("  %s: dep(npm(%q, %q), { key: %q }),\n", identifier, dep.Name, dep.Range, dep.Name))
+			} else {
+				b.WriteString(fmt.Sprintf("  %s: dep(npm(%q, %q)),\n", identifier, dep.Name, dep.Range))
+			}
 		}
 	}
 	b.WriteString("});\n\n")
@@ -165,26 +208,33 @@ func dependencyIdentifier(name string) string {
 	return out
 }
 
-func renderPackageDependencyRefs(conceptIR *concepts.MergedConceptIR) string {
+func renderPackageDependencyRefList(conceptIR *concepts.MergedConceptIR) []string {
 	refs := []string{}
-	refs = append(refs, renderDependencyRefs("dependencies", conceptIR.Manifest.Dependencies))
-	refs = append(refs, renderDependencyRefs("tools", conceptIR.Manifest.Tools))
-	refs = append(refs, renderDependencyRefs("peers", conceptIR.Manifest.Peers))
-	joined := []string{}
-	for _, ref := range refs {
-		if ref != "" {
-			joined = append(joined, ref)
-		}
-	}
-	return strings.Join(joined, ", ")
+	refs = append(refs, renderDependencyRefList("dependencies", conceptIR.Manifest.Dependencies)...)
+	refs = append(refs, renderDependencyRefList("tools", conceptIR.Manifest.Tools)...)
+	refs = append(refs, renderDependencyRefList("peers", conceptIR.Manifest.Peers)...)
+	return refs
 }
 
 func renderDependencyRefs(objectName string, deps []concepts.DependencyContribution) string {
+	return strings.Join(renderDependencyRefList(objectName, deps), ", ")
+}
+
+func renderDependencyRefList(objectName string, deps []concepts.DependencyContribution) []string {
 	refs := []string{}
 	for _, dep := range deps {
 		refs = append(refs, objectName+"."+dependencyIdentifier(dep.Name))
 	}
-	return strings.Join(refs, ", ")
+	return refs
+}
+
+func writeDependencyRefsMultiline(b *strings.Builder, refs []string, spaces int) {
+	indent := strings.Repeat(" ", spaces)
+	for _, ref := range refs {
+		b.WriteString(indent)
+		b.WriteString(ref)
+		b.WriteString(",\n")
+	}
 }
 
 func renderCommandArray(command string) string {
@@ -217,31 +267,52 @@ func genericUpdateStrategy(action string) string {
 	return "manual"
 }
 
-func genericSecurityCategory(value string) string {
-	if value == "consumer-install" || value == "maintainer-publish" || value == "other" {
-		return value
+func genericSecurityCategories(value string) []string {
+	if value == "baseline" {
+		return []string{"consumer-install", "maintainer-publish"}
 	}
-	return "other"
+	if value == "consumer-install" || value == "maintainer-publish" || value == "other" {
+		return []string{value}
+	}
+	return []string{"other"}
 }
 
 func renderGenericPolicySections(b *strings.Builder, conceptIR *concepts.MergedConceptIR) {
 	if len(conceptIR.Manifest.UpdatePolicy) > 0 {
-		b.WriteString("    <UpdatePolicy rows={[\n")
+		b.WriteString("    <UpdatePolicy\n")
+		b.WriteString("      rows={[\n")
 		for _, row := range conceptIR.Manifest.UpdatePolicy {
 			strategy := genericUpdateStrategy(row.Action)
+			b.WriteString("        {\n")
+			b.WriteString(fmt.Sprintf("          name: %q,\n", row.Subject))
+			b.WriteString("          kind: \"any\",\n")
+			b.WriteString(fmt.Sprintf("          strategy: %q,\n", strategy))
 			if strategy == "rolling" && row.Range != "" {
-				b.WriteString(fmt.Sprintf("      { name: %q, kind: \"any\", strategy: %q, level: %q, reason: \"Generated from concept policy.\" },\n", row.Subject, strategy, row.Range))
-			} else {
-				b.WriteString(fmt.Sprintf("      { name: %q, kind: \"any\", strategy: %q, reason: \"Generated from concept policy.\" },\n", row.Subject, strategy))
+				b.WriteString(fmt.Sprintf("          level: %q,\n", row.Range))
 			}
+			b.WriteString("          reason: \"Generated from concept policy.\",\n")
+			b.WriteString("        },\n")
 		}
-		b.WriteString("    ]} />\n")
+		b.WriteString("      ]}\n")
+		b.WriteString("    />\n")
 	}
 	if len(conceptIR.Manifest.SecurityPolicy) > 0 {
-		b.WriteString("    <Security acknowledgedLifecycleCategories={[\n")
+		b.WriteString("    <Security\n")
+		b.WriteString("      acknowledgedLifecycleCategories={[\n")
+		seenCategories := map[string]bool{}
 		for _, row := range conceptIR.Manifest.SecurityPolicy {
-			b.WriteString(fmt.Sprintf("      { category: %q, reason: \"Generated from concept security policy.\" },\n", genericSecurityCategory(row.Range)))
+			for _, category := range genericSecurityCategories(row.Range) {
+				if seenCategories[category] {
+					continue
+				}
+				seenCategories[category] = true
+				b.WriteString("        {\n")
+				b.WriteString(fmt.Sprintf("          category: %q,\n", category))
+				b.WriteString("          reason: \"Generated from concept security policy.\",\n")
+				b.WriteString("        },\n")
+			}
 		}
-		b.WriteString("    ]} />\n")
+		b.WriteString("      ]}\n")
+		b.WriteString("    />\n")
 	}
 }

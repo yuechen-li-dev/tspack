@@ -557,3 +557,10 @@ The MVP does not add remote concept registries, script hooks, command execution,
 M60g adds local-template opt-in for generic concept-rendered manifests with `[generation] manifest = "concept"`. In that mode, local templates render `manifest.tsx` from the explicit concept stack and merged concept IR, so expert-authored local TOML concepts can contribute dependencies, tools, peers, targets, run targets, update policy rows, security lifecycle acknowledgements, and safe files without copying a full built-in manifest.
 
 Built-in `static`, `react`, and `react-library` templates continue to use their focused concept renderers so their generated output remains stable. Local templates without the opt-in keep the M60f behavior: file contributions are allowed, but manifest-like contributions fail loudly instead of disappearing. Remote concepts, executable hooks, package installation during init, public marketplace behavior, and template inheritance remain non-goals.
+
+
+## M60g.1 local concept-rendered fixture hardening
+
+M60g.1 hardens the local `concept-manifest-app` fixture from a syntactic smoke into a minimal React/Vite/TypeScript app that can pass the normal `init`, `update`, `sync`, `check`, `check --format`, policy dry-run, and `run build` path. The fixture still uses `[generation] manifest = "concept"` for `manifest.tsx`, but now projects the ordinary source and config files that the generated manifest contract names.
+
+The implementation keeps the M60g scope boundary: generic local rendering supports workspace/package defaults, dependencies, tools, peers, target dependency wiring, targets, run targets, update policy, security lifecycle category acknowledgements, and concept metadata comments. Env rendering, service requirements, pack metadata, remote concepts, executable hooks, command execution during init, package installation during init, and marketplace behavior remain unsupported.

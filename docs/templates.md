@@ -161,24 +161,21 @@ Local templates can opt into generic concept-rendered manifest generation:
 manifest = "concept"
 ```
 
-When this mode is present, TSPack plans `manifest.tsx` from the explicit concept stack and merged concept IR. The template must not also project a normal `manifest.tsx`; that is a semantic conflict and `--force` does not bypass it. Non-manifest template files and safe local concept file contributions still work normally.
+When this mode is present, TSPack plans `manifest.tsx` from the explicit concept stack and merged concept IR. The template must not also project a normal `manifest.tsx`; that is a semantic conflict and `--force` does not bypass it. Non-manifest template files and safe local concept file contributions still work normally. Concept-rendered manifest mode only creates the manifest contract; the template must still project the normal source and config files needed by that contract, such as `package.json`, `tsconfig.json`, `vite.config.ts`, `index.html`, and `src/main.tsx`, unless a supported concept file contribution provides them.
 
-The generic local renderer currently supports a single workspace/package manifest with template defaults (`projectName`, `packageName`, `runtime`, version `0.1.0`, and template kind), dependencies, tools, peers, targets, run targets, update policy rows, security lifecycle category acknowledgements, and concept metadata comments. Local concept TOML can declare:
+The generic local renderer currently supports a single workspace/package manifest with template defaults (`projectName`, `packageName`, `runtime`, version `0.1.0`, and template kind), dependencies, tools, peers, targets, target dependency wiring, run targets, update policy rows, security lifecycle category acknowledgements, manifest boundary policies suitable for app templates, and concept metadata comments. Local concept TOML can declare:
 
 ```toml
 [[dependencies]]
-key = "@my-company/design-system"
+key = "clsx"
 source = "npm"
-range = "^1.2.0"
-
-[[tools]]
-key = "@my-company/icon-generator"
-source = "npm"
-range = "^2.0.0"
+range = "^2.1.1"
 
 [[runTargets]]
 name = "generate-icons"
-command = "node scripts/generate-icons.mjs"
+command = "node -e console.log('icons-generated')"
 ```
 
-If the `[generation]` table is absent, existing behavior remains: manifest-like local concept contributions fail with `TSPACK_TEMPLATE_CONCEPT_UNSUPPORTED_CONTRIBUTION` instead of being silently dropped. Unknown generation manifest modes fail with `TSPACK_TEMPLATE_INVALID`. Unsupported concept manifest fields in concept-rendered mode also fail loudly. Remote concepts, JavaScript/TypeScript concept files, scripts, package installation during init, arbitrary text patches, template inheritance, and public concept registries are not supported.
+A check-clean React/Vite local template should list the built-in React, browser SPA, Vite, TypeScript, workspace, manifest-boundary, update-policy, and security-policy concepts, add any local concept dependency/run-target/file contributions, and project the ordinary Vite app files. The test fixture at `internal/templates/testdata/local-concepts/concept-manifest-app` is the minimal example: it uses a local design-system concept, renders `manifest.tsx` from concepts, contributes `src/design-system.ts`, and still projects `src/main.tsx` plus Vite/TypeScript config files.
+
+If the `[generation]` table is absent, existing behavior remains: manifest-like local concept contributions fail with `TSPACK_TEMPLATE_CONCEPT_UNSUPPORTED_CONTRIBUTION` instead of being silently dropped. Unknown generation manifest modes fail with `TSPACK_TEMPLATE_INVALID`. Unsupported concept manifest fields in concept-rendered mode also fail loudly. Env rendering, service requirements, pack metadata, remote concepts, JavaScript/TypeScript concept files, scripts, package installation during init, arbitrary text patches, template inheritance, and public concept registries are not supported.
