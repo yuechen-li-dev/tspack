@@ -528,7 +528,7 @@ describe("native runner command helpers", () => {
           const payload = JSON.parse(result.stdout.trim());
           assert.equal(payload.argv, ["alpha", "beta"], "args passed");
           assert.true(
-            String(payload.cwd).endsWith("/sub"),
+            String(payload.cwd).replaceAll("\\", "/").endsWith("/sub"),
             "cwd option applied",
           );
           assert.equal(payload.marker, "yes", "env merged");

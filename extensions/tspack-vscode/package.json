@@ -4,7 +4,19 @@
   "description": "Proof-of-concept VS Code view for TSPack runtime UI inspect data.",
   "version": "0.0.1",
   "private": true,
+  "license": "MIT",
   "publisher": "tspack",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yuechen-li-dev/tspack.git"
+  },
+  "files": [
+    "dist/src/**",
+    "resources/**",
+    "package.json",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "vscode": "^1.92.0"
   },
@@ -129,11 +141,13 @@
   },
   "scripts": {
     "compile": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "package": "vsce package --out dist/tspack-vscode.vsix"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "@types/vscode": "^1.92.0",
+    "@vscode/vsce": "^3.9.2",
     "typescript": "^5.6.3",
     "vitest": "^2.1.3"
   }

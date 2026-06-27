@@ -114,8 +114,9 @@ async function spawnAndCapture(args: string[], cwd: string, env: Record<string, 
     let stderr = '';
     let timedOut = false;
     let settled = false;
+    const spawnArgs = resolveSpawnArgs(args);
 
-    const child = spawn(args[0], args.slice(1), { cwd, env: { ...process.env, ...(env ?? {}) }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(spawnArgs[0], spawnArgs.slice(1), { cwd, env: { ...process.env, ...(env ?? {}) }, stdio: ['ignore', 'pipe', 'pipe'] });
     child.stdout?.on('data', (chunk) => { stdout += String(chunk); });
     child.stderr?.on('data', (chunk) => { stderr += String(chunk); });
 
@@ -144,6 +145,20 @@ async function spawnAndCapture(args: string[], cwd: string, env: Record<string, 
       resolve({ exitCode, signal, timedOut, stdout, stderr });
     });
   });
+}
+
+function resolveSpawnArgs(args: string[]): string[] {
+  if (process.platform !== 'win32') {
+    return args;
+  }
+
+  const commandPath = args[0];
+  const extension = path.extname(commandPath).toLowerCase();
+  if (extension === '.js' || extension === '.cjs' || extension === '.mjs') {
+    return [process.execPath, commandPath, ...args.slice(1)];
+  }
+
+  return args;
 }
 
 async function writeEvidence(evidenceDir: string, index: number, reason: string, result: CommandResult): Promise<{ paths: CommandResult['evidence']; diagnostic?: Diagnostic }> {

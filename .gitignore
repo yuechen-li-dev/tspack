@@ -62,3 +62,4 @@ Thumbs.db
 !.env.example
 
 .tmp/
+extensions/tspack-vscode/package-lock.json

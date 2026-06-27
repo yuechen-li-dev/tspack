@@ -126,9 +126,12 @@ describe('source hint path validation', () => {
     try {
       const outsideFile = path.join(outsideRoot, 'Secret.tsx');
       await fs.writeFile(outsideFile, 'secret');
-      await fs.symlink(outsideFile, path.join(tempRoot, 'Secret.tsx'));
+      await fs.symlink(outsideRoot, path.join(tempRoot, 'linked-outside'), 'junction');
 
-      const resolved = await resolveSourceHintPath(tempRoot, 'Secret.tsx');
+      const resolved = await resolveSourceHintPath(
+        tempRoot,
+        'linked-outside/Secret.tsx',
+      );
 
       expect(resolved).toMatchObject({
         ok: false,

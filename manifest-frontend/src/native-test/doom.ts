@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { discoverNativeTestFiles, discoverNativeTestFile } from './discover.js';
 import type { Diagnostic, DiscoveredProphecy, DoomEnvelope, DoomResult, DoomRunResult, NativeDoomRunReport } from './types.js';
 
@@ -47,7 +48,10 @@ async function runOneProphecy(rootDir: string, prophecy: DiscoveredProphecy, out
   const stdoutPath = path.join(runDir, 'stdout.txt');
   const stderrPath = path.join(runDir, 'stderr.txt');
 
-  const bridge = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../dist/src/native-test-cli.js');
+  const bridge = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../../dist/src/native-test-cli.js',
+  );
   const args = [bridge, 'doom-child', '--root', rootDir, '--file', prophecy.filePath, '--id', prophecy.id, '--out', runDir];
 
   let stdout = '';

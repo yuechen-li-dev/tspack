@@ -50,3 +50,25 @@ Environment notes for Windows developers:
 - `internal/installscript` covers `scripts/install.sh` and skips cleanly when `sh` is unavailable.
 - Runtime-switch tests use Windows-friendly fake `bun`, `deno`, and `system` launchers and should not require Git Bash.
 - Inspect and run-target tests should terminate child process trees cleanly on Windows rather than relying on Unix process-group semantics.
+
+## Install local VS Code extension
+
+For local dogfood of the VS Code extension, prefer the helper script from the repository root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\Install-TSPackVSCodeExtension.ps1
+```
+
+The helper installs local extension dependencies if needed, runs compile and test validation, packages a VSIX with the repo-local `@vscode/vsce`, and then installs that VSIX into `code` or `code-insiders` when the CLI is available.
+
+Manual equivalent:
+
+```powershell
+npm --prefix extensions/tspack-vscode ci
+npm --prefix extensions/tspack-vscode run compile
+npm --prefix extensions/tspack-vscode test
+npm --prefix extensions/tspack-vscode run package
+code --install-extension .\extensions\tspack-vscode\dist\tspack-vscode.vsix --force
+```
+
+If the VS Code CLI is not on `PATH`, use `Extensions` -> `...` -> `Install from VSIX...` and choose `extensions/tspack-vscode/dist/tspack-vscode.vsix`.

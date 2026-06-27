@@ -300,12 +300,12 @@ describe('UI context bundle source excerpts', () => {
     try {
       const outsideFile = path.join(outsideRoot, 'Secret.tsx');
       await fs.writeFile(outsideFile, 'secret');
-      await fs.symlink(outsideFile, path.join(tempRoot, 'Secret.tsx'));
+      await fs.symlink(outsideRoot, path.join(tempRoot, 'linked-outside'), 'junction');
       const node: InspectNode = {
         id: 'secret',
         source: {
-          raw: 'Secret.tsx:1:1',
-          file: 'Secret.tsx',
+          raw: 'linked-outside/Secret.tsx:1:1',
+          file: 'linked-outside/Secret.tsx',
           line: 1,
           column: 1,
         },

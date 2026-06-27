@@ -8,7 +8,42 @@ This is the M39b proof-of-concept VS Code extension for viewing `tspack inspect`
 npm install
 npm run compile
 npm test
+npm run package
 ```
+
+From the repository root, the equivalent Windows-friendly flow is:
+
+```powershell
+npm --prefix extensions/tspack-vscode ci
+npm --prefix extensions/tspack-vscode run compile
+npm --prefix extensions/tspack-vscode test
+npm --prefix extensions/tspack-vscode run package
+```
+
+That produces a local VSIX at `extensions/tspack-vscode/dist/tspack-vscode.vsix`.
+
+## Local dogfood install
+
+Use the helper script from the repository root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\Install-TSPackVSCodeExtension.ps1
+```
+
+The helper:
+
+1. installs extension dependencies locally when needed
+2. runs compile, test, and VSIX packaging
+3. finds `code` or `code-insiders`
+4. installs the generated VSIX with `--force`
+
+Manual fallback:
+
+```powershell
+code --install-extension .\extensions\tspack-vscode\dist\tspack-vscode.vsix --force
+```
+
+If the VS Code CLI is not on `PATH`, open VS Code and use `Extensions` -> `...` -> `Install from VSIX...`, then select `extensions/tspack-vscode/dist/tspack-vscode.vsix`.
 
 ## Runtime workflow
 

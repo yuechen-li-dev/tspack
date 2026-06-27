@@ -5,19 +5,31 @@ import { describe, expect, it } from 'vitest';
 function runTypecheck(tsconfigName: string): { status: number; output: string } {
   const manifestFrontendDir = path.resolve(__dirname, '..');
   const tsconfigPath = path.join(manifestFrontendDir, 'tests', 'typing-fixtures', tsconfigName);
+  const tscPath = path.join(
+    manifestFrontendDir,
+    'node_modules',
+    'typescript',
+    'bin',
+    'tsc',
+  );
 
   try {
-    execFileSync('npx', ['tsc', '-p', tsconfigPath, '--noEmit'], {
+    execFileSync(process.execPath, [tscPath, '-p', tsconfigPath, '--noEmit'], {
       cwd: manifestFrontendDir,
       stdio: 'pipe',
       encoding: 'utf8',
     });
     return { status: 0, output: '' };
   } catch (error) {
-    const output = error instanceof Error && 'stdout' in error
-      ? `${String((error as { stdout?: string }).stdout ?? '')}${String((error as { stderr?: string }).stderr ?? '')}`
-      : String(error);
-    return { status: 1, output };
+    const output =
+      error instanceof Error && 'stdout' in error
+        ? `${String((error as { stdout?: string }).stdout ?? '')}${String((error as { stderr?: string }).stderr ?? '')}`
+        : String(error);
+    const status =
+      typeof (error as { status?: unknown }).status === 'number'
+        ? ((error as { status: number }).status ?? 1)
+        : 1;
+    return { status, output };
   }
 }
 
@@ -29,7 +41,7 @@ describe('manifest API type surface', () => {
 
   it('invalid fixtures fail typecheck with expected errors', () => {
     const result = runTypecheck('tsconfig.invalid.json');
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(2);
     expect(result.output).toContain(`Type '"npm"' is not assignable to type '"bun" | "deno" | "system" | "node" | undefined'`);
     expect(result.output).toContain("missing the following properties from type 'PackageProps': name, version");
     expect(result.output).toContain("missing the following properties from type 'TargetRow': entry, runtime");
