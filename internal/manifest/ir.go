@@ -526,13 +526,13 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 				}
 			}
 			if !runTargetURLIsOptional(rt) {
-				u, err := url.Parse(rt.URL)
-				if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				u, err := url.Parse(runTargetURLForValidation(rt.URL))
+				if err != nil || !validRunReadyURLPlaceholders(rt.URL) || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 					add("TSPACK_RUN_INVALID_URL", rp+".url must be valid http/https URL")
 				}
 			} else if strings.TrimSpace(rt.URL) != "" {
-				u, err := url.Parse(rt.URL)
-				if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				u, err := url.Parse(runTargetURLForValidation(rt.URL))
+				if err != nil || !validRunReadyURLPlaceholders(rt.URL) || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 					add("TSPACK_RUN_INVALID_URL", rp+".url must be valid http/https URL")
 				}
 			}
@@ -641,6 +641,43 @@ func validateRunTargetRequirements(add func(string, string, ...string), rp strin
 			add("TSPACK_MANIFEST_SERVICE_INVALID", reqPath+".timeoutMs must be between 1 and 60000")
 		}
 	}
+}
+
+func runTargetURLForValidation(raw string) string {
+	var builder strings.Builder
+	for index := 0; index < len(raw); {
+		if raw[index] == '$' && index+1 < len(raw) && raw[index+1] == '{' {
+			end := strings.IndexByte(raw[index+2:], '}')
+			if end < 0 {
+				return raw
+			}
+			builder.WriteString("3000")
+			index += end + 3
+			continue
+		}
+		builder.WriteByte(raw[index])
+		index++
+	}
+	return builder.String()
+}
+
+func validRunReadyURLPlaceholders(raw string) bool {
+	for index := 0; index < len(raw); {
+		if raw[index] != '$' || index+1 >= len(raw) || raw[index+1] != '{' {
+			index++
+			continue
+		}
+		end := strings.IndexByte(raw[index+2:], '}')
+		if end < 0 {
+			return false
+		}
+		name := raw[index+2 : index+2+end]
+		if !envNameRe.MatchString(name) {
+			return false
+		}
+		index += end + 3
+	}
+	return true
 }
 
 func validRunTargetServiceTCP(endpoint string) bool {

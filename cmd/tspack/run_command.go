@@ -46,6 +46,7 @@ type runCommandOptions struct {
 	PackageName      string
 	TargetArg        string
 	Env              runEnvOverlay
+	PreflightOnly    bool
 }
 
 type runListOutput struct {
@@ -177,13 +178,16 @@ func startRunTargetInDir(root string, cwdPath string, target manifest.RunTarget,
 		}
 		return nil, readyErr
 	}
-	session.URL = target.URL
+	session.URL = session.Target.URL
 	session.ReadyDescription = readyCheck.readyDescription()
 	return session, nil
 }
 
 func launchRunTargetInDir(root string, cwdPath string, target manifest.RunTarget, stdout io.Writer, stderr io.Writer, envOverlay runEnvOverlay) (*RunTargetSession, *runErr) {
-	resolved := target
+	resolved, env, prepareErr := prepareRunTargetForInvocation(root, target, envOverlay)
+	if prepareErr != nil {
+		return nil, prepareErr
+	}
 	launchCommand, launchErr := resolveRunTargetLaunchCommand(root, resolved)
 	if launchErr != nil {
 		return nil, launchErr
@@ -218,10 +222,6 @@ func launchRunTargetInDir(root string, cwdPath string, target manifest.RunTarget
 		cmd.Stderr = stderr
 	}
 	projectToolBins := projectToolBinDirs(root)
-	env, validationErr := buildRunTargetEnv(resolved.Runtime, root, resolved, envOverlay)
-	if validationErr != nil {
-		return nil, validationErr
-	}
 	if preflightErr := preflightRunTargetServices(resolved, stderr); preflightErr != nil {
 		return nil, preflightErr
 	}
@@ -289,6 +289,19 @@ func runRunCommand(args []string) {
 	if len(opts.Env.Keys) > 0 {
 		fmt.Fprintf(os.Stderr, "Env: %s\n", strings.Join(opts.Env.Keys, ", "))
 	}
+	if opts.PreflightOnly {
+		preflighted, _, preflightErr := prepareRunTargetForInvocation(workspaceRoot, rt, opts.Env)
+		if preflightErr != nil {
+			failRun(preflightErr.code, preflightErr.msg)
+		}
+		if serviceErr := preflightRunTargetServices(preflighted, os.Stderr); serviceErr != nil {
+			failRun(serviceErr.code, serviceErr.msg)
+		}
+		fmt.Fprintf(os.Stderr, "Preflight passed for %s\n", selected.ID())
+		fmt.Fprintf(os.Stderr, "Checked env: %s\n", formatCheckedRunEnv(rt.Env))
+		fmt.Fprintf(os.Stderr, "Checked services: %s\n", formatCheckedRunServices(rt.Requires))
+		return
+	}
 	if runTargetModeFor(rt) == runTargetModeFinite {
 		fmt.Fprintln(os.Stderr, "Waiting for: process exit")
 		session, launchErr := launchRunTargetInDir(workspaceRoot, cwdPath, rt, os.Stdout, os.Stderr, opts.Env)
@@ -307,7 +320,11 @@ func runRunCommand(args []string) {
 		return
 	}
 
-	readyCheck := newReadyCheck(rt)
+	prepared, _, prepareErr := prepareRunTargetForInvocation(workspaceRoot, rt, opts.Env)
+	if prepareErr != nil {
+		failRun(prepareErr.code, prepareErr.msg)
+	}
+	readyCheck := newReadyCheck(prepared)
 	fmt.Fprintf(os.Stderr, "Waiting for: %s\n", readyCheck.waitingDescription())
 	session, readyErr := startRunTargetInDir(workspaceRoot, cwdPath, rt, time.Duration(opts.TimeoutSeconds)*time.Second, os.Stdout, os.Stderr, opts.Env)
 	if readyErr != nil {
@@ -369,6 +386,8 @@ func parseRunCommandOptions(args []string) runCommandOptions {
 			opts.TimeoutSeconds = n
 		case "--once":
 			opts.Once = true
+		case "--preflight-only":
+			opts.PreflightOnly = true
 		case "--list":
 			opts.List = true
 		case "--json":
@@ -404,6 +423,9 @@ func parseRunCommandOptions(args []string) runCommandOptions {
 	}
 	if opts.List && opts.Once {
 		failRun("TSPACK_RUN_INVALID_ARGS", "--list cannot be combined with --once")
+	}
+	if opts.List && opts.PreflightOnly {
+		failRun("TSPACK_RUN_INVALID_ARGS", "--list cannot be combined with --preflight-only")
 	}
 	if opts.List && len(opts.Env.Keys) > 0 {
 		failRun("TSPACK_RUN_INVALID_ARGS", "--list cannot be combined with --env")
@@ -998,13 +1020,127 @@ func formatReadyForList(ready *manifest.RunReadyCheck) string {
 	}
 }
 
+func prepareRunTargetForInvocation(root string, target manifest.RunTarget, overlay runEnvOverlay) (manifest.RunTarget, []string, *runErr) {
+	resolved := target
+	env, validationErr := buildRunTargetEnv(resolved.Runtime, root, resolved, overlay)
+	if validationErr != nil {
+		return resolved, nil, validationErr
+	}
+	if runTargetModeFor(resolved) != runTargetModeServer || resolved.Ready == nil || resolved.Ready.Kind != "http" {
+		return resolved, env, nil
+	}
+	interpolatedURL, interpolationErr := interpolateRunReadyURL(resolved, resolved.URL, env)
+	if interpolationErr != nil {
+		return resolved, nil, interpolationErr
+	}
+	resolved.URL = interpolatedURL
+	return resolved, env, nil
+}
+
+func interpolateRunReadyURL(target manifest.RunTarget, template string, env []string) (string, *runErr) {
+	values := runEnvMap(env)
+	secretNames := runTargetSecretEnvNames(target)
+	var builder strings.Builder
+	for index := 0; index < len(template); {
+		if template[index] != '$' {
+			builder.WriteByte(template[index])
+			index++
+			continue
+		}
+		if index+1 >= len(template) || template[index+1] != '{' {
+			builder.WriteByte(template[index])
+			index++
+			continue
+		}
+		end := strings.IndexByte(template[index+2:], '}')
+		if end < 0 {
+			return "", &runErr{code: "TSPACK_MANIFEST_READY_INVALID", msg: "readiness URL placeholder is missing a closing brace"}
+		}
+		name := template[index+2 : index+2+end]
+		if !isValidRunEnvKey(name) {
+			return "", &runErr{code: "TSPACK_MANIFEST_READY_INVALID", msg: "readiness URL placeholder has invalid env name: " + name}
+		}
+		contractKey := runEnvContractKey(name)
+		if secretNames[contractKey] {
+			return "", &runErr{code: "TSPACK_RUN_READY_ENV_SECRET", msg: "readiness URL cannot interpolate secret env: " + name}
+		}
+		value, ok := values[contractKey]
+		if !ok {
+			return "", &runErr{code: "TSPACK_RUN_READY_ENV_MISSING", msg: "readiness URL references missing env: " + name}
+		}
+		builder.WriteString(value)
+		index += end + 3
+	}
+	return builder.String(), nil
+}
+
+func runEnvMap(env []string) map[string]string {
+	values := map[string]string{}
+	for _, entry := range env {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok {
+			values[runEnvContractKey(key)] = value
+		}
+	}
+	return values
+}
+
+func runTargetSecretEnvNames(target manifest.RunTarget) map[string]bool {
+	names := map[string]bool{}
+	for _, item := range target.Env {
+		if item.Secret {
+			names[runEnvContractKey(item.Name)] = true
+		}
+	}
+	return names
+}
+
+func formatCheckedRunEnv(env []manifest.RunTargetEnv) string {
+	if len(env) == 0 {
+		return "none"
+	}
+	names := make([]string, 0, len(env))
+	for _, item := range env {
+		names = append(names, item.Name)
+	}
+	return strings.Join(names, ", ")
+}
+
+func formatCheckedRunServices(requires []manifest.RunTargetRequirement) string {
+	if len(requires) == 0 {
+		return "none"
+	}
+	names := make([]string, 0, len(requires))
+	for _, item := range requires {
+		names = append(names, item.Name)
+	}
+	return strings.Join(names, ", ")
+}
+
 func readinessURL(rt manifest.RunTarget) string {
 	if rt.Ready == nil {
 		return rt.URL
 	}
-	u, _ := url.Parse(rt.URL)
-	u.Path = rt.Ready.Path
-	return u.String()
+	u, parseErr := url.Parse(rt.URL)
+	if parseErr == nil {
+		u.Path = rt.Ready.Path
+		return u.String()
+	}
+	return joinReadinessURLPath(rt.URL, rt.Ready.Path)
+}
+
+func joinReadinessURLPath(base string, readyPath string) string {
+	withoutQuery, query, hasQuery := strings.Cut(base, "?")
+	withoutFragment, fragment, hasFragment := strings.Cut(withoutQuery, "#")
+	trimmed := strings.TrimRight(withoutFragment, "/")
+	joined := trimmed + readyPath
+	if hasQuery {
+		joined += "?" + query
+	}
+	if hasFragment {
+		joined += "#" + fragment
+	}
+	return joined
 }
 
 type runEnvOverlay struct {

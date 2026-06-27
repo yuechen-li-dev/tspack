@@ -316,3 +316,7 @@ requires: [
 ```
 
 Service names must be non-empty and unique per RunTarget. Exactly one endpoint kind is allowed. TCP endpoints use `host:port`; HTTP endpoints must use `http://` or `https://`.
+
+### RunTarget readiness URL placeholders
+
+HTTP RunTargets may include `${NAME}` placeholders in `url` so readiness follows resolved `Env(...)` values such as ports. Placeholder names use the same portable env variable shape as `Env(...)`. Values are resolved at `tspack run` time after host env, `--env` overlays, and RunTarget defaults. Secret env values cannot be interpolated into readiness URLs.

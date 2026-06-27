@@ -90,3 +90,9 @@ dependency checks, NestJS migration/templates, and OpenAPI/artifact targets.
 M59d adds `examples/nestjs-service/`, a minimal generic NestJS backend service example that combines the existing backend primitives without adding new product behavior. The example uses `kind: "service"`, manifest-declared `Env(...)` contracts, an optional external `Service(...)` requirement, explicit RunTargets, and a short friction report.
 
 M59d intentionally remains an example milestone, not a template or migration milestone. It does not add Docker Compose orchestration, database startup, OpenAPI generation, deployment targets, service package pack artifacts, npm script fallback, or package-manager behavior changes. Future NestJS template/migration work remains separate and should use the dogfooding findings as input.
+
+## M59e backend RunTarget friction fixes
+
+M59e completes the immediate backend RunTarget friction fixes from the NestJS service example: HTTP readiness URLs support `${PORT}`-style env interpolation, `tspack run --preflight-only` validates env and external `Service(...)` dependencies without starting the command, and docs/examples clarify that `Service(...)` is an external dependency preflight while `ready` is the target's own post-start health signal.
+
+Future backend work remains deliberately out of scope: `.env` loading, strict env scrubbing, runtime env tracing, Docker Compose or service orchestration, OpenAPI/artifact targets, service package artifacts, and composable template concepts.
