@@ -43,9 +43,10 @@ M60 starts the transition from concepts as template metadata toward concepts as 
 
 M60a is design only and is recorded in `docs/design/concept-fragment-composition.md`. It does not implement a fragment engine, built-in registry, local custom concepts, template migration, overlays, command execution, remote concepts, package installation during init, or package-manager behavior changes.
 
+M60b adds the internal `internal/concepts` fragment model, Go-embedded built-in registry, graph resolver, merge engine, `MergedConceptIR`, and deterministic merge diagnostics. It remains dormant infrastructure: static, React app, and React library templates are not migrated, no public custom concept files are accepted, and generated template output is unchanged.
+
 Planned follow-up phases:
 
-- M60b: internal concept fragment model and registry for a tiny built-in subset, with no public custom concepts yet.
 - M60c: migrate static template manifest generation to concept fragments.
 - M60d: migrate the React app template to concept fragments.
 - M60e: migrate the React library template to concept fragments.
