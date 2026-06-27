@@ -21,7 +21,7 @@ RunTarget lifecycle semantics are explicit:
 
 ## Listing targets
 
-`tspack run --list` prints declared run targets without starting any process. Targets are grouped by package and show runtime, command, URL, effective cwd policy/path, and readiness policy.
+`tspack run --list` prints declared run targets without starting any process. Targets are grouped by package and show the package kind, runtime, command, URL, effective cwd policy/path, and readiness policy.
 
 `tspack run --list --json` writes a machine-readable payload to stdout only:
 
@@ -35,6 +35,7 @@ RunTarget lifecycle semantics are explicit:
     {
       "id": "@prisma-ui/demo:dev",
       "package": "@prisma-ui/demo",
+      "packageKind": "service",
       "name": "dev",
       "runtime": "system",
       "command": ["node", "packages/demo/server.js"],
@@ -51,6 +52,11 @@ RunTarget lifecycle semantics are explicit:
 Use `--package <package-name>` with `--list` to show only one package's targets. `--list` rejects positional targets, `--once`, and `--env` because listing never starts a process and has no child execution environment.
 
 Targets without `ready` are listed as `ready: none (finite target)`.
+
+Service packages are a natural home for RunTargets that combine `Env(...)`
+environment contracts and `Service(...)` TCP/HTTP preflight requirements. The
+`service` package kind is only classification in M59c; it does not start
+dependent services or change RunTarget execution.
 
 ## Target identity and selection
 

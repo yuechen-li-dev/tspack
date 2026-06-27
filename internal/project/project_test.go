@@ -1208,6 +1208,33 @@ func DefaultOptionsWithIR(dir, irPath string) Options {
 	o.ManifestIRPath = irPath
 	return o
 }
+
+func TestPackServicePackageUnsupportedClearly(t *testing.T) {
+	dir := t.TempDir()
+	ir := map[string]any{
+		"format":    1,
+		"workspace": map[string]any{"name": "ws"},
+		"packages": []map[string]any{
+			{
+				"name":         "api",
+				"version":      "1.0.0",
+				"kind":         "service",
+				"dependencies": []map[string]any{},
+				"targets":      []map[string]any{},
+				"tools":        []string{},
+				"boundaries":   []any{},
+				"publish":      map[string]any{"include": []string{}, "exclude": []string{}},
+				"policies":     map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}},
+			},
+		},
+	}
+	irPath := writeIR(t, dir, ir)
+	result := Pack(DefaultOptionsWithIR(dir, irPath), PackOptions{PackageName: "api", DryRun: true})
+	if !hasErrCode(result.Diagnostics, "TSPACK_PACK_UNSUPPORTED_PACKAGE_KIND") {
+		t.Fatalf("expected unsupported service package kind diagnostic, got %#v", result.Diagnostics)
+	}
+}
+
 func readEntries(t *testing.T, path string) []string {
 	t.Helper()
 	b, _ := os.ReadFile(path)

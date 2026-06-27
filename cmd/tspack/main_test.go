@@ -4310,7 +4310,7 @@ func TestCLIRunListAndPackageScoping(t *testing.T) {
 	markerPath := filepath.Join(root, "started.txt")
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "marker.js"), []byte("require('fs').writeFileSync('started.txt', 'started')\n"), 0o644)
-	stubIR := `{format:1,workspace:{name:"ws"},packages:[{name:"@prisma-ui/demo",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","marker.js"],url:"http://127.0.0.1:5991",ready:{kind:"http",path:"/"}},{name:"preview",runtime:"node",command:["vite","preview"],url:"http://127.0.0.1:5992",ready:{kind:"http",path:"/"}}]},{name:"@prisma-ui/docs",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","docs-server.js"],url:"http://127.0.0.1:5993",ready:{kind:"http",path:"/"}}]}]}`
+	stubIR := `{format:1,workspace:{name:"ws"},packages:[{name:"@prisma-ui/demo",version:"1.0.0",kind:"service",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","marker.js"],url:"http://127.0.0.1:5991",ready:{kind:"http",path:"/"}},{name:"preview",runtime:"node",command:["vite","preview"],url:"http://127.0.0.1:5992",ready:{kind:"http",path:"/"}}]},{name:"@prisma-ui/docs",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","docs-server.js"],url:"http://127.0.0.1:5993",ready:{kind:"http",path:"/"}}]}]}`
 	writeRunFrontendStub(t, stubIR)
 
 	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--list")
@@ -4322,7 +4322,7 @@ func TestCLIRunListAndPackageScoping(t *testing.T) {
 	out := string(b)
 	for _, expected := range []string{
 		"Run targets",
-		"@prisma-ui/demo",
+		"@prisma-ui/demo (service)",
 		"dev",
 		"preview",
 		"@prisma-ui/docs",
@@ -4359,10 +4359,11 @@ func TestCLIRunListAndPackageScoping(t *testing.T) {
 		Mode    string `json:"mode"`
 		Package string `json:"package"`
 		Targets []struct {
-			ID      string   `json:"id"`
-			Package string   `json:"package"`
-			Name    string   `json:"name"`
-			Command []string `json:"command"`
+			ID          string   `json:"id"`
+			Package     string   `json:"package"`
+			PackageKind string   `json:"packageKind"`
+			Name        string   `json:"name"`
+			Command     []string `json:"command"`
 		} `json:"targets"`
 	}
 	if err := json.Unmarshal([]byte(stdout.String()), &payload); err != nil {
@@ -4373,6 +4374,9 @@ func TestCLIRunListAndPackageScoping(t *testing.T) {
 	}
 	if payload.Targets[0].ID != "@prisma-ui/demo:dev" || payload.Targets[1].ID != "@prisma-ui/demo:preview" {
 		t.Fatalf("unexpected target ids: %+v", payload.Targets)
+	}
+	if payload.Targets[0].PackageKind != "service" || payload.Targets[1].PackageKind != "service" {
+		t.Fatalf("unexpected package kinds: %+v", payload.Targets)
 	}
 }
 
