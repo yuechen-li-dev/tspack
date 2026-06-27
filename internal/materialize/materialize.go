@@ -3,6 +3,7 @@ package materialize
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/graph"
@@ -60,6 +62,27 @@ const markerFile = ".tspack-materialized"
 
 const maxMaterializeDependencyDepth = 64
 
+type materializeFileLockError struct {
+	Op       string
+	Path     string
+	Attempts int
+	Err      error
+}
+
+func (e *materializeFileLockError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s %s: %v", e.Op, e.Path, e.Err)
+}
+
+func (e *materializeFileLockError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
 func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) Result {
 	_ = ctx
 	out := Result{}
@@ -78,15 +101,19 @@ func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) R
 	nmRoot := filepath.Join(req.WorkspaceRoot, "node_modules")
 	if req.Options.Clean {
 		if err := cleanNodeModules(nmRoot); err != nil {
-			out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_CLEAN_REFUSED", Severity: diag.SeverityError, File: nmRoot, Message: err.Error()})
+			out.Diagnostics = append(out.Diagnostics, materializeDiagnosticFromError(err, "", nmRoot, ""))
 			return finalize(out)
 		}
 	}
-	if err := os.MkdirAll(nmRoot, 0o755); err != nil {
+	if err := retryMaterializeFileOp("mkdir", nmRoot, func() error {
+		return os.MkdirAll(nmRoot, 0o755)
+	}); err != nil {
 		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_WRITE_FAILED", Severity: diag.SeverityError, File: nmRoot, Message: err.Error()})
 		return finalize(out)
 	}
-	_ = os.WriteFile(filepath.Join(nmRoot, markerFile), []byte("generated_by=tspack\nmaterializer=node_modules\nversion=1\n"), 0o644)
+	_ = retryMaterializeFileOp("write", filepath.Join(nmRoot, markerFile), func() error {
+		return os.WriteFile(filepath.Join(nmRoot, markerFile), []byte("generated_by=tspack\nmaterializer=node_modules\nversion=1\n"), 0o644)
+	})
 
 	pkgs := map[string]lockfile.Package{}
 	for _, p := range req.Lock.Packages {
@@ -238,7 +265,7 @@ func materializePkg(req Request, out *Result, pkgs map[string]lockfile.Package, 
 		return
 	}
 	if err := copyTree(ref.ExtractedPath, dest); err != nil {
-		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_WRITE_FAILED", Severity: diag.SeverityError, Message: err.Error(), Details: []string{pkg.ID, dest}})
+		out.Diagnostics = append(out.Diagnostics, materializeDiagnosticFromError(err, pkg.ID, dest, pkg.Name))
 		return
 	}
 	out.Written = append(out.Written, WrittenPath{Path: dest, Kind: "package", PackageID: pkg.ID})
@@ -301,64 +328,193 @@ func cleanNodeModules(nmRoot string) error {
 	if _, err := os.Stat(marker); err != nil {
 		return fmt.Errorf("refusing to clean unmanaged node_modules (missing %s)", markerFile)
 	}
-	return os.RemoveAll(nmRoot)
+	return removeMaterializedPath(nmRoot)
 }
 
 func copyTree(src, dest string) error {
-	if err := os.RemoveAll(dest); err != nil {
-		return err
-	}
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		out := filepath.Join(dest, rel)
-		if info.IsDir() {
+	return replaceMaterializedDirectory(dest, func(stage string) error {
+		return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			rel, err := filepath.Rel(src, path)
+			if err != nil {
+				return err
+			}
+			out := filepath.Join(stage, rel)
+			if info.IsDir() {
+				mode := info.Mode().Perm()
+				if mode == 0 {
+					mode = 0o755
+				}
+				return retryMaterializeFileOp("mkdir", out, func() error {
+					return os.MkdirAll(out, mode)
+				})
+			}
+			if err := retryMaterializeFileOp("mkdir", filepath.Dir(out), func() error {
+				return os.MkdirAll(filepath.Dir(out), 0o755)
+			}); err != nil {
+				return err
+			}
+			in, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer in.Close()
 			mode := info.Mode().Perm()
 			if mode == 0 {
-				mode = 0o755
+				mode = 0o644
 			}
-			return os.MkdirAll(out, mode)
-		}
-		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
-			return err
-		}
-		in, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer in.Close()
-		mode := info.Mode().Perm()
-		if mode == 0 {
-			mode = 0o644
-		}
-		f, err := os.OpenFile(out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		_, err = io.Copy(f, in)
-		if err != nil {
-			return err
-		}
-		return os.Chmod(out, mode)
+			f, err := openMaterializedFileForWrite(out, mode)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			if _, err := io.Copy(f, in); err != nil {
+				return err
+			}
+			return retryMaterializeFileOp("chmod", out, func() error {
+				return os.Chmod(out, mode)
+			})
+		})
 	})
+}
+
+func replaceMaterializedDirectory(dest string, populate func(stage string) error) error {
+	parent := filepath.Dir(dest)
+	if err := retryMaterializeFileOp("mkdir", parent, func() error {
+		return os.MkdirAll(parent, 0o755)
+	}); err != nil {
+		return err
+	}
+	stage, err := os.MkdirTemp(parent, filepath.Base(dest)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	keepStage := true
+	defer func() {
+		if keepStage {
+			_ = os.RemoveAll(stage)
+		}
+	}()
+	if err := populate(stage); err != nil {
+		return err
+	}
+	if err := removeMaterializedPath(dest); err != nil {
+		return err
+	}
+	if err := retryMaterializeFileOp("rename", dest, func() error {
+		return os.Rename(stage, dest)
+	}); err != nil {
+		return err
+	}
+	keepStage = false
+	return nil
+}
+
+func removeMaterializedPath(path string) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil
+	}
+	return retryMaterializeFileOp("remove", path, func() error {
+		return os.RemoveAll(path)
+	})
+}
+
+func openMaterializedFileForWrite(path string, mode os.FileMode) (*os.File, error) {
+	var out *os.File
+	err := retryMaterializeFileOp("write", path, func() error {
+		f, openErr := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+		if openErr != nil {
+			return openErr
+		}
+		out = f
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func retryMaterializeFileOp(op string, path string, fn func() error) error {
+	err := fn()
+	if err == nil || !materializeFileLockRetriesEnabled || !isTransientMaterializeLockErr(err) {
+		return err
+	}
+	backoff := []time.Duration{
+		50 * time.Millisecond,
+		100 * time.Millisecond,
+		150 * time.Millisecond,
+		200 * time.Millisecond,
+		250 * time.Millisecond,
+		300 * time.Millisecond,
+		400 * time.Millisecond,
+		500 * time.Millisecond,
+	}
+	lastErr := err
+	for _, delay := range backoff {
+		time.Sleep(delay)
+		lastErr = fn()
+		if lastErr == nil {
+			return nil
+		}
+		if !isTransientMaterializeLockErr(lastErr) {
+			return lastErr
+		}
+	}
+	return &materializeFileLockError{
+		Op:       op,
+		Path:     path,
+		Attempts: len(backoff) + 1,
+		Err:      lastErr,
+	}
+}
+
+func materializeDiagnosticFromError(err error, packageID string, file string, packageName string) diag.Diagnostic {
+	var locked *materializeFileLockError
+	if errors.As(err, &locked) {
+		details := []string{
+			"operation=" + locked.Op,
+			"path=" + locked.Path,
+			fmt.Sprintf("attempts=%d", locked.Attempts),
+			locked.Err.Error(),
+		}
+		if packageID != "" {
+			details = append(details, "package="+packageID)
+		}
+		if packageName != "" {
+			details = append(details, "packageName="+packageName)
+		}
+		return diag.Diagnostic{
+			Code:     "TSPACK_MATERIALIZE_FILE_LOCKED",
+			Severity: diag.SeverityError,
+			File:     locked.Path,
+			Message:  "materialization could not replace a locked file after bounded retries",
+			Details:  details,
+			Fixes: []string{
+				"Stop `tspack run dev` or other dev servers using this workspace.",
+				"Close processes using node, esbuild, or vite for this project, then rerun `tspack sync`.",
+				"Use `tspack sync --clean` after stopping file holders when the materialized tree is stale.",
+				"Editors, extension hosts, or antivirus may hold executables briefly; wait a moment and retry if the lock should be transient.",
+			},
+		}
+	}
+	if strings.HasPrefix(err.Error(), "refusing to clean unmanaged node_modules") {
+		return diag.Diagnostic{Code: "TSPACK_MATERIALIZE_CLEAN_REFUSED", Severity: diag.SeverityError, File: file, Message: err.Error()}
+	}
+	details := []string{}
+	if packageID != "" {
+		details = append(details, packageID)
+	}
+	if file != "" {
+		details = append(details, file)
+	}
+	return diag.Diagnostic{Code: "TSPACK_MATERIALIZE_WRITE_FAILED", Severity: diag.SeverityError, File: file, Message: err.Error(), Details: details}
 }
 
 func materializeRootBins(req Request, out *Result, nmRoot string, pkgs map[string]lockfile.Package) {
 	binsRoot := filepath.Join(nmRoot, ".bin")
-	if err := os.RemoveAll(binsRoot); err != nil {
-		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_BIN_WRITE_FAILED", Severity: diag.SeverityError, File: binsRoot, Message: err.Error()})
-		return
-	}
-	if err := os.MkdirAll(binsRoot, 0o755); err != nil {
-		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_BIN_WRITE_FAILED", Severity: diag.SeverityError, File: binsRoot, Message: err.Error()})
-		return
-	}
 	type candidate struct{ pkgName, absPath, relPath string }
 	candidates := map[string]candidate{}
 	ids := make([]string, 0, len(pkgs))
@@ -396,24 +552,35 @@ func materializeRootBins(req Request, out *Result, nmRoot string, pkgs map[strin
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	for _, name := range names {
-		cand := candidates[name]
-		targetRel := filepath.ToSlash(filepath.Join("..", cand.pkgName, filepath.FromSlash(cand.relPath)))
-		binPath := filepath.Join(binsRoot, name)
-		if runtime.GOOS == "windows" {
-			content := "@ECHO off\r\nnode \"%~dp0\\" + strings.ReplaceAll(targetRel, "/", "\\") + "\" %*\r\n"
-			if err := os.WriteFile(binPath+".cmd", []byte(content), 0o644); err != nil {
-				out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_BIN_WRITE_FAILED", Severity: diag.SeverityError, File: binPath + ".cmd", Message: err.Error()})
+	if err := replaceMaterializedDirectory(binsRoot, func(stage string) error {
+		for _, name := range names {
+			cand := candidates[name]
+			targetRel := filepath.ToSlash(filepath.Join("..", cand.pkgName, filepath.FromSlash(cand.relPath)))
+			binPath := filepath.Join(stage, name)
+			if runtime.GOOS == "windows" {
+				content := "@ECHO off\r\nnode \"%~dp0\\" + strings.ReplaceAll(targetRel, "/", "\\") + "\" %*\r\n"
+				if err := retryMaterializeFileOp("write", binPath+".cmd", func() error {
+					return os.WriteFile(binPath+".cmd", []byte(content), 0o644)
+				}); err != nil {
+					return err
+				}
+				continue
 			}
-			continue
-		}
-		if err := os.Symlink(targetRel, binPath); err != nil {
-			content := "#!/usr/bin/env sh\nDIR=\"$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\"\nexec \"$DIR/" + targetRel + "\" \"$@\"\n"
-			if writeErr := os.WriteFile(binPath, []byte(content), 0o755); writeErr != nil {
-				out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_BIN_WRITE_FAILED", Severity: diag.SeverityError, File: binPath, Message: writeErr.Error()})
+			if err := os.Symlink(targetRel, binPath); err != nil {
+				content := "#!/usr/bin/env sh\nDIR=\"$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\"\nexec \"$DIR/" + targetRel + "\" \"$@\"\n"
+				if writeErr := retryMaterializeFileOp("write", binPath, func() error {
+					return os.WriteFile(binPath, []byte(content), 0o755)
+				}); writeErr != nil {
+					return writeErr
+				}
 			}
+			_ = retryMaterializeFileOp("chmod", cand.absPath, func() error {
+				return os.Chmod(cand.absPath, 0o755)
+			})
 		}
-		_ = os.Chmod(cand.absPath, 0o755)
+		return nil
+	}); err != nil {
+		out.Diagnostics = append(out.Diagnostics, materializeDiagnosticFromError(err, "", binsRoot, ""))
 	}
 }
 

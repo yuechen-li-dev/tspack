@@ -171,6 +171,7 @@ Page/analyzer:
 ## Materializer graph safety diagnostics (M53c)
 
 - `TSPACK_MATERIALIZE_PATH_DEPTH_EXCEEDED`: materialization exceeded the dependency-path safety limit. Details include the package key, current depth, maximum depth, partial package path, and a hint that the cause is likely a dependency cycle or materializer traversal bug. Current cycle handling should prevent ordinary circular dependencies from reaching this guard.
+- `TSPACK_MATERIALIZE_FILE_LOCKED`: on Windows, bounded retries still could not replace a locked materialized file or directory. Details include the operation, path, retry count, and package when available. Typical holders are dev servers, `node`/`esbuild`/`vite` child processes, editor integrations, or antivirus.
 - `TSPACK_MATERIALIZE_WRITE_FAILED`: materialization could not write package content. File-name-too-long errors may indicate an old materializer recursion bug or an unexpected unbounded path; current materialization guards dependency cycles and reports path-depth overflow before OS path limits where possible.
 
 ## Native import loader diagnostics (M29)

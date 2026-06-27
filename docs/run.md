@@ -2,6 +2,8 @@
 
 `tspack run` launches declared runtime targets from the manifest.
 
+RunTargets are manifest-declared runtime targets. `tspack run` is intentionally not `npm run` and does not fall back to `package.json` scripts.
+
 ## Usage
 - `tspack run`
 - `tspack run <target>`
@@ -314,6 +316,8 @@ The `URL:` line is printed when the RunTarget also declares `url`.
 ## Local tool-bin behavior
 
 For `node` runtime launches, local compatibility tool resolution depends on strict materialized `node_modules/.bin` entries generated from root-visible dependencies only. `tspack sync` owns those shims, and `tspack run` prepends that project tool bin before the host `PATH`. TSPack does not infer npm scripts and does not expose transitive-only bins at root.
+
+On Windows, if `tspack sync` reports `TSPACK_MATERIALIZE_FILE_LOCKED`, stop the relevant dev server or `node`/`esbuild`/`vite` process and rerun `tspack sync`. Use `tspack sync --clean` after stopping file holders when the materialized tree is stale. Global tool installs are not the intended fix.
 
 ## Related docs
 

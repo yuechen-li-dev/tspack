@@ -42,6 +42,8 @@ Generated root includes marker:
 
 When `Clean=true`, materializer only deletes `node_modules` if marker exists. Without marker it refuses clean to avoid deleting unmanaged user directories.
 
+On Windows, package and `.bin` materialization now stage into temporary sibling directories and then swap into place. Replace/remove/write operations use bounded retries for transient locked-file cases such as `ERROR_ACCESS_DENIED`, `ERROR_SHARING_VIOLATION`, and `ERROR_LOCK_VIOLATION`.
+
 ## Store verification
 
 Before writing package content, materializer:

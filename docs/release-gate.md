@@ -973,6 +973,12 @@ The 0.1.0 release gate includes cold-update throughput hardening for `tspack upd
 
 - On Windows, npm tarball extraction preserves package contents under the store extracted root rather than dropping files because of path separator handling.
 - `tspack sync` materializes root-visible project tool shims into `node_modules/.bin`, including Windows `.cmd` shims for commands such as `vite` and `tsc`.
+
+## M58e Windows materialization file-lock dogfood gate
+
+- From `C:\Users\yuech\source\repos\yuechen-li-dev.github.io`, `C:\Users\yuech\source\repos\tspack\dist\tspack.exe update`, `sync`, `run dev --once --ready-timeout 20`, `run build`, `check`, and `check --format` converge without npm-script fallback.
+- Windows materialization retries transient locked-file replace/remove/write failures and reports `TSPACK_MATERIALIZE_FILE_LOCKED` with actionable guidance when retries are exhausted.
+- `tspack sync --clean` either rebuilds successfully or fails with the same clear locked-file diagnostic; it must not silently leave a half-cleaned tree.
 - `tspack run` for `runtime: "node"` prepends the project tool bin before host `PATH` and can resolve Windows `.cmd` shims without global installs or manual PATH edits.
 - Generated `react` apps pass `tspack update`, `tspack sync`, `tspack run build`, and `tspack run dev` on Windows.
 - Generated `react-library` projects pass `tspack update`, `tspack sync`, `tspack run typecheck`, `tspack run build`, and `tspack run build-types` on Windows.
