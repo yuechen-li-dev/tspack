@@ -84,3 +84,9 @@ unsupported rather than inventing service deployment artifacts.
 Future service work may add deeper package-kind service validation, service
 deployment artifacts, Docker Compose/service orchestration, inter-service
 dependency checks, NestJS migration/templates, and OpenAPI/artifact targets.
+
+## M59d NestJS service dogfooding example
+
+M59d adds `examples/nestjs-service/`, a minimal generic NestJS backend service example that combines the existing backend primitives without adding new product behavior. The example uses `kind: "service"`, manifest-declared `Env(...)` contracts, an optional external `Service(...)` requirement, explicit RunTargets, and a short friction report.
+
+M59d intentionally remains an example milestone, not a template or migration milestone. It does not add Docker Compose orchestration, database startup, OpenAPI generation, deployment targets, service package pack artifacts, npm script fallback, or package-manager behavior changes. Future NestJS template/migration work remains separate and should use the dogfooding findings as input.
