@@ -8,6 +8,13 @@ Run the canonical bridge build before repository-root Go CLI dogfood or release 
 cd manifest-frontend && npm run build
 ```
 
+Windows-friendly equivalent from the repository root:
+
+```powershell
+npm --prefix manifest-frontend run build
+go build -o .\dist\tspack.exe .\cmd\tspack
+```
+
 That build emits the current bridge layout:
 
 - `manifest-frontend/dist/cli.js` for manifest parsing and migration checks.
@@ -15,6 +22,16 @@ That build emits the current bridge layout:
 - `manifest-frontend/dist/inspect-cli.js` for `tspack inspect`.
 
 Go bridge discovery prefers the current `dist/<bridge>.js` files and accepts legacy `dist/src/<bridge>.js` files for older dev flows. Do not rely on a failing full `tsc -p tsconfig.json` compile to create bridge artifacts.
+
+Local/dev TSPack binaries must resolve those bridge files from TSPack-owned locations, not from the managed project root. The manifest frontend CLI resolution order is:
+
+1. `TSPACK_MANIFEST_FRONTEND=<path-to-cli.js>` override.
+2. Embedded bridge assets in release builds that include `tspack_embedded_bridges`.
+3. Local/dev bridge candidates relative to the `tspack` executable, local shared-install paths, and the detected TSPack source repository when the executable or cwd is inside that repo.
+
+Running `C:\path\to\tspack\dist\tspack.exe` from another repository should therefore load `manifest-frontend/dist/cli.js` from the TSPack repo or embedded assets, not from `<managed-project>\manifest-frontend\dist\cli.js`.
+
+If the manifest frontend cannot be found, `TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED` now reports the project root, process cwd, `tspack` executable path, frontend override status, embedded frontend status, and every candidate path tried.
 
 ## Windows local test path
 

@@ -2370,3 +2370,78 @@ func writeDogfoodSourceFiles(t *testing.T, dir string) {
 		}
 	}
 }
+
+func TestLoadManifestIRMissingFrontendDiagnosticIncludesResolutionContext(t *testing.T) {
+	dir := t.TempDir()
+	overridePath := filepath.Join(dir, "missing", "cli.js")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND", overridePath)
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_CLI", "")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR", "")
+	writeManifestFixture(t, dir)
+
+	_, diagnostics := loadManifestIR(DefaultOptions(dir))
+	diagnostic := findDiagnostic(diagnostics, "TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED")
+	if diagnostic == nil {
+		t.Fatalf("expected manifest frontend failure, got %#v", diagnostics)
+	}
+	details := strings.Join(diagnostic.Details, "\n")
+	for _, expected := range []string{
+		"project root: " + dir,
+		"frontend override: TSPACK_MANIFEST_FRONTEND=" + overridePath,
+		"embedded frontend:",
+		"frontend path candidates tried:",
+		overridePath,
+	} {
+		if !strings.Contains(details, expected) {
+			t.Fatalf("missing detail %q in %#v", expected, diagnostic.Details)
+		}
+	}
+	if strings.Contains(details, filepath.Join(dir, "manifest-frontend", "dist", "cli.js")) {
+		t.Fatalf("diagnostic should not mention project-root frontend candidate: %#v", diagnostic.Details)
+	}
+}
+
+func TestLoadManifestIRNodeFailureIncludesSelectedFrontendPath(t *testing.T) {
+	dir := t.TempDir()
+	frontendPath := filepath.Join(dir, "frontend", "cli.js")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND", frontendPath)
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_CLI", "")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR", "")
+	writeManifestFixture(t, dir)
+	writeManifestTestFile(t, frontendPath, "throw new Error('frontend boom');\n")
+
+	_, diagnostics := loadManifestIR(DefaultOptions(dir))
+	diagnostic := findDiagnostic(diagnostics, "TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED")
+	if diagnostic == nil {
+		t.Fatalf("expected manifest frontend failure, got %#v", diagnostics)
+	}
+	if diagnostic.Message != "manifest frontend failed" {
+		t.Fatalf("unexpected diagnostic message: %#v", diagnostic)
+	}
+	details := strings.Join(diagnostic.Details, "\n")
+	for _, expected := range []string{
+		"selected frontend path: " + frontendPath,
+		"node execution error:",
+		"node stderr:",
+		"frontend boom",
+	} {
+		if !strings.Contains(details, expected) {
+			t.Fatalf("missing detail %q in %#v", expected, diagnostic.Details)
+		}
+	}
+}
+
+func writeManifestFixture(t *testing.T, dir string) {
+	t.Helper()
+	writeManifestTestFile(t, filepath.Join(dir, "manifest.tsx"), "export default {};\n")
+}
+
+func writeManifestTestFile(t *testing.T, path string, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir project dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write project file: %v", err)
+	}
+}

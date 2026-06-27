@@ -7,34 +7,108 @@ import (
 	"testing"
 )
 
-func TestResolveFilesystemPrefersCurrentDistPath(t *testing.T) {
+func TestResolveFilesystemPrefersExecutableRelativeDevPath(t *testing.T) {
+	t.Setenv("TSPACK_MANIFEST_FRONTEND", "")
 	t.Setenv("TSPACK_MANIFEST_FRONTEND_CLI", "")
 	t.Setenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR", "")
-	root := t.TempDir()
-	withWorkingDirectory(t, root)
 
-	current := filepath.Join("manifest-frontend", "dist", "cli.js")
-	legacy := filepath.Join("manifest-frontend", "dist", "src", "cli.js")
-	writeTestBridge(t, current, "current")
+	repo := t.TempDir()
+	projectRoot := t.TempDir()
+	executablePath := filepath.Join(repo, "dist", "tspack.exe")
+	expected := filepath.Join(repo, "manifest-frontend", "dist", "cli.js")
+	legacy := filepath.Join(repo, "manifest-frontend", "dist", "src", "cli.js")
+	writeTestBridge(t, expected, "current")
 	writeTestBridge(t, legacy, "legacy")
 
-	resolution := ResolveFilesystem("cli.js")
-	if resolution.Path != current {
-		t.Fatalf("expected current bridge %q, got %#v", current, resolution)
+	resolution := ResolveWithOptions("cli.js", ResolveOptions{
+		CWD:            projectRoot,
+		ExecutablePath: executablePath,
+		ProjectRoot:    projectRoot,
+		SourceRepoRoot: repo,
+	})
+	if resolution.Path != expected {
+		t.Fatalf("expected executable-relative bridge %q, got %#v", expected, resolution)
+	}
+	if resolution.SelectedSource != "executable-parent" {
+		t.Fatalf("expected executable-parent source, got %#v", resolution)
+	}
+}
+
+func TestResolveFilesystemDoesNotUseProjectRootAsFrontendCandidate(t *testing.T) {
+	t.Setenv("TSPACK_MANIFEST_FRONTEND", "")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_CLI", "")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR", "")
+
+	repo := t.TempDir()
+	projectRoot := t.TempDir()
+	executablePath := filepath.Join(repo, "dist", "tspack.exe")
+	projectCandidate := filepath.Join(projectRoot, "manifest-frontend", "dist", "cli.js")
+
+	resolution := ResolveWithOptions("cli.js", ResolveOptions{
+		CWD:            projectRoot,
+		ExecutablePath: executablePath,
+		ProjectRoot:    projectRoot,
+		SourceRepoRoot: repo,
+	})
+	if resolution.Path != "" {
+		t.Fatalf("expected missing bridge, got %#v", resolution)
+	}
+	joined := strings.Join(resolution.SearchedPaths, "\n")
+	if strings.Contains(joined, projectCandidate) {
+		t.Fatalf("project root candidate should not be searched: %#v", resolution.SearchedPaths)
+	}
+}
+
+func TestResolveFilesystemOverrideWins(t *testing.T) {
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR", "")
+	overridePath := filepath.Join(t.TempDir(), "custom", "cli.js")
+	writeTestBridge(t, overridePath, "override")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND", overridePath)
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_CLI", filepath.Join(t.TempDir(), "legacy", "cli.js"))
+
+	resolution := ResolveWithOptions("cli.js", ResolveOptions{})
+	if resolution.Path != overridePath {
+		t.Fatalf("expected override bridge %q, got %#v", overridePath, resolution)
+	}
+	if resolution.OverrideEnv != "TSPACK_MANIFEST_FRONTEND" {
+		t.Fatalf("expected canonical override env, got %#v", resolution)
+	}
+}
+
+func TestResolveFilesystemMissingOverrideStopsSearch(t *testing.T) {
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR", "")
+	overridePath := filepath.Join(t.TempDir(), "missing", "cli.js")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND", overridePath)
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_CLI", "")
+
+	resolution := ResolveWithOptions("cli.js", ResolveOptions{
+		CWD:            t.TempDir(),
+		ExecutablePath: filepath.Join(t.TempDir(), "dist", "tspack.exe"),
+		SourceRepoRoot: t.TempDir(),
+	})
+	if resolution.Path != "" {
+		t.Fatalf("expected missing override to fail, got %#v", resolution)
+	}
+	if len(resolution.SearchedPaths) != 1 || resolution.SearchedPaths[0] != overridePath {
+		t.Fatalf("expected missing override to short-circuit search, got %#v", resolution.SearchedPaths)
 	}
 }
 
 func TestResolveFilesystemReportsBuildInstructions(t *testing.T) {
-	root := t.TempDir()
-	withWorkingDirectory(t, root)
-
-	resolution := ResolveFilesystem("native-test-cli.js")
+	resolution := ResolveWithOptions("native-test-cli.js", ResolveOptions{
+		CWD:            t.TempDir(),
+		ExecutablePath: filepath.Join(t.TempDir(), "dist", "tspack.exe"),
+		SourceRepoRoot: t.TempDir(),
+	})
 	message := MissingMessage("TSPACK_TEST_XTEST_BRIDGE_MISSING", "native xTest bridge", resolution)
-	if !strings.Contains(message, "cd manifest-frontend && npm run build") {
-		t.Fatalf("missing build instruction in %q", message)
-	}
-	if !strings.Contains(message, "./scripts/build-release.sh") {
-		t.Fatalf("missing release build instruction in %q", message)
+	for _, expected := range []string{
+		"npm --prefix manifest-frontend run build",
+		"./scripts/build-release.sh",
+		"TSPACK_MANIFEST_FRONTEND=<path-to-cli.js>",
+	} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("missing build instruction %q in %q", expected, message)
+		}
 	}
 }
 
@@ -46,16 +120,4 @@ func writeTestBridge(t *testing.T, path string, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write bridge: %v", err)
 	}
-}
-
-func withWorkingDirectory(t *testing.T, dir string) {
-	t.Helper()
-	previous, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get cwd: %v", err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(previous) })
 }

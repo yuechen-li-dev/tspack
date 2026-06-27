@@ -7,66 +7,58 @@ import (
 	"testing"
 )
 
-func TestFindManifestFrontendBridgePrefersCurrentDistPath(t *testing.T) {
-	t.Setenv("TSPACK_MANIFEST_FRONTEND_CLI", "")
+func TestFindManifestFrontendBridgeUsesCanonicalOverride(t *testing.T) {
 	t.Setenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR", "")
-	for _, bridgeName := range []string{"cli.js", "inspect-cli.js", "native-test-cli.js"} {
-		t.Run(bridgeName, func(t *testing.T) {
-			root := t.TempDir()
-			withWorkingDirectory(t, root)
-			current := filepath.Join("manifest-frontend", "dist", bridgeName)
-			legacy := filepath.Join("manifest-frontend", "dist", "src", bridgeName)
-			writeBridgeFile(t, current)
-			writeBridgeFile(t, legacy)
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_CLI", "")
 
-			resolution := findManifestFrontendBridge(bridgeName)
-			if resolution.Path != current {
-				t.Fatalf("expected current dist path %q, got %#v", current, resolution)
-			}
-		})
+	overridePath := filepath.Join(t.TempDir(), "custom", "cli.js")
+	writeBridgeFile(t, overridePath)
+	t.Setenv("TSPACK_MANIFEST_FRONTEND", overridePath)
+
+	resolution := findManifestFrontendBridge("cli.js")
+	if resolution.Path != overridePath {
+		t.Fatalf("expected override path %q, got %#v", overridePath, resolution)
+	}
+	if resolution.OverrideEnv != "TSPACK_MANIFEST_FRONTEND" {
+		t.Fatalf("expected canonical override env, got %#v", resolution)
 	}
 }
 
-func TestFindManifestFrontendBridgeAcceptsLegacyDistSrcPath(t *testing.T) {
+func TestFindManifestFrontendBridgeAcceptsBridgeDirOverride(t *testing.T) {
+	t.Setenv("TSPACK_MANIFEST_FRONTEND", "")
 	t.Setenv("TSPACK_MANIFEST_FRONTEND_CLI", "")
-	t.Setenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR", "")
-	for _, bridgeName := range []string{"cli.js", "inspect-cli.js", "native-test-cli.js"} {
-		t.Run(bridgeName, func(t *testing.T) {
-			root := t.TempDir()
-			withWorkingDirectory(t, root)
-			legacy := filepath.Join("manifest-frontend", "dist", "src", bridgeName)
-			writeBridgeFile(t, legacy)
 
-			resolution := findManifestFrontendBridge(bridgeName)
-			if resolution.Path != legacy {
-				t.Fatalf("expected legacy dist/src path %q, got %#v", legacy, resolution)
-			}
-		})
+	overrideDir := filepath.Join(t.TempDir(), "bridges")
+	bridgePath := filepath.Join(overrideDir, "inspect-cli.js")
+	writeBridgeFile(t, bridgePath)
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR", overrideDir)
+
+	resolution := findManifestFrontendBridge("inspect-cli.js")
+	if resolution.Path != bridgePath {
+		t.Fatalf("expected override dir bridge %q, got %#v", bridgePath, resolution)
 	}
 }
 
-func TestFindManifestFrontendBridgeMissingListsSearchedPaths(t *testing.T) {
+func TestFindManifestFrontendBridgeMissingListsSearchedPathsWithoutProjectRootLeak(t *testing.T) {
+	t.Setenv("TSPACK_MANIFEST_FRONTEND", "")
 	t.Setenv("TSPACK_MANIFEST_FRONTEND_CLI", "")
 	t.Setenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR", "")
-	for _, bridgeName := range []string{"cli.js", "inspect-cli.js", "native-test-cli.js"} {
-		t.Run(bridgeName, func(t *testing.T) {
-			root := t.TempDir()
-			withWorkingDirectory(t, root)
 
-			resolution := findManifestFrontendBridge(bridgeName)
-			if resolution.Path != "" {
-				t.Fatalf("expected missing bridge, got %#v", resolution)
-			}
-			joined := strings.Join(resolution.SearchedPaths, "\n")
-			for _, expected := range []string{
-				filepath.Join("manifest-frontend", "dist", bridgeName),
-				filepath.Join("manifest-frontend", "dist", "src", bridgeName),
-			} {
-				if !strings.Contains(joined, expected) {
-					t.Fatalf("expected searched path %q in %#v", expected, resolution.SearchedPaths)
-				}
-			}
-		})
+	projectRoot := t.TempDir()
+	withWorkingDirectory(t, projectRoot)
+
+	resolution := findManifestFrontendBridge("cli.js")
+	if resolution.Path != "" {
+		t.Fatalf("expected missing bridge, got %#v", resolution)
+	}
+
+	projectCandidate := filepath.Join(projectRoot, "manifest-frontend", "dist", "cli.js")
+	joined := strings.Join(resolution.SearchedPaths, "\n")
+	if strings.Contains(joined, projectCandidate) {
+		t.Fatalf("project root candidate should not be searched: %#v", resolution.SearchedPaths)
+	}
+	if !strings.Contains(joined, "manifest-frontend") {
+		t.Fatalf("expected manifest frontend candidates in %#v", resolution.SearchedPaths)
 	}
 }
 
@@ -92,22 +84,4 @@ func withWorkingDirectory(t *testing.T, dir string) {
 	t.Cleanup(func() {
 		_ = os.Chdir(previous)
 	})
-}
-
-func repoRootForBridgePathTest(t *testing.T) string {
-	t.Helper()
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get cwd: %v", err)
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(cwd, "go.mod")); err == nil {
-			return cwd
-		}
-		parent := filepath.Dir(cwd)
-		if parent == cwd {
-			t.Fatalf("could not find repository root")
-		}
-		cwd = parent
-	}
 }

@@ -877,19 +877,48 @@ func loadManifestIR(opts Options) (*manifest.ManifestIR, []diag.Diagnostic) {
 		}
 		return manifest.LoadBytes(opts.ManifestIRPath, b)
 	}
+	resolution := bridge.ResolveWithOptions("cli.js", bridge.ResolveOptions{
+		ProjectRoot: opts.RootDir,
+	})
 	cliPath := opts.FrontendCLIPath
 	if cliPath == "" {
-		cliPath = manifestFrontendCLIPath()
+		cliPath = resolution.Path
+	}
+	if cliPath == "" {
+		details := append([]string{
+			"manifest frontend CLI not found",
+		}, bridge.ResolutionDetails(resolution)...)
+		if len(resolution.SearchedPaths) > 0 {
+			details = append(details, "frontend path candidates tried:")
+			for _, candidate := range resolution.SearchedPaths {
+				details = append(details, "  "+candidate)
+			}
+		}
+		details = append(details, bridge.BuildNeededDetails()...)
+		return nil, []diag.Diagnostic{errDiag("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", "manifest frontend CLI not found", details...)}
 	}
 	if _, err := os.Stat(cliPath); err != nil {
-		return nil, []diag.Diagnostic{errDiag("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", "manifest frontend CLI not found", strings.Join(bridge.BuildNeededDetails(), "\n"), cliPath)}
+		details := append([]string{
+			"selected frontend path: " + cliPath,
+			"selected frontend path error: " + err.Error(),
+		}, bridge.ResolutionDetails(resolution)...)
+		details = append(details, bridge.BuildNeededDetails()...)
+		return nil, []diag.Diagnostic{errDiag("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", "manifest frontend CLI not found", details...)}
 	}
 	cmd := exec.Command("node", cliPath, opts.ManifestPath)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, []diag.Diagnostic{{Code: "TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", Severity: diag.SeverityError, Message: "manifest frontend failed", Details: []string{err.Error(), stderr.String()}}}
+		details := append([]string{
+			"selected frontend path: " + cliPath,
+			"node execution error: " + err.Error(),
+		}, bridge.ResolutionDetails(resolution)...)
+		stderrText := strings.TrimSpace(stderr.String())
+		if stderrText != "" {
+			details = append(details, "node stderr:", stderrText)
+		}
+		return nil, []diag.Diagnostic{{Code: "TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", Severity: diag.SeverityError, Message: "manifest frontend failed", Details: details}}
 	}
 	var parsed struct {
 		OK          bool              `json:"ok"`

@@ -993,6 +993,37 @@ The 0.1.0 release gate includes cold-update throughput hardening for `tspack upd
   - `powershell -ExecutionPolicy Bypass -File .\tools\Run-GoTestMatrix.ps1`
   - `go test ./... -timeout 300s`
 
+## M58d local manifest frontend resolution hardening gate
+
+- A local/dev `tspack` binary run from a managed project outside the TSPack repo must not search `<project-root>\manifest-frontend\dist\cli.js` unless the user explicitly sets a frontend override.
+- Manifest frontend CLI resolution order is:
+  - explicit `TSPACK_MANIFEST_FRONTEND=<path-to-cli.js>` override
+  - embedded frontend assets for release builds that include `tspack_embedded_bridges`
+  - TSPack-owned dev candidates relative to the executable, local shared-install paths, and the detected TSPack source repo when applicable
+- `C:\Users\yuech\source\repos\tspack\dist\tspack.exe` built from a normal checkout must manage `C:\Users\yuech\source\repos\yuechen-li-dev.github.io` without requiring that repo to contain `manifest-frontend\dist\cli.js`.
+- Missing manifest frontend diagnostics must include:
+  - project root
+  - process cwd
+  - `tspack` executable path
+  - frontend override status
+  - embedded frontend status
+  - frontend path candidates tried
+  - actionable rebuild or override guidance
+- `TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED` must preserve the underlying Node error when a selected frontend path exists but Node execution fails after selection.
+- Windows dogfood validation covers:
+  - `npm --prefix manifest-frontend run build`
+  - `go build -o .\dist\tspack.exe .\cmd\tspack`
+  - `C:\Users\yuech\source\repos\tspack\dist\tspack.exe --version`
+  - `C:\Users\yuech\source\repos\tspack\dist\tspack.exe run`
+  - `C:\Users\yuech\source\repos\tspack\dist\tspack.exe run build`
+  - `C:\Users\yuech\source\repos\tspack\dist\tspack.exe check`
+  - `C:\Users\yuech\source\repos\tspack\dist\tspack.exe check --format`
+- Focused resolver regression coverage must prove:
+  - project-root frontend leakage is rejected
+  - executable-relative dev bridge candidates resolve
+  - `TSPACK_MANIFEST_FRONTEND` override wins and missing overrides fail clearly
+  - embedded/release bridge behavior remains intact
+
 ## v0.1.3 / M55a Template IR normalization gate
 
 - Built-in `static`, `react`, and `react-library` templates load through parsed raw metadata, normalized TemplateIR, concrete TemplatePlan creation, and safe plan application.
