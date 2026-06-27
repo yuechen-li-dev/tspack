@@ -51,7 +51,7 @@ Only source paths ending in `.tmpl` are rendered. Other files are copied unchang
 
 Template TOML and files are input syntax, not the internal semantic model. The loader first parses metadata into a raw template shape, normalizes it into an internal TemplateIR, then lowers that IR into a concrete TemplatePlan for a specific `tspack init` invocation before any file is written.
 
-This pipeline is internal and behavior-preserving for existing templates. It keeps built-in and local templates on the same path, makes planning dry-run-able, and keeps safety checks centralized around declared file projections. Concepts are metadata today; future template composition work should happen at the IR layer without treating overlays as implemented in v0.1.3.
+This pipeline is internal and behavior-preserving for existing templates. It keeps built-in and local templates on the same path, makes planning dry-run-able, and keeps safety checks centralized around declared file projections. Concepts are metadata today; future template composition work should happen at the IR layer without treating overlays as implemented in v0.1.3. M60a records a future concept-fragment composition design in `docs/design/concept-fragment-composition.md`; concept fragments are not implemented behavior.
 
 ## Built-in static template
 
