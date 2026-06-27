@@ -382,3 +382,21 @@ RunTargets({
 ```
 
 Each service must provide exactly one of `tcp` (`host:port`) or `http` (`http://` or `https://`). HTTP checks default to status `200`; service checks default to `timeoutMs: 1000`. Required service failures stop `tspack run` before the command starts with `TSPACK_RUN_SERVICE_UNAVAILABLE`. Optional service failures are printed as warnings and the target continues. `tspack check` validates declaration shape but does not require services to be running.
+
+## Readiness URL env interpolation
+
+HTTP server RunTargets may use simple environment placeholders in the declared `url`, for example `http://127.0.0.1:${PORT}` with `ready: { kind: "http", path: "/health" }`. TSPack resolves host environment, applies repeatable `--env KEY=VALUE` overlays, injects RunTarget `Env(...)` defaults for missing values, validates required env, and then interpolates `${NAME}` placeholders before starting the process and polling readiness.
+
+Only portable env names are supported in readiness placeholders: `${PORT}`, `${HOST}`, and other names matching `/^[A-Za-z_][A-Za-z0-9_]*$/`. TSPack does not evaluate expressions, run commands, or interpolate arbitrary template syntax. A missing placeholder variable fails before process start with `TSPACK_RUN_READY_ENV_MISSING`; malformed placeholder syntax fails with `TSPACK_MANIFEST_READY_INVALID`; placeholders that reference `Env(..., { secret: true })` fail with `TSPACK_RUN_READY_ENV_SECRET` because readiness URLs can appear in logs and diagnostics.
+
+Static readiness URLs continue to work unchanged. `tspack run --list` shows the manifest template string rather than interpolating against the current host environment.
+
+## Preflight-only mode
+
+`tspack run <target> --preflight-only` validates the contract needed before a RunTarget starts and then exits without launching the command. It resolves the target, applies env defaults and `--env` overlays, validates required `Env(...)`, interpolates HTTP readiness URLs enough to catch missing, secret, or malformed placeholders, and runs external `Service(...)` preflights. Required service failures still fail with `TSPACK_RUN_SERVICE_UNAVAILABLE`; optional service failures warn and exit successfully.
+
+`--preflight-only` does not check the target's own readiness URL because the process was not started. It proves that declared env and external dependencies are available; it does not prove that the target can boot.
+
+## Service preflights vs target readiness
+
+`Service(...)` describes external dependencies such as Postgres, Redis, or an upstream HTTP API. These checks happen before TSPack starts the RunTarget command. RunTarget `ready` describes the target's own health signal after it starts, such as `GET /health` on the service itself. Do not model a service's own health endpoint as `Service(...)`; use `ready` for that self-health check.

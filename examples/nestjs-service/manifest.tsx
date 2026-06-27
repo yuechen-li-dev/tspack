@@ -73,7 +73,7 @@ export default define(
             runtime: "system",
             cwd: "workspace",
             command: ["node_modules/.bin/tsx", "watch", "src/main.ts"],
-            url: "http://127.0.0.1:3000",
+            url: "http://127.0.0.1:${PORT}",
             ready: { kind: "http", path: "/health" },
             env: [
               Env("PORT", {
@@ -111,7 +111,7 @@ export default define(
             runtime: "system",
             cwd: "workspace",
             command: ["node", "dist/main.js"],
-            url: "http://127.0.0.1:3000",
+            url: "http://127.0.0.1:${PORT}",
             ready: { kind: "http", path: "/health" },
             env: [
               Env("PORT", {

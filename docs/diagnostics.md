@@ -382,3 +382,9 @@ A `Security.acknowledgedLifecycleCategories` row includes a script that is not p
 - `TSPACK_MANIFEST_SERVICE_INVALID` means a service requirement declaration has an invalid name, endpoint, expected status, or timeout.
 - `TSPACK_MANIFEST_SERVICE_DUPLICATE` means one RunTarget declares the same service name more than once, compared case-insensitively.
 - `TSPACK_RUN_SERVICE_UNAVAILABLE` means a required service preflight failed before process start. Start the service, verify the endpoint and expected status, mark it optional only if safe, or remove stale requirements.
+
+### Readiness URL interpolation diagnostics
+
+- `TSPACK_RUN_READY_ENV_MISSING`: a RunTarget HTTP readiness URL references an env placeholder that is not present after host env, `--env`, and RunTarget defaults are resolved.
+- `TSPACK_RUN_READY_ENV_SECRET`: a RunTarget HTTP readiness URL references an env declared with `secret: true`; secrets are rejected because readiness URLs can appear in logs.
+- `TSPACK_MANIFEST_READY_INVALID`: a readiness URL placeholder is malformed or uses an unsupported env name. Only simple `${NAME}` placeholders are supported.

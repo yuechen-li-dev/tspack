@@ -692,3 +692,17 @@ func TestRunTargetServiceRequirementValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestRunTargetURLAllowsEnvPlaceholders(t *testing.T) {
+	valid := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"system","command":["node"],"url":"http://127.0.0.1:${PORT}","ready":{"kind":"http","path":"/health"}}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	_, diags := LoadBytes("x.json", []byte(valid))
+	if len(diags) != 0 {
+		t.Fatalf("expected env placeholder URL to validate, got %#v", diags)
+	}
+
+	invalid := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"system","command":["node"],"url":"http://127.0.0.1:${BAD-NAME}","ready":{"kind":"http","path":"/health"}}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	_, diags = LoadBytes("x.json", []byte(invalid))
+	if !hasDiag(diags, "TSPACK_RUN_INVALID_URL") {
+		t.Fatalf("expected invalid placeholder URL diagnostic, got %#v", diags)
+	}
+}

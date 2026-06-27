@@ -175,3 +175,7 @@ The JSON output identifies the command and mode, echoes the CDP endpoint, and in
 
 
 M59b adds RunTarget service requirements with TCP and HTTP preflight checks before `tspack run` exec. `tspack check` validates only declaration shape; future work may add runtime doctor/preflight-only commands, service orchestration, Docker Compose integration, package kind service, NestJS migration, strict env scrubbing, and runtime access tracing.
+
+### `tspack run --preflight-only`
+
+`tspack run <target> --preflight-only` resolves the manifest RunTarget, validates declared `Env(...)` requirements, applies defaults and `--env` overlays, validates readiness URL `${NAME}` placeholders, and checks external `Service(...)` requirements without starting the RunTarget command. It does not poll the target's own readiness URL because no process has been launched.

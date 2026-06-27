@@ -26,13 +26,11 @@ Biome can format and lint the small NestJS source files without special NestJS r
 
 ## run lifecycle friction
 
-Readiness URLs are static. If a user overrides `PORT` with `--env PORT=4000`, the manifest readiness URL still points at port 3000. Backend examples need to call this out until TSPack has an explicit dynamic readiness-port story.
+Resolved by M59e: RunTarget HTTP readiness URLs now support `${PORT}`-style env interpolation after host env, `--env` overlays, and RunTarget defaults are resolved. The NestJS `dev` and `start` targets use `http://127.0.0.1:${PORT}/health`, so `--env PORT=4000` checks the overridden port.
 
 ## future feature suggestion
 
 - Service packages could recommend, but not require, conventional `dev` and `start` RunTargets.
-- RunTarget docs could add a backend example that contrasts readiness with external `Service(...)` preflights.
 - Explicit `.env` loading may be useful for services, but should remain opt-in and visible in the manifest.
-- `tspack run --preflight-only` would help validate env and service requirements without starting long-running processes.
 - A generic `node-service` example or template should probably precede any NestJS-specific template.
 - OpenAPI generation, Docker Compose orchestration, service startup, deployment targets, and service pack artifacts remain future work outside this milestone.
