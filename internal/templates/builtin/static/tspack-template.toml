@@ -3,13 +3,13 @@ name = "static"
 description = "Static TypeScript browser app"
 kind = "app"
 concepts = [
+  "browser.static",
+  "vite.app",
+  "typescript.app",
   "tspack.workspace",
   "tspack.manifestBoundary",
   "tspack.updatePolicy",
   "tspack.securityPolicy",
-  "typescript.app",
-  "vite.app",
-  "browser.static"
 ]
 
 [variables.projectName]

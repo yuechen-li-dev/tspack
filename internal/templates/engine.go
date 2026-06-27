@@ -311,8 +311,8 @@ func (t *Template) Plan(opts PlanOptions) (*TemplatePlan, error) {
 			}
 			data = []byte(content)
 		}
-		if t.usesStaticConceptManifest(file) {
-			content, err := t.renderStaticConceptManifestFile(opts.Values)
+		if t.usesConceptManifest(file) {
+			content, err := t.renderConceptManifestFile(opts.Values)
 			if err != nil {
 				return nil, err
 			}
@@ -324,21 +324,27 @@ func (t *Template) Plan(opts PlanOptions) (*TemplatePlan, error) {
 	return plan, nil
 }
 
-func (t *Template) usesStaticConceptManifest(file File) bool {
-	return t.Source.Kind == SourceKindBuiltin && t.Name == "static" && file.To == "manifest.tsx"
+func (t *Template) usesConceptManifest(file File) bool {
+	if t.Source.Kind != SourceKindBuiltin || file.To != "manifest.tsx" {
+		return false
+	}
+	return t.Name == "static" || t.Name == "react"
 }
 
-func (t *Template) renderStaticConceptManifestFile(values map[string]string) (string, error) {
+func (t *Template) renderConceptManifestFile(values map[string]string) (string, error) {
 	conceptIR, err := concepts.BuildConceptIR(t.Concepts, t.Kind, concepts.Builtins)
 	if err != nil {
 		return "", formatTemplateConceptCompositionError(t.Name, err)
+	}
+	if t.Name == "react" {
+		return renderReactConceptManifest(values, conceptIR)
 	}
 	return renderStaticConceptManifest(values, conceptIR)
 }
 
 func formatTemplateConceptCompositionError(templateName string, err error) error {
 	if conflict, ok := err.(concepts.Conflict); ok {
-		return fmt.Errorf("TSPACK_TEMPLATE_CONCEPT_COMPOSITION_FAILED: template %q concept %q conflict at %s: %s", templateName, conflict.ConceptB, conflict.Path, conflict.Reason)
+		return fmt.Errorf("TSPACK_TEMPLATE_CONCEPT_COMPOSITION_FAILED: template %q concept %q conflict at %s: higher-priority concept %q, lower-priority concept %q: %s", templateName, conflict.ConceptB, conflict.Path, conflict.HigherPriorityConcept, conflict.LowerPriorityConcept, conflict.Reason)
 	}
 	return fmt.Errorf("TSPACK_TEMPLATE_CONCEPT_COMPOSITION_FAILED: template %q: %w", templateName, err)
 }

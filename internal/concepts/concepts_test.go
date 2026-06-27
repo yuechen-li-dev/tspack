@@ -17,13 +17,19 @@ func TestBuiltinRegistry(t *testing.T) {
 	}
 }
 
-func TestResolveRequiredInsertedBeforeDependent(t *testing.T) {
-	result, err := Resolve([]string{"vite.app"}, "app")
+func TestResolveDoesNotInsertExpectedConcepts(t *testing.T) {
+	if _, err := Resolve([]string{"vite.app"}, "app"); err == nil || !strings.Contains(err.Error(), "expects \"typescript.app\"") {
+		t.Fatalf("expected missing expected concept error, got %v", err)
+	}
+	result, err := Resolve([]string{"vite.app", "typescript.app"}, "app")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := fragmentNames(result.Fragments); !reflect.DeepEqual(got, []string{"typescript.app", "vite.app"}) {
-		t.Fatalf("unexpected order: %#v", got)
+	if len(result.Inserted) != 0 {
+		t.Fatalf("expected no inserted concepts, got %#v", result.Inserted)
+	}
+	if got := fragmentNames(result.Fragments); !reflect.DeepEqual(got, []string{"vite.app", "typescript.app"}) {
+		t.Fatalf("expected listed order to be preserved, got %#v", got)
 	}
 }
 
@@ -31,12 +37,12 @@ func TestResolveUnknownConflictCycleAndKind(t *testing.T) {
 	if _, err := Resolve([]string{"missing.concept"}, "app"); err == nil || !strings.Contains(err.Error(), "unknown concept") {
 		t.Fatalf("expected unknown error, got %v", err)
 	}
-	registry := NewRegistry([]Fragment{{Name: "a", Conflicts: []string{"b"}}, {Name: "b"}, {Name: "c", Requires: []string{"d"}}, {Name: "d", Requires: []string{"c"}}, {Name: "lib", CompatibleKinds: []string{"library"}}})
+	registry := NewRegistry([]Fragment{{Name: "a", Conflicts: []string{"b"}}, {Name: "b"}, {Name: "c", RequiresAnyOf: [][]string{{"d", "e"}}}, {Name: "d"}, {Name: "lib", CompatibleKinds: []string{"library"}}})
 	if _, err := ResolveWithRegistry(registry, []string{"a", "b"}, ""); err == nil || !strings.Contains(err.Error(), "conflict") {
 		t.Fatalf("expected conflict, got %v", err)
 	}
-	if _, err := ResolveWithRegistry(registry, []string{"c"}, ""); err == nil || !strings.Contains(err.Error(), "cycle") {
-		t.Fatalf("expected cycle, got %v", err)
+	if _, err := ResolveWithRegistry(registry, []string{"c"}, ""); err == nil || !strings.Contains(err.Error(), "expects one of") {
+		t.Fatalf("expected any-of validation error, got %v", err)
 	}
 	if _, err := ResolveWithRegistry(registry, []string{"lib"}, "app"); err == nil || !strings.Contains(err.Error(), "incompatible") {
 		t.Fatalf("expected incompatible kind, got %v", err)
@@ -44,7 +50,7 @@ func TestResolveUnknownConflictCycleAndKind(t *testing.T) {
 }
 
 func TestMergeBuiltinAppFragments(t *testing.T) {
-	ir := mustBuild(t, []string{"typescript.app", "vite.app", "react.app"}, "app")
+	ir := mustBuild(t, []string{"react.app", "browser.spa", "vite.app", "typescript.app"}, "app")
 	assertDep(t, ir.Manifest.Tools, "typescript")
 	assertDep(t, ir.Manifest.Tools, "vite")
 	assertDep(t, ir.Manifest.Dependencies, "react")
@@ -74,6 +80,29 @@ func TestMergeDuplicateAndConflicts(t *testing.T) {
 	}
 }
 
+func TestConflictDiagnosticIncludesPriorityAndPath(t *testing.T) {
+	_, err := Merge([]Fragment{
+		{Name: "higher", Manifest: ManifestContributions{Dependencies: []DependencyContribution{dep("x", "^1")}}},
+		{Name: "lower", Manifest: ManifestContributions{Dependencies: []DependencyContribution{dep("x", "^2")}}},
+	})
+	if err == nil {
+		t.Fatal("expected conflict")
+	}
+	conflict, ok := err.(Conflict)
+	if !ok {
+		t.Fatalf("expected Conflict, got %T", err)
+	}
+	if conflict.Path != "manifest.dependencies.x" {
+		t.Fatalf("unexpected conflict path: %s", conflict.Path)
+	}
+	if conflict.HigherPriorityConcept != "higher" || conflict.LowerPriorityConcept != "lower" {
+		t.Fatalf("unexpected priority metadata: %#v", conflict)
+	}
+	if !strings.Contains(conflict.Error(), "cannot be resolved by priority") {
+		t.Fatalf("expected priority failure reason, got %q", conflict.Error())
+	}
+}
+
 func TestAppendSlotOrderingAndProjectionConflict(t *testing.T) {
 	ir, err := Merge([]Fragment{{Name: "a", Slots: []SlotContribution{{Name: "readme.sections", Mode: SlotAppendOrdered, Values: []string{"a"}}}}, {Name: "b", Slots: []SlotContribution{{Name: "readme.sections", Mode: SlotAppendOrdered, Values: []string{"b"}}}}})
 	if err != nil {
@@ -89,12 +118,12 @@ func TestAppendSlotOrderingAndProjectionConflict(t *testing.T) {
 }
 
 func TestCurrentTemplateConceptCompositionsResolve(t *testing.T) {
-	static := mustBuild(t, []string{"tspack.workspace", "tspack.manifestBoundary", "tspack.securityPolicy", "tspack.updatePolicy", "typescript.app", "vite.app", "browser.static"}, "app")
+	static := mustBuild(t, []string{"browser.static", "vite.app", "typescript.app", "tspack.workspace", "tspack.manifestBoundary", "tspack.updatePolicy", "tspack.securityPolicy"}, "app")
 	assertDep(t, static.Manifest.Tools, "typescript")
 	assertDep(t, static.Manifest.Tools, "vite")
 	assertDep(t, static.Manifest.Tools, "@biomejs/biome")
 	assertTarget(t, static.Manifest.Targets, "app")
-	react := mustBuild(t, []string{"tspack.workspace", "tspack.manifestBoundary", "tspack.securityPolicy", "tspack.updatePolicy", "typescript.app", "vite.app", "react.app", "browser.spa"}, "app")
+	react := mustBuild(t, []string{"react.app", "browser.spa", "vite.app", "typescript.app", "tspack.workspace", "tspack.manifestBoundary", "tspack.updatePolicy", "tspack.securityPolicy"}, "app")
 	assertDep(t, react.Manifest.Dependencies, "react")
 	library := mustBuild(t, []string{"tspack.workspace", "tspack.manifestBoundary", "tspack.securityPolicy", "tspack.updatePolicy", "tspack.pack", "typescript.library", "vite.library", "react.library", "package.exports", "package.peerDependencies"}, "library")
 	assertDep(t, library.Manifest.Peers, "react")

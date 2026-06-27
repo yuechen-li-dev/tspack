@@ -3,14 +3,14 @@ name = "react"
 description = "React + Vite + TypeScript app"
 kind = "app"
 concepts = [
+  "react.app",
+  "browser.spa",
+  "vite.app",
+  "typescript.app",
   "tspack.workspace",
   "tspack.manifestBoundary",
-  "tspack.securityPolicy",
   "tspack.updatePolicy",
-  "typescript.app",
-  "vite.app",
-  "react.app",
-  "browser.spa"
+  "tspack.securityPolicy",
 ]
 
 [variables.projectName]

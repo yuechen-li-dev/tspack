@@ -1,4 +1,25 @@
-import {
+package templates
+
+import (
+	"fmt"
+
+	"github.com/yuechen-li-dev/tspack/internal/concepts"
+)
+
+func renderReactConceptManifest(values map[string]string, conceptIR *concepts.MergedConceptIR) (string, error) {
+	variables := staticManifestVariables{
+		ProjectName: values["projectName"],
+		PackageName: values["packageName"],
+		Runtime:     values["runtime"],
+	}
+	if variables.ProjectName == "" || variables.PackageName == "" || variables.Runtime == "" {
+		return "", fmt.Errorf("TSPACK_TEMPLATE_INVALID: react manifest requires projectName, packageName, and runtime")
+	}
+	if err := validateReactConceptManifestIR(conceptIR); err != nil {
+		return "", err
+	}
+	conceptLines := renderConceptCommentLines(conceptIR.Concepts)
+	return fmt.Sprintf(`import {
   define,
   defineDeps,
   dep,
@@ -16,7 +37,7 @@ import {
   type TypePolicy,
 } from "tspack/manifest";
 
-const types = {
+%sconst types = {
   declarations: "optional",
   missingTypes: "ignore",
   publicTypeLeakage: "warn",
@@ -45,9 +66,9 @@ const deps = defineDeps({
 });
 
 export default define(
-  <Workspace name="{{projectName}}" runtime="{{runtime}}">
+  <Workspace name="%s" runtime="%s">
     <Package
-      name="{{packageName}}"
+      name="%s"
       version="0.1.0"
       kind="app"
       license="MIT"
@@ -190,3 +211,45 @@ export default define(
     />
   </Workspace>,
 );
+`, conceptLines, variables.ProjectName, variables.Runtime, variables.PackageName), nil
+}
+
+func validateReactConceptManifestIR(conceptIR *concepts.MergedConceptIR) error {
+	if conceptIR == nil {
+		return fmt.Errorf("TSPACK_TEMPLATE_INVALID: react concept composition produced no manifest IR")
+	}
+	for _, name := range []string{"react", "react-dom"} {
+		if !hasDependencyContribution(conceptIR.Manifest.Dependencies, name) {
+			return fmt.Errorf("TSPACK_TEMPLATE_INVALID: react concept composition missing dependency %q", name)
+		}
+	}
+	for _, name := range []string{"typescript", "vite", "@vitejs/plugin-react", "@types/react", "@types/react-dom", "@biomejs/biome"} {
+		if !hasDependencyContribution(conceptIR.Manifest.Tools, name) {
+			return fmt.Errorf("TSPACK_TEMPLATE_INVALID: react concept composition missing tool %q", name)
+		}
+	}
+	if !hasReactTarget(conceptIR.Manifest.Targets) {
+		return fmt.Errorf("TSPACK_TEMPLATE_INVALID: react concept composition missing app target")
+	}
+	for _, name := range []string{"dev", "build", "preview"} {
+		if !hasRunTargetContribution(conceptIR.Manifest.RunTargets, name) {
+			return fmt.Errorf("TSPACK_TEMPLATE_INVALID: react concept composition missing run target %q", name)
+		}
+	}
+	if len(conceptIR.Manifest.UpdatePolicy) == 0 {
+		return fmt.Errorf("TSPACK_TEMPLATE_INVALID: react concept composition missing update policy")
+	}
+	if len(conceptIR.Manifest.SecurityPolicy) == 0 {
+		return fmt.Errorf("TSPACK_TEMPLATE_INVALID: react concept composition missing security policy")
+	}
+	return nil
+}
+
+func hasReactTarget(targets []concepts.TargetContribution) bool {
+	for _, target := range targets {
+		if target.Name == "app" && target.Export == "." && target.Entry == "src/main.tsx" && target.Runtime == "dist/main.js" && target.Types == "dist/main.d.ts" {
+			return true
+		}
+	}
+	return false
+}
