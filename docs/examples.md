@@ -21,3 +21,14 @@ See the example README and dogfooding report for the exact command matrix and cu
 
 - `examples/runtime-switch-notes/README.md`
 - `examples/runtime-switch-notes/DOGFOODING.md`
+
+## NestJS Service Example
+
+`examples/nestjs-service/` is a backend TypeScript dogfooding example for the M59 service primitives.
+
+It keeps NestJS minimal and uses `manifest.tsx` as the source of truth for useful commands: the package is classified as `kind: "service"`, declares `Env(...)` runtime contracts, declares an optional external `Service(...)` requirement, and exposes explicit `dev`, `build`, `start`, `typecheck`, `lint`, and `test` RunTargets.
+
+This is not a built-in NestJS template and does not add orchestration, database startup, OpenAPI generation, deployment behavior, or package-manager script fallback. See:
+
+- `examples/nestjs-service/README.md`
+- `examples/nestjs-service/FRICTION.md`
