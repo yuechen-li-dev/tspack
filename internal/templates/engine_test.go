@@ -805,13 +805,31 @@ func TestLocalConceptManifestOptInFixture(t *testing.T) {
 	}
 	for _, want := range []string{
 		"// - my-company.design-system",
-		`myCompanyDesignSystem: dep(npm("@my-company/design-system", "^1.2.0"), { key: "@my-company/design-system" })`,
-		`myCompanyIconGenerator: tool(npm("@my-company/icon-generator", "^2.0.0"), { key: "@my-company/icon-generator" })`,
+		`clsx: dep(npm("clsx", "^2.1.1"))`,
 		`name: "generate-icons"`,
-		`command: ["node", "scripts/generate-icons.mjs"]`,
+		`command: ["node", "-e", "console.log('icons-generated')"]`,
 	} {
 		if !strings.Contains(manifest, want) {
 			t.Fatalf("manifest missing %q:\n%s", want, manifest)
+		}
+	}
+	for _, requiredPath := range []string{
+		"src/design-system.ts",
+		"src/main.tsx",
+		"src/App.tsx",
+		"src/ui.ts",
+		"vite.config.ts",
+		"tsconfig.json",
+		"package.json",
+	} {
+		foundRequiredPath := false
+		for _, file := range plan.Files {
+			if file.Path == requiredPath {
+				foundRequiredPath = true
+			}
+		}
+		if !foundRequiredPath {
+			t.Fatalf("required generated file %q was not planned", requiredPath)
 		}
 	}
 	if !foundFile {
