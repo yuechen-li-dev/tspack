@@ -3,11 +3,13 @@ package manifest
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/yuechen-li-dev/tspack/internal/diag"
@@ -106,14 +108,15 @@ type Package struct {
 }
 
 type RunTarget struct {
-	Name            string         `json:"name"`
-	Runtime         string         `json:"runtime"`
-	ExplicitRuntime string         `json:"explicitRuntime,omitempty"`
-	Command         []string       `json:"command"`
-	URL             string         `json:"url"`
-	Cwd             string         `json:"cwd,omitempty"`
-	Ready           *RunReadyCheck `json:"ready,omitempty"`
-	Env             []RunTargetEnv `json:"env,omitempty"`
+	Name            string                 `json:"name"`
+	Runtime         string                 `json:"runtime"`
+	ExplicitRuntime string                 `json:"explicitRuntime,omitempty"`
+	Command         []string               `json:"command"`
+	URL             string                 `json:"url"`
+	Cwd             string                 `json:"cwd,omitempty"`
+	Ready           *RunReadyCheck         `json:"ready,omitempty"`
+	Env             []RunTargetEnv         `json:"env,omitempty"`
+	Requires        []RunTargetRequirement `json:"requires,omitempty"`
 }
 
 type RunTargetEnv struct {
@@ -122,6 +125,17 @@ type RunTargetEnv struct {
 	Default     *string `json:"default,omitempty"`
 	Secret      bool    `json:"secret,omitempty"`
 	Description string  `json:"description,omitempty"`
+}
+
+type RunTargetRequirement struct {
+	Kind         string `json:"kind"`
+	Name         string `json:"name"`
+	TCP          string `json:"tcp,omitempty"`
+	HTTP         string `json:"http,omitempty"`
+	ExpectStatus int    `json:"expectStatus,omitempty"`
+	TimeoutMs    int    `json:"timeoutMs,omitempty"`
+	Optional     bool   `json:"optional,omitempty"`
+	Description  string `json:"description,omitempty"`
 }
 
 type RunReadyCheck struct {
@@ -537,6 +551,7 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 				}
 				seenEnv[key] = env.Name
 			}
+			validateRunTargetRequirements(add, rp, rt.Requires)
 		}
 		for k, v := range p.Policies.Types {
 			if !isValidTypePolicy(k, v) {
@@ -581,6 +596,62 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 	}
 	diag.SortDiagnostics(out)
 	return out
+}
+
+func validateRunTargetRequirements(add func(string, string, ...string), rp string, requires []RunTargetRequirement) {
+	seenServices := map[string]string{}
+	for i, req := range requires {
+		reqPath := fmt.Sprintf("%s.requires[%d]", rp, i)
+		if req.Kind != "" && req.Kind != "service" {
+			add("TSPACK_MANIFEST_SERVICE_INVALID", reqPath+".kind must be service")
+		}
+		if strings.TrimSpace(req.Name) == "" {
+			add("TSPACK_MANIFEST_SERVICE_INVALID", reqPath+".name must be non-empty")
+		}
+		key := strings.ToLower(req.Name)
+		if previous, ok := seenServices[key]; ok {
+			add("TSPACK_MANIFEST_SERVICE_DUPLICATE", "duplicate run target service requirement name: "+previous+" and "+req.Name)
+		}
+		seenServices[key] = req.Name
+
+		hasTCP := strings.TrimSpace(req.TCP) != ""
+		hasHTTP := strings.TrimSpace(req.HTTP) != ""
+		if hasTCP == hasHTTP {
+			add("TSPACK_MANIFEST_SERVICE_INVALID", reqPath+" must provide exactly one of tcp or http")
+		}
+		if hasTCP && !validRunTargetServiceTCP(req.TCP) {
+			add("TSPACK_MANIFEST_SERVICE_INVALID", reqPath+".tcp must be host:port with port 1-65535")
+		}
+		if hasHTTP && !validRunTargetServiceHTTP(req.HTTP) {
+			add("TSPACK_MANIFEST_SERVICE_INVALID", reqPath+".http must be an http/https URL")
+		}
+		if req.ExpectStatus != 0 && (req.ExpectStatus < 100 || req.ExpectStatus > 599) {
+			add("TSPACK_MANIFEST_SERVICE_INVALID", reqPath+".expectStatus must be between 100 and 599")
+		}
+		if req.TimeoutMs != 0 && (req.TimeoutMs < 1 || req.TimeoutMs > 60000) {
+			add("TSPACK_MANIFEST_SERVICE_INVALID", reqPath+".timeoutMs must be between 1 and 60000")
+		}
+	}
+}
+
+func validRunTargetServiceTCP(endpoint string) bool {
+	host, portText, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		host, portText, err = net.SplitHostPort("host:" + endpoint)
+		if err != nil || host != "host" {
+			return false
+		}
+	}
+	if strings.TrimSpace(host) == "" {
+		return false
+	}
+	port, err := strconv.Atoi(portText)
+	return err == nil && port >= 1 && port <= 65535
+}
+
+func validRunTargetServiceHTTP(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
 func runTargetURLIsOptional(rt RunTarget) bool {

@@ -65,3 +65,6 @@ Python remains experimental design only. TSPack still has no Python CLI, runtime
 M59a adds manifest-declared RunTarget environment contracts with required/default/secret metadata, check-time declaration validation, run-time missing-env validation before process start, default injection, and safe redaction in list/JSON output.
 
 Future M59 work may add strict environment allowlisting/scrubbing, runtime env access tracing, service dependency declarations, a service package kind, and NestJS migration/template support. M59a intentionally does not load `.env` files or orchestrate services.
+
+
+M59b adds RunTarget service requirements with TCP and HTTP preflight checks before `tspack run` exec. `tspack check` validates only declaration shape; future work may add runtime doctor/preflight-only commands, service orchestration, Docker Compose integration, package kind service, NestJS migration, strict env scrubbing, and runtime access tracing.

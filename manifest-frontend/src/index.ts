@@ -32,7 +32,7 @@ type PackageRow = { name: string; root: string; manifest: string };
 type InternalDoc = { mode: DocMode; ir: ManifestIr; rows?: PackageRow[] };
 
 const ALLOWED_IMPORT = 'tspack/manifest';
-const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'defineDeps', 'npm', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env']);
+const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'defineDeps', 'npm', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service']);
 const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'Policies', 'Targets', 'RunTargets', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy']);
 
 export function parseManifestFile(filePath: string): ManifestParseResult {
@@ -242,6 +242,7 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
     if (name === 'dep' || name === 'peer' || name === 'tool') return { kind: name, source: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'workspace') return { kind: 'workspace', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'Env') return { name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
+    if (name === 'Service') return { kind: 'service', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
   }
   if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) return jsxEval(node, sf, diags, file, env);
   diags.push({ code: 'TSPACK_MANIFEST_FORBIDDEN_DYNAMIC_EXPRESSION', severity: 'error', message: `Unsupported expression: ${node.kind}`, file });

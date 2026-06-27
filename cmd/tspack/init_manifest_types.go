@@ -178,6 +178,19 @@ const initManifestTypesDTS = "" +
 	"    description?: string;\n" +
 	"  };\n" +
 	"\n" +
+	"  export type RunTargetServiceRequirementBase = {\n" +
+	"    kind?: 'service';\n" +
+	"    name: string;\n" +
+	"    expectStatus?: number;\n" +
+	"    timeoutMs?: number;\n" +
+	"    optional?: boolean;\n" +
+	"    description?: string;\n" +
+	"  };\n" +
+	"\n" +
+	"  export type RunTargetServiceRequirementRow =\n" +
+	"    | (RunTargetServiceRequirementBase & { tcp: string; http?: never })\n" +
+	"    | (RunTargetServiceRequirementBase & { http: string; tcp?: never });\n" +
+	"\n" +
 	"  export type RunTargetRow = {\n" +
 	"    name: string;\n" +
 	"    runtime?: 'system' | 'node' | 'bun' | 'deno';\n" +
@@ -186,6 +199,7 @@ const initManifestTypesDTS = "" +
 	"    cwd?: 'workspace' | 'package';\n" +
 	"    ready?: RunTargetReady;\n" +
 	"    env?: RunTargetEnvRow[];\n" +
+	"    requires?: RunTargetServiceRequirementRow[];\n" +
 	"  };\n" +
 	"\n" +
 	"  export type PackageRow = {\n" +
@@ -284,6 +298,7 @@ const initManifestTypesDTS = "" +
 	"  export function peer(source: DependencySource, options?: PeerOptions): PeerIntent;\n" +
 	"  export function tool(source: DependencySource, options?: DependencyOptions): ToolIntent;\n" +
 	"  export function Env(name: string, options?: Omit<RunTargetEnvRow, 'name'>): RunTargetEnvRow;\n" +
+	"  export function Service(name: string, options?: Omit<RunTargetServiceRequirementRow, 'name' | 'kind'>): RunTargetServiceRequirementRow;\n" +
 	"\n" +
 	"  export const Workspace: ManifestComponent<WorkspaceProps>;\n" +
 	"  export const Packages: ManifestComponent<PackagesProps>;\n" +

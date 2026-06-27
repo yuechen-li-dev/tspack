@@ -615,3 +615,39 @@ func TestRunTargetEnvValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestRunTargetServiceRequirementValidation(t *testing.T) {
+	base := func(requires string) string {
+		return `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"app","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"system","command":["node"],"url":"http://127.0.0.1:1","requires":` + requires + `}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	}
+	validCases := []string{
+		`[{"kind":"service","name":"postgres","tcp":"127.0.0.1:5432","timeoutMs":1000}]`,
+		`[{"kind":"service","name":"api","http":"http://127.0.0.1:8080/health","expectStatus":200,"optional":true}]`,
+	}
+	for _, input := range validCases {
+		if _, diags := LoadBytes("x.json", []byte(base(input))); len(diags) != 0 {
+			t.Fatalf("valid service requirement rejected: diags=%v", diags)
+		}
+	}
+	invalidCases := []struct {
+		name string
+		req  string
+		code string
+	}{
+		{"missing endpoint", `[{"kind":"service","name":"postgres"}]`, "TSPACK_MANIFEST_SERVICE_INVALID"},
+		{"both endpoints", `[{"kind":"service","name":"postgres","tcp":"127.0.0.1:5432","http":"http://127.0.0.1:5432"}]`, "TSPACK_MANIFEST_SERVICE_INVALID"},
+		{"bad tcp", `[{"kind":"service","name":"postgres","tcp":"127.0.0.1:99999"}]`, "TSPACK_MANIFEST_SERVICE_INVALID"},
+		{"bad http", `[{"kind":"service","name":"api","http":"ftp://127.0.0.1/health"}]`, "TSPACK_MANIFEST_SERVICE_INVALID"},
+		{"bad status", `[{"kind":"service","name":"api","http":"http://127.0.0.1/health","expectStatus":99}]`, "TSPACK_MANIFEST_SERVICE_INVALID"},
+		{"bad timeout", `[{"kind":"service","name":"api","http":"http://127.0.0.1/health","timeoutMs":60001}]`, "TSPACK_MANIFEST_SERVICE_INVALID"},
+		{"duplicate", `[{"kind":"service","name":"api","http":"http://127.0.0.1/a"},{"kind":"service","name":"API","http":"http://127.0.0.1/b"}]`, "TSPACK_MANIFEST_SERVICE_DUPLICATE"},
+	}
+	for _, tc := range invalidCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, diags := LoadBytes("x.json", []byte(base(tc.req)))
+			if !hasDiagnosticCode(diags, tc.code) {
+				t.Fatalf("expected %s, got %v", tc.code, diags)
+			}
+		})
+	}
+}

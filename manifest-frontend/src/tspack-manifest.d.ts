@@ -175,6 +175,19 @@ declare module 'tspack/manifest' {
     description?: string;
   };
 
+  export type RunTargetServiceRequirementBase = {
+    kind?: 'service';
+    name: string;
+    expectStatus?: number;
+    timeoutMs?: number;
+    optional?: boolean;
+    description?: string;
+  };
+
+  export type RunTargetServiceRequirementRow =
+    | (RunTargetServiceRequirementBase & { tcp: string; http?: never })
+    | (RunTargetServiceRequirementBase & { http: string; tcp?: never });
+
   export type RunTargetRow = {
     name: string;
     runtime?: 'system' | 'node' | 'bun' | 'deno';
@@ -183,6 +196,7 @@ declare module 'tspack/manifest' {
     cwd?: 'workspace' | 'package';
     ready?: RunTargetReady;
     env?: RunTargetEnvRow[];
+    requires?: RunTargetServiceRequirementRow[];
   };
 
   export type PackageRow = {
@@ -281,6 +295,7 @@ declare module 'tspack/manifest' {
   export function peer(source: DependencySource, options?: PeerOptions): PeerIntent;
   export function tool(source: DependencySource, options?: DependencyOptions): ToolIntent;
   export function Env(name: string, options?: Omit<RunTargetEnvRow, 'name'>): RunTargetEnvRow;
+  export function Service(name: string, options?: Omit<RunTargetServiceRequirementRow, 'name' | 'kind'>): RunTargetServiceRequirementRow;
 
   export const Workspace: ManifestComponent<WorkspaceProps>;
   export const Packages: ManifestComponent<PackagesProps>;
