@@ -152,7 +152,7 @@ Page/analyzer:
 - `TSPACK_TEMPLATE_CONCEPT_INVALID`: a local concept declaration or TOML file is malformed, has an unsupported format version, has a name mismatch, shadows a built-in concept, uses an unknown field, or declares an unused local concept.
 - `TSPACK_TEMPLATE_CONCEPT_PATH_INVALID`: a local concept path, contributed source path, or contributed destination path is absolute, remote, uses `..`, or otherwise fails template path safety.
 - `TSPACK_TEMPLATE_CONCEPT_CONFLICT`: a local concept file contribution conflicts with another planned file destination.
-- `TSPACK_TEMPLATE_CONCEPT_UNSUPPORTED_CONTRIBUTION`: a local concept declares manifest-like intent such as dependencies, tools, peers, or run targets for a template that does not use concept manifest rendering.
+- `TSPACK_TEMPLATE_CONCEPT_UNSUPPORTED_CONTRIBUTION`: a local concept declares manifest-like intent such as dependencies, tools, peers, or run targets for a template that does not use concept manifest rendering, or a concept-rendered local template declares a manifest contribution outside the generic renderer subset.
 - `TSPACK_TEMPLATE_CONCEPT_COMPOSITION_FAILED`: concept resolution or merge failed after built-in and local concept fragments were combined.
 
 ## Format and lint diagnostics

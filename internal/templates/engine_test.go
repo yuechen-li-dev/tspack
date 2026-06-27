@@ -776,3 +776,74 @@ func TestLocalConceptFixtureCompanyReact(t *testing.T) {
 		t.Fatalf("fixture local concept did not render variables: %s", string(content))
 	}
 }
+
+func TestLocalConceptManifestOptInFixture(t *testing.T) {
+	tmpl, err := LoadLocal(filepath.Join("testdata", "local-concepts", "concept-manifest-app"))
+	if err != nil {
+		t.Fatalf("load fixture: %v", err)
+	}
+	values, err := tmpl.ResolveValues(map[string]string{"projectName": "Fixture Concept App", "packageName": "fixture-concept-app", "runtime": "nodejs"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+	if err != nil {
+		t.Fatalf("plan fixture: %v", err)
+	}
+	manifest := ""
+	foundFile := false
+	for _, file := range plan.Files {
+		if file.Path == "manifest.tsx" {
+			manifest = string(file.content)
+		}
+		if file.Path == "src/design-system.ts" {
+			foundFile = true
+		}
+	}
+	if manifest == "" {
+		t.Fatal("manifest.tsx was not planned")
+	}
+	for _, want := range []string{
+		"// - my-company.design-system",
+		`myCompanyDesignSystem: dep(npm("@my-company/design-system", "^1.2.0"), { key: "@my-company/design-system" })`,
+		`myCompanyIconGenerator: tool(npm("@my-company/icon-generator", "^2.0.0"), { key: "@my-company/icon-generator" })`,
+		`name: "generate-icons"`,
+		`command: ["node", "scripts/generate-icons.mjs"]`,
+	} {
+		if !strings.Contains(manifest, want) {
+			t.Fatalf("manifest missing %q:\n%s", want, manifest)
+		}
+	}
+	if !foundFile {
+		t.Fatal("local concept rendered file was not planned")
+	}
+}
+
+func TestLocalConceptManifestOptInRejectsManifestProjection(t *testing.T) {
+	root := makeLocalConceptTemplate(t, "react.app", "")
+	metadataPath := filepath.Join(root, MetadataFile)
+	metadata, _ := os.ReadFile(metadataPath)
+	metadata = append(metadata, []byte("\n[generation]\nmanifest = \"concept\"\n[[files]]\nfrom = \"files/hello.txt.tmpl\"\nto = \"manifest.tsx\"\n")...)
+	_ = os.WriteFile(metadataPath, metadata, 0o644)
+	tmpl, err := LoadLocal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, _ := tmpl.ResolveValues(map[string]string{"projectName": "demo", "packageName": "demo", "runtime": "nodejs"})
+	_, err = tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values, Force: true})
+	if err == nil || !strings.Contains(err.Error(), "TSPACK_TEMPLATE_CONCEPT_CONFLICT") {
+		t.Fatalf("expected concept manifest projection conflict, got %v", err)
+	}
+}
+
+func TestLocalConceptManifestUnknownGenerationMode(t *testing.T) {
+	root := makeLocalConceptTemplate(t, "react.app", "")
+	metadataPath := filepath.Join(root, MetadataFile)
+	metadata, _ := os.ReadFile(metadataPath)
+	metadata = append(metadata, []byte("\n[generation]\nmanifest = \"magic\"\n")...)
+	_ = os.WriteFile(metadataPath, metadata, 0o644)
+	_, err := LoadLocal(root)
+	if err == nil || !strings.Contains(err.Error(), "TSPACK_TEMPLATE_INVALID") {
+		t.Fatalf("expected invalid generation mode, got %v", err)
+	}
+}

@@ -154,4 +154,31 @@ M60f supports concept identity constraints (`provides`, `expects`, `expectsAnyOf
 
 Local concepts are loaded into the same concept registry as built-ins for that template's planning run. The explicit template `concepts = [...]` list remains the source of truth: TSPack does not auto-insert missing concepts, listed order remains priority order, missing expectations fail, conflicts fail deterministically, duplicate local names fail, and local concepts may not shadow built-in concept names.
 
-Manifest-like contributions (`[[dependencies]]`, `[[tools]]`, `[[peers]]`, and `[[runTargets]]`) are parsed as semantic intent, but local templates do not yet have generic concept manifest rendering. If a local concept declares one of those contributions for a template without concept manifest support, planning fails with `TSPACK_TEMPLATE_CONCEPT_UNSUPPORTED_CONTRIBUTION` rather than silently dropping the dependency, tool, peer, or run target. Remote concepts, JavaScript/TypeScript concept files, scripts, package installation during init, arbitrary text patches, template inheritance, and public concept registries are not supported.
+Local templates can opt into generic concept-rendered manifest generation:
+
+```toml
+[generation]
+manifest = "concept"
+```
+
+When this mode is present, TSPack plans `manifest.tsx` from the explicit concept stack and merged concept IR. The template must not also project a normal `manifest.tsx`; that is a semantic conflict and `--force` does not bypass it. Non-manifest template files and safe local concept file contributions still work normally.
+
+The generic local renderer currently supports a single workspace/package manifest with template defaults (`projectName`, `packageName`, `runtime`, version `0.1.0`, and template kind), dependencies, tools, peers, targets, run targets, update policy rows, security lifecycle category acknowledgements, and concept metadata comments. Local concept TOML can declare:
+
+```toml
+[[dependencies]]
+key = "@my-company/design-system"
+source = "npm"
+range = "^1.2.0"
+
+[[tools]]
+key = "@my-company/icon-generator"
+source = "npm"
+range = "^2.0.0"
+
+[[runTargets]]
+name = "generate-icons"
+command = "node scripts/generate-icons.mjs"
+```
+
+If the `[generation]` table is absent, existing behavior remains: manifest-like local concept contributions fail with `TSPACK_TEMPLATE_CONCEPT_UNSUPPORTED_CONTRIBUTION` instead of being silently dropped. Unknown generation manifest modes fail with `TSPACK_TEMPLATE_INVALID`. Unsupported concept manifest fields in concept-rendered mode also fail loudly. Remote concepts, JavaScript/TypeScript concept files, scripts, package installation during init, arbitrary text patches, template inheritance, and public concept registries are not supported.
