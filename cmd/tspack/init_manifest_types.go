@@ -170,6 +170,14 @@ const initManifestTypesDTS = "" +
 	"        stream?: 'stdout' | 'stderr' | 'both';\n" +
 	"      };\n" +
 	"\n" +
+	"  export type RunTargetEnvRow = {\n" +
+	"    name: string;\n" +
+	"    required?: boolean;\n" +
+	"    default?: string;\n" +
+	"    secret?: boolean;\n" +
+	"    description?: string;\n" +
+	"  };\n" +
+	"\n" +
 	"  export type RunTargetRow = {\n" +
 	"    name: string;\n" +
 	"    runtime?: 'system' | 'node' | 'bun' | 'deno';\n" +
@@ -177,6 +185,7 @@ const initManifestTypesDTS = "" +
 	"    url: string;\n" +
 	"    cwd?: 'workspace' | 'package';\n" +
 	"    ready?: RunTargetReady;\n" +
+	"    env?: RunTargetEnvRow[];\n" +
 	"  };\n" +
 	"\n" +
 	"  export type PackageRow = {\n" +
@@ -274,6 +283,7 @@ const initManifestTypesDTS = "" +
 	"  export function dep(source: DependencySource, options?: DependencyOptions): DepIntent;\n" +
 	"  export function peer(source: DependencySource, options?: PeerOptions): PeerIntent;\n" +
 	"  export function tool(source: DependencySource, options?: DependencyOptions): ToolIntent;\n" +
+	"  export function Env(name: string, options?: Omit<RunTargetEnvRow, 'name'>): RunTargetEnvRow;\n" +
 	"\n" +
 	"  export const Workspace: ManifestComponent<WorkspaceProps>;\n" +
 	"  export const Packages: ManifestComponent<PackagesProps>;\n" +
