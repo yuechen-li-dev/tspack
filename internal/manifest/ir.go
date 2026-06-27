@@ -702,7 +702,7 @@ func validRunTargetServiceHTTP(endpoint string) bool {
 
 func runTargetURLIsOptional(rt RunTarget) bool {
 	if rt.Ready == nil {
-		return false
+		return true
 	}
 	return rt.Ready.Kind == "tcp" || rt.Ready.Kind == "stdout-match"
 }

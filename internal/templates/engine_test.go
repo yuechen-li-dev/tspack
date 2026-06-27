@@ -502,3 +502,87 @@ func TestStaticConceptManifestCompositionFailureDiagnostic(t *testing.T) {
 		}
 	}
 }
+
+func TestReactLibraryConceptManifestRendererUsesMergedConceptIR(t *testing.T) {
+	tmpl, err := LoadBuiltin("react-library")
+	if err != nil {
+		t.Fatalf("load react-library: %v", err)
+	}
+	values, err := tmpl.ResolveValues(map[string]string{"projectName": "ui-kit", "packageName": "@local/ui-kit", "runtime": "nodejs"})
+	if err != nil {
+		t.Fatalf("resolve values: %v", err)
+	}
+	plan, err := tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	manifest := ""
+	for _, file := range plan.Files {
+		if file.Path == "manifest.tsx" {
+			manifest = string(file.content)
+		}
+	}
+	if manifest == "" {
+		t.Fatal("manifest.tsx was not planned")
+	}
+	for _, want := range []string{
+		"// Generated from concept fragments:",
+		"// - react.library",
+		"// - package.peerDependencies",
+		"// - package.exports",
+		"// - tspack.pack",
+		"// - vite.library",
+		"// - typescript.library",
+		`name="@local/ui-kit"`,
+		`kind="library"`,
+		`react: peer(npm("react", "^19.0.0"))`,
+		`reactDom: peer(npm("react-dom", "^19.0.0"), { key: "react-dom" })`,
+		`name: "library"`,
+		`entry: "src/index.ts"`,
+		`runtime: "dist/index.js"`,
+		`types: "dist/index.d.ts"`,
+		`peers: [deps.react, deps.reactDom]`,
+		`name: "typecheck"`,
+		`name: "build"`,
+		`name: "build-types"`,
+		`<Publish include={["dist/**", "README.md", "package.json"]} />`,
+		`category: "consumer-install"`,
+		`category: "maintainer-publish"`,
+	} {
+		if !strings.Contains(manifest, want) {
+			t.Fatalf("concept-rendered react-library manifest missing %q:\n%s", want, manifest)
+		}
+	}
+}
+
+func TestReactLibraryConceptManifestCompositionFailureDiagnostic(t *testing.T) {
+	tmpl, err := LoadBuiltin("react-library")
+	if err != nil {
+		t.Fatalf("load react-library: %v", err)
+	}
+	tmpl.Concepts = removeTemplateConcept(tmpl.Concepts, "package.exports")
+	values, err := tmpl.ResolveValues(map[string]string{"projectName": "ui-kit", "packageName": "@local/ui-kit", "runtime": "nodejs"})
+	if err != nil {
+		t.Fatalf("resolve values: %v", err)
+	}
+	_, err = tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+	if err == nil {
+		t.Fatal("expected composition failure")
+	}
+	message := err.Error()
+	for _, want := range []string{"TSPACK_TEMPLATE_CONCEPT_COMPOSITION_FAILED", `template "react-library"`, "package.exports", "expects"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("diagnostic missing %q: %v", want, err)
+		}
+	}
+}
+
+func removeTemplateConcept(concepts []string, removed string) []string {
+	result := []string{}
+	for _, concept := range concepts {
+		if concept != removed {
+			result = append(result, concept)
+		}
+	}
+	return result
+}

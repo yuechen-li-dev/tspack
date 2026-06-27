@@ -528,3 +528,9 @@ Priority is not a blanket overwrite mechanism. Hard conflicts still fail, includ
 Safe priority behavior may be added only path-by-path through explicit merge laws, such as warning or starter-slot ordering and future slots that declare a priority-owner mode. Until such a law exists for a path, the conservative merge fails rather than silently replacing lower-priority intent.
 
 Current built-in compositions therefore explicitly list every companion concept they rely on. For example, a React app stack lists `react.app`, `browser.spa`, `vite.app`, `typescript.app`, and TSPack policy/boundary concepts directly; `react.app` and `vite.app` can validate that their companions are present, but neither inserts them.
+
+## M60e React-library manifest migration implementation note
+
+M60e migrates the built-in `react-library` template's `manifest.tsx` generation onto the internal concept fragment engine. The template now lists an explicit, priority-ordered stack of React library, peer dependency, package export, pack metadata, Vite library, TypeScript library, workspace, manifest boundary, update policy, and security policy concepts. The resolver does not insert companions implicitly; missing companion concepts fail composition before rendering.
+
+This extends the earlier static and React app migrations while preserving the same boundary: only built-in manifest generation is concept-rendered. React-library non-manifest files such as `package.json`, tsconfig files, `vite.config.ts`, source files, and README still use the existing template projection path. Local custom concepts, TOML-authored concepts, public concept CLI behavior, concept-authored projections, command execution, package installation, and remote concepts remain future work.

@@ -3,19 +3,17 @@ name = "react-library"
 description = "React + Vite + TypeScript component library"
 kind = "library"
 concepts = [
+  "react.library",
+  "package.peerDependencies",
+  "package.exports",
+  "tspack.pack",
+  "vite.library",
+  "typescript.library",
   "tspack.workspace",
   "tspack.manifestBoundary",
-  "tspack.securityPolicy",
   "tspack.updatePolicy",
-  "tspack.pack",
-  "typescript.library",
-  "vite.library",
-  "react.library",
-  "package.exports",
-  "package.peerDependencies",
-  "browser.components"
+  "tspack.securityPolicy",
 ]
-
 [variables.projectName]
 description = "Project display name"
 default = "ui-kit"
