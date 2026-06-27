@@ -6,8 +6,9 @@ import (
 )
 
 func Merge(fragments []Fragment) (*MergedConceptIR, error) {
-	merger := &mergeState{ir: &MergedConceptIR{Projections: ProjectionContributions{Objects: map[string]map[string]string{}}}, owners: map[string]string{}}
-	for _, fragment := range fragments {
+	merger := &mergeState{ir: &MergedConceptIR{Projections: ProjectionContributions{Objects: map[string]map[string]string{}}}, owners: map[string]string{}, priority: map[string]int{}}
+	for index, fragment := range fragments {
+		merger.priority[fragment.Name] = index
 		if err := merger.add(fragment); err != nil {
 			return nil, err
 		}
@@ -16,8 +17,9 @@ func Merge(fragments []Fragment) (*MergedConceptIR, error) {
 }
 
 type mergeState struct {
-	ir     *MergedConceptIR
-	owners map[string]string
+	ir       *MergedConceptIR
+	owners   map[string]string
+	priority map[string]int
 }
 
 func (m *mergeState) add(fragment Fragment) error {
@@ -141,7 +143,7 @@ func (m *mergeState) crossKindDependencyConflict(name, kind, concept string) err
 	for _, prefix := range []string{"dependency", "tool", "peer"} {
 		owner, ok := m.owners["depkind."+prefix+"."+name]
 		if ok && prefix != kind {
-			return Conflict{Path: "manifest.dependencies." + name, ConceptA: owner, ConceptB: concept, Reason: "same package declared as " + prefix + " and " + kind}
+			return m.makeConflict("manifest.dependencies."+name, owner, concept, "same package declared as "+prefix+" and "+kind)
 		}
 	}
 	m.owners["depkind."+kind+"."+name] = concept
@@ -174,7 +176,28 @@ func sameKey(value any, key string) bool {
 	return field.IsValid() && field.Kind() == reflect.String && field.String() == key
 }
 func (m *mergeState) conflict(path, concept, reason string) error {
-	return Conflict{Path: path, ConceptA: m.owners["owner."+path], ConceptB: concept, Reason: reason}
+	return m.makeConflict(path, m.owners["owner."+path], concept, reason)
+}
+
+func (m *mergeState) makeConflict(path, conceptA, conceptB, reason string) Conflict {
+	higher := conceptA
+	lower := conceptB
+	if m.priority[conceptB] < m.priority[conceptA] {
+		higher = conceptB
+		lower = conceptA
+	}
+	priorityReason := fmt.Sprintf(
+		"this contribution path cannot be resolved by priority because %s",
+		reason,
+	)
+	return Conflict{
+		Path:                  path,
+		ConceptA:              conceptA,
+		ConceptB:              conceptB,
+		Reason:                priorityReason,
+		HigherPriorityConcept: higher,
+		LowerPriorityConcept:  lower,
+	}
 }
 
 func (m *mergeState) mergeProjections(fragment Fragment) error {

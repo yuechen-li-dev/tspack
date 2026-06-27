@@ -516,3 +516,15 @@ browser.static
 ```
 
 From the user's point of view, `tspack init --template static` remains the same scaffold shape; the manifest is now backed internally by concept fragments so later React and library migrations can follow the same boundary.
+
+## M60d explicit concept stack semantics
+
+M60d revises concept composition so the template's concept list is the only source of truth. Concept fragments remain inert structured records, but they no longer cause hidden dependency insertion, recursive concept expansion, or topological reordering. If a concept declares `requiresConcepts` or `requiresAnyOf`, those fields are interpreted as expectations/constraints over the already-listed stack. A missing expected concept is a composition diagnostic, not something the resolver adds automatically.
+
+The listed order is preserved exactly and is also the priority order: earlier concepts have higher priority than later concepts. This makes a template reviewable by humans and LLMs because the visible list explains both what capabilities participate and which concepts are allowed to take precedence when a merge law explicitly supports priority resolution.
+
+Priority is not a blanket overwrite mechanism. Hard conflicts still fail, including incompatible dependency ranges, dependency-vs-peer collisions, differing run-target commands, differing env/service contracts, file content conflicts, projection scalar conflicts, incompatible package kinds, and security policy weakening. Conflict diagnostics must name the contribution path, higher-priority concept, lower-priority concept, and the reason priority cannot resolve that path.
+
+Safe priority behavior may be added only path-by-path through explicit merge laws, such as warning or starter-slot ordering and future slots that declare a priority-owner mode. Until such a law exists for a path, the conservative merge fails rather than silently replacing lower-priority intent.
+
+Current built-in compositions therefore explicitly list every companion concept they rely on. For example, a React app stack lists `react.app`, `browser.spa`, `vite.app`, `typescript.app`, and TSPack policy/boundary concepts directly; `react.app` and `vite.app` can validate that their companions are present, but neither inserts them.

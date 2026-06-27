@@ -103,9 +103,25 @@ type MergedConceptIR struct {
 	Warnings    []string
 }
 
-type Conflict struct{ Path, ConceptA, ConceptB, Reason string }
+type Conflict struct {
+	Path                  string
+	ConceptA              string
+	ConceptB              string
+	Reason                string
+	HigherPriorityConcept string
+	LowerPriorityConcept  string
+}
 
 func (c Conflict) Error() string {
+	if c.HigherPriorityConcept != "" && c.LowerPriorityConcept != "" {
+		return fmt.Sprintf(
+			"concept conflict at %s: %s has higher priority than %s, but %s",
+			c.Path,
+			c.HigherPriorityConcept,
+			c.LowerPriorityConcept,
+			c.Reason,
+		)
+	}
 	return fmt.Sprintf("concept conflict at %s between %s and %s: %s", c.Path, c.ConceptA, c.ConceptB, c.Reason)
 }
 
