@@ -430,7 +430,7 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 		if !versionRe.MatchString(p.Version) {
 			add("TSPACK_IR_INVALID_PACKAGE_VERSION", pp+".version is invalid")
 		}
-		if p.Kind != "library" && p.Kind != "app" && p.Kind != "tool" {
+		if !isValidPackageKind(p.Kind) {
 			add("TSPACK_IR_INVALID_PACKAGE_KIND", pp+".kind is invalid")
 		}
 		if p.Root != "" && !pathutil.IsSafePackageRoot(p.Root) {
@@ -596,6 +596,15 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 	}
 	diag.SortDiagnostics(out)
 	return out
+}
+
+func isValidPackageKind(kind string) bool {
+	switch kind {
+	case "library", "app", "tool", "service":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateRunTargetRequirements(add func(string, string, ...string), rp string, requires []RunTargetRequirement) {

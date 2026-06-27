@@ -760,6 +760,15 @@ func Pack(opts Options, packOpts PackOptions) Result {
 		}
 		pkgs = []*graph.PackageNode{p}
 	}
+	for _, p := range pkgs {
+		if p.Kind == "service" {
+			out = append(out, errDiag("TSPACK_PACK_UNSUPPORTED_PACKAGE_KIND", "pack does not support service packages yet", p.Name))
+		}
+	}
+	if hasErrors(out) {
+		diag.SortDiagnostics(out)
+		return Result{Diagnostics: out}
+	}
 	pr := &PackResult{}
 	plans := []pack.Plan{}
 	packOptions := pack.Options{OutputDir: packOpts.OutputDir, DryRun: packOpts.DryRun, Verify: packOpts.Verify}

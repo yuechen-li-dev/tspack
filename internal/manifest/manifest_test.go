@@ -165,6 +165,47 @@ func TestWorkspaceRuntimeProfileRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestPackageKindsValidate(t *testing.T) {
+	cases := []struct {
+		name string
+		kind string
+	}{
+		{name: "library", kind: "library"},
+		{name: "app", kind: "app"},
+		{name: "tool", kind: "tool"},
+		{name: "service", kind: "service"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"` + tc.kind + `","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+			ir, diags := LoadBytes("x.json", []byte(j))
+			if len(diags) != 0 {
+				t.Fatalf("unexpected diagnostics: %#v", diags)
+			}
+			if ir.Packages[0].Kind != tc.kind {
+				t.Fatalf("kind was not preserved: got %q", ir.Packages[0].Kind)
+			}
+		})
+	}
+}
+
+func TestPackageKindRejectsUnknown(t *testing.T) {
+	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"worker","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":[],"exclude":[]}}]}`
+	_, diags := LoadBytes("x.json", []byte(j))
+	if !hasDiagnosticCode(diags, "TSPACK_IR_INVALID_PACKAGE_KIND") {
+		t.Fatalf("expected TSPACK_IR_INVALID_PACKAGE_KIND, got %#v", diags)
+	}
+}
+
+func TestServicePackageRunTargetEnvAndServiceRequirementsValidate(t *testing.T) {
+	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"api","version":"1.0.0","kind":"service","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":[],"exclude":[]},"runTargets":[{"name":"dev","runtime":"node","command":["tsx","src/server.ts"],"url":"http://127.0.0.1:3000","env":[{"name":"DATABASE_URL","required":true,"secret":true}],"requires":[{"kind":"service","name":"postgres","tcp":"127.0.0.1:5432"}]}]}]}`
+	_, diags := LoadBytes("x.json", []byte(j))
+	if len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diags)
+	}
+}
+
 func TestDeterministicDiagnostics(t *testing.T) {
 	j := `{"format":2,"workspace":{"name":""},"packages":[]}`
 	_, d1 := LoadBytes("x.json", []byte(j))

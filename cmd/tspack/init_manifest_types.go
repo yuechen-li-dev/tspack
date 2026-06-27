@@ -211,7 +211,7 @@ const initManifestTypesDTS = "" +
 	"  export type PackageProps = {\n" +
 	"    name: string;\n" +
 	"    version: string;\n" +
-	"    kind: 'library' | 'app';\n" +
+	"    kind: 'library' | 'app' | 'service';\n" +
 	"    license?: string;\n" +
 	"    dependencies?: {\n" +
 	"      values: DependencyIntent[];\n" +

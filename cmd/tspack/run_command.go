@@ -25,6 +25,7 @@ import (
 
 type runTargetRef struct {
 	PackageName   string
+	PackageKind   string
 	PackageRoot   string
 	WorkspaceRoot string
 	Target        manifest.RunTarget
@@ -59,6 +60,7 @@ type runListOutput struct {
 type runListTargetJSON struct {
 	ID               string                          `json:"id"`
 	Package          string                          `json:"package"`
+	PackageKind      string                          `json:"packageKind"`
 	Name             string                          `json:"name"`
 	Runtime          string                          `json:"runtime"`
 	RuntimeSource    string                          `json:"runtimeSource"`
@@ -575,7 +577,7 @@ func renderRunTargetListText(refs []runTargetRef, workspaceRuntime string) {
 			}
 			currentPackage = ref.PackageName
 			fmt.Fprintln(os.Stdout)
-			fmt.Fprintf(os.Stdout, "  %s\n", ref.PackageName)
+			fmt.Fprintf(os.Stdout, "  %s (%s)\n", ref.PackageName, ref.PackageKind)
 		}
 		fmt.Fprintf(os.Stdout, "    %s\n", ref.Target.Name)
 		resolvedRuntime := resolveRunTargetRuntime(ref.Target, workspaceRuntime)
@@ -680,6 +682,7 @@ func renderRunTargetListJSON(root string, packageName string, refs []runTargetRe
 		targets = append(targets, runListTargetJSON{
 			ID:               ref.ID(),
 			Package:          ref.PackageName,
+			PackageKind:      ref.PackageKind,
 			Name:             ref.Target.Name,
 			Runtime:          resolvedRuntime.Runtime,
 			RuntimeSource:    resolvedRuntime.Source,
@@ -727,6 +730,7 @@ func packageRunTargetRefs(root string, manifestPath string, ir *manifest.Manifes
 	for _, target := range pkg.RunTargets {
 		refs = append(refs, runTargetRef{
 			PackageName:   pkg.Name,
+			PackageKind:   pkg.Kind,
 			PackageRoot:   packageRoot,
 			WorkspaceRoot: root,
 			Target:        target,

@@ -67,4 +67,20 @@ M59a adds manifest-declared RunTarget environment contracts with required/defaul
 Future M59 work may add strict environment allowlisting/scrubbing, runtime env access tracing, service dependency declarations, a service package kind, and NestJS migration/template support. M59a intentionally does not load `.env` files or orchestrate services.
 
 
-M59b adds RunTarget service requirements with TCP and HTTP preflight checks before `tspack run` exec. `tspack check` validates only declaration shape; future work may add runtime doctor/preflight-only commands, service orchestration, Docker Compose integration, package kind service, NestJS migration, strict env scrubbing, and runtime access tracing.
+M59b adds RunTarget service requirements with TCP and HTTP preflight checks before `tspack run` exec. `tspack check` validates only declaration shape; future work may add runtime doctor/preflight-only commands, service orchestration, Docker Compose integration, NestJS migration, strict env scrubbing, and runtime access tracing.
+
+## M59c semantic service package kind
+
+M59c adds `kind: "service"` as a package classification for deployable
+backend/runtime units. The kind is accepted by manifest authoring types,
+validated and preserved in Go IR, displayed in RunTarget listing output, and
+kept compatible with RunTarget `Env(...)` contracts and `Service(...)`
+requirements.
+
+M59c intentionally does not change dependency resolution, sync, package-manager
+behavior, or RunTarget execution. `tspack pack` reports service packages as
+unsupported rather than inventing service deployment artifacts.
+
+Future service work may add deeper package-kind service validation, service
+deployment artifacts, Docker Compose/service orchestration, inter-service
+dependency checks, NestJS migration/templates, and OpenAPI/artifact targets.

@@ -63,6 +63,50 @@ export default define(
 );
 ```
 
+## Package kinds
+
+Package `kind` is semantic classification. It is preserved in the manifest IR
+and introspection output, but it does not change dependency resolution, sync,
+RunTarget execution, or package-manager behavior.
+
+- `app`: browser/application package.
+- `library`: reusable package intended for consumption by other packages.
+- `service`: deployable backend/runtime unit.
+
+Service packages commonly declare RunTargets with environment contracts and
+service requirements:
+
+```tsx
+import { Env, Package, RunTargets, Service, Workspace, define } from "tspack/manifest";
+
+export default define(
+  <Workspace name="backend">
+    <Package name="@app/api" version="0.1.0" kind="service">
+      <RunTargets
+        rows={[
+          {
+            name: "dev",
+            runtime: "node",
+            command: ["tsx", "src/server.ts"],
+            url: "http://127.0.0.1:3000",
+            env: [
+              Env("DATABASE_URL", { required: true, secret: true }),
+            ],
+            requires: [
+              Service("postgres", { tcp: "127.0.0.1:5432" }),
+            ],
+          },
+        ]}
+      />
+    </Package>
+  </Workspace>,
+);
+```
+
+M59c only adds the `service` vocabulary. It does not add Docker Compose,
+service startup/orchestration, containers, deployment artifacts, OpenAPI
+generation, or new templates.
+
 
 
 

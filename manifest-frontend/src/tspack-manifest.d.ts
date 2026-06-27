@@ -208,7 +208,7 @@ declare module 'tspack/manifest' {
   export type PackageProps = {
     name: string;
     version: string;
-    kind: 'library' | 'app';
+    kind: 'library' | 'app' | 'service';
     license?: string;
     dependencies?: {
       values: DependencyIntent[];
