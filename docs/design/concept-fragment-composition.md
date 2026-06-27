@@ -2,9 +2,16 @@
 
 ## Status
 
-This is a design document for M60a. It is not implemented.
+This began as the M60a design document. M60b adds an internal implementation slice, but the design remains non-user-facing.
 
-No runtime behavior, template behavior, command behavior, package-manager behavior, built-in template migration, local custom concept support, remote concept support, or concept fragment registry is added by this milestone.
+M60b adds no runtime behavior, template behavior, command behavior, package-manager behavior, built-in template migration, local custom concept support, remote concept support, or public concept fragment authoring surface.
+
+
+## M60b implementation note
+
+M60b adds the first internal implementation slice for concept fragment composition. The implementation is intentionally Go-embedded and internal: `internal/concepts` defines inert fragment records, a deterministic built-in registry, concept graph resolution, `MergedConceptIR`, conservative merge laws, and conflict diagnostics that name the contribution path and concepts involved.
+
+This is infrastructure only. Existing static, React app, and React library templates are not migrated to fragment-driven rendering in M60b, and no public custom concept format or CLI surface is added. The current template pipeline and generated output remain behavior-preserving while tests prove that the current static, React app, and React library concept compositions can resolve and merge into semantic IR.
 
 ## Thesis
 
