@@ -114,3 +114,44 @@ React and React DOM are modeled as peer dependencies in the manifest and compati
 Run targets are intentionally simple and Node-oriented: `build` runs Vite library mode, `build-types` emits declarations with `tsc -p tsconfig.build.json`, and `typecheck` runs `tsc -p tsconfig.json --noEmit`. TSPack does not sequence those targets yet, so run both `build` and `build-types` before pack verification.
 
 The editor boundary mirrors the other built-in templates: `tsconfig.tspack.json` covers TSPack-owned manifest files without requiring the React JSX runtime, while the library `tsconfig.json` uses `jsx: "react-jsx"` and excludes TSPack-owned files.
+
+## Experimental local custom concept fragments
+
+Local templates may opt into experimental local concept fragments. They are inert TOML files declared by the template; they do not run scripts, execute commands, fetch remote content, install packages, or invoke other templates.
+
+Template metadata uses an explicit `[[localConcepts]]` table so it does not conflict with the existing `concepts = [...]` stack:
+
+```toml
+format = 1
+name = "my-company-react"
+description = "Company React starter"
+kind = "app"
+concepts = ["react.app", "browser.spa", "typescript.app", "my-company.design-system"]
+
+[[localConcepts]]
+name = "my-company.design-system"
+path = "concepts/design-system.toml"
+```
+
+The local concept file format is also TOML:
+
+```toml
+format = 1
+name = "my-company.design-system"
+description = "Company design system additions"
+provides = ["my-company.design-system"]
+expects = ["react.app"]
+conflicts = []
+compatibleKinds = ["app"]
+
+[[files]]
+destination = "src/design-system.ts"
+source = "files/design-system.ts.tmpl"
+render = true
+```
+
+M60f supports concept identity constraints (`provides`, `expects`, `expectsAnyOf`, `conflicts`, and `compatibleKinds`) plus file contributions. File `source` paths are relative to the concept file directory. File `destination` paths are relative to the generated project root. Both are validated as safe relative paths with no absolute paths, no `..` traversal, no Windows drive prefixes, and no remote URLs. Rendered concept files use the same `{{variable}}` placeholder syntax and value environment as ordinary template files.
+
+Local concepts are loaded into the same concept registry as built-ins for that template's planning run. The explicit template `concepts = [...]` list remains the source of truth: TSPack does not auto-insert missing concepts, listed order remains priority order, missing expectations fail, conflicts fail deterministically, duplicate local names fail, and local concepts may not shadow built-in concept names.
+
+Manifest-like contributions (`[[dependencies]]`, `[[tools]]`, `[[peers]]`, and `[[runTargets]]`) are parsed as semantic intent, but local templates do not yet have generic concept manifest rendering. If a local concept declares one of those contributions for a template without concept manifest support, planning fails with `TSPACK_TEMPLATE_CONCEPT_UNSUPPORTED_CONTRIBUTION` rather than silently dropping the dependency, tool, peer, or run target. Remote concepts, JavaScript/TypeScript concept files, scripts, package installation during init, arbitrary text patches, template inheritance, and public concept registries are not supported.

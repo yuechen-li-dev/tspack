@@ -37,30 +37,32 @@ type TemplateSource struct {
 }
 
 type RawTemplate struct {
-	Format      int                 `toml:"format"`
-	Name        string              `toml:"name"`
-	Description string              `toml:"description"`
-	Kind        string              `toml:"kind"`
-	Concepts    []string            `toml:"concepts"`
-	Variables   map[string]Variable `toml:"variables"`
-	Files       []File              `toml:"files"`
-	Source      TemplateSource
-	sourceFS    fs.FS
+	Format        int                 `toml:"format"`
+	Name          string              `toml:"name"`
+	Description   string              `toml:"description"`
+	Kind          string              `toml:"kind"`
+	Concepts      []string            `toml:"concepts"`
+	Variables     map[string]Variable `toml:"variables"`
+	Files         []File              `toml:"files"`
+	LocalConcepts []LocalConceptRef   `toml:"localConcepts"`
+	Source        TemplateSource
+	sourceFS      fs.FS
 }
 
 // Template is the normalized semantic template model used by listing and planning.
 // Future overlays and composition should normalize into this layer before planning.
 type Template struct {
-	Format      int
-	Name        string
-	Description string
-	Kind        string
-	Concepts    []string
-	Variables   map[string]Variable
-	Files       []File
-	Source      TemplateSource
-	source      fs.FS
-	root        string
+	Format        int
+	Name          string
+	Description   string
+	Kind          string
+	Concepts      []string
+	Variables     map[string]Variable
+	Files         []File
+	LocalConcepts []LocalConceptRef
+	Source        TemplateSource
+	source        fs.FS
+	root          string
 }
 
 type Variable struct {
@@ -200,16 +202,17 @@ func Normalize(raw *RawTemplate) (*Template, error) {
 		return nil, errors.New("TSPACK_TEMPLATE_INVALID: template is nil")
 	}
 	tmpl := &Template{
-		Format:      raw.Format,
-		Name:        raw.Name,
-		Description: raw.Description,
-		Kind:        raw.Kind,
-		Concepts:    append([]string{}, raw.Concepts...),
-		Variables:   copyVariables(raw.Variables),
-		Files:       append([]File{}, raw.Files...),
-		Source:      raw.Source,
-		source:      raw.sourceFS,
-		root:        raw.Source.Root,
+		Format:        raw.Format,
+		Name:          raw.Name,
+		Description:   raw.Description,
+		Kind:          raw.Kind,
+		Concepts:      append([]string{}, raw.Concepts...),
+		Variables:     copyVariables(raw.Variables),
+		Files:         append([]File{}, raw.Files...),
+		LocalConcepts: append([]LocalConceptRef{}, raw.LocalConcepts...),
+		Source:        raw.Source,
+		source:        raw.sourceFS,
+		root:          raw.Source.Root,
 	}
 	if err := tmpl.Validate(); err != nil {
 		return nil, err
@@ -224,6 +227,14 @@ func (t *Template) Validate() error {
 	for _, concept := range t.Concepts {
 		if !conceptNameRe.MatchString(concept) {
 			return fmt.Errorf("TSPACK_TEMPLATE_INVALID: invalid concept %q", concept)
+		}
+	}
+	for _, ref := range t.LocalConcepts {
+		if ref.Name == "" || !conceptNameRe.MatchString(ref.Name) {
+			return fmt.Errorf("TSPACK_TEMPLATE_CONCEPT_INVALID: invalid local concept name %q", ref.Name)
+		}
+		if err := validateLocalConceptRefPath(ref.Path); err != nil {
+			return fmt.Errorf("TSPACK_TEMPLATE_CONCEPT_PATH_INVALID: local concept %q path %q", ref.Name, ref.Path)
 		}
 	}
 	for name, variable := range t.Variables {
@@ -288,6 +299,22 @@ func (t *Template) Plan(opts PlanOptions) (*TemplatePlan, error) {
 		Values:       copyStringMap(opts.Values),
 		Files:        []PlannedFile{},
 	}
+	conceptSet := &localConceptSet{Registry: concepts.Builtins}
+	if len(t.LocalConcepts) > 0 || t.hasConceptManifestSupport() {
+		var err error
+		conceptSet, err = loadLocalConceptSet(t)
+		if err != nil {
+			return nil, err
+		}
+		_, err = concepts.BuildConceptIR(t.Concepts, t.Kind, conceptSet.Registry)
+		if err != nil {
+			return nil, formatTemplateConceptCompositionError(t.Name, err)
+		}
+		if !t.hasConceptManifestSupport() && hasUnsupportedLocalManifestContributions(conceptSet.Fragments) {
+			return nil, fmt.Errorf("TSPACK_TEMPLATE_CONCEPT_UNSUPPORTED_CONTRIBUTION: template %q local concepts contribute manifest data but template does not use concept manifest rendering", t.Name)
+		}
+	}
+	seenPlannedPaths := map[string]PlannedFile{}
 	for _, file := range t.Files {
 		target, err := safeJoin(dest, file.To)
 		if err != nil {
@@ -319,20 +346,44 @@ func (t *Template) Plan(opts PlanOptions) (*TemplatePlan, error) {
 			data = []byte(content)
 			rendered = true
 		}
-		plan.Files = append(plan.Files, PlannedFile{Path: file.To, SourcePath: file.From, DestinationPath: target, Rendered: rendered, content: data})
+		planned := PlannedFile{Path: file.To, SourcePath: file.From, DestinationPath: target, Rendered: rendered, content: data}
+		plan.Files = append(plan.Files, planned)
+		seenPlannedPaths[file.To] = planned
+	}
+	for _, file := range conceptSet.Files {
+		planned, err := t.planLocalConceptFile(dest, file, opts)
+		if err != nil {
+			return nil, err
+		}
+		if existing, ok := seenPlannedPaths[planned.Path]; ok {
+			if string(existing.content) == string(planned.content) {
+				continue
+			}
+			return nil, fmt.Errorf("TSPACK_TEMPLATE_CONCEPT_CONFLICT: local concept file destination %q conflicts with another planned file", planned.Path)
+		}
+		plan.Files = append(plan.Files, planned)
+		seenPlannedPaths[planned.Path] = planned
 	}
 	return plan, nil
 }
 
 func (t *Template) usesConceptManifest(file File) bool {
-	if t.Source.Kind != SourceKindBuiltin || file.To != "manifest.tsx" {
+	return file.To == "manifest.tsx" && t.hasConceptManifestSupport()
+}
+
+func (t *Template) hasConceptManifestSupport() bool {
+	if t.Source.Kind != SourceKindBuiltin {
 		return false
 	}
 	return t.Name == "static" || t.Name == "react" || t.Name == "react-library"
 }
 
 func (t *Template) renderConceptManifestFile(values map[string]string) (string, error) {
-	conceptIR, err := concepts.BuildConceptIR(t.Concepts, t.Kind, concepts.Builtins)
+	conceptSet, err := loadLocalConceptSet(t)
+	if err != nil {
+		return "", err
+	}
+	conceptIR, err := concepts.BuildConceptIR(t.Concepts, t.Kind, conceptSet.Registry)
 	if err != nil {
 		return "", formatTemplateConceptCompositionError(t.Name, err)
 	}
@@ -448,3 +499,42 @@ func contains(values []string, want string) bool {
 }
 func exists(path string) bool      { _, err := os.Stat(path); return err == nil }
 func existsAsDir(path string) bool { info, err := os.Stat(path); return err == nil && info.IsDir() }
+
+func (t *Template) planLocalConceptFile(dest string, file localConceptLoadedFile, opts PlanOptions) (PlannedFile, error) {
+	target, err := safeJoin(dest, file.Destination)
+	if err != nil {
+		return PlannedFile{}, err
+	}
+	if existsAsDir(target) {
+		return PlannedFile{}, fmt.Errorf("TSPACK_TEMPLATE_WRITE_FAILED: %s is a directory", file.Destination)
+	}
+	if !opts.Force && exists(target) {
+		return PlannedFile{}, fmt.Errorf("TSPACK_TEMPLATE_FILE_EXISTS: %s (use --force to overwrite)", file.Destination)
+	}
+	data, err := fs.ReadFile(t.source, pathJoin(t.root, file.Source))
+	if err != nil {
+		return PlannedFile{}, fmt.Errorf("TSPACK_TEMPLATE_CONCEPT_LOAD_FAILED: %s", file.Source)
+	}
+	rendered := file.Render || strings.HasSuffix(file.Source, ".tmpl")
+	if rendered {
+		content, err := render(string(data), opts.Values)
+		if err != nil {
+			return PlannedFile{}, err
+		}
+		data = []byte(content)
+	}
+	return PlannedFile{Path: file.Destination, SourcePath: file.Source, DestinationPath: target, Rendered: rendered, content: data}, nil
+}
+
+func hasUnsupportedLocalManifestContributions(localFragments []concepts.Fragment) bool {
+	if len(localFragments) == 0 {
+		return false
+	}
+	for _, fragment := range localFragments {
+		manifest := fragment.Manifest
+		if len(manifest.Dependencies) > 0 || len(manifest.Tools) > 0 || len(manifest.Peers) > 0 || len(manifest.RunTargets) > 0 || len(manifest.Targets) > 0 || len(manifest.Env) > 0 || len(manifest.Services) > 0 || len(manifest.UpdatePolicy) > 0 || len(manifest.SecurityPolicy) > 0 || manifest.Workspace != nil || manifest.Package != nil || manifest.Pack != nil {
+			return true
+		}
+	}
+	return false
+}

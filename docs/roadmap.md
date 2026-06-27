@@ -113,3 +113,9 @@ M59d intentionally remains an example milestone, not a template or migration mil
 M59e completes the immediate backend RunTarget friction fixes from the NestJS service example: HTTP readiness URLs support `${PORT}`-style env interpolation, `tspack run --preflight-only` validates env and external `Service(...)` dependencies without starting the command, and docs/examples clarify that `Service(...)` is an external dependency preflight while `ready` is the target's own post-start health signal.
 
 Future backend work remains deliberately out of scope: `.env` loading, strict env scrubbing, runtime env tracing, Docker Compose or service orchestration, OpenAPI/artifact targets, service package artifacts, and composable template concepts.
+
+## M60f local custom concept fragment MVP
+
+M60f adds local-only custom concept fragments for expert-authored local templates. Templates declare `[[localConcepts]]` entries, local TOML concept files are validated as inert data, fragments merge with the built-in concept registry under explicit stack semantics, and file contributions can add rendered/copy files through the normal TemplatePlan safety boundary.
+
+Unsupported manifest contributions from local concepts now fail loudly for local templates that do not have concept manifest rendering, so dependency/tool/run-target intent cannot silently disappear. Future work may add a generic concept manifest renderer for local templates, concept-authored projections, Tailwind/MachinaLayout/Shadcn/Storybook-style built-ins, and much later remote registry exploration. M60f does not add remote concepts, script execution, package installation during init, template inheritance, a public marketplace, or package-manager behavior changes.
