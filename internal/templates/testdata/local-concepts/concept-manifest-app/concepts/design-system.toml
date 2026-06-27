@@ -1,0 +1,24 @@
+format = 1
+name = "my-company.design-system"
+description = "Company design system additions"
+provides = ["my-company.design-system"]
+expects = ["react.app"]
+
+[[dependencies]]
+key = "@my-company/design-system"
+source = "npm"
+range = "^1.2.0"
+
+[[tools]]
+key = "@my-company/icon-generator"
+source = "npm"
+range = "^2.0.0"
+
+[[runTargets]]
+name = "generate-icons"
+command = "node scripts/generate-icons.mjs"
+
+[[files]]
+destination = "src/design-system.ts"
+source = "files/design-system.ts.tmpl"
+render = true

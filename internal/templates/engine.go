@@ -45,6 +45,7 @@ type RawTemplate struct {
 	Variables     map[string]Variable `toml:"variables"`
 	Files         []File              `toml:"files"`
 	LocalConcepts []LocalConceptRef   `toml:"localConcepts"`
+	Generation    GenerationOptions   `toml:"generation"`
 	Source        TemplateSource
 	sourceFS      fs.FS
 }
@@ -60,9 +61,14 @@ type Template struct {
 	Variables     map[string]Variable
 	Files         []File
 	LocalConcepts []LocalConceptRef
+	Generation    GenerationOptions
 	Source        TemplateSource
 	source        fs.FS
 	root          string
+}
+
+type GenerationOptions struct {
+	Manifest string `toml:"manifest"`
 }
 
 type Variable struct {
@@ -210,6 +216,7 @@ func Normalize(raw *RawTemplate) (*Template, error) {
 		Variables:     copyVariables(raw.Variables),
 		Files:         append([]File{}, raw.Files...),
 		LocalConcepts: append([]LocalConceptRef{}, raw.LocalConcepts...),
+		Generation:    raw.Generation,
 		Source:        raw.Source,
 		source:        raw.sourceFS,
 		root:          raw.Source.Root,
@@ -228,6 +235,9 @@ func (t *Template) Validate() error {
 		if !conceptNameRe.MatchString(concept) {
 			return fmt.Errorf("TSPACK_TEMPLATE_INVALID: invalid concept %q", concept)
 		}
+	}
+	if t.Generation.Manifest != "" && t.Generation.Manifest != "concept" {
+		return fmt.Errorf("TSPACK_TEMPLATE_INVALID: unknown generation manifest mode %q", t.Generation.Manifest)
 	}
 	for _, ref := range t.LocalConcepts {
 		if ref.Name == "" || !conceptNameRe.MatchString(ref.Name) {
@@ -315,6 +325,30 @@ func (t *Template) Plan(opts PlanOptions) (*TemplatePlan, error) {
 		}
 	}
 	seenPlannedPaths := map[string]PlannedFile{}
+	if t.Source.Kind == SourceKindLocal && t.hasConceptManifestSupport() {
+		for _, file := range t.Files {
+			if file.To == "manifest.tsx" {
+				return nil, fmt.Errorf("TSPACK_TEMPLATE_CONCEPT_CONFLICT: template %q uses concept manifest generation and also projects manifest.tsx", t.Name)
+			}
+		}
+		content, err := t.renderConceptManifestFile(opts.Values)
+		if err != nil {
+			return nil, err
+		}
+		target, err := safeJoin(dest, "manifest.tsx")
+		if err != nil {
+			return nil, err
+		}
+		if existsAsDir(target) {
+			return nil, fmt.Errorf("TSPACK_TEMPLATE_WRITE_FAILED: manifest.tsx is a directory")
+		}
+		if !opts.Force && exists(target) {
+			return nil, fmt.Errorf("TSPACK_TEMPLATE_FILE_EXISTS: manifest.tsx (use --force to overwrite)")
+		}
+		planned := PlannedFile{Path: "manifest.tsx", SourcePath: "<concept>", DestinationPath: target, Rendered: true, content: []byte(content)}
+		plan.Files = append(plan.Files, planned)
+		seenPlannedPaths[planned.Path] = planned
+	}
 	for _, file := range t.Files {
 		target, err := safeJoin(dest, file.To)
 		if err != nil {
@@ -372,8 +406,8 @@ func (t *Template) usesConceptManifest(file File) bool {
 }
 
 func (t *Template) hasConceptManifestSupport() bool {
-	if t.Source.Kind != SourceKindBuiltin {
-		return false
+	if t.Source.Kind == SourceKindLocal {
+		return t.Generation.Manifest == "concept"
 	}
 	return t.Name == "static" || t.Name == "react" || t.Name == "react-library"
 }
@@ -386,6 +420,9 @@ func (t *Template) renderConceptManifestFile(values map[string]string) (string, 
 	conceptIR, err := concepts.BuildConceptIR(t.Concepts, t.Kind, conceptSet.Registry)
 	if err != nil {
 		return "", formatTemplateConceptCompositionError(t.Name, err)
+	}
+	if t.Source.Kind == SourceKindLocal {
+		return renderGenericConceptManifest(values, t.Kind, conceptIR)
 	}
 	if t.Name == "react" {
 		return renderReactConceptManifest(values, conceptIR)
