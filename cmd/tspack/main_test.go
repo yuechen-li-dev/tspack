@@ -88,6 +88,20 @@ func reservePort(t *testing.T) int {
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
+func portEventuallyClosed(t *testing.T, port int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 150*time.Millisecond)
+		if err != nil {
+			return
+		}
+		_ = conn.Close()
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("port %d was still accepting connections after %s", port, timeout)
+}
+
 func testExecutablePath(path string) string {
 	if runtime.GOOS == "windows" && filepath.Ext(path) == "" {
 		return path + ".cmd"
@@ -1617,22 +1631,24 @@ func writeRunFrontendStub(t *testing.T, irJSON string) {
 func TestCLIRunOnceSelectionAndErrors(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	root := t.TempDir()
+	devPort := reservePort(t)
+	apiPort := reservePort(t)
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
 	server := `const http=require('http'); const p=Number(process.env.PORT||process.argv[2]||5173); http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}).listen(p,'127.0.0.1'); setInterval(()=>{},1000);`
 	_ = os.WriteFile(filepath.Join(root, "server.js"), []byte(server), 0o644)
 
-	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js","5191"],url:"http://127.0.0.1:5191",ready:{kind:"http",path:"/"}},{name:"api",runtime:"system",command:["node","server.js","5192"],url:"http://127.0.0.1:5192"}]}]}`)
+	writeRunFrontendStub(t, fmt.Sprintf(`{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js","%d"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}},{name:"api",runtime:"system",command:["node","server.js","%d"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}}]}]}`, devPort, devPort, apiPort, apiPort))
 
 	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "--once")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
-	if err != nil || !strings.Contains(string(b), "Ready: http://127.0.0.1:5191") {
+	if err != nil || !strings.Contains(string(b), fmt.Sprintf("Ready: http://127.0.0.1:%d", devPort)) {
 		t.Fatalf("run dev failed: %v\n%s", err, string(b))
 	}
 	cmd = exec.Command("go", "run", "./cmd/tspack", "run", "api", "--root", root, "--once")
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
-	if err != nil || !strings.Contains(string(b), "Ready: http://127.0.0.1:5192") {
+	if err != nil || !strings.Contains(string(b), fmt.Sprintf("Ready: http://127.0.0.1:%d", apiPort)) {
 		t.Fatalf("run api failed: %v\n%s", err, string(b))
 	}
 	cmd = exec.Command("go", "run", "./cmd/tspack", "run", "nope", "--root", root, "--once")
@@ -1824,6 +1840,95 @@ func TestCLIRunProcessExitedEarly(t *testing.T) {
 	b, err := cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(b), "TSPACK_RUN_PROCESS_EXITED_EARLY") {
 		t.Fatalf("expected exited early: %v\n%s", err, string(b))
+	}
+}
+
+func TestCLIRunFiniteTargetKillsLingeringChildProcess(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	port := reservePort(t)
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	child := `const http=require('http');
+const port=Number(process.argv[2]);
+http.createServer((_,res)=>{res.statusCode=200;res.end('child')}).listen(port,'127.0.0.1');
+setInterval(()=>{},1000);
+`
+	parent := fmt.Sprintf(`const {spawn}=require('child_process');
+const path=require('path');
+spawn(process.execPath,[path.join(__dirname,'child.js'),String(%d)],{stdio:'ignore'});
+setTimeout(()=>process.exit(0),300);
+`, port)
+	_ = os.WriteFile(filepath.Join(root, "child.js"), []byte(child), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "parent.js"), []byte(parent), 0o644)
+	writeRunFrontendStub(t, fmt.Sprintf(`{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"build",runtime:"system",command:["node","parent.js"],url:"http://127.0.0.1:%d"}]}]}`, port))
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "build")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("finite run failed: %v\n%s", err, string(b))
+	}
+	output := string(b)
+	if !strings.Contains(output, "Waiting for: process exit") || !strings.Contains(output, "Completed: exit code 0") {
+		t.Fatalf("finite run missing completion output:\n%s", output)
+	}
+
+	portEventuallyClosed(t, port, 3*time.Second)
+}
+
+func TestCLIRunOnceStopsServerBeforeReturning(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	port := reservePort(t)
+	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
+	server := `const http=require('http');
+const port=Number(process.argv[2]);
+http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}).listen(port,'127.0.0.1',()=>{process.stdout.write('READY\n');});
+setInterval(()=>{},1000);
+`
+	_ = os.WriteFile(filepath.Join(root, "server.js"), []byte(server), 0o644)
+	writeRunFrontendStub(t, fmt.Sprintf(`{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"preview",runtime:"system",command:["node","server.js","%d"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}}]}]}`, port, port))
+
+	cmd := exec.Command("go", "run", "./cmd/tspack", "run", "--root", root, "preview", "--once", "--ready-timeout", "3")
+	cmd.Dir = repo
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("preview --once failed: %v\n%s", err, string(b))
+	}
+	if !strings.Contains(string(b), fmt.Sprintf("Ready: http://127.0.0.1:%d", port)) {
+		t.Fatalf("preview --once missing readiness output:\n%s", string(b))
+	}
+
+	portEventuallyClosed(t, port, 3*time.Second)
+}
+
+func TestTemplateBuildTargetsAreFinite(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	reactTemplate := filepath.Join(repo, "internal", "templates", "builtin", "react", "files", "manifest.tsx.tmpl")
+	reactLibraryTemplate := filepath.Join(repo, "internal", "templates", "builtin", "react-library", "files", "manifest.tsx.tmpl")
+
+	reactData, err := os.ReadFile(reactTemplate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reactText := string(reactData)
+	if strings.Contains(reactText, `name: "build"`) && strings.Contains(reactText, `ready: { kind: "stdout-match", pattern: "built in" }`) {
+		t.Fatalf("react build target should not declare stdout readiness:\n%s", reactText)
+	}
+
+	reactLibraryData, err := os.ReadFile(reactLibraryTemplate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reactLibraryText := string(reactLibraryData)
+	for _, pattern := range []string{
+		`ready: { kind: "stdout-match", pattern: "built in" }`,
+		`ready: { kind: "stdout-match", pattern: "TSFILE" }`,
+		`ready: { kind: "stdout-match", pattern: "Files:" }`,
+	} {
+		if strings.Contains(reactLibraryText, pattern) {
+			t.Fatalf("react-library finite target should not declare readiness %q", pattern)
+		}
 	}
 }
 

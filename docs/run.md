@@ -4,6 +4,12 @@
 
 RunTargets are manifest-declared runtime targets. `tspack run` is intentionally not `npm run` and does not fall back to `package.json` scripts.
 
+RunTarget lifecycle semantics are explicit:
+- targets with `ready` are server targets
+- targets without `ready` are finite commands
+- `--once` proves a server target becomes ready, then stops that process tree
+- `--once` is harmless on finite targets because they already complete by process exit
+
 ## Usage
 - `tspack run`
 - `tspack run <target>`
@@ -44,6 +50,8 @@ RunTargets are manifest-declared runtime targets. `tspack run` is intentionally 
 
 Use `--package <package-name>` with `--list` to show only one package's targets. `--list` rejects positional targets, `--once`, and `--env` because listing never starts a process and has no child execution environment.
 
+Targets without `ready` are listed as `ready: none (finite target)`.
+
 ## Target identity and selection
 
 Run target identity is package-qualified as `<package-name>:<target-name>`, for example `@prisma-ui/demo:dev`. Users select targets with `--package <package-name>` plus the target name, or by target name alone when the name is unambiguous.
@@ -71,9 +79,9 @@ Each row supports:
 - `name`
 - `runtime`: `system`, `node`, `bun`, or `deno`
 - `command`: argv array (not shell string)
-- `url`: base URL for status/readiness
+- `url`: optional base URL for status/readiness and follow-up tooling
 - `cwd`: optional `"workspace"` or `"package"`; omitted means `"workspace"` for compatibility
-- `ready`: optional readiness policy. Supported kinds are HTTP, TCP, and literal stdout/stderr substring matching.
+- `ready`: optional readiness policy. Supported kinds are HTTP, TCP, and literal stdout/stderr substring matching. A declared `ready` makes the target a server target; omitted `ready` makes it a finite command.
 
 ### Bun RunTarget runtime
 
@@ -230,11 +238,13 @@ Readiness URLs and readiness configuration are not interpolated. If a server rea
 
 By default, `tspack run` loads `<root>/manifest.tsx`. Pass `--manifest <path>` to load an explicit manifest path; this composes with `--root` but does not change command cwd semantics. Commands execute from the selected RunTarget cwd policy. `--package` selects the declaring package; it does not rewrite command argv paths.
 
-## Readiness
+## Lifecycle and readiness
 
 Readiness is process readiness only. It is not a long-running healthcheck, lifecycle script, shell interpolation hook, WebSocket probe, or package-manager behavior.
 
-All readiness kinds use `--ready-timeout` (default 30s). `--once` exits after readiness succeeds and terminates the child process.
+Finite targets do not wait for readiness. They succeed when the launched command exits with code `0`, fail on non-zero exit, and are expected to leave no attached child or grandchild processes behind.
+
+Server targets declare `ready`. All readiness kinds use `--ready-timeout` (default 30s). `--once` exits after readiness succeeds and then stops the launched process tree. After `--once`, the server is not expected to remain available for manual probing.
 
 ### HTTP readiness
 

@@ -20,3 +20,15 @@ func signalRunTargetProcessGroup(pid int, signal syscall.Signal) error {
 	}
 	return err
 }
+
+func attachRunTargetCleanup(cmd *exec.Cmd) (runTargetCleanupHandle, error) {
+	return nil, nil
+}
+
+func cleanupExitedRunTargetProcessTree(rootPID int, cleanupHandle runTargetCleanupHandle) error {
+	_ = cleanupHandle
+	if rootPID == 0 {
+		return nil
+	}
+	return signalRunTargetProcessGroup(rootPID, syscall.SIGKILL)
+}

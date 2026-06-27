@@ -94,13 +94,11 @@ export default define(
             name: "build",
             runtime: "node",
             command: ["vite", "build"],
-            ready: { kind: "stdout-match", pattern: "built in" },
           },
           {
             name: "build-types",
             runtime: "node",
             command: ["tsc", "-p", "tsconfig.build.json", "--listEmittedFiles"],
-            ready: { kind: "stdout-match", pattern: "TSFILE" },
           },
           {
             name: "typecheck",
@@ -114,7 +112,6 @@ export default define(
               "false",
               "--diagnostics",
             ],
-            ready: { kind: "stdout-match", pattern: "Files:" },
           },
         ]}
       />

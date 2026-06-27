@@ -100,7 +100,6 @@ export default define(
             name: "build",
             runtime: "node",
             command: ["vite", "build"],
-            ready: { kind: "stdout-match", pattern: "built in" },
           },
           {
             name: "preview",

@@ -76,20 +76,67 @@ type RunTargetSession struct {
 	Cmd              *exec.Cmd
 	URL              string
 	ReadyDescription string
-	waitCh           chan error
+	readyCheck       runReadyCheck
+	rootPID          int
+	waitDone         chan struct{}
+	waitErr          error
+	cleanupHandle    runTargetCleanupHandle
+	cleanupOnce      sync.Once
+	cleanupErr       error
 }
 
 func (s *RunTargetSession) Stop() error {
 	if s == nil || s.Cmd == nil {
 		return nil
 	}
-	if err := terminate(s.Cmd); err != nil {
-		return err
+	if s.rootPID == 0 && s.Cmd.Process != nil {
+		s.rootPID = s.Cmd.Process.Pid
 	}
-	if s.waitCh != nil {
-		<-s.waitCh
+	if s.rootPID != 0 {
+		_ = signalRunTargetProcessGroup(s.rootPID, syscall.SIGTERM)
 	}
-	return nil
+	if !s.waitForExit(2 * time.Second) {
+		if s.rootPID != 0 {
+			if err := signalRunTargetProcessGroup(s.rootPID, syscall.SIGKILL); err != nil {
+				return fmt.Errorf("target %q root PID %d forced cleanup failed: %w", s.Target.Name, s.rootPID, err)
+			}
+		}
+		if !s.waitForExit(5 * time.Second) {
+			return fmt.Errorf("target %q root PID %d cleanup timed out waiting for process exit", s.Target.Name, s.rootPID)
+		}
+	}
+	return s.closeCleanupHandle()
+}
+
+func (s *RunTargetSession) Wait() error {
+	if s == nil || s.waitDone == nil {
+		return nil
+	}
+	<-s.waitDone
+	return s.waitErr
+}
+
+func (s *RunTargetSession) waitForExit(timeout time.Duration) bool {
+	if s == nil || s.waitDone == nil {
+		return true
+	}
+	select {
+	case <-s.waitDone:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+func (s *RunTargetSession) closeCleanupHandle() error {
+	if s == nil {
+		return nil
+	}
+	s.cleanupOnce.Do(func() {
+		s.cleanupErr = cleanupExitedRunTargetProcessTree(s.rootPID, s.cleanupHandle)
+		s.cleanupHandle = nil
+	})
+	return s.cleanupErr
 }
 
 func startRunTarget(root string, target manifest.RunTarget, timeout time.Duration, stdout io.Writer, stderr io.Writer) (*RunTargetSession, *runErr) {
@@ -97,6 +144,33 @@ func startRunTarget(root string, target manifest.RunTarget, timeout time.Duratio
 }
 
 func startRunTargetInDir(root string, cwdPath string, target manifest.RunTarget, timeout time.Duration, stdout io.Writer, stderr io.Writer, envOverlay runEnvOverlay) (*RunTargetSession, *runErr) {
+	session, launchErr := launchRunTargetInDir(root, cwdPath, target, stdout, stderr, envOverlay)
+	if launchErr != nil {
+		return nil, launchErr
+	}
+	if runTargetModeFor(target) == runTargetModeFinite {
+		waitErr := session.Wait()
+		_ = session.closeCleanupHandle()
+		if waitErr == nil {
+			return nil, &runErr{code: "TSPACK_RUN_PROCESS_EXITED_EARLY", msg: "finite target exited before readiness could be observed"}
+		}
+		return nil, &runErr{code: "TSPACK_RUN_PROCESS_EXITED_EARLY", msg: waitErr.Error()}
+	}
+	readyCheck := session.readyCheck
+	if readyErr := waitReady(session, readyCheck, timeout); readyErr != nil {
+		if readyErr.code != "TSPACK_RUN_PROCESS_EXITED_EARLY" {
+			_ = session.Stop()
+		} else {
+			_ = session.closeCleanupHandle()
+		}
+		return nil, readyErr
+	}
+	session.URL = target.URL
+	session.ReadyDescription = readyCheck.readyDescription()
+	return session, nil
+}
+
+func launchRunTargetInDir(root string, cwdPath string, target manifest.RunTarget, stdout io.Writer, stderr io.Writer, envOverlay runEnvOverlay) (*RunTargetSession, *runErr) {
 	resolved := target
 	launchCommand, launchErr := resolveRunTargetLaunchCommand(root, resolved)
 	if launchErr != nil {
@@ -105,8 +179,13 @@ func startRunTargetInDir(root string, cwdPath string, target manifest.RunTarget,
 	cmd := exec.Command(launchCommand[0], launchCommand[1:]...)
 	cmd.Dir = cwdPath
 	configureRunTargetProcess(cmd)
-	readyCheck := newReadyCheck(resolved)
-	stdoutMatcher, stderrMatcher := readyCheck.outputMatchers()
+	var readyCheck runReadyCheck
+	var stdoutMatcher *outputMatcher
+	var stderrMatcher *outputMatcher
+	if runTargetModeFor(resolved) == runTargetModeServer {
+		readyCheck = newReadyCheck(resolved)
+		stdoutMatcher, stderrMatcher = readyCheck.outputMatchers()
+	}
 	var stdoutPipe io.ReadCloser
 	var stderrPipe io.ReadCloser
 	var pipeErr error
@@ -137,23 +216,30 @@ func startRunTargetInDir(root string, cwdPath string, target manifest.RunTarget,
 		}
 		return nil, &runErr{code: "TSPACK_RUN_PROCESS_START_FAILED", msg: err.Error()}
 	}
+	cleanupHandle, cleanupErr := attachRunTargetCleanup(cmd)
+	if cleanupErr != nil {
+		_ = signalRunTargetProcessGroup(cmd.Process.Pid, syscall.SIGKILL)
+		_ = cmd.Wait()
+		return nil, &runErr{code: "TSPACK_RUN_PROCESS_START_FAILED", msg: cleanupErr.Error()}
+	}
+	session := &RunTargetSession{
+		Target:        resolved,
+		Cmd:           cmd,
+		readyCheck:    readyCheck,
+		rootPID:       cmd.Process.Pid,
+		waitDone:      make(chan struct{}),
+		cleanupHandle: cleanupHandle,
+	}
 	var copyWG sync.WaitGroup
 	copyOutputPipe(stdoutPipe, stdout, stdoutMatcher, &copyWG)
 	copyOutputPipe(stderrPipe, stderr, stderrMatcher, &copyWG)
-	waitCh := make(chan error, 1)
 	go func() {
 		waitErr := cmd.Wait()
 		copyWG.Wait()
-		waitCh <- waitErr
+		session.waitErr = waitErr
+		close(session.waitDone)
 	}()
-	if readyErr := waitReady(waitCh, readyCheck, timeout); readyErr != nil {
-		if readyErr.code != "TSPACK_RUN_PROCESS_EXITED_EARLY" {
-			_ = terminate(cmd)
-			<-waitCh
-		}
-		return nil, readyErr
-	}
-	return &RunTargetSession{Target: resolved, Cmd: cmd, URL: resolved.URL, ReadyDescription: readyCheck.readyDescription(), waitCh: waitCh}, nil
+	return session, nil
 }
 
 func runRunCommand(args []string) {
@@ -184,6 +270,24 @@ func runRunCommand(args []string) {
 	if len(opts.Env.Keys) > 0 {
 		fmt.Fprintf(os.Stderr, "Env: %s\n", strings.Join(opts.Env.Keys, ", "))
 	}
+	if runTargetModeFor(rt) == runTargetModeFinite {
+		fmt.Fprintln(os.Stderr, "Waiting for: process exit")
+		session, launchErr := launchRunTargetInDir(workspaceRoot, cwdPath, rt, os.Stdout, os.Stderr, opts.Env)
+		if launchErr != nil {
+			failRun(launchErr.code, launchErr.msg)
+		}
+		waitErr := session.Wait()
+		cleanupErr := session.closeCleanupHandle()
+		if waitErr != nil {
+			failRun(runProcessExitCode(waitErr), runProcessExitMessage(waitErr))
+		}
+		if cleanupErr != nil {
+			failRun("TSPACK_RUN_CLEANUP_FAILED", fmt.Sprintf("target %q root PID %d cleanup failed after exit: %v", session.Target.Name, session.rootPID, cleanupErr))
+		}
+		fmt.Fprintln(os.Stderr, "Completed: exit code 0")
+		return
+	}
+
 	readyCheck := newReadyCheck(rt)
 	fmt.Fprintf(os.Stderr, "Waiting for: %s\n", readyCheck.waitingDescription())
 	session, readyErr := startRunTargetInDir(workspaceRoot, cwdPath, rt, time.Duration(opts.TimeoutSeconds)*time.Second, os.Stdout, os.Stderr, opts.Env)
@@ -195,13 +299,22 @@ func runRunCommand(args []string) {
 		fmt.Fprintf(os.Stderr, "URL: %s\n", session.URL)
 	}
 	if opts.Once {
-		_ = session.Stop()
+		if err := session.Stop(); err != nil {
+			failRun("TSPACK_RUN_CLEANUP_FAILED", err.Error()+"; hint: stop stale Vite/Node/esbuild processes and retry")
+		}
 		return
 	}
 	sig := make(chan os.Signal, 2)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	go func() { <-sig; _ = session.Stop() }()
-	<-session.waitCh
+	waitErr := session.Wait()
+	cleanupErr := session.closeCleanupHandle()
+	if waitErr != nil {
+		failRun(runProcessExitCode(waitErr), runProcessExitMessage(waitErr))
+	}
+	if cleanupErr != nil {
+		failRun("TSPACK_RUN_CLEANUP_FAILED", fmt.Sprintf("target %q root PID %d cleanup failed after exit: %v", session.Target.Name, session.rootPID, cleanupErr))
+	}
 }
 
 func parseRunCommandOptions(args []string) runCommandOptions {
@@ -281,18 +394,18 @@ func parseRunCommandOptions(args []string) runCommandOptions {
 
 type runErr struct{ code, msg string }
 
-func waitReady(waitCh <-chan error, readyCheck runReadyCheck, timeout time.Duration) *runErr {
+func waitReady(session *RunTargetSession, readyCheck runReadyCheck, timeout time.Duration) *runErr {
 	deadline := time.Now().Add(timeout)
 	for {
 		if readyCheck.ready() {
 			return nil
 		}
 		select {
-		case <-waitCh:
+		case <-session.waitDone:
 			if readyCheck.ready() {
 				return nil
 			}
-			return &runErr{"TSPACK_RUN_PROCESS_EXITED_EARLY", "process exited before ready"}
+			return &runErr{"TSPACK_RUN_PROCESS_EXITED_EARLY", runProcessExitedBeforeReadyMessage(session.waitErr)}
 		default:
 		}
 		if time.Now().After(deadline) {
@@ -300,20 +413,6 @@ func waitReady(waitCh <-chan error, readyCheck runReadyCheck, timeout time.Durat
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-}
-
-func terminate(cmd *exec.Cmd) error {
-	if cmd.Process == nil {
-		return nil
-	}
-	pid := cmd.Process.Pid
-	if err := signalRunTargetProcessGroup(pid, syscall.SIGTERM); err != nil {
-		return err
-	}
-	time.AfterFunc(2*time.Second, func() {
-		_ = signalRunTargetProcessGroup(pid, syscall.SIGKILL)
-	})
-	return nil
 }
 
 func failRun(code, msg string) { fmt.Fprintln(os.Stderr, code+": "+msg); os.Exit(1) }
@@ -475,7 +574,7 @@ func renderRunTargetListText(refs []runTargetRef, workspaceRuntime string) {
 		if ref.Target.Ready != nil {
 			fmt.Fprintf(os.Stdout, "      ready: %s\n", formatReadyForList(ref.Target.Ready))
 		} else {
-			fmt.Fprintln(os.Stdout, "      ready: url")
+			fmt.Fprintln(os.Stdout, "      ready: none (finite target)")
 		}
 	}
 }
@@ -818,9 +917,6 @@ func copyOutputPipe(pipe io.ReadCloser, destination io.Writer, matcher *outputMa
 }
 
 func newReadyCheck(rt manifest.RunTarget) runReadyCheck {
-	if rt.Ready == nil {
-		return &httpReadyCheck{url: rt.URL}
-	}
 	switch rt.Ready.Kind {
 	case "tcp":
 		host := rt.Ready.Host
@@ -844,6 +940,9 @@ func newReadyCheck(rt manifest.RunTarget) runReadyCheck {
 }
 
 func formatReadyForList(ready *manifest.RunReadyCheck) string {
+	if ready == nil {
+		return "none (finite target)"
+	}
 	switch ready.Kind {
 	case "http":
 		return "http " + ready.Path
@@ -1186,4 +1285,52 @@ func resolvePackageRoot(root string, manifestPath string, ir *manifest.ManifestI
 		return root
 	}
 	return ""
+}
+
+type runTargetMode string
+
+const (
+	runTargetModeFinite runTargetMode = "finite"
+	runTargetModeServer runTargetMode = "server"
+)
+
+func runTargetModeFor(target manifest.RunTarget) runTargetMode {
+	if target.Ready != nil {
+		return runTargetModeServer
+	}
+	return runTargetModeFinite
+}
+
+type runTargetCleanupHandle interface {
+	Close() error
+}
+
+func runProcessExitedBeforeReadyMessage(waitErr error) string {
+	if waitErr == nil {
+		return "process exited before ready"
+	}
+	if exitErr, ok := waitErr.(*exec.ExitError); ok {
+		return fmt.Sprintf("process exited with code %d before ready", exitErr.ExitCode())
+	}
+	return fmt.Sprintf("process exited before ready: %v", waitErr)
+}
+
+func runProcessExitCode(waitErr error) string {
+	if waitErr == nil {
+		return "TSPACK_RUN_PROCESS_EXIT_FAILED"
+	}
+	if _, ok := waitErr.(*exec.ExitError); ok {
+		return "TSPACK_RUN_PROCESS_EXITED"
+	}
+	return "TSPACK_RUN_PROCESS_EXIT_FAILED"
+}
+
+func runProcessExitMessage(waitErr error) string {
+	if waitErr == nil {
+		return "process exited unexpectedly"
+	}
+	if exitErr, ok := waitErr.(*exec.ExitError); ok {
+		return fmt.Sprintf("process exited with code %d", exitErr.ExitCode())
+	}
+	return waitErr.Error()
 }
