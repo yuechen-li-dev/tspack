@@ -248,3 +248,14 @@ The declared `<UpdatePolicy />` can be inspected with `tspack outdated` and plan
 ## Init templates and manifest authoring
 
 `tspack init` templates generate the initial `manifest.tsx` and the editor boundary files (`tsconfig.tspack.json`, `.tspack/types/tspack-manifest.d.ts`, and `tspack-env.d.ts`). The generated manifest is the ongoing project contract; generated config files are tooling projections for authoring support.
+
+## RunTarget env schema
+
+`RunTarget` rows accept `env?: RunTargetEnvRow[]`. Use `Env(name, options)` for readable, typed declarations. `name` must match `[A-Za-z_][A-Za-z0-9_]*` and duplicate names on one RunTarget are rejected case-insensitively. Fields are:
+
+- `required?: boolean` — the variable must be present at run time unless `default` is provided.
+- `default?: string` — injected by `tspack run` when the variable is missing.
+- `secret?: boolean` — values and defaults are redacted in diagnostics and JSON/list output.
+- `description?: string` — documentation shown in missing-env diagnostics.
+
+`tspack check` validates declaration shape and duplicates but does not require host secrets to exist.

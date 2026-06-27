@@ -167,6 +167,14 @@ declare module 'tspack/manifest' {
         stream?: 'stdout' | 'stderr' | 'both';
       };
 
+  export type RunTargetEnvRow = {
+    name: string;
+    required?: boolean;
+    default?: string;
+    secret?: boolean;
+    description?: string;
+  };
+
   export type RunTargetRow = {
     name: string;
     runtime?: 'system' | 'node' | 'bun' | 'deno';
@@ -174,6 +182,7 @@ declare module 'tspack/manifest' {
     url: string;
     cwd?: 'workspace' | 'package';
     ready?: RunTargetReady;
+    env?: RunTargetEnvRow[];
   };
 
   export type PackageRow = {
@@ -271,6 +280,7 @@ declare module 'tspack/manifest' {
   export function dep(source: DependencySource, options?: DependencyOptions): DepIntent;
   export function peer(source: DependencySource, options?: PeerOptions): PeerIntent;
   export function tool(source: DependencySource, options?: DependencyOptions): ToolIntent;
+  export function Env(name: string, options?: Omit<RunTargetEnvRow, 'name'>): RunTargetEnvRow;
 
   export const Workspace: ManifestComponent<WorkspaceProps>;
   export const Packages: ManifestComponent<PackagesProps>;

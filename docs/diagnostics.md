@@ -370,3 +370,9 @@ A `Security.acknowledgedLifecycleCategories` row includes a script that is not p
 
 - `TSPACK_UPDATE_POLICY_REQUIRES_DRY_RUN`: `tspack update --policy` was run without `--dry-run`. M50b only supports read-only policy planning; use `tspack update --policy --dry-run`.
 - `TSPACK_UPDATE_POLICY_TARGET_UNSUPPORTED`: targeted policy planning is not implemented in M50b. Run `tspack update --policy --dry-run` for the workspace policy plan, or use `tspack outdated` for targeted investigation.
+
+### RunTarget env contracts
+
+- `TSPACK_RUN_ENV_MISSING`: a selected RunTarget declares required environment variables that are missing and have no default. Set them before running the target, or add an appropriate default in `manifest.tsx`.
+- `TSPACK_MANIFEST_ENV_INVALID`: a RunTarget env name is empty or not portable. Use `[A-Za-z_][A-Za-z0-9_]*` names such as `DATABASE_URL`.
+- `TSPACK_MANIFEST_ENV_DUPLICATE`: the same env name appears more than once on one RunTarget. Duplicates are checked case-insensitively for Windows safety.
