@@ -494,7 +494,7 @@ func TestInitManifestTypeSupportDriftAndTypecheck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read canonical declaration: %v", err)
 	}
-	if string(canonical) != initManifestTypesDTS {
+	if normalizeManifestTypeDecl(string(canonical)) != normalizeManifestTypeDecl(initManifestTypesDTS) {
 		t.Fatalf("init type support drifted from canonical declaration")
 	}
 
@@ -541,6 +541,11 @@ func TestInitManifestTypeSupportDriftAndTypecheck(t *testing.T) {
 			}
 		})
 	}
+}
+
+func normalizeManifestTypeDecl(value string) string {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	return strings.TrimSuffix(value, "\n")
 }
 
 func assertGeneratedReactAppTSConfig(t *testing.T, root string) {

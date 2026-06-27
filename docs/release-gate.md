@@ -978,6 +978,21 @@ The 0.1.0 release gate includes cold-update throughput hardening for `tspack upd
 - Generated `react-library` projects pass `tspack update`, `tspack sync`, `tspack run typecheck`, `tspack run build`, and `tspack run build-types` on Windows.
 - Missing project tools fail with `TSPACK_RUN_TOOL_NOT_FOUND` and include the project tool bin search path plus the underlying exec error.
 
+## M58b Windows local test-suite triage gate
+
+- `powershell -ExecutionPolicy Bypass -File .\tools\Run-GoTestMatrix.ps1` provides package-by-package Windows diagnostics with per-package logs and JSON summary output.
+- `go test ./... -timeout 300s` must either pass on Windows or fail with exact package and test names already isolated by the matrix helper.
+- Inspect/run-target tests must not hang on Windows because descendant processes keep inherited stdout/stderr pipes open after the parent exits.
+- Tests that only exercise Unix shell behavior may require `sh` and must skip clearly when `sh` is unavailable instead of failing the normal Windows Go suite.
+- Path-trace assertions in Go tests must accept Windows separators when validating diagnostic paths.
+- Generated test JavaScript must escape Windows filesystem paths correctly and must not emit invalid template-literal escape sequences.
+- Runtime-switch explicit-runtime tests remain active on Windows using Windows-friendly fake runtime launchers; they must not require Bun, Deno, or Git Bash to be installed.
+- The documented Windows local path covers:
+  - `go test ./cmd/tspack -run 'Run|Target|Tool|Bin|Shim|Path|Windows|Inspect|Test|Help|Init|Template|Ready' -count=1 -timeout 120s`
+  - `go test ./internal/... -run 'Store|Materialize|Sync|Tar|Path|Symlink|Windows|Tool|Bin|Shim|ProjectIR|Ecosystem' -count=1 -timeout 120s`
+  - `powershell -ExecutionPolicy Bypass -File .\tools\Run-GoTestMatrix.ps1`
+  - `go test ./... -timeout 300s`
+
 ## v0.1.3 / M55a Template IR normalization gate
 
 - Built-in `static`, `react`, and `react-library` templates load through parsed raw metadata, normalized TemplateIR, concrete TemplatePlan creation, and safe plan application.

@@ -67,6 +67,9 @@ type updateDryRunJSONReport struct {
 func buildTspackBinary(t *testing.T, repo string) string {
 	t.Helper()
 	binPath := filepath.Join(t.TempDir(), "tspack-test-bin")
+	if runtime.GOOS == "windows" {
+		binPath += ".exe"
+	}
 	buildCmd := exec.Command("go", "build", "-o", binPath, "./cmd/tspack")
 	buildCmd.Dir = repo
 	if out, err := buildCmd.CombinedOutput(); err != nil {
@@ -83,6 +86,62 @@ func reservePort(t *testing.T) int {
 	}
 	defer ln.Close()
 	return ln.Addr().(*net.TCPAddr).Port
+}
+
+func testExecutablePath(path string) string {
+	if runtime.GOOS == "windows" && filepath.Ext(path) == "" {
+		return path + ".cmd"
+	}
+	return path
+}
+
+func writeNodeBackedExecutable(t *testing.T, path string, script string) string {
+	t.Helper()
+
+	actualPath := testExecutablePath(path)
+	if err := os.MkdirAll(filepath.Dir(actualPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if runtime.GOOS != "windows" {
+		if err := os.WriteFile(actualPath, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return actualPath
+	}
+
+	jsPath := strings.TrimSuffix(actualPath, ".cmd") + ".js"
+	if err := os.WriteFile(jsPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wrapper := fmt.Sprintf("@echo off\r\nnode %s %%*\r\n", windowsBatchQuote(jsPath))
+	if err := os.WriteFile(actualPath, []byte(wrapper), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return actualPath
+}
+
+func copyFile(t *testing.T, src string, dst string) {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestCLIPackSmokeAndDryRun(t *testing.T) {
@@ -710,12 +769,7 @@ process.stdout.write(JSON.stringify(out));`
 	_ = os.WriteFile(filepath.Join(fixtureRoot, "dist", "index.js"), []byte("x\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(fixtureRoot, "dist", "index.d.ts"), []byte("x\n"), 0o644)
 
-	binPath := filepath.Join(t.TempDir(), "tspack-test-bin")
-	buildCmd := exec.Command("go", "build", "-o", binPath, "./cmd/tspack")
-	buildCmd.Dir = repo
-	if buildOut, buildErr := buildCmd.CombinedOutput(); buildErr != nil {
-		t.Fatalf("build tspack binary failed: %v\n%s", buildErr, string(buildOut))
-	}
+	binPath := buildTspackBinary(t, repo)
 
 	cmd := exec.Command(binPath, "check", "--root", fixtureRoot)
 	cmd.Dir = repo
@@ -1399,6 +1453,9 @@ process.exit(7);`
 	if err == nil || !strings.Contains(string(out), "bridge-failed") || !strings.Contains(string(out), `Stopped run target "dev".`) {
 		t.Fatalf("expected bridge failure with shutdown: %v\n%s", err, string(out))
 	}
+	if runtime.GOOS == "windows" {
+		return
+	}
 	b, readErr := os.ReadFile(marker)
 	if readErr != nil || strings.TrimSpace(string(b)) != "stopped" {
 		t.Fatalf("expected stopped marker: err=%v marker=%q output=%s", readErr, string(b), string(out))
@@ -1417,7 +1474,9 @@ func TestCLIInspectRunPassesThroughFlagsAndMutationContractAndNoNpmInference(t *
 	server := fmt.Sprintf(`const http=require('http'); http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}).listen(%d,'127.0.0.1'); setInterval(()=>{},1000);`, port)
 	_ = os.WriteFile(filepath.Join(root, "server.js"), []byte(server), 0o644)
 	_ = os.MkdirAll(filepath.Join(root, "node_modules", ".bin"), 0o755)
-	_ = os.WriteFile(filepath.Join(root, "node_modules", ".bin", "dev-server"), []byte(fmt.Sprintf("#!/bin/sh\nexec node %q\n", filepath.Join(root, "server.js"))), 0o755)
+	_ = writeNodeBackedExecutable(t, filepath.Join(root, "node_modules", ".bin", "dev-server"), fmt.Sprintf(`#!/usr/bin/env node
+require(%q);
+`, filepath.Join(root, "server.js")))
 	argsPath := filepath.Join(root, "bridge-args.json")
 	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
 	bridge := filepath.Join(frontend, "inspect-cli.js")
@@ -1454,14 +1513,17 @@ console.log('{"ok":true}');`, argsPath)
 	if readErr != nil {
 		t.Fatalf("missing bridge args: %v", readErr)
 	}
-	argsText := string(argsRaw)
+	var argsList []string
+	if err := json.Unmarshal(argsRaw, &argsList); err != nil {
+		t.Fatalf("invalid bridge args json: %v\n%s", err, string(argsRaw))
+	}
 	for _, expected := range []string{"--out", outPath, "--text", textPath, "--selector", "#root", "--point", "320,148", "--viewport", "1024x768", "--cdp", "http://127.0.0.1:9222", "--host-path", "/tmp/host"} {
-		if !strings.Contains(argsText, expected) {
-			t.Fatalf("missing bridge passthrough %q in %s", expected, argsText)
+		if !containsString(argsList, expected) {
+			t.Fatalf("missing bridge passthrough %q in %#v", expected, argsList)
 		}
 	}
-	if !strings.Contains(argsText, fmt.Sprintf("http://127.0.0.1:%d", port)) {
-		t.Fatalf("missing resolved run url in bridge args: %s", argsText)
+	if !containsString(argsList, fmt.Sprintf("http://127.0.0.1:%d", port)) {
+		t.Fatalf("missing resolved run url in bridge args: %#v", argsList)
 	}
 	afterManifest, _ := os.ReadFile(manifestPath)
 	afterLock, _ := os.ReadFile(lockPath)
@@ -2343,9 +2405,6 @@ func writeValidCheckProject(t *testing.T) string {
 
 func writeBiomeConfigCaptureBackend(t *testing.T, path string, capture string, stdoutText string, stderrText string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	backend := fmt.Sprintf(`#!/usr/bin/env node
 const fs = require('fs');
 const argv = process.argv.slice(2);
@@ -2365,25 +2424,18 @@ if (%q) {
   process.stderr.write(%q + '\n');
 }
 `, capture, stdoutText, stdoutText, stderrText, stderrText)
-	if err := os.WriteFile(path, []byte(backend), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	_ = writeNodeBackedExecutable(t, path, backend)
 }
 
 func writeBiomeCaptureBackend(t *testing.T, path string, marker string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	backend := fmt.Sprintf(`#!/usr/bin/env node
 const fs = require('fs');
 const capture = process.env.TSPACK_CAPTURE;
 fs.writeFileSync(capture, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }));
 process.stdout.write(%q + '\n');
 `, marker)
-	if err := os.WriteFile(path, []byte(backend), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	_ = writeNodeBackedExecutable(t, path, backend)
 }
 
 func runTSPackWithBiomeCapture(t *testing.T, repo string, root string, args []string, capture string, pathDir string) string {
@@ -2391,7 +2443,7 @@ func runTSPackWithBiomeCapture(t *testing.T, repo string, root string, args []st
 	_ = os.Remove(capture)
 	cmd := exec.Command("go", append([]string{"run", "./cmd/tspack"}, args...)...)
 	cmd.Dir = repo
-	cmd.Env = append(os.Environ(), "PATH="+pathDir+":"+os.Getenv("PATH"), "TSPACK_CAPTURE="+capture)
+	cmd.Env = append(os.Environ(), "PATH="+pathDir+string(os.PathListSeparator)+os.Getenv("PATH"), "TSPACK_CAPTURE="+capture)
 	b, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("tspack failed: %v\n%s", err, string(b))
@@ -2401,9 +2453,6 @@ func runTSPackWithBiomeCapture(t *testing.T, repo string, root string, args []st
 
 func writeBiomeExitBackend(t *testing.T, path string, capture string, exitCode int, stdoutText string, stderrText string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	backend := fmt.Sprintf(`#!/usr/bin/env node
 const fs = require('fs');
 fs.writeFileSync(%q, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }));
@@ -2415,9 +2464,7 @@ if (%q) {
 }
 process.exit(%d);
 `, capture, stdoutText, stdoutText, stderrText, stderrText, exitCode)
-	if err := os.WriteFile(path, []byte(backend), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	_ = writeNodeBackedExecutable(t, path, backend)
 }
 
 func runTSPackForBiome(t *testing.T, repo string, root string, args []string, pathDir string) (string, error) {
@@ -2494,9 +2541,7 @@ func pathWithNodeOnly(t *testing.T) string {
 	if runtime.GOOS == "windows" {
 		linkPath = filepath.Join(pathDir, "node.exe")
 	}
-	if err := os.Symlink(nodePath, linkPath); err != nil {
-		t.Fatal(err)
-	}
+	copyFile(t, nodePath, linkPath)
 	return pathDir
 }
 
@@ -3107,7 +3152,7 @@ import "vite";
 		if diagnostic.Severity != "error" {
 			t.Fatalf("expected boundary diagnostic severity to be error, got %+v", diagnostic)
 		}
-		detailsText := strings.Join(diagnostic.Details, "\n")
+		detailsText := filepath.ToSlash(strings.Join(diagnostic.Details, "\n"))
 		if !strings.Contains(detailsText, "path=") || !strings.Contains(detailsText, "src/index.ts") {
 			t.Fatalf("expected structured import-chain details, got %+v", diagnostic)
 		}
@@ -4176,7 +4221,7 @@ func TestCLIRunListAndPackageScoping(t *testing.T) {
 		"runtime: system (explicit)",
 		"ready: http /",
 		"Runtime notes:",
-		"node: resolves bare commands from local tools/.bin; does not prepend node to script paths.",
+		"node: resolves bare commands from project tool bins first; does not prepend node to script paths.",
 		"system: runs commands directly without node-local tool resolution.",
 		"explicit RunTarget runtime overrides the workspace runtime profile.",
 		"unspecified RunTarget runtime inherits the workspace runtime profile.",
@@ -4448,9 +4493,6 @@ type capturedBunInvocation struct {
 
 func writeFakeBunRuntime(t *testing.T, path string, capture string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	backend := fmt.Sprintf(`#!/usr/bin/env node
 const fs = require('fs');
 fs.writeFileSync(%q, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), envFOO: process.env.FOO || '' }));
@@ -4458,9 +4500,7 @@ process.stdout.write('ready from fake bun\n');
 process.stderr.write('stderr from fake bun\n');
 setInterval(() => {}, 1000);
 `, capture)
-	if err := os.WriteFile(path, []byte(backend), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	_ = writeNodeBackedExecutable(t, path, backend)
 }
 
 func readCapturedBunInvocation(t *testing.T, capture string) capturedBunInvocation {
@@ -4484,9 +4524,6 @@ type capturedDenoInvocation struct {
 
 func writeFakeDenoRuntime(t *testing.T, path string, capture string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	backend := fmt.Sprintf(`#!/usr/bin/env node
 const fs = require('fs');
 fs.writeFileSync(%q, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), envFOO: process.env.FOO || '' }));
@@ -4494,9 +4531,7 @@ process.stdout.write('ready from fake deno\n');
 process.stderr.write('stderr from fake deno\n');
 setInterval(() => {}, 1000);
 `, capture)
-	if err := os.WriteFile(path, []byte(backend), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	_ = writeNodeBackedExecutable(t, path, backend)
 }
 
 func readCapturedDenoInvocation(t *testing.T, capture string) capturedDenoInvocation {
@@ -5150,7 +5185,11 @@ func readRuntimeSwitchFixtureIRJSONForRun(t *testing.T, repo string, profile str
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(data)
+	irJSON := string(data)
+	if runtime.GOOS == "windows" {
+		irJSON = strings.ReplaceAll(irJSON, `"scripts/system-hello"`, `".\\scripts\\system-hello.cmd"`)
+	}
+	return irJSON
 }
 
 func writeShellCaptureRuntime(t *testing.T, path string, capture string, readyLine string) {
@@ -5158,10 +5197,25 @@ func writeShellCaptureRuntime(t *testing.T, path string, capture string, readyLi
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if runtime.GOOS == "windows" {
+		cmdPath := path
+		if filepath.Ext(cmdPath) == "" {
+			cmdPath += ".cmd"
+		}
+		script := fmt.Sprintf("@echo off\r\nsetlocal EnableExtensions\r\n> %s echo %%*\r\necho %s\r\n:loop\r\ntimeout /t 1 /nobreak >nul\r\ngoto loop\r\n", windowsBatchQuote(capture), readyLine)
+		if err := os.WriteFile(cmdPath, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
 	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$*\" > %q\necho %q\nwhile true; do sleep 1; done\n", capture, readyLine)
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func windowsBatchQuote(value string) string {
+	return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`
 }
 
 func runRuntimeSwitchTarget(t *testing.T, repo string, root string, fakeBin string, target string, expectedOutput string) {

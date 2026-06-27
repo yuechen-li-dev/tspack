@@ -1,6 +1,7 @@
 package testcmd
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -110,7 +111,11 @@ func TestVitestUpdateSnapshotsUnsupported(t *testing.T) {
 }
 
 func quoteJS(value string) string {
-	return "`" + strings.ReplaceAll(value, "`", "\\`") + "`"
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return string(encoded)
 }
 
 func TestRunXTestForwardsBatchOnlyForRunMode(t *testing.T) {

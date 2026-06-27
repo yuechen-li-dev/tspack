@@ -3,24 +3,25 @@
 package main
 
 import (
-	"errors"
-	"os"
 	"os/exec"
+	"strconv"
 	"syscall"
 )
 
 func configureRunTargetProcess(cmd *exec.Cmd) {
-	_ = cmd
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP,
+	}
 }
 
 func signalRunTargetProcessGroup(pid int, signal syscall.Signal) error {
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return err
-	}
-	err = process.Signal(signal)
-	if err == nil || errors.Is(err, os.ErrProcessDone) {
+	_ = signal
+
+	cmd := exec.Command("taskkill", "/T", "/PID", strconv.Itoa(pid))
+	if err := cmd.Run(); err == nil {
 		return nil
 	}
-	return err
+
+	force := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(pid))
+	return force.Run()
 }

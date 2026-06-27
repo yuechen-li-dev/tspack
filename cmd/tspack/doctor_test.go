@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -106,9 +107,7 @@ func TestDoctorFormatReportsDefaultBiomeConfigSource(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(backend), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(backend, []byte("#!/bin/sh\necho 1.0.0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	backend = writeNodeBackedExecutable(t, backend, "#!/usr/bin/env node\nconsole.log('1.0.0')\n")
 
 	before := tempBiomeConfigFiles(t)
 	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "format", "--root", root, "--json")
@@ -149,9 +148,7 @@ func TestDoctorFormatReportsProjectBiomeConfigSource(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(backend), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(backend, []byte("#!/bin/sh\necho 1.0.0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	backend = writeNodeBackedExecutable(t, backend, "#!/usr/bin/env node\nconsole.log('1.0.0')\n")
 	configPath := filepath.Join(root, "biome.jsonc")
 	if err := os.WriteFile(configPath, []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -186,13 +183,11 @@ func TestDoctorFormatReportsDirectPackageBiomeBackend(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	backend := filepath.Join(root, "node_modules", "@biomejs", "biome", "bin", "biome")
-	if err := os.MkdirAll(filepath.Dir(backend), 0o755); err != nil {
+	directPackagePath := filepath.Join(root, "node_modules", "@biomejs", "biome", "bin", "biome")
+	if err := os.MkdirAll(filepath.Dir(directPackagePath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(backend, []byte("#!/bin/sh\necho 1.0.0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	backend := writeNodeBackedExecutable(t, directPackagePath, "#!/usr/bin/env node\nconsole.log('1.0.0')\n")
 
 	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "format", "--root", root, "--json")
 	cmd.Dir = repo
@@ -213,7 +208,7 @@ func TestDoctorFormatReportsDirectPackageBiomeBackend(t *testing.T) {
 	if biome.Details["source"] != "direct-package" {
 		t.Fatalf("expected direct-package source: %#v", biome.Details)
 	}
-	if biome.Details["directPackagePath"] != backend {
+	if biome.Details["directPackagePath"] != directPackagePath {
 		t.Fatalf("expected direct package path detail: %#v", biome.Details)
 	}
 }
@@ -336,9 +331,7 @@ func TestDoctorRuntimeReportsSelectedBunAvailableWithStub(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
 	binDir := t.TempDir()
 	bunPath := filepath.Join(binDir, "bun")
-	if err := os.WriteFile(bunPath, []byte("#!/bin/sh\necho bun-stub\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	_ = writeNodeBackedExecutable(t, bunPath, "#!/usr/bin/env node\nconsole.log('bun-stub')\n")
 
 	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "runtime", "--root", root, "--json")
 	cmd.Dir = repo
@@ -397,9 +390,7 @@ func TestDoctorRuntimeReportsSelectedDenoAvailableWithStub(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
 	binDir := t.TempDir()
 	denoPath := filepath.Join(binDir, "deno")
-	if err := os.WriteFile(denoPath, []byte("#!/bin/sh\necho deno-stub\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	_ = writeNodeBackedExecutable(t, denoPath, "#!/usr/bin/env node\nconsole.log('deno-stub')\n")
 
 	cmd := exec.Command("go", "run", "./cmd/tspack", "doctor", "runtime", "--root", root, "--json")
 	cmd.Dir = repo
@@ -559,9 +550,10 @@ func doctorPathWithNodeOnly(t *testing.T) string {
 	}
 	dir := t.TempDir()
 	linkPath := filepath.Join(dir, "node")
-	if err := os.Symlink(nodePath, linkPath); err != nil {
-		t.Fatalf("failed to create node symlink: %v", err)
+	if runtime.GOOS == "windows" {
+		linkPath = filepath.Join(dir, "node.exe")
 	}
+	copyFile(t, nodePath, linkPath)
 	return dir
 }
 

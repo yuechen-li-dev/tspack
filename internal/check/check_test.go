@@ -2,6 +2,7 @@ package check
 
 import (
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -63,7 +64,7 @@ func TestLeakPath(t *testing.T) {
 	res := CheckRuntimeBoundaries(CheckOptions{RootDir: "../..", Graph: loadGraph(t, "../../fixtures/invalid/vue-leaks-core/manifest.ir.golden.json")})
 	for _, d := range res.Diagnostics {
 		if d.Code == "TSPACK_BOUNDARY_OPTIONAL_PEER_LEAK" {
-			p := strings.Join(boundary.PathFromDetails(d), "|")
+			p := filepath.ToSlash(strings.Join(boundary.PathFromDetails(d), "|"))
 			if !strings.Contains(p, "src/index.ts") || !strings.Contains(p, "src/text/index.ts") || !strings.Contains(p, "src/text/vue/index.ts") || !strings.Contains(p, "vue") {
 				t.Fatalf("path %s", p)
 			}
@@ -158,7 +159,7 @@ func TestM33ATsEsmAliasTraceFindsTransitiveViolation(t *testing.T) {
 			continue
 		}
 
-		path := strings.Join(boundary.PathFromDetails(d), "|")
+		path := filepath.ToSlash(strings.Join(boundary.PathFromDetails(d), "|"))
 		if !strings.Contains(path, "src/index.ts") {
 			t.Fatalf("path is missing index.ts: %s", path)
 		}
@@ -265,7 +266,7 @@ func TestM33BGlobFromAppliesToPhysicalImportingFile(t *testing.T) {
 			continue
 		}
 
-		path := strings.Join(boundary.PathFromDetails(d), "|")
+		path := filepath.ToSlash(strings.Join(boundary.PathFromDetails(d), "|"))
 		if !strings.Contains(path, "src/index.ts") {
 			t.Fatalf("path is missing entry file: %s", path)
 		}

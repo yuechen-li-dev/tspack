@@ -17,6 +17,8 @@ import (
 )
 
 func TestInstallScriptInstallsFromFakeReleaseServer(t *testing.T) {
+	requirePOSIXShell(t)
+
 	repoRoot := findRepoRoot(t)
 	archiveBytes := buildArchive(t, "tspack-linux-amd64/tspack", "#!/usr/bin/env sh\necho fake tspack\n")
 	archiveHash := sha256.Sum256(archiveBytes)
@@ -59,6 +61,8 @@ func TestInstallScriptInstallsFromFakeReleaseServer(t *testing.T) {
 }
 
 func TestInstallScriptRejectsChecksumMismatch(t *testing.T) {
+	requirePOSIXShell(t)
+
 	repoRoot := findRepoRoot(t)
 	archiveBytes := buildArchive(t, "tspack-linux-amd64/tspack", "#!/usr/bin/env sh\necho fake tspack\n")
 
@@ -91,6 +95,8 @@ func TestInstallScriptRejectsChecksumMismatch(t *testing.T) {
 }
 
 func TestInstallScriptDryRunPlatformMapping(t *testing.T) {
+	requirePOSIXShell(t)
+
 	repoRoot := findRepoRoot(t)
 
 	cases := []struct {
@@ -128,6 +134,8 @@ func TestInstallScriptDryRunPlatformMapping(t *testing.T) {
 }
 
 func TestInstallScriptRejectsUnsupportedPlatform(t *testing.T) {
+	requirePOSIXShell(t)
+
 	repoRoot := findRepoRoot(t)
 	cmd := exec.Command("sh", filepath.Join(repoRoot, "scripts", "install.sh"))
 	cmd.Dir = repoRoot
@@ -157,6 +165,14 @@ func installCommand(t *testing.T, repoRoot string, installDir string) *exec.Cmd 
 		"TSPACK_TEST_ARCH=x86_64",
 	)
 	return cmd
+}
+
+func requirePOSIXShell(t *testing.T) {
+	t.Helper()
+
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("POSIX shell required for install.sh tests")
+	}
 }
 
 func buildArchive(t *testing.T, binaryPath string, binaryContents string) []byte {
