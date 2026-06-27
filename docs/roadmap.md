@@ -34,7 +34,23 @@ M54b added the built-in React + Vite app template, and M54d added the React libr
 
 ## Template overlay future
 
-Future template work should add concept overlays rather than hardcoded template explosion. Planned overlays include `ui.mui`, `ui.shadcn`, `ui.antd`, `style.tailwind`, and `router.react-router`. A Next.js template remains future work and is intentionally separate from the M54d React library template.
+Older template notes used the word overlays for avoiding hardcoded template explosion; M60 refines that direction toward inert concept fragments as the generative unit rather than overlays as the primary model. Those future capabilities should be reconsidered as concept fragments such as `ui.mui`, `ui.shadcn`, `ui.antd`, `style.tailwind`, and `router.react-router`. A Next.js template remains future work and is intentionally separate from the M54d React library template.
+
+
+## M60 concept fragment composition track
+
+M60 starts the transition from concepts as template metadata toward concepts as inert generative fragments. The architecture direction is that templates are named concept compositions, concept fragments contribute structured project intent, the engine merges those fragments into a semantic project/template IR, and `TemplatePlan` remains the concrete write boundary. This track should not begin from overlays as the primary model.
+
+M60a is design only and is recorded in `docs/design/concept-fragment-composition.md`. It does not implement a fragment engine, built-in registry, local custom concepts, template migration, overlays, command execution, remote concepts, package installation during init, or package-manager behavior changes.
+
+Planned follow-up phases:
+
+- M60b: internal concept fragment model and registry for a tiny built-in subset, with no public custom concepts yet.
+- M60c: migrate static template manifest generation to concept fragments.
+- M60d: migrate the React app template to concept fragments.
+- M60e: migrate the React library template to concept fragments.
+- M60f: add local custom concept fragments as inert files that lower into the same IR as built-ins.
+- Future: consider `style.tailwind`, `machinalayout.layout`, `docs.storybook`, `ui.shadcn`, `node.service`, and later NestJS-oriented service concepts after the core model converges.
 
 ## CLI help future
 

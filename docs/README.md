@@ -25,3 +25,7 @@
 - [Migration](migrate.md)
 - [Pack](pack.md)
 - [Why](why.md)
+
+## Design notes
+
+- [Concept fragment composition design](design/concept-fragment-composition.md) records the M60a design direction. It is not implemented behavior.
