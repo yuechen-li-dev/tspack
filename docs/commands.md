@@ -172,3 +172,6 @@ The JSON output identifies the command and mode, echoes the CDP endpoint, and in
 ### RunTarget environment contracts
 
 `tspack run` honors RunTarget `env` declarations from `manifest.tsx`: required variables are validated before execution, defaults are injected when host values are missing, and secret defaults/values are redacted in diagnostics plus `tspack run --list --json`. The command still runs manifest RunTargets only; it does not execute `package.json` scripts or load `.env` files.
+
+
+M59b adds RunTarget service requirements with TCP and HTTP preflight checks before `tspack run` exec. `tspack check` validates only declaration shape; future work may add runtime doctor/preflight-only commands, service orchestration, Docker Compose integration, package kind service, NestJS migration, strict env scrubbing, and runtime access tracing.

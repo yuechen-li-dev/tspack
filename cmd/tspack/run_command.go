@@ -57,19 +57,20 @@ type runListOutput struct {
 }
 
 type runListTargetJSON struct {
-	ID               string                  `json:"id"`
-	Package          string                  `json:"package"`
-	Name             string                  `json:"name"`
-	Runtime          string                  `json:"runtime"`
-	RuntimeSource    string                  `json:"runtimeSource"`
-	ExplicitRuntime  *string                 `json:"explicitRuntime"`
-	WorkspaceRuntime *string                 `json:"workspaceRuntime"`
-	Command          []string                `json:"command"`
-	URL              string                  `json:"url"`
-	Cwd              string                  `json:"cwd"`
-	CwdPath          string                  `json:"cwdPath,omitempty"`
-	Ready            *manifest.RunReadyCheck `json:"ready,omitempty"`
-	Env              []runListEnvJSON        `json:"env,omitempty"`
+	ID               string                          `json:"id"`
+	Package          string                          `json:"package"`
+	Name             string                          `json:"name"`
+	Runtime          string                          `json:"runtime"`
+	RuntimeSource    string                          `json:"runtimeSource"`
+	ExplicitRuntime  *string                         `json:"explicitRuntime"`
+	WorkspaceRuntime *string                         `json:"workspaceRuntime"`
+	Command          []string                        `json:"command"`
+	URL              string                          `json:"url"`
+	Cwd              string                          `json:"cwd"`
+	CwdPath          string                          `json:"cwdPath,omitempty"`
+	Ready            *manifest.RunReadyCheck         `json:"ready,omitempty"`
+	Env              []runListEnvJSON                `json:"env,omitempty"`
+	Requires         []manifest.RunTargetRequirement `json:"requires,omitempty"`
 }
 
 type runListEnvJSON struct {
@@ -218,6 +219,9 @@ func launchRunTargetInDir(root string, cwdPath string, target manifest.RunTarget
 	env, validationErr := buildRunTargetEnv(resolved.Runtime, root, resolved, envOverlay)
 	if validationErr != nil {
 		return nil, validationErr
+	}
+	if preflightErr := preflightRunTargetServices(resolved, stderr); preflightErr != nil {
+		return nil, preflightErr
 	}
 	cmd.Env = env
 	if err := cmd.Start(); err != nil {
@@ -590,6 +594,12 @@ func renderRunTargetListText(refs []runTargetRef, workspaceRuntime string) {
 				fmt.Fprintf(os.Stdout, "        %s%s\n", env.Name, formatRunEnvMetadata(env))
 			}
 		}
+		if len(ref.Target.Requires) > 0 {
+			fmt.Fprintln(os.Stdout, "      requires:")
+			for _, req := range ref.Target.Requires {
+				fmt.Fprintf(os.Stdout, "        %s\n", formatRunServiceRequirement(req))
+			}
+		}
 		if ref.Target.Ready != nil {
 			fmt.Fprintf(os.Stdout, "      ready: %s\n", formatReadyForList(ref.Target.Ready))
 		} else {
@@ -681,6 +691,7 @@ func renderRunTargetListJSON(root string, packageName string, refs []runTargetRe
 			CwdPath:          mustRunTargetCwd(ref),
 			Ready:            ref.Target.Ready,
 			Env:              runListEnv(ref.Target.Env),
+			Requires:         ref.Target.Requires,
 		})
 	}
 	payload := runListOutput{
@@ -1077,6 +1088,98 @@ func prependRunTargetExecutable(executable string, argv []string) []string {
 	command = append(command, executable)
 	command = append(command, argv...)
 	return command
+}
+
+func preflightRunTargetServices(target manifest.RunTarget, stderr io.Writer) *runErr {
+	failures := []string{}
+	for _, req := range target.Requires {
+		err := checkRunTargetService(req)
+		if err == nil {
+			continue
+		}
+		message := formatRunServiceFailure(target, req, err)
+		if req.Optional {
+			fmt.Fprintf(stderr, "Warning: %s\n", message)
+			continue
+		}
+		failures = append(failures, message)
+	}
+	if len(failures) == 0 {
+		return nil
+	}
+	lines := []string{fmt.Sprintf("target %q has unavailable required services", target.Name)}
+	lines = append(lines, failures...)
+	lines = append(lines, "hint: start the service, verify the host/port/URL, mark it optional if the target can run without it, or remove stale requirements")
+	return &runErr{code: "TSPACK_RUN_SERVICE_UNAVAILABLE", msg: strings.Join(lines, "\n")}
+}
+
+func checkRunTargetService(req manifest.RunTargetRequirement) error {
+	timeout := time.Duration(req.TimeoutMs) * time.Millisecond
+	if timeout <= 0 {
+		timeout = time.Second
+	}
+	if req.TCP != "" {
+		conn, err := net.DialTimeout("tcp", req.TCP, timeout)
+		if err != nil {
+			return err
+		}
+		return conn.Close()
+	}
+	client := http.Client{Timeout: timeout}
+	resp, err := client.Get(req.HTTP)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	expected := req.ExpectStatus
+	if expected == 0 {
+		expected = http.StatusOK
+	}
+	if resp.StatusCode != expected {
+		return fmt.Errorf("status %d, expected %d", resp.StatusCode, expected)
+	}
+	return nil
+}
+
+func formatRunServiceFailure(target manifest.RunTarget, req manifest.RunTargetRequirement, err error) string {
+	kind := "http"
+	endpoint := req.HTTP
+	if req.TCP != "" {
+		kind = "tcp"
+		endpoint = req.TCP
+	}
+	timeoutMs := req.TimeoutMs
+	if timeoutMs == 0 {
+		timeoutMs = 1000
+	}
+	parts := []string{fmt.Sprintf("- service %q for target %q unavailable", req.Name, target.Name), "kind=" + kind, "endpoint=" + endpoint, fmt.Sprintf("timeoutMs=%d", timeoutMs), "optional=" + strconv.FormatBool(req.Optional)}
+	if kind == "http" {
+		expected := req.ExpectStatus
+		if expected == 0 {
+			expected = http.StatusOK
+		}
+		parts = append(parts, fmt.Sprintf("expectStatus=%d", expected))
+	}
+	if req.Description != "" {
+		parts = append(parts, "description="+req.Description)
+	}
+	parts = append(parts, "error="+err.Error())
+	return strings.Join(parts, "; ")
+}
+
+func formatRunServiceRequirement(req manifest.RunTargetRequirement) string {
+	required := "required"
+	if req.Optional {
+		required = "optional"
+	}
+	if req.TCP != "" {
+		return fmt.Sprintf("%s tcp %s %s", req.Name, req.TCP, required)
+	}
+	expected := req.ExpectStatus
+	if expected == 0 {
+		expected = http.StatusOK
+	}
+	return fmt.Sprintf("%s http %s status=%d %s", req.Name, req.HTTP, expected, required)
 }
 
 func formatRunTargetCommand(target manifest.RunTarget) string {

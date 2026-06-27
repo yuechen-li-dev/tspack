@@ -376,3 +376,9 @@ A `Security.acknowledgedLifecycleCategories` row includes a script that is not p
 - `TSPACK_RUN_ENV_MISSING`: a selected RunTarget declares required environment variables that are missing and have no default. Set them before running the target, or add an appropriate default in `manifest.tsx`.
 - `TSPACK_MANIFEST_ENV_INVALID`: a RunTarget env name is empty or not portable. Use `[A-Za-z_][A-Za-z0-9_]*` names such as `DATABASE_URL`.
 - `TSPACK_MANIFEST_ENV_DUPLICATE`: the same env name appears more than once on one RunTarget. Duplicates are checked case-insensitively for Windows safety.
+
+## RunTarget service diagnostics
+
+- `TSPACK_MANIFEST_SERVICE_INVALID` means a service requirement declaration has an invalid name, endpoint, expected status, or timeout.
+- `TSPACK_MANIFEST_SERVICE_DUPLICATE` means one RunTarget declares the same service name more than once, compared case-insensitively.
+- `TSPACK_RUN_SERVICE_UNAVAILABLE` means a required service preflight failed before process start. Start the service, verify the endpoint and expected status, mark it optional only if safe, or remove stale requirements.

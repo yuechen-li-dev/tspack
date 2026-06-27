@@ -259,3 +259,16 @@ The declared `<UpdatePolicy />` can be inspected with `tspack outdated` and plan
 - `description?: string` — documentation shown in missing-env diagnostics.
 
 `tspack check` validates declaration shape and duplicates but does not require host secrets to exist.
+
+## RunTarget service requirements
+
+Use `Service(name, options)` inside a RunTarget `requires` array to declare backend service dependencies. Supported M59b options are `tcp`, `http`, `expectStatus`, `timeoutMs`, `optional`, and `description`.
+
+```tsx
+requires: [
+  Service("redis", { tcp: "127.0.0.1:6379" }),
+  Service("health-api", { http: "http://127.0.0.1:8080/health", expectStatus: 200 }),
+]
+```
+
+Service names must be non-empty and unique per RunTarget. Exactly one endpoint kind is allowed. TCP endpoints use `host:port`; HTTP endpoints must use `http://` or `https://`.

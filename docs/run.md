@@ -353,3 +353,26 @@ RunTargets rows={[{
 At execution time, `tspack run` starts from the host environment plus any explicit `--env KEY=VALUE` overlays. For each declared variable, host or overlay values win; otherwise a `default` is injected; otherwise `required: true` fails before the process starts with `TSPACK_RUN_ENV_MISSING`. Optional variables without defaults may remain missing.
 
 `secret: true` redacts defaults and values from diagnostics, JSON, and target listings. Secret names are still shown so operators know what to set. TSPack does not load `.env` files in M59a, does not prompt, does not mutate the parent shell, and does not scrub undeclared variables yet; undeclared host environment variables are still inherited. A later strict mode may add allowlisting/scrubbing.
+
+## RunTarget service requirements
+
+RunTargets can declare local or external services with `requires: [Service(...)]`. M59b supports TCP checks and HTTP/HTTPS health checks only; TSPack does not start Docker Compose, service containers, Testcontainers, or any other service lifecycle.
+
+```tsx
+RunTargets({
+  rows: [
+    {
+      name: "dev",
+      runtime: "system",
+      command: ["tsx", "src/server.ts"],
+      url: "http://127.0.0.1:3000",
+      requires: [
+        Service("postgres", { tcp: "127.0.0.1:5432", description: "Local Postgres database" }),
+        Service("api", { http: "http://127.0.0.1:8080/health", expectStatus: 200, optional: true }),
+      ],
+    },
+  ],
+})
+```
+
+Each service must provide exactly one of `tcp` (`host:port`) or `http` (`http://` or `https://`). HTTP checks default to status `200`; service checks default to `timeoutMs: 1000`. Required service failures stop `tspack run` before the command starts with `TSPACK_RUN_SERVICE_UNAVAILABLE`. Optional service failures are printed as warnings and the target continues. `tspack check` validates declaration shape but does not require services to be running.
