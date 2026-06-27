@@ -5,10 +5,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -544,6 +547,271 @@ func TestSyncMissingAndStaleLockfile(t *testing.T) {
 	if !bytes.Equal(before, after) {
 		t.Fatalf("stale lock mutated")
 	}
+}
+
+func TestSyncHydratesMissingStoreArtifactsFromLock(t *testing.T) {
+	dir := t.TempDir()
+	irPath := writeIR(t, dir, simpleIRWithDependencies([]map[string]any{
+		{"key": "dep-a", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "dep-a", "range": "^1.0.0"}},
+	}, []string{"dep-a"}))
+	tarball := fakeRegistryTarball(t, "dep-a", "1.0.0", nil)
+	pkg := fakeLockedNPMPackage("dep-a", "1.0.0", tarball)
+	writeLockfileForSyncTest(t, dir, []lockfile.Package{pkg}, []lockfile.Edge{{From: "app:target:core", To: pkg.ID, Kind: "runtime"}})
+
+	client := newFakeSyncClient("dep-a", "1.0.0", "https://registry.test/dep-a-1.0.0.tgz", tarball)
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = irPath
+	opts.ResolverClient = client
+
+	before, err := os.ReadFile(opts.LockfilePath)
+	if err != nil {
+		t.Fatalf("read lock before sync: %v", err)
+	}
+	res := Sync(opts, false)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("sync failed: %#v", res.Diagnostics)
+	}
+	mustExist(t, filepath.Join(dir, "node_modules", "dep-a", "package.json"))
+	if got := len(client.metaCalls); got != 1 {
+		t.Fatalf("expected one metadata request, got %d (%#v)", got, client.metaCalls)
+	}
+	if got := len(client.tarCalls); got != 1 {
+		t.Fatalf("expected one tarball request, got %d (%#v)", got, client.tarCalls)
+	}
+	after, err := os.ReadFile(opts.LockfilePath)
+	if err != nil {
+		t.Fatalf("read lock after sync: %v", err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatalf("sync mutated lockfile")
+	}
+}
+
+func TestSyncHydrateDoesNotRefetchExistingArtifact(t *testing.T) {
+	dir := t.TempDir()
+	irPath := writeIR(t, dir, simpleIRWithDependencies([]map[string]any{
+		{"key": "dep-a", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "dep-a", "range": "^1.0.0"}},
+	}, []string{"dep-a"}))
+	tarball := fakeRegistryTarball(t, "dep-a", "1.0.0", nil)
+	pkg := fakeLockedNPMPackage("dep-a", "1.0.0", tarball)
+	writeLockfileForSyncTest(t, dir, []lockfile.Package{pkg}, []lockfile.Edge{{From: "app:target:core", To: pkg.ID, Kind: "runtime"}})
+
+	st, err := store.Open(filepath.Join(dir, ".tspack", "store"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if _, diags := st.PutArtifact(store.Artifact{
+		ID:        pkg.ID,
+		Name:      pkg.Name,
+		Version:   pkg.Version,
+		Source:    pkg.Source,
+		Hash:      pkg.Hash,
+		Integrity: pkg.Integrity,
+		Kind:      store.ArtifactNPMTarball,
+		Bytes:     tarball,
+	}); len(diags) > 0 {
+		t.Fatalf("populate store: %#v", diags)
+	}
+
+	client := newFakeSyncClient("dep-a", "1.0.0", "https://registry.test/dep-a-1.0.0.tgz", tarball)
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = irPath
+	opts.ResolverClient = client
+
+	res := Sync(opts, false)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("sync failed: %#v", res.Diagnostics)
+	}
+	if len(client.metaCalls) != 0 || len(client.tarCalls) != 0 {
+		t.Fatalf("sync should not refetch existing artifact: meta=%#v tar=%#v", client.metaCalls, client.tarCalls)
+	}
+}
+
+func TestSyncHydrateUsesLockedVersionOnly(t *testing.T) {
+	dir := t.TempDir()
+	irPath := writeIR(t, dir, simpleIRWithDependencies([]map[string]any{
+		{"key": "react", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "react", "range": "^19.0.0"}},
+	}, []string{"react"}))
+	lockedTarball := fakeRegistryTarball(t, "react", "19.2.7", nil)
+	newerTarball := fakeRegistryTarball(t, "react", "99.0.0", nil)
+	pkg := fakeLockedNPMPackage("react", "19.2.7", lockedTarball)
+	writeLockfileForSyncTest(t, dir, []lockfile.Package{pkg}, []lockfile.Edge{{From: "app:target:core", To: pkg.ID, Kind: "runtime"}})
+
+	client := &fakeClient{
+		meta: map[string]*resolver.PackageMetadata{
+			"react": {
+				Name: "react",
+				Versions: map[string]resolver.PackageVersion{
+					"19.2.7": {Name: "react", Version: "19.2.7", Dist: resolver.PackageDist{Tarball: "https://registry.test/react-19.2.7.tgz", Integrity: fakeIntegrity(lockedTarball)}},
+					"99.0.0": {Name: "react", Version: "99.0.0", Dist: resolver.PackageDist{Tarball: "https://registry.test/react-99.0.0.tgz", Integrity: fakeIntegrity(newerTarball)}},
+				},
+			},
+		},
+		tar: map[string][]byte{
+			"https://registry.test/react-19.2.7.tgz": lockedTarball,
+			"https://registry.test/react-99.0.0.tgz": newerTarball,
+		},
+	}
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = irPath
+	opts.ResolverClient = client
+
+	res := Sync(opts, false)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("sync failed: %#v", res.Diagnostics)
+	}
+	if !reflect.DeepEqual(client.tarCalls, []string{"https://registry.test/react-19.2.7.tgz"}) {
+		t.Fatalf("sync should fetch only the locked tarball: %#v", client.tarCalls)
+	}
+	mustExist(t, filepath.Join(dir, "node_modules", "react", "package.json"))
+}
+
+func TestSyncHydrateIntegrityMismatchFails(t *testing.T) {
+	dir := t.TempDir()
+	irPath := writeIR(t, dir, simpleIRWithDependencies([]map[string]any{
+		{"key": "dep-a", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "dep-a", "range": "^1.0.0"}},
+	}, []string{"dep-a"}))
+	lockedTarball := fakeRegistryTarball(t, "dep-a", "1.0.0", nil)
+	wrongTarball := fakeRegistryTarball(t, "dep-a", "1.0.0", map[string]string{"tampered": "1.0.0"})
+	pkg := fakeLockedNPMPackage("dep-a", "1.0.0", lockedTarball)
+	writeLockfileForSyncTest(t, dir, []lockfile.Package{pkg}, []lockfile.Edge{{From: "app:target:core", To: pkg.ID, Kind: "runtime"}})
+
+	client := newFakeSyncClient("dep-a", "1.0.0", "https://registry.test/dep-a-1.0.0.tgz", wrongTarball)
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = irPath
+	opts.ResolverClient = client
+
+	res := Sync(opts, false)
+	if !hasErrCode(res.Diagnostics, "TSPACK_SYNC_ARTIFACT_INTEGRITY_FAILED") {
+		t.Fatalf("expected integrity diagnostic, got %#v", res.Diagnostics)
+	}
+}
+
+func TestSyncHydrateMissingTarballMetadataFails(t *testing.T) {
+	dir := t.TempDir()
+	irPath := writeIR(t, dir, simpleIRWithDependencies([]map[string]any{
+		{"key": "dep-a", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "dep-a", "range": "^1.0.0"}},
+	}, []string{"dep-a"}))
+	tarball := fakeRegistryTarball(t, "dep-a", "1.0.0", nil)
+	pkg := fakeLockedNPMPackage("dep-a", "1.0.0", tarball)
+	writeLockfileForSyncTest(t, dir, []lockfile.Package{pkg}, []lockfile.Edge{{From: "app:target:core", To: pkg.ID, Kind: "runtime"}})
+
+	client := &fakeClient{
+		meta: map[string]*resolver.PackageMetadata{
+			"dep-a": {
+				Name: "dep-a",
+				Versions: map[string]resolver.PackageVersion{
+					"1.0.0": {Name: "dep-a", Version: "1.0.0"},
+				},
+			},
+		},
+	}
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = irPath
+	opts.ResolverClient = client
+
+	res := Sync(opts, false)
+	if !hasErrCode(res.Diagnostics, "TSPACK_SYNC_LOCK_ARTIFACT_INCOMPLETE") {
+		t.Fatalf("expected incomplete metadata diagnostic, got %#v", res.Diagnostics)
+	}
+	if len(client.metaCalls) != 1 || len(client.tarCalls) != 0 {
+		t.Fatalf("sync should stop before tarball download when metadata lacks a tarball URL: meta=%#v tar=%#v", client.metaCalls, client.tarCalls)
+	}
+}
+
+func TestSyncHydrateUnsupportedSourceFails(t *testing.T) {
+	dir := t.TempDir()
+	irPath := writeIR(t, dir, simpleIR())
+	pkg := lockfile.Package{
+		ID:       "git:file:///repo#abc123",
+		Name:     "dep-git",
+		Version:  "1.0.0",
+		Source:   "git",
+		TreeHash: "deadbeef",
+		Repo:     "file:///repo",
+		Rev:      "abc123",
+	}
+	writeLockfileForSyncTest(t, dir, []lockfile.Package{pkg}, []lockfile.Edge{{From: "app:target:core", To: pkg.ID, Kind: "runtime"}})
+
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = irPath
+	res := Sync(opts, false)
+	if !hasErrCode(res.Diagnostics, "TSPACK_SYNC_HYDRATE_FAILED") {
+		t.Fatalf("expected hydrate failure diagnostic, got %#v", res.Diagnostics)
+	}
+}
+
+func TestSyncHydratesReactViteToolingFromLock(t *testing.T) {
+	dir := t.TempDir()
+	ir := simpleIRWithDependencies([]map[string]any{
+		{"key": "react", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "react", "range": "19.2.7"}},
+		{"key": "reactDom", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "react-dom", "range": "19.2.7"}},
+		{"key": "vite", "kind": "tool", "source": map[string]any{"kind": "npm", "package": "vite", "range": "5.4.21"}},
+		{"key": "typescript", "kind": "tool", "source": map[string]any{"kind": "npm", "package": "typescript", "range": "5.9.3"}},
+		{"key": "biome", "kind": "tool", "source": map[string]any{"kind": "npm", "package": "@biomejs/biome", "range": "1.9.4"}},
+		{"key": "pluginReact", "kind": "tool", "source": map[string]any{"kind": "npm", "package": "@vitejs/plugin-react", "range": "4.7.0"}},
+		{"key": "typesReact", "kind": "tool", "source": map[string]any{"kind": "npm", "package": "@types/react", "range": "19.2.17"}},
+		{"key": "typesReactDom", "kind": "tool", "source": map[string]any{"kind": "npm", "package": "@types/react-dom", "range": "19.2.3"}},
+	}, []string{"react", "reactDom"})
+	irPath := writeIR(t, dir, ir)
+
+	packages := []struct {
+		name    string
+		version string
+		tarball []byte
+		url     string
+		kind    string
+	}{
+		{name: "react", version: "19.2.7", tarball: fakeRegistryTarball(t, "react", "19.2.7", nil), url: "https://registry.test/react-19.2.7.tgz", kind: "runtime"},
+		{name: "react-dom", version: "19.2.7", tarball: fakeRegistryTarball(t, "react-dom", "19.2.7", nil), url: "https://registry.test/react-dom-19.2.7.tgz", kind: "runtime"},
+		{name: "vite", version: "5.4.21", tarball: fakeRegistryTarballWithBin(t, "vite", "5.4.21", "bin/vite.js", "vite"), url: "https://registry.test/vite-5.4.21.tgz", kind: "tool"},
+		{name: "typescript", version: "5.9.3", tarball: fakeRegistryTarballWithBin(t, "typescript", "5.9.3", "bin/tsc", "tsc"), url: "https://registry.test/typescript-5.9.3.tgz", kind: "tool"},
+		{name: "@biomejs/biome", version: "1.9.4", tarball: fakeRegistryTarballWithBin(t, "@biomejs/biome", "1.9.4", "bin/biome.js", "biome"), url: "https://registry.test/biome-1.9.4.tgz", kind: "tool"},
+		{name: "@vitejs/plugin-react", version: "4.7.0", tarball: fakeRegistryTarball(t, "@vitejs/plugin-react", "4.7.0", nil), url: "https://registry.test/plugin-react-4.7.0.tgz", kind: "tool"},
+		{name: "@types/react", version: "19.2.17", tarball: fakeRegistryTarball(t, "@types/react", "19.2.17", nil), url: "https://registry.test/types-react-19.2.17.tgz", kind: "tool"},
+		{name: "@types/react-dom", version: "19.2.3", tarball: fakeRegistryTarball(t, "@types/react-dom", "19.2.3", nil), url: "https://registry.test/types-react-dom-19.2.3.tgz", kind: "tool"},
+	}
+
+	client := &fakeClient{meta: map[string]*resolver.PackageMetadata{}, tar: map[string][]byte{}}
+	lockPackages := make([]lockfile.Package, 0, len(packages))
+	lockEdges := make([]lockfile.Edge, 0, len(packages))
+	for _, item := range packages {
+		client.meta[item.name] = &resolver.PackageMetadata{
+			Name: item.name,
+			Versions: map[string]resolver.PackageVersion{
+				item.version: {
+					Name:    item.name,
+					Version: item.version,
+					Dist: resolver.PackageDist{
+						Tarball:   item.url,
+						Integrity: fakeIntegrity(item.tarball),
+					},
+				},
+			},
+		}
+		client.tar[item.url] = item.tarball
+		pkg := fakeLockedNPMPackage(item.name, item.version, item.tarball)
+		lockPackages = append(lockPackages, pkg)
+		from := "app:tool"
+		if item.kind == "runtime" {
+			from = "app:target:core"
+		}
+		lockEdges = append(lockEdges, lockfile.Edge{From: from, To: pkg.ID, Kind: item.kind})
+	}
+	writeLockfileForSyncTest(t, dir, lockPackages, lockEdges)
+
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = irPath
+	opts.ResolverClient = client
+	res := Sync(opts, false)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("sync failed: %#v", res.Diagnostics)
+	}
+	mustExist(t, filepath.Join(dir, "node_modules", "react", "package.json"))
+	mustExist(t, filepath.Join(dir, "node_modules", "react-dom", "package.json"))
+	mustExist(t, filepath.Join(dir, "node_modules", ".bin", "vite.cmd"))
+	mustExist(t, filepath.Join(dir, "node_modules", ".bin", "tsc.cmd"))
+	mustExist(t, filepath.Join(dir, "node_modules", ".bin", "biome.cmd"))
 }
 
 func TestFrontendBridgeMissingCLI(t *testing.T) {
@@ -2369,6 +2637,129 @@ func writeDogfoodSourceFiles(t *testing.T, dir string) {
 			t.Fatalf("write dogfood file: %v", err)
 		}
 	}
+}
+
+func simpleIRWithDependencies(deps []map[string]any, depRefs []string) map[string]any {
+	return map[string]any{
+		"format":    1,
+		"workspace": map[string]any{"name": "ws"},
+		"packages": []map[string]any{{
+			"name":         "app",
+			"version":      "1.0.0",
+			"kind":         "app",
+			"dependencies": deps,
+			"targets": []map[string]any{{
+				"name":    "core",
+				"export":  ".",
+				"entry":   "src/index.ts",
+				"runtime": "src/index.ts",
+				"types":   "dist/index.d.ts",
+				"deps":    depRefs,
+				"peers":   []string{},
+			}},
+			"tools":      []string{},
+			"boundaries": []any{},
+			"publish":    map[string]any{"include": []string{"dist/**"}, "exclude": []string{}},
+			"policies":   map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}},
+		}},
+	}
+}
+
+func fakeLockedNPMPackage(name, version string, tarball []byte) lockfile.Package {
+	return lockfile.Package{
+		ID:        fmt.Sprintf("npm:%s@%s", name, version),
+		Name:      name,
+		Version:   version,
+		Source:    "npm",
+		Integrity: fakeIntegrity(tarball),
+		Hash:      tarballSHA256(tarball),
+	}
+}
+
+func newFakeSyncClient(name, version, tarballURL string, tarball []byte) *fakeClient {
+	return &fakeClient{
+		meta: map[string]*resolver.PackageMetadata{
+			name: {
+				Name: name,
+				Versions: map[string]resolver.PackageVersion{
+					version: {
+						Name:    name,
+						Version: version,
+						Dist: resolver.PackageDist{
+							Tarball:   tarballURL,
+							Integrity: fakeIntegrity(tarball),
+						},
+					},
+				},
+			},
+		},
+		tar: map[string][]byte{
+			tarballURL: tarball,
+		},
+	}
+}
+
+func writeLockfileForSyncTest(t *testing.T, dir string, packages []lockfile.Package, edges []lockfile.Edge) {
+	t.Helper()
+	lf := &lockfile.Lockfile{
+		Lock:     lockfile.LockHeader{Format: 1, Tool: "tspack"},
+		Packages: packages,
+		Edges:    edges,
+		Targets:  []lockfile.Target{{Package: "app", Name: "core", Export: ".", Entry: "src/index.ts", Runtime: "src/index.ts", Types: "dist/index.d.ts"}},
+	}
+	b, err := lockfile.Marshal(lf)
+	if err != nil {
+		t.Fatalf("marshal lockfile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ts-lock.toml"), b, 0o644); err != nil {
+		t.Fatalf("write lockfile: %v", err)
+	}
+}
+
+func tarballSHA256(body []byte) string {
+	sum := sha256.Sum256(body)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func fakeRegistryTarballWithBin(t *testing.T, name, version, binPath, binName string) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+
+	packageJSON := map[string]any{
+		"name":    name,
+		"version": version,
+		"bin": map[string]string{
+			binName: binPath,
+		},
+	}
+	b, err := json.Marshal(packageJSON)
+	if err != nil {
+		t.Fatalf("marshal package json: %v", err)
+	}
+	if err := tw.WriteHeader(&tar.Header{Name: "package/package.json", Mode: 0o644, Size: int64(len(b))}); err != nil {
+		t.Fatalf("write package.json header: %v", err)
+	}
+	if _, err := tw.Write(b); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+
+	script := []byte("#!/usr/bin/env node\nconsole.log('ok')\n")
+	if err := tw.WriteHeader(&tar.Header{Name: "package/" + binPath, Mode: 0o755, Size: int64(len(script))}); err != nil {
+		t.Fatalf("write bin header: %v", err)
+	}
+	if _, err := tw.Write(script); err != nil {
+		t.Fatalf("write bin file: %v", err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("close tar writer: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("close gzip writer: %v", err)
+	}
+	return buf.Bytes()
 }
 
 func TestLoadManifestIRMissingFrontendDiagnosticIncludesResolutionContext(t *testing.T) {

@@ -984,6 +984,17 @@ The 0.1.0 release gate includes cold-update throughput hardening for `tspack upd
 - Generated `react-library` projects pass `tspack update`, `tspack sync`, `tspack run typecheck`, `tspack run build`, and `tspack run build-types` on Windows.
 - Missing project tools fail with `TSPACK_RUN_TOOL_NOT_FOUND` and include the project tool bin search path plus the underlying exec error.
 
+## M58h fresh-store sync hydration gate
+
+- With committed `manifest.tsx` and `ts-lock.toml`, a fresh checkout with an empty `.tspack/store` succeeds with `tspack sync` alone.
+- `tspack sync` hydrates missing locked npm store artifacts from locked package identity plus lockfile integrity/hash checks, then materializes `node_modules`.
+- `tspack sync` does not rewrite `ts-lock.toml` and does not select newer versions even when registry metadata includes them.
+- Lockfile or source problems fail clearly:
+  - incomplete lock hydration metadata -> `TSPACK_SYNC_LOCK_ARTIFACT_INCOMPLETE`
+  - fetch or unsupported-source hydration failure -> `TSPACK_SYNC_HYDRATE_FAILED`
+  - tarball/hash mismatch -> `TSPACK_SYNC_ARTIFACT_INTEGRITY_FAILED`
+- Generated `react` dogfood and the GitHub Pages dogfood repo both converge on fresh-store `tspack sync`, `tspack check`, `tspack check --format`, and `tspack run build` without a preceding `tspack update`.
+
 ## M58b Windows local test-suite triage gate
 
 - `powershell -ExecutionPolicy Bypass -File .\tools\Run-GoTestMatrix.ps1` provides package-by-package Windows diagnostics with per-package logs and JSON summary output.

@@ -6,7 +6,7 @@
 | `tspack migrate` | Convert package.json metadata into a reviewable `manifest.migrated.tsx` draft and `tspack-migration.md` report, including package-lock evidence, source scan evidence, script classification, report-only RunTarget suggestions, and optional `--check` structural validation. Dry-run by default; `--write` creates files. | **Yes with `--write` (migration outputs only)** / No | `--check` validates the generated draft with the manifest frontend and Go IR validator, but does not overwrite `manifest.tsx`, mutate package.json, translate lockfiles to TSPack locks, mutate source imports, install, execute scripts, migrate npm scripts into active RunTargets, generate `ts-lock.toml`, or run update/sync/check. | `docs/migrate.md` |
 | `tspack check [--json] [--format]` | Validate manifest/frontend, graph, boundaries, type surfaces, and lock consistency when lock exists. Supports `--explain <file>` for boundary debugging and optional read-only format validation with `--format`. | No / No | Does not resolve, install packages, or mutate project state in explain mode. | `docs/contract.md`, `docs/boundaries.md` |
 | `tspack update` | Resolve sources, fetch required package artifacts into the content-addressed store, and then write deterministic `ts-lock.toml`. Supports `--dry-run` plan mode and `--quiet` progress suppression. | No / **Yes (lock)** | Does not execute lifecycle scripts or run npm/npx; prepares lock+store for sync. | `docs/lockfile.md`, `docs/source-resolvers.md` |
-| `tspack sync` | Materialize compatibility `node_modules` from lock/store artifacts prepared by `tspack update`. | No / No | Does not re-resolve versions or mutate the lockfile. | `docs/materialization.md` |
+| `tspack sync` | Materialize compatibility `node_modules` from `ts-lock.toml`, hydrating missing local store artifacts from locked sources when needed. | No / No | Does not re-resolve versions or mutate the lockfile. | `docs/materialization.md` |
 | `tspack why` | Explain why a dependency, target, or lock package is present, with deduplicated lock edges, lock-ID guidance for transitive matches, `--reverse` for root-to-lock-package reverse paths, and `--json` for structured reports. | No / No | Not a resolver/editor command. | `docs/why.md` |
 | `tspack how` | Explain diagnostic codes and remediation guidance. | No / No | Does not mutate project state or resolve packages. | `docs/how.md` |
 | `tspack outdated` | Report declared dependencies with current/wanted/latest npm freshness data (`--json` supported). | No / No | Read-only query; no lock/store/node_modules mutation. | `docs/outdated.md` |
@@ -25,6 +25,14 @@
 - It does not materialize `node_modules`; `tspack sync` consumes the lock/store state after update.
 - Text-mode progress is written to **stderr** so stdout remains reserved for human diff output or JSON payloads, depending on mode.
 - `tspack update --quiet` suppresses progress/status lines while leaving diagnostics and errors on stderr.
+
+## `tspack sync`
+
+- `tspack sync` materializes the dependency reality already recorded in `ts-lock.toml`.
+- On fresh machines or CI runners, if a required local store artifact is missing, sync hydrates it from the locked source before materialization.
+- Hydration is lock-driven, not resolver-driven: sync uses the locked package identity and verification data, does not pick newer versions, and does not rewrite `ts-lock.toml`.
+- If the artifact is already present and verifies locally, sync does not refetch it.
+- `tspack sync` may need network access when the local store is empty and a locked npm artifact must be downloaded.
 
 
 ## `tspack check --explain <file>`

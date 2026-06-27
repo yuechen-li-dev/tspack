@@ -71,6 +71,11 @@ func TestCheckHelpAliasMentionsDiagnostics(t *testing.T) {
 	assertContainsAll(t, text, "Validates manifest", "--show-conflicts", "--show-lifecycle", "--format", "tspack how")
 }
 
+func TestSyncHelpMentionsHydrationBehavior(t *testing.T) {
+	text := runTSPackForHelpTest(t, "help", "sync")
+	assertContainsAll(t, text, "Materializes dependencies from ts-lock.toml.", "hydrates missing local store artifacts", "without changing versions or rewriting ts-lock.toml")
+}
+
 func TestExhaustiveHelpStillIncludesFlags(t *testing.T) {
 	text := runTSPackForHelpTest(t, "help", "all")
 	assertContainsAll(t, text, "Usage:", "--show-conflicts", "--show-lifecycle", "tspack check [--root .]")

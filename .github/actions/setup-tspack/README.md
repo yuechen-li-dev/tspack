@@ -10,6 +10,7 @@ steps:
     with:
       version: latest
 
+  - run: tspack sync --root .
   - run: tspack check --root .
   - run: tspack test --root .
   - run: tspack pack --verify --package <pkg>
@@ -64,3 +65,14 @@ The action does not build TSPack from source, does not install npm packages, doe
 ## First-release smoke
 
 A live GitHub Actions smoke that uses `version: latest` requires at least one real GitHub Release with the expected artifacts and `checksums.txt`. Before each release is published, keep this action covered by the local Node tests and run a manual workflow smoke after the release exists.
+
+## Recommended CI shape
+
+When `manifest.tsx` and committed `ts-lock.toml` are present, a fresh runner should usually start with:
+
+```yaml
+- run: tspack sync --root .
+- run: tspack check --root .
+```
+
+Use `tspack update` in CI only when the workflow intentionally wants to change dependency resolution or refresh the committed lockfile.

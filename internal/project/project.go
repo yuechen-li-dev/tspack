@@ -842,6 +842,11 @@ func Sync(opts Options, clean bool) Result {
 	if err != nil {
 		return Result{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_SYNC_STORE_ARTIFACT_MISSING", "failed to open store", err.Error())}}
 	}
+	out = append(out, ensureStoreArtifactsForLock(context.Background(), opts, st, lf)...)
+	if hasErrors(out) {
+		diag.SortDiagnostics(out)
+		return Result{Diagnostics: out}
+	}
 	mat := materialize.NodeModulesMaterializer{}
 	mr := mat.Materialize(context.Background(), materialize.Request{WorkspaceRoot: opts.RootDir, Graph: g, Lock: lf, Store: st, Options: materialize.Options{Clean: clean}})
 	out = append(out, mr.Diagnostics...)

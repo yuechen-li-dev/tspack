@@ -42,7 +42,13 @@ Lifecycle scripts are metadata only and are never executed by store operations.
 
 Tar extraction rejects absolute paths, `..` traversal segments, and destination escape attempts.
 
-## Offline behavior
+## Sync hydration and offline behavior
+
+- `tspack sync` materializes from `ts-lock.toml`, not from fresh dependency resolution.
+- If a required artifact is already present locally, sync verifies and reuses it without network access.
+- If the local store is empty or missing required artifacts, sync may hydrate locked artifacts from their recorded source identity before materialization.
+- For locked npm packages, sync uses the locked package name/version plus lockfile integrity/hash checks; it does not pick newer versions or rewrite the lockfile.
+- If a required artifact is missing and the source cannot be fetched or verified, sync fails clearly instead of pretending the workflow is offline.
 
 - `Has(hash)` checks local availability.
 - `Get(hash)` finds local store references.
