@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"github.com/yuechen-li-dev/tspack/internal/concepts"
 )
 
 //go:embed builtin/**
@@ -309,9 +311,36 @@ func (t *Template) Plan(opts PlanOptions) (*TemplatePlan, error) {
 			}
 			data = []byte(content)
 		}
+		if t.usesStaticConceptManifest(file) {
+			content, err := t.renderStaticConceptManifestFile(opts.Values)
+			if err != nil {
+				return nil, err
+			}
+			data = []byte(content)
+			rendered = true
+		}
 		plan.Files = append(plan.Files, PlannedFile{Path: file.To, SourcePath: file.From, DestinationPath: target, Rendered: rendered, content: data})
 	}
 	return plan, nil
+}
+
+func (t *Template) usesStaticConceptManifest(file File) bool {
+	return t.Source.Kind == SourceKindBuiltin && t.Name == "static" && file.To == "manifest.tsx"
+}
+
+func (t *Template) renderStaticConceptManifestFile(values map[string]string) (string, error) {
+	conceptIR, err := concepts.BuildConceptIR(t.Concepts, t.Kind, concepts.Builtins)
+	if err != nil {
+		return "", formatTemplateConceptCompositionError(t.Name, err)
+	}
+	return renderStaticConceptManifest(values, conceptIR)
+}
+
+func formatTemplateConceptCompositionError(templateName string, err error) error {
+	if conflict, ok := err.(concepts.Conflict); ok {
+		return fmt.Errorf("TSPACK_TEMPLATE_CONCEPT_COMPOSITION_FAILED: template %q concept %q conflict at %s: %s", templateName, conflict.ConceptB, conflict.Path, conflict.Reason)
+	}
+	return fmt.Errorf("TSPACK_TEMPLATE_CONCEPT_COMPOSITION_FAILED: template %q: %w", templateName, err)
 }
 
 func (t *Template) Apply(opts ApplyOptions) ([]PlannedFile, error) {

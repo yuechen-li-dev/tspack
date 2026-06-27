@@ -490,3 +490,29 @@ The design should improve reuse without weakening TSPack's existing inert templa
 - How exactly do update policy rows merge when package ranges differ?
 - Should local custom concepts be allowed before all built-in templates migrate?
 - How do we prevent concept drift from becoming too abstract or detached from real generated projects?
+
+
+## M60c implementation note: static manifest migration
+
+M60c moves the built-in `static` template's `manifest.tsx` generation onto the internal concept fragment engine. The static template now resolves its built-in concept list through `internal/concepts`, merges the fragments into `MergedConceptIR`, and renders the manifest from that merged concept intent during template planning.
+
+The migration is intentionally narrow:
+
+- only the built-in `static` template manifest is concept-rendered;
+- static non-manifest files still use the existing inert template file projections;
+- `react`, `react-library`, and local templates continue to use their existing file projection path;
+- no public concept CLI behavior, TOML-authored concepts, local custom concepts, overlays, remote concepts, scripts, or package install behavior is added.
+
+The expected static composition is:
+
+```text
+tspack.workspace
+tspack.manifestBoundary
+tspack.securityPolicy
+tspack.updatePolicy
+typescript.app
+vite.app
+browser.static
+```
+
+From the user's point of view, `tspack init --template static` remains the same scaffold shape; the manifest is now backed internally by concept fragments so later React and library migrations can follow the same boundary.

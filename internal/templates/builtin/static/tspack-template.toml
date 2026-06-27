@@ -8,6 +8,7 @@ concepts = [
   "tspack.updatePolicy",
   "tspack.securityPolicy",
   "typescript.app",
+  "vite.app",
   "browser.static"
 ]
 
