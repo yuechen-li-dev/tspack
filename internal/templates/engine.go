@@ -328,7 +328,7 @@ func (t *Template) usesConceptManifest(file File) bool {
 	if t.Source.Kind != SourceKindBuiltin || file.To != "manifest.tsx" {
 		return false
 	}
-	return t.Name == "static" || t.Name == "react"
+	return t.Name == "static" || t.Name == "react" || t.Name == "react-library"
 }
 
 func (t *Template) renderConceptManifestFile(values map[string]string) (string, error) {
@@ -338,6 +338,9 @@ func (t *Template) renderConceptManifestFile(values map[string]string) (string, 
 	}
 	if t.Name == "react" {
 		return renderReactConceptManifest(values, conceptIR)
+	}
+	if t.Name == "react-library" {
+		return renderReactLibraryConceptManifest(values, conceptIR)
 	}
 	return renderStaticConceptManifest(values, conceptIR)
 }

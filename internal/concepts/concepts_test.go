@@ -125,7 +125,7 @@ func TestCurrentTemplateConceptCompositionsResolve(t *testing.T) {
 	assertTarget(t, static.Manifest.Targets, "app")
 	react := mustBuild(t, []string{"react.app", "browser.spa", "vite.app", "typescript.app", "tspack.workspace", "tspack.manifestBoundary", "tspack.updatePolicy", "tspack.securityPolicy"}, "app")
 	assertDep(t, react.Manifest.Dependencies, "react")
-	library := mustBuild(t, []string{"tspack.workspace", "tspack.manifestBoundary", "tspack.securityPolicy", "tspack.updatePolicy", "tspack.pack", "typescript.library", "vite.library", "react.library", "package.exports", "package.peerDependencies"}, "library")
+	library := mustBuild(t, []string{"react.library", "package.peerDependencies", "package.exports", "tspack.pack", "vite.library", "typescript.library", "tspack.workspace", "tspack.manifestBoundary", "tspack.updatePolicy", "tspack.securityPolicy"}, "library")
 	assertDep(t, library.Manifest.Peers, "react")
 	if library.Manifest.Pack == nil {
 		t.Fatal("expected pack contribution")
@@ -177,4 +177,86 @@ func assertTarget(t *testing.T, targets []TargetContribution, name string) {
 		}
 	}
 	t.Fatalf("missing target %s in %#v", name, targets)
+}
+
+func TestReactLibraryExplicitStackComposition(t *testing.T) {
+	stack := []string{
+		"react.library",
+		"package.peerDependencies",
+		"package.exports",
+		"tspack.pack",
+		"vite.library",
+		"typescript.library",
+		"tspack.workspace",
+		"tspack.manifestBoundary",
+		"tspack.updatePolicy",
+		"tspack.securityPolicy",
+	}
+	ir := mustBuild(t, stack, "library")
+	if !reflect.DeepEqual(ir.Concepts[:len(stack)], stack) {
+		t.Fatalf("expected explicit stack order to be preserved, got %#v", ir.Concepts)
+	}
+	assertDep(t, ir.Manifest.Peers, "react")
+	assertDep(t, ir.Manifest.Peers, "react-dom")
+	assertDep(t, ir.Manifest.Tools, "typescript")
+	assertDep(t, ir.Manifest.Tools, "vite")
+	assertRunTarget(t, ir.Manifest.RunTargets, "build")
+	assertRunTarget(t, ir.Manifest.RunTargets, "build-types")
+	assertRunTarget(t, ir.Manifest.RunTargets, "typecheck")
+	assertTarget(t, ir.Manifest.Targets, "library")
+	if ir.Manifest.Pack == nil {
+		t.Fatal("expected pack contribution")
+	}
+	if _, ok := ir.Projections.Objects["package.exports"]; !ok {
+		t.Fatal("expected package exports contribution")
+	}
+}
+
+func TestReactLibraryMissingCompanionConceptsFail(t *testing.T) {
+	base := []string{
+		"react.library",
+		"package.peerDependencies",
+		"package.exports",
+		"tspack.pack",
+		"vite.library",
+		"typescript.library",
+		"tspack.workspace",
+		"tspack.manifestBoundary",
+		"tspack.updatePolicy",
+		"tspack.securityPolicy",
+	}
+	missing := []string{"package.peerDependencies", "package.exports", "tspack.pack", "vite.library", "typescript.library"}
+	for _, removed := range missing {
+		stack := removeConcept(base, removed)
+		_, err := BuildConceptIR(stack, "library", Builtins)
+		if err == nil {
+			t.Fatalf("expected missing %s to fail", removed)
+		}
+		if !strings.Contains(err.Error(), "expects") {
+			t.Fatalf("expected explicit companion diagnostic for %s, got %v", removed, err)
+		}
+	}
+}
+
+func TestReactLibraryConflictsWithBrowserSPAAndHasNoAppTarget(t *testing.T) {
+	_, err := Resolve([]string{"react.library", "package.peerDependencies", "package.exports", "tspack.pack", "vite.library", "typescript.library", "browser.spa"}, "library")
+	if err == nil || !strings.Contains(err.Error(), "conflict") {
+		t.Fatalf("expected react.library/browser.spa conflict, got %v", err)
+	}
+	ir := mustBuild(t, []string{"react.library", "package.peerDependencies", "package.exports", "tspack.pack", "vite.library", "typescript.library"}, "library")
+	for _, target := range ir.Manifest.Targets {
+		if target.Name == "app" || target.Entry == "src/main.tsx" {
+			t.Fatalf("react.library contributed browser app target: %#v", target)
+		}
+	}
+}
+
+func removeConcept(concepts []string, removed string) []string {
+	result := []string{}
+	for _, concept := range concepts {
+		if concept != removed {
+			result = append(result, concept)
+		}
+	}
+	return result
 }

@@ -49,9 +49,9 @@ Planned follow-up phases:
 
 - M60c: migrated static template manifest generation to concept fragments internally while keeping non-manifest file projections and user-facing init behavior unchanged.
 - M60d: migrate the React app template manifest generation to concept fragments and revise composition to explicit concept stack semantics with no hidden auto-insertion.
-- M60e: migrate the React library template to concept fragments.
+- M60e: migrated the React library template manifest generation to concept fragments internally while keeping non-manifest file projections unchanged.
 - M60f: add local custom concept fragments as inert files that lower into the same IR as built-ins.
-- Future: consider `style.tailwind`, `machinalayout.layout`, `docs.storybook`, `ui.shadcn`, `node.service`, and later NestJS-oriented service concepts after the core model converges.
+- Future: add local concepts, concept-authored projections, `style.tailwind`, `machinalayout.layout`, `docs.storybook`, `ui.shadcn`, `node.service`, and later NestJS-oriented service concepts after the core model converges.
 
 ## CLI help future
 
