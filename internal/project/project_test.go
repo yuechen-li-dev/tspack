@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -809,9 +810,9 @@ func TestSyncHydratesReactViteToolingFromLock(t *testing.T) {
 	}
 	mustExist(t, filepath.Join(dir, "node_modules", "react", "package.json"))
 	mustExist(t, filepath.Join(dir, "node_modules", "react-dom", "package.json"))
-	mustExist(t, filepath.Join(dir, "node_modules", ".bin", "vite.cmd"))
-	mustExist(t, filepath.Join(dir, "node_modules", ".bin", "tsc.cmd"))
-	mustExist(t, filepath.Join(dir, "node_modules", ".bin", "biome.cmd"))
+	mustExist(t, rootBinPathForTest(dir, "vite"))
+	mustExist(t, rootBinPathForTest(dir, "tsc"))
+	mustExist(t, rootBinPathForTest(dir, "biome"))
 }
 
 func TestFrontendBridgeMissingCLI(t *testing.T) {
@@ -1053,6 +1054,14 @@ func hasErrCode(diags []diag.Diagnostic, code string) bool {
 	}
 	return false
 }
+func rootBinPathForTest(root string, name string) string {
+	binPath := filepath.Join(root, "node_modules", ".bin", name)
+	if runtime.GOOS == "windows" {
+		return binPath + ".cmd"
+	}
+	return binPath
+}
+
 func mustExist(t *testing.T, p string) {
 	t.Helper()
 	if _, e := os.Stat(p); e != nil {

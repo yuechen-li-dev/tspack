@@ -156,6 +156,9 @@ func copyFile(t *testing.T, src string, dst string) {
 	if _, err := io.Copy(out, in); err != nil {
 		t.Fatal(err)
 	}
+	if err := out.Chmod(0o755); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestCLIPackSmokeAndDryRun(t *testing.T) {

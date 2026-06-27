@@ -358,6 +358,13 @@ type migrationFrontendResult struct {
 }
 
 func migrationFrontendCLIPath(repoRoot string) string {
+	if override := strings.TrimSpace(os.Getenv("TSPACK_MANIFEST_FRONTEND")); override != "" {
+		return override
+	}
+	if override := strings.TrimSpace(os.Getenv("TSPACK_MANIFEST_FRONTEND_CLI")); override != "" {
+		return override
+	}
+
 	candidates := migrationFrontendCLICandidates(repoRoot)
 	for _, candidate := range candidates {
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
