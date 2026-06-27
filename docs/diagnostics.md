@@ -145,6 +145,16 @@ Page/analyzer:
 - `TSPACK_INSPECT_INVALID_POINT`
 
 
+
+## Template concept diagnostics
+
+- `TSPACK_TEMPLATE_CONCEPT_LOAD_FAILED`: a declared local concept file or one of its declared file sources could not be read.
+- `TSPACK_TEMPLATE_CONCEPT_INVALID`: a local concept declaration or TOML file is malformed, has an unsupported format version, has a name mismatch, shadows a built-in concept, uses an unknown field, or declares an unused local concept.
+- `TSPACK_TEMPLATE_CONCEPT_PATH_INVALID`: a local concept path, contributed source path, or contributed destination path is absolute, remote, uses `..`, or otherwise fails template path safety.
+- `TSPACK_TEMPLATE_CONCEPT_CONFLICT`: a local concept file contribution conflicts with another planned file destination.
+- `TSPACK_TEMPLATE_CONCEPT_UNSUPPORTED_CONTRIBUTION`: a local concept declares manifest-like intent such as dependencies, tools, peers, or run targets for a template that does not use concept manifest rendering.
+- `TSPACK_TEMPLATE_CONCEPT_COMPOSITION_FAILED`: concept resolution or merge failed after built-in and local concept fragments were combined.
+
 ## Format and lint diagnostics
 
 `tspack format` and `tspack lint` are Biome-backed lifecycle UX commands. See `docs/format-lint.md`.

@@ -586,3 +586,193 @@ func removeTemplateConcept(concepts []string, removed string) []string {
 	}
 	return result
 }
+
+func TestLocalConceptAddsRenderedFile(t *testing.T) {
+	templateRoot := makeLocalConceptTemplate(t, "react.app", "")
+	tmpl, err := LoadLocal(templateRoot)
+	if err != nil {
+		t.Fatalf("load local concept template: %v", err)
+	}
+	values, err := tmpl.ResolveValues(map[string]string{"projectName": "Acme App"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := t.TempDir()
+	if _, err := tmpl.Apply(ApplyOptions{Destination: dest, Values: values}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(dest, "src", "design-system.ts"))
+	if err != nil {
+		t.Fatalf("read local concept file: %v", err)
+	}
+	if !strings.Contains(string(content), "Acme App") {
+		t.Fatalf("local concept file was not rendered: %s", string(content))
+	}
+}
+
+func TestLocalConceptValidationFailures(t *testing.T) {
+	cases := []struct {
+		name          string
+		metadataExtra string
+		conceptName   string
+		conceptBody   string
+		want          string
+	}{
+		{name: "missing expected", metadataExtra: `concepts = ["my-company.design-system"]`, conceptName: "my-company.design-system", conceptBody: `format = 1
+name = "my-company.design-system"
+expects = ["react.app"]
+`, want: "expects \"react.app\""},
+		{name: "name mismatch", metadataExtra: `concepts = ["react.app", "my-company.design-system"]`, conceptName: "my-company.design-system", conceptBody: `format = 1
+name = "wrong.name"
+`, want: "declares name"},
+		{name: "shadow builtin", metadataExtra: `concepts = ["react.app"]`, conceptName: "react.app", conceptBody: `format = 1
+name = "react.app"
+`, want: "shadows a built-in"},
+		{name: "unknown field", conceptName: "my-company.design-system", conceptBody: `format = 1
+name = "my-company.design-system"
+script = "echo nope"
+`, want: "TSPACK_TEMPLATE_CONCEPT_INVALID"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := makeLocalConceptTemplateWithBody(t, tc.metadataExtra, tc.conceptName, tc.conceptBody)
+			tmpl, err := LoadLocal(root)
+			if err != nil {
+				t.Fatalf("load should defer concept diagnostics to planning where possible: %v", err)
+			}
+			values, _ := tmpl.ResolveValues(map[string]string{"projectName": "demo"})
+			_, err = tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+func TestLocalConceptPathConflictAndUnsupportedManifestContribution(t *testing.T) {
+	t.Run("destination traversal rejected", func(t *testing.T) {
+		body := `format = 1
+name = "my-company.design-system"
+[[files]]
+destination = "../escape.ts"
+source = "files/design-system.ts.tmpl"
+render = true
+`
+		root := makeLocalConceptTemplateWithBody(t, "", "my-company.design-system", body)
+		tmpl, _ := LoadLocal(root)
+		values, _ := tmpl.ResolveValues(map[string]string{"projectName": "demo"})
+		_, err := tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+		if err == nil || !strings.Contains(err.Error(), "TSPACK_TEMPLATE_CONCEPT_PATH_INVALID") {
+			t.Fatalf("expected path diagnostic, got %v", err)
+		}
+	})
+
+	t.Run("conflict with template file rejected", func(t *testing.T) {
+		root := makeLocalConceptTemplate(t, "react.app", "")
+		metadataPath := filepath.Join(root, MetadataFile)
+		metadata, _ := os.ReadFile(metadataPath)
+		metadata = append(metadata, []byte("\n[[files]]\nfrom = \"files/hello.txt.tmpl\"\nto = \"src/design-system.ts\"\n")...)
+		_ = os.WriteFile(metadataPath, metadata, 0o644)
+		tmpl, _ := LoadLocal(root)
+		values, _ := tmpl.ResolveValues(map[string]string{"projectName": "demo"})
+		_, err := tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+		if err == nil || !strings.Contains(err.Error(), "TSPACK_TEMPLATE_CONCEPT_CONFLICT") {
+			t.Fatalf("expected conflict, got %v", err)
+		}
+	})
+
+	t.Run("manifest contribution unsupported", func(t *testing.T) {
+		body := `format = 1
+name = "my-company.design-system"
+[[dependencies]]
+key = "@my-company/design-system"
+source = "npm"
+range = "^1.2.0"
+`
+		root := makeLocalConceptTemplateWithBody(t, "", "my-company.design-system", body)
+		tmpl, _ := LoadLocal(root)
+		values, _ := tmpl.ResolveValues(map[string]string{"projectName": "demo"})
+		_, err := tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+		if err == nil || !strings.Contains(err.Error(), "TSPACK_TEMPLATE_CONCEPT_UNSUPPORTED_CONTRIBUTION") {
+			t.Fatalf("expected unsupported contribution, got %v", err)
+		}
+	})
+}
+
+func makeLocalConceptTemplate(t *testing.T, expected string, extra string) string {
+	body := `format = 1
+name = "my-company.design-system"
+description = "Company design system additions"
+provides = ["my-company.design-system"]
+expects = ["` + expected + `"]
+
+[[files]]
+destination = "src/design-system.ts"
+source = "files/design-system.ts.tmpl"
+render = true
+` + extra
+	return makeLocalConceptTemplateWithBody(t, "", "my-company.design-system", body)
+}
+
+func makeLocalConceptTemplateWithBody(t *testing.T, metadataExtra string, conceptName string, conceptBody string) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, dir := range []string{"files", "concepts/files"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	conceptsLine := `concepts = ["react.app", "browser.spa", "typescript.app", "my-company.design-system"]`
+	if metadataExtra != "" {
+		conceptsLine = metadataExtra
+	}
+	metadata := `format = 1
+name = "company-react"
+description = "Company React starter"
+kind = "app"
+` + conceptsLine + `
+[variables.projectName]
+default = "demo"
+[[files]]
+from = "files/hello.txt.tmpl"
+to = "hello.txt"
+[[localConcepts]]
+name = "` + conceptName + `"
+path = "concepts/design-system.toml"
+`
+	if err := os.WriteFile(filepath.Join(root, MetadataFile), []byte(metadata), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "files", "hello.txt.tmpl"), []byte("hello {{projectName}}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "concepts", "design-system.toml"), []byte(conceptBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "concepts", "files", "design-system.ts.tmpl"), []byte("export const project = \"{{projectName}}\";\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func TestLocalConceptFixtureCompanyReact(t *testing.T) {
+	tmpl, err := LoadLocal(filepath.Join("testdata", "local-concepts", "company-react"))
+	if err != nil {
+		t.Fatalf("load fixture: %v", err)
+	}
+	values, err := tmpl.ResolveValues(map[string]string{"projectName": "Fixture App"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := t.TempDir()
+	if _, err := tmpl.Apply(ApplyOptions{Destination: dest, Values: values}); err != nil {
+		t.Fatalf("apply fixture: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(dest, "src", "design-system.ts"))
+	if err != nil {
+		t.Fatalf("read fixture contribution: %v", err)
+	}
+	if !strings.Contains(string(content), "Fixture App") {
+		t.Fatalf("fixture local concept did not render variables: %s", string(content))
+	}
+}

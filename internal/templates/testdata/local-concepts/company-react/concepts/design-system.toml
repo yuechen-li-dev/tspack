@@ -1,0 +1,11 @@
+format = 1
+name = "my-company.design-system"
+description = "Company design system additions"
+provides = ["my-company.design-system"]
+expects = ["react.app"]
+compatibleKinds = ["app"]
+
+[[files]]
+destination = "src/design-system.ts"
+source = "files/design-system.ts.tmpl"
+render = true

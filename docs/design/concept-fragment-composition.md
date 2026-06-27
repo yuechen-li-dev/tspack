@@ -534,3 +534,19 @@ Current built-in compositions therefore explicitly list every companion concept 
 M60e migrates the built-in `react-library` template's `manifest.tsx` generation onto the internal concept fragment engine. The template now lists an explicit, priority-ordered stack of React library, peer dependency, package export, pack metadata, Vite library, TypeScript library, workspace, manifest boundary, update policy, and security policy concepts. The resolver does not insert companions implicitly; missing companion concepts fail composition before rendering.
 
 This extends the earlier static and React app migrations while preserving the same boundary: only built-in manifest generation is concept-rendered. React-library non-manifest files such as `package.json`, tsconfig files, `vite.config.ts`, source files, and README still use the existing template projection path. Local custom concepts, TOML-authored concepts, public concept CLI behavior, concept-authored projections, command execution, package installation, and remote concepts remain future work.
+
+## M60f local custom concept fragment MVP
+
+M60f implements the first local-only custom concept fragment path. Local templates can declare `[[localConcepts]]` entries with a `name` and template-relative `path`, and those TOML files lower to `internal/concepts.Fragment` records for the same explicit-stack resolver and merge engine used by built-in concepts.
+
+Implemented behavior is intentionally narrow:
+
+- local concept files are inert TOML data with `format = 1`;
+- local concept names must match their `[[localConcepts]]` entry;
+- duplicate local concept names and names that shadow built-ins fail;
+- local concepts declared but not listed in the template concept stack fail;
+- `provides`, `expects`, `expectsAnyOf`, `conflicts`, and `compatibleKinds` participate in normal concept resolution;
+- file contributions are planned through `TemplatePlan`, rendered with ordinary template variables when requested, and checked for destination conflicts before writes;
+- dependency/tool/peer/run-target intent is accepted by the local concept parser, but local templates without concept-rendered manifest support fail loudly instead of dropping it.
+
+The MVP does not add remote concept registries, script hooks, command execution, package installation during init, TypeScript/JavaScript concept modules, arbitrary text patching, npm script fallback, public marketplace behavior, or generic concept manifest rendering for local templates. Built-in static, React app, and React library manifest rendering remains the only concept-rendered manifest path in this milestone.
