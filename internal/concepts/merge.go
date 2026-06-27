@@ -36,6 +36,11 @@ func (m *mergeState) add(fragment Fragment) error {
 	if err := m.addDeps("manifest.peers", fragment.Name, "peer", fragment.Manifest.Peers, &m.ir.Manifest.Peers); err != nil {
 		return err
 	}
+	for _, target := range fragment.Manifest.Targets {
+		if err := addUnique(m, "manifest.targets."+target.Name, fragment.Name, target.Name, target, &m.ir.Manifest.Targets); err != nil {
+			return err
+		}
+	}
 	for _, target := range fragment.Manifest.RunTargets {
 		if err := addUnique(m, "manifest.runTargets."+target.Name, fragment.Name, target.Name, target, &m.ir.Manifest.RunTargets); err != nil {
 			return err

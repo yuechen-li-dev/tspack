@@ -431,3 +431,74 @@ to = "` + destination + `"
 	}
 	return templateRoot
 }
+
+func TestStaticConceptManifestRendererUsesMergedConceptIR(t *testing.T) {
+	tmpl, err := LoadBuiltin("static")
+	if err != nil {
+		t.Fatalf("load static: %v", err)
+	}
+	values, err := tmpl.ResolveValues(map[string]string{"projectName": "Hello Static", "packageName": "hello-static", "runtime": "nodejs"})
+	if err != nil {
+		t.Fatalf("resolve values: %v", err)
+	}
+	plan, err := tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	manifest := ""
+	for _, file := range plan.Files {
+		if file.Path == "manifest.tsx" {
+			manifest = string(file.content)
+		}
+	}
+	if manifest == "" {
+		t.Fatal("manifest.tsx was not planned")
+	}
+	for _, want := range []string{
+		"// Generated from concept fragments:",
+		"// - tspack.workspace",
+		"// - tspack.manifestBoundary",
+		"// - tspack.securityPolicy",
+		"// - tspack.updatePolicy",
+		"// - typescript.app",
+		"// - vite.app",
+		"// - browser.static",
+		`const vite = tool(npm("vite", "^5.0.0"));`,
+		`const typescript = tool(npm("typescript", "^5.0.0"));`,
+		`const biome = tool(npm("@biomejs/biome", "^1.9.4"), { key: "@biomejs/biome" });`,
+		`name: "dev"`,
+		`name: "build"`,
+		`name: "app"`,
+		`entry: "src/main.ts"`,
+		`types: "dist/main.d.ts"`,
+		`<UpdatePolicy`,
+		`<Security`,
+	} {
+		if !strings.Contains(manifest, want) {
+			t.Fatalf("concept-rendered manifest missing %q:\n%s", want, manifest)
+		}
+	}
+}
+
+func TestStaticConceptManifestCompositionFailureDiagnostic(t *testing.T) {
+	tmpl, err := LoadBuiltin("static")
+	if err != nil {
+		t.Fatalf("load static: %v", err)
+	}
+	tmpl.Concepts = append([]string{}, tmpl.Concepts...)
+	tmpl.Concepts = append(tmpl.Concepts, "react.library")
+	values, err := tmpl.ResolveValues(map[string]string{"projectName": "bad", "packageName": "bad", "runtime": "nodejs"})
+	if err != nil {
+		t.Fatalf("resolve values: %v", err)
+	}
+	_, err = tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+	if err == nil {
+		t.Fatal("expected composition failure")
+	}
+	message := err.Error()
+	for _, want := range []string{"TSPACK_TEMPLATE_CONCEPT_COMPOSITION_FAILED", `template "static"`, "react.library", "incompatible"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("diagnostic missing %q: %v", want, err)
+		}
+	}
+}

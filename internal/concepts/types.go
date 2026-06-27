@@ -46,7 +46,13 @@ type ManifestContributions struct {
 type WorkspaceContribution struct{ Name string }
 type PackageContribution struct{ Name, Kind string }
 type PackContribution struct{ Format, Artifact string }
-type TargetContribution struct{ Name, Path string }
+type TargetContribution struct {
+	Name    string
+	Export  string
+	Entry   string
+	Runtime string
+	Types   string
+}
 
 type DependencyContribution struct{ Name, Range, Source string }
 

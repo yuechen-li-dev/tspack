@@ -47,7 +47,7 @@ M60b adds the internal `internal/concepts` fragment model, Go-embedded built-in 
 
 Planned follow-up phases:
 
-- M60c: migrate static template manifest generation to concept fragments.
+- M60c: migrated static template manifest generation to concept fragments internally while keeping non-manifest file projections and user-facing init behavior unchanged.
 - M60d: migrate the React app template to concept fragments.
 - M60e: migrate the React library template to concept fragments.
 - M60f: add local custom concept fragments as inert files that lower into the same IR as built-ins.

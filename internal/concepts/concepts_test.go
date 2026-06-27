@@ -8,7 +8,7 @@ import (
 
 func TestBuiltinRegistry(t *testing.T) {
 	names := BuiltinNames()
-	expected := []string{"browser.spa", "package.exports", "package.peerDependencies", "react.app", "react.library", "tspack.manifestBoundary", "tspack.pack", "tspack.securityPolicy", "tspack.updatePolicy", "tspack.workspace", "typescript.app", "typescript.library", "vite.app", "vite.library"}
+	expected := []string{"browser.spa", "browser.static", "package.exports", "package.peerDependencies", "react.app", "react.library", "tspack.manifestBoundary", "tspack.pack", "tspack.securityPolicy", "tspack.updatePolicy", "tspack.workspace", "typescript.app", "typescript.library", "vite.app", "vite.library"}
 	if !reflect.DeepEqual(names, expected) {
 		t.Fatalf("names mismatch\nwant %#v\ngot  %#v", expected, names)
 	}
@@ -89,9 +89,11 @@ func TestAppendSlotOrderingAndProjectionConflict(t *testing.T) {
 }
 
 func TestCurrentTemplateConceptCompositionsResolve(t *testing.T) {
-	static := mustBuild(t, []string{"tspack.workspace", "tspack.manifestBoundary", "tspack.securityPolicy", "tspack.updatePolicy", "typescript.app", "vite.app", "browser.spa"}, "app")
+	static := mustBuild(t, []string{"tspack.workspace", "tspack.manifestBoundary", "tspack.securityPolicy", "tspack.updatePolicy", "typescript.app", "vite.app", "browser.static"}, "app")
 	assertDep(t, static.Manifest.Tools, "typescript")
 	assertDep(t, static.Manifest.Tools, "vite")
+	assertDep(t, static.Manifest.Tools, "@biomejs/biome")
+	assertTarget(t, static.Manifest.Targets, "app")
 	react := mustBuild(t, []string{"tspack.workspace", "tspack.manifestBoundary", "tspack.securityPolicy", "tspack.updatePolicy", "typescript.app", "vite.app", "react.app", "browser.spa"}, "app")
 	assertDep(t, react.Manifest.Dependencies, "react")
 	library := mustBuild(t, []string{"tspack.workspace", "tspack.manifestBoundary", "tspack.securityPolicy", "tspack.updatePolicy", "tspack.pack", "typescript.library", "vite.library", "react.library", "package.exports", "package.peerDependencies"}, "library")
@@ -136,4 +138,14 @@ func assertRunTarget(t *testing.T, targets []RunTargetContribution, name string)
 		}
 	}
 	t.Fatalf("missing run target %s in %#v", name, targets)
+}
+
+func assertTarget(t *testing.T, targets []TargetContribution, name string) {
+	t.Helper()
+	for _, target := range targets {
+		if target.Name == name {
+			return
+		}
+	}
+	t.Fatalf("missing target %s in %#v", name, targets)
 }
