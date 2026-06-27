@@ -332,3 +332,24 @@ On Windows, if `tspack sync` reports `TSPACK_MATERIALIZE_FILE_LOCKED`, stop the 
 ## Related docs
 
 See `docs/claude-fooding-phase5.md` for the Phase 5 RunTarget remediation closeout.
+
+## RunTarget environment contracts
+
+RunTargets may declare an `env` contract in `manifest.tsx`. The ergonomic helper form is:
+
+```tsx
+RunTargets rows={[{
+  name: "dev",
+  command: ["tsx", "server.ts"],
+  env: [
+    Env("DATABASE_URL", { required: true, secret: true, description: "Postgres connection string" }),
+    Env("JWT_SECRET", { required: true, secret: true }),
+    Env("PORT", { default: "3000", description: "HTTP port" }),
+    Env("NODE_ENV", { default: "development" }),
+  ],
+}]} />
+```
+
+At execution time, `tspack run` starts from the host environment plus any explicit `--env KEY=VALUE` overlays. For each declared variable, host or overlay values win; otherwise a `default` is injected; otherwise `required: true` fails before the process starts with `TSPACK_RUN_ENV_MISSING`. Optional variables without defaults may remain missing.
+
+`secret: true` redacts defaults and values from diagnostics, JSON, and target listings. Secret names are still shown so operators know what to set. TSPack does not load `.env` files in M59a, does not prompt, does not mutate the parent shell, and does not scrub undeclared variables yet; undeclared host environment variables are still inherited. A later strict mode may add allowlisting/scrubbing.

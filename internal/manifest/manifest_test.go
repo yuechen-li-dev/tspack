@@ -591,3 +591,27 @@ func TestManifestRejectsReservedPyPISourceKind(t *testing.T) {
 		t.Fatalf("expected reserved pypi source to be rejected: %#v", diags)
 	}
 }
+
+func TestRunTargetEnvValidation(t *testing.T) {
+	valid := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"app","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"system","command":["node"],"url":"http://127.0.0.1:1","env":[{"name":"DATABASE_URL","required":true,"secret":true,"description":"db"},{"name":"PORT","default":"3000"}]}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	if _, diags := LoadBytes("manifest.json", []byte(valid)); len(diags) != 0 {
+		t.Fatalf("valid env declarations produced diagnostics: %#v", diags)
+	}
+
+	cases := []struct {
+		name string
+		json string
+		code string
+	}{
+		{"invalid", `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"app","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"system","command":["node"],"url":"http://127.0.0.1:1","env":[{"name":"1BAD"}]}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`, "TSPACK_MANIFEST_ENV_INVALID"},
+		{"duplicate", `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"app","dependencies":[],"targets":[],"runTargets":[{"name":"dev","runtime":"system","command":["node"],"url":"http://127.0.0.1:1","env":[{"name":"PORT"},{"name":"port"}]}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`, "TSPACK_MANIFEST_ENV_DUPLICATE"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, diags := LoadBytes("manifest.json", []byte(tc.json))
+			if !hasDiagnosticCode(diags, tc.code) {
+				t.Fatalf("expected %s, got %#v", tc.code, diags)
+			}
+		})
+	}
+}

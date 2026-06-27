@@ -113,6 +113,15 @@ type RunTarget struct {
 	URL             string         `json:"url"`
 	Cwd             string         `json:"cwd,omitempty"`
 	Ready           *RunReadyCheck `json:"ready,omitempty"`
+	Env             []RunTargetEnv `json:"env,omitempty"`
+}
+
+type RunTargetEnv struct {
+	Name        string  `json:"name"`
+	Required    bool    `json:"required,omitempty"`
+	Default     *string `json:"default,omitempty"`
+	Secret      bool    `json:"secret,omitempty"`
+	Description string  `json:"description,omitempty"`
 }
 
 type RunReadyCheck struct {
@@ -226,6 +235,7 @@ var (
 	pkgNameRe       = regexp.MustCompile(`^(?:@[a-z0-9._-]+/[a-z0-9._-]+|[a-z0-9._-]+)$`)
 	versionRe       = regexp.MustCompile(`^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$`)
 	targetNameRe    = regexp.MustCompile(`^[A-Za-z0-9_/-]+$`)
+	envNameRe       = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
 
 // Workspace runtime profiles are JavaScript execution runtimes today.
@@ -514,6 +524,18 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 			}
 			if rt.Ready != nil && !validRunReadyCheck(rt.Ready) {
 				add("TSPACK_RUN_INVALID_READY", rp+".ready is invalid")
+			}
+			seenEnv := map[string]string{}
+			for ei, env := range rt.Env {
+				ep := fmt.Sprintf("%s.env[%d]", rp, ei)
+				if env.Name == "" || !envNameRe.MatchString(env.Name) {
+					add("TSPACK_MANIFEST_ENV_INVALID", ep+".name is invalid")
+				}
+				key := strings.ToUpper(env.Name)
+				if previous, ok := seenEnv[key]; ok {
+					add("TSPACK_MANIFEST_ENV_DUPLICATE", "duplicate run target env name: "+previous+" and "+env.Name)
+				}
+				seenEnv[key] = env.Name
 			}
 		}
 		for k, v := range p.Policies.Types {

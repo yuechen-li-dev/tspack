@@ -69,6 +69,15 @@ type runListTargetJSON struct {
 	Cwd              string                  `json:"cwd"`
 	CwdPath          string                  `json:"cwdPath,omitempty"`
 	Ready            *manifest.RunReadyCheck `json:"ready,omitempty"`
+	Env              []runListEnvJSON        `json:"env,omitempty"`
+}
+
+type runListEnvJSON struct {
+	Name        string  `json:"name"`
+	Required    bool    `json:"required,omitempty"`
+	Default     *string `json:"default,omitempty"`
+	Secret      bool    `json:"secret,omitempty"`
+	Description string  `json:"description,omitempty"`
 }
 
 type RunTargetSession struct {
@@ -206,7 +215,11 @@ func launchRunTargetInDir(root string, cwdPath string, target manifest.RunTarget
 		cmd.Stderr = stderr
 	}
 	projectToolBins := projectToolBinDirs(root)
-	cmd.Env = buildRunCommandEnv(resolved.Runtime, root, envOverlay)
+	env, validationErr := buildRunTargetEnv(resolved.Runtime, root, resolved, envOverlay)
+	if validationErr != nil {
+		return nil, validationErr
+	}
+	cmd.Env = env
 	if err := cmd.Start(); err != nil {
 		if isExecutableNotFoundErr(err) {
 			return nil, &runErr{
@@ -571,6 +584,12 @@ func renderRunTargetListText(refs []runTargetRef, workspaceRuntime string) {
 			fmt.Fprintf(os.Stdout, " (%s)", cwdPath)
 		}
 		fmt.Fprintln(os.Stdout)
+		if len(ref.Target.Env) > 0 {
+			fmt.Fprintln(os.Stdout, "      env:")
+			for _, env := range ref.Target.Env {
+				fmt.Fprintf(os.Stdout, "        %s%s\n", env.Name, formatRunEnvMetadata(env))
+			}
+		}
 		if ref.Target.Ready != nil {
 			fmt.Fprintf(os.Stdout, "      ready: %s\n", formatReadyForList(ref.Target.Ready))
 		} else {
@@ -661,6 +680,7 @@ func renderRunTargetListJSON(root string, packageName string, refs []runTargetRe
 			Cwd:              effectiveRunTargetCwd(ref.Target),
 			CwdPath:          mustRunTargetCwd(ref),
 			Ready:            ref.Target.Ready,
+			Env:              runListEnv(ref.Target.Env),
 		})
 	}
 	payload := runListOutput{
@@ -1075,6 +1095,102 @@ func buildRunCommandEnv(runtime string, root string, overlay runEnvOverlay) []st
 	return overlayRunEnv(env, overlay)
 }
 
+func buildRunTargetEnv(runtime string, root string, target manifest.RunTarget, overlay runEnvOverlay) ([]string, *runErr) {
+	env := buildRunCommandEnv(runtime, root, overlay)
+	env, missing := applyRunTargetEnvContract(env, target)
+	if len(missing) > 0 {
+		return nil, missingRunTargetEnvError(target, missing)
+	}
+	return env, nil
+}
+
+func applyRunTargetEnvContract(env []string, target manifest.RunTarget) ([]string, []manifest.RunTargetEnv) {
+	result := make([]string, len(env))
+	copy(result, env)
+	present := map[string]bool{}
+	for _, entry := range result {
+		key, _, hasEquals := strings.Cut(entry, "=")
+		if hasEquals {
+			present[runEnvContractKey(key)] = true
+		}
+	}
+	missing := []manifest.RunTargetEnv{}
+	for _, declared := range target.Env {
+		if present[runEnvContractKey(declared.Name)] {
+			continue
+		}
+		if declared.Default != nil {
+			result = append(result, declared.Name+"="+*declared.Default)
+			present[runEnvContractKey(declared.Name)] = true
+			continue
+		}
+		if declared.Required {
+			missing = append(missing, declared)
+		}
+	}
+	return result, missing
+}
+
+func runEnvContractKey(key string) string {
+	if runtime.GOOS == "windows" {
+		return strings.ToUpper(key)
+	}
+	return key
+}
+
+func missingRunTargetEnvError(target manifest.RunTarget, missing []manifest.RunTargetEnv) *runErr {
+	lines := []string{fmt.Sprintf("target %q is missing required environment variables", target.Name)}
+	for _, env := range missing {
+		parts := []string{env.Name}
+		if env.Secret {
+			parts = append(parts, "secret")
+		}
+		if env.Description != "" {
+			parts = append(parts, env.Description)
+		}
+		lines = append(lines, "- "+strings.Join(parts, "; "))
+	}
+	lines = append(lines, "hint: set the environment variable before running the target, or add a default in manifest.tsx when appropriate")
+	return &runErr{code: "TSPACK_RUN_ENV_MISSING", msg: strings.Join(lines, "\n")}
+}
+
+func runListEnv(env []manifest.RunTargetEnv) []runListEnvJSON {
+	out := make([]runListEnvJSON, 0, len(env))
+	for _, item := range env {
+		var defaultValue *string
+		if item.Default != nil {
+			value := *item.Default
+			if item.Secret {
+				value = "<redacted>"
+			}
+			defaultValue = &value
+		}
+		out = append(out, runListEnvJSON{Name: item.Name, Required: item.Required, Default: defaultValue, Secret: item.Secret, Description: item.Description})
+	}
+	return out
+}
+
+func formatRunEnvMetadata(env manifest.RunTargetEnv) string {
+	parts := []string{}
+	if env.Required {
+		parts = append(parts, "required")
+	}
+	if env.Default != nil {
+		value := *env.Default
+		if env.Secret {
+			value = "<redacted>"
+		}
+		parts = append(parts, "default="+value)
+	}
+	if env.Secret {
+		parts = append(parts, "secret")
+	}
+	if len(parts) == 0 {
+		return " optional"
+	}
+	return " " + strings.Join(parts, " ")
+}
+
 func overlayRunEnv(env []string, overlay runEnvOverlay) []string {
 	if len(overlay.Values) == 0 {
 		result := make([]string, len(env))
@@ -1141,10 +1257,7 @@ func prependProjectToolBinsToEnv(env []string, binDirs []string) []string {
 }
 
 func isPathEnvKey(key string) bool {
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(key, "PATH")
-	}
-	return key == "PATH"
+	return strings.EqualFold(key, "PATH")
 }
 
 func stringSliceBytes(values []string) [][]byte {

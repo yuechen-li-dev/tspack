@@ -168,3 +168,7 @@ The JSON output identifies the command and mode, echoes the CDP endpoint, and in
 ### Store population parallelism
 
 `tspack update` keeps resolution and lockfile output deterministic, then populates missing `.tspack/store` artifacts with a bounded worker pool. The default worker count is conservative and bounded by CPU count; set `TSPACK_STORE_JOBS=1` to force sequential store population for debugging or regression comparisons, or set a positive integer such as `TSPACK_STORE_JOBS=4` for local tuning. Invalid non-positive or non-integer values fail the update with a clear diagnostic before store work starts. Dry-run and policy dry-run paths remain read-only and do not populate the store.
+
+### RunTarget environment contracts
+
+`tspack run` honors RunTarget `env` declarations from `manifest.tsx`: required variables are validated before execution, defaults are injected when host values are missing, and secret defaults/values are redacted in diagnostics plus `tspack run --list --json`. The command still runs manifest RunTargets only; it does not execute `package.json` scripts or load `.env` files.

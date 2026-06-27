@@ -59,3 +59,9 @@ This remains architecture groundwork only. TSPack still has no Python runtime, P
 M57c adds a small internal project/package IR fixture spike under `internal/projectir`. The layer can represent current TypeScript/npm package intent and reserved future Python-family/PyPI package intent with separate ecosystem, backend, dependency-intent, range-scheme, runtime-family, runtime-implementation, environment/materialization, and execution-mode axes. The TypeScript/npm fixture remains production-descriptor backed; the Python-family/PyPI fixture remains reserved/internal data only.
 
 Python remains experimental design only. TSPack still has no Python CLI, runtime execution, resolver, sync/materializer behavior, lockfile schema migration, PyPI source acceptance, uv integration, pyproject projection, templates, or package-manager behavior change.
+
+## M59a RunTarget environment declarations
+
+M59a adds manifest-declared RunTarget environment contracts with required/default/secret metadata, check-time declaration validation, run-time missing-env validation before process start, default injection, and safe redaction in list/JSON output.
+
+Future M59 work may add strict environment allowlisting/scrubbing, runtime env access tracing, service dependency declarations, a service package kind, and NestJS migration/template support. M59a intentionally does not load `.env` files or orchestrate services.
