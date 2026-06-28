@@ -13,6 +13,12 @@ M60b adds the first internal implementation slice for concept fragment compositi
 
 This is infrastructure only. Existing static, React app, and React library templates are not migrated to fragment-driven rendering in M60b, and no public custom concept format or CLI surface is added. The current template pipeline and generated output remain behavior-preserving while tests prove that the current static, React app, and React library concept compositions can resolve and merge into semantic IR.
 
+## M61b implementation note
+
+M61b adds the second practical UI-stack local concept fixture: `internal/templates/testdata/local-concepts/machina-react-app`. The fixture uses `[generation] manifest = "concept"` and composes built-in React, browser SPA, Vite, TypeScript, workspace, manifest-boundary, update-policy, and security-policy concepts with a local `my-company.machina-layout` TOML concept.
+
+The local MachinaLayout concept contributes the real npm `machinalayout` dependency and safe files (`src/machina-layout.tsx` and `src/style.css`) without adding a built-in registry entry, remote lookup, scripts/hooks, command execution during init, package installation during init, JavaScript/TypeScript concept files, template inheritance, or arbitrary patching. The fixture uses the package's documented React adapter (`MachinaReactView` from `machinalayout/react`) and core `resolveLayoutRows` API from `machinalayout`, proving that a reusable UI library integration can be encoded as local inert concept data plus normal projected app files.
+
 ## Thesis
 
 Concepts are not just labels. They should become inert, declarative, structured fragments that describe a piece of project genesis intent.
