@@ -13,6 +13,13 @@ M60b adds the first internal implementation slice for concept fragment compositi
 
 This is infrastructure only. Existing static, React app, and React library templates are not migrated to fragment-driven rendering in M60b, and no public custom concept format or CLI surface is added. The current template pipeline and generated output remain behavior-preserving while tests prove that the current static, React app, and React library concept compositions can resolve and merge into semantic IR.
 
+
+## M61c implementation note
+
+M61c adds `internal/templates/testdata/local-concepts/tailwind-machina-react-app`, a composed local React/Vite/TypeScript fixture that uses both `my-company.tailwind` and `my-company.machina-layout` in one explicit concept stack. React, browser SPA, Vite, and TypeScript provide the app substrate; Tailwind and MachinaLayout then contribute additive dependency/tool/file intent; TSPack workspace, manifest-boundary, update-policy, and security-policy concepts remain at the bottom of the stack.
+
+The fixture deliberately uses deterministic file ownership instead of patching. The base template owns `src/main.tsx`, `src/App.tsx`, `vite.config.ts`, `index.html`, package files, and TypeScript/Biome config; the Tailwind concept owns `src/style.css`; and the MachinaLayout concept owns `src/machina-layout.tsx`. This proves practical local UI concepts can coexist without hidden insertion, arbitrary text mutation, command execution during init, or built-in/remote concept promotion.
+
 ## M61b implementation note
 
 M61b adds the second practical UI-stack local concept fixture: `internal/templates/testdata/local-concepts/machina-react-app`. The fixture uses `[generation] manifest = "concept"` and composes built-in React, browser SPA, Vite, TypeScript, workspace, manifest-boundary, update-policy, and security-policy concepts with a local `my-company.machina-layout` TOML concept.

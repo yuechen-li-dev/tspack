@@ -1,0 +1,85 @@
+format = 1
+name = "tailwind-machina-react-app"
+description = "Local React app using composed Tailwind and MachinaLayout concepts"
+kind = "app"
+# React/Vite/TypeScript/browser provide the app substrate. Tailwind and
+# MachinaLayout are additive UI concepts listed after that substrate so their
+# dependency and file contributions compose without overriding base app files.
+# TSPack policy and boundary concepts remain last.
+concepts = [
+  "react.app",
+  "browser.spa",
+  "vite.app",
+  "typescript.app",
+  "my-company.tailwind",
+  "my-company.machina-layout",
+  "tspack.workspace",
+  "tspack.manifestBoundary",
+  "tspack.updatePolicy",
+  "tspack.securityPolicy",
+]
+
+[generation]
+manifest = "concept"
+
+[variables.projectName]
+default = "tailwind-machina-react-app"
+
+[variables.packageName]
+default = "tailwind-machina-react-app"
+
+[variables.runtime]
+default = "nodejs"
+allowed = ["nodejs", "bun", "deno"]
+
+[[files]]
+from = "files/package.json.tmpl"
+to = "package.json"
+
+[[files]]
+from = "files/tsconfig.tspack.json"
+to = "tsconfig.tspack.json"
+
+[[files]]
+from = "files/tsconfig.json"
+to = "tsconfig.json"
+
+[[files]]
+from = "files/tspack-types/tspack-manifest.d.ts"
+to = ".tspack/types/tspack-manifest.d.ts"
+
+[[files]]
+from = "files/tspack-env.d.ts"
+to = "tspack-env.d.ts"
+
+[[files]]
+from = "files/biome.json"
+to = "biome.json"
+
+[[files]]
+from = "files/vite.config.ts"
+to = "vite.config.ts"
+
+[[files]]
+from = "files/index.html.tmpl"
+to = "index.html"
+
+[[files]]
+from = "files/src/main.tsx"
+to = "src/main.tsx"
+
+[[files]]
+from = "files/src/App.tsx"
+to = "src/App.tsx"
+
+[[files]]
+from = "files/README.md.tmpl"
+to = "README.md"
+
+[[localConcepts]]
+name = "my-company.tailwind"
+path = "concepts/tailwind.toml"
+
+[[localConcepts]]
+name = "my-company.machina-layout"
+path = "concepts/machina-layout.toml"
