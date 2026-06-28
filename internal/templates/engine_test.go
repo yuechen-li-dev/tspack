@@ -943,6 +943,120 @@ func TestTailwindLocalConceptCompanionDiagnostics(t *testing.T) {
 	})
 }
 
+func TestMachinaLayoutLocalConceptManifestFixture(t *testing.T) {
+	tmpl, err := LoadLocal(filepath.Join("testdata", "local-concepts", "machina-react-app"))
+	if err != nil {
+		t.Fatalf("load fixture: %v", err)
+	}
+	values, err := tmpl.ResolveValues(map[string]string{"projectName": "Machina Fixture", "packageName": "machina-fixture", "runtime": "nodejs"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+	if err != nil {
+		t.Fatalf("plan fixture: %v", err)
+	}
+	planned := map[string]string{}
+	for _, file := range plan.Files {
+		planned[file.Path] = string(file.content)
+	}
+	manifest := planned["manifest.tsx"]
+	if manifest == "" {
+		t.Fatal("manifest.tsx was not planned")
+	}
+	for _, want := range []string{
+		"// - my-company.machina-layout",
+		`machinalayout: dep(npm("machinalayout", "^0.3.1"))`,
+	} {
+		if !strings.Contains(manifest, want) {
+			t.Fatalf("manifest missing %q:\n%s", want, manifest)
+		}
+	}
+	for _, requiredPath := range []string{
+		"src/style.css",
+		"src/machina-layout.tsx",
+		"src/main.tsx",
+		"src/App.tsx",
+		"vite.config.ts",
+		"tsconfig.json",
+		"package.json",
+		"README.md",
+	} {
+		if _, ok := planned[requiredPath]; !ok {
+			t.Fatalf("required generated file %q was not planned", requiredPath)
+		}
+	}
+	if !strings.Contains(planned["src/machina-layout.tsx"], `import { MachinaReactView } from "machinalayout/react";`) {
+		t.Fatalf("MachinaLayout React adapter import was not contributed:\n%s", planned["src/machina-layout.tsx"])
+	}
+	if !strings.Contains(planned["src/App.tsx"], "MachinaLayoutExample") {
+		t.Fatalf("fixture app does not use contributed MachinaLayout component:\n%s", planned["src/App.tsx"])
+	}
+}
+
+func TestMachinaLayoutLocalConceptCompanionDiagnostics(t *testing.T) {
+	root := filepath.Join("testdata", "local-concepts", "machina-react-app")
+	t.Run("expects vite app", func(t *testing.T) {
+		copyRoot := copyTemplateFixture(t, root)
+		metadataPath := filepath.Join(copyRoot, MetadataFile)
+		metadata, err := os.ReadFile(metadataPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		metadata = bytes.ReplaceAll(metadata, []byte("  \"vite.app\",\n"), nil)
+		if err := os.WriteFile(metadataPath, metadata, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tmpl, err := LoadLocal(copyRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		values, err := tmpl.ResolveValues(map[string]string{"projectName": "demo", "packageName": "demo", "runtime": "nodejs"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+		if err == nil || !strings.Contains(err.Error(), `concept "my-company.machina-layout" expects "vite.app"`) {
+			t.Fatalf("expected vite companion diagnostic, got %v", err)
+		}
+	})
+
+	t.Run("excludes library kind", func(t *testing.T) {
+		copyRoot := copyTemplateFixture(t, root)
+		metadataPath := filepath.Join(copyRoot, MetadataFile)
+		metadata, err := os.ReadFile(metadataPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		metadata = bytes.Replace(metadata, []byte(`kind = "app"`), []byte(`kind = "library"`), 1)
+		stackStart := bytes.Index(metadata, []byte("concepts = ["))
+		stackEnd := bytes.Index(metadata[stackStart:], []byte("]\n\n[generation]"))
+		if stackStart < 0 || stackEnd < 0 {
+			t.Fatalf("fixture concept stack shape changed:\n%s", string(metadata))
+		}
+		stackEnd += stackStart + len("]")
+		metadata = append(
+			append([]byte{}, metadata[:stackStart]...),
+			append([]byte("concepts = [\n  \"my-company.machina-layout\",\n  \"tspack.workspace\",\n]"), metadata[stackEnd:]...)...,
+		)
+		if err := os.WriteFile(metadataPath, metadata, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tmpl, err := LoadLocal(copyRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		values, err := tmpl.ResolveValues(map[string]string{"projectName": "demo", "packageName": "demo", "runtime": "nodejs"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+		if err == nil || !strings.Contains(err.Error(), `concept "my-company.machina-layout" is incompatible with kind "library"`) {
+			t.Fatalf("expected library incompatibility diagnostic, got %v", err)
+		}
+	})
+}
+
 func copyTemplateFixture(t *testing.T, source string) string {
 	t.Helper()
 	destination := t.TempDir()
