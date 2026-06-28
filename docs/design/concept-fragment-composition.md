@@ -564,3 +564,11 @@ Built-in `static`, `react`, and `react-library` templates continue to use their 
 M60g.1 hardens the local `concept-manifest-app` fixture from a syntactic smoke into a minimal React/Vite/TypeScript app that can pass the normal `init`, `update`, `sync`, `check`, `check --format`, policy dry-run, and `run build` path. The fixture still uses `[generation] manifest = "concept"` for `manifest.tsx`, but now projects the ordinary source and config files that the generated manifest contract names.
 
 The implementation keeps the M60g scope boundary: generic local rendering supports workspace/package defaults, dependencies, tools, peers, target dependency wiring, targets, run targets, update policy, security lifecycle category acknowledgements, and concept metadata comments. Env rendering, service requirements, pack metadata, remote concepts, executable hooks, command execution during init, package installation during init, and marketplace behavior remain unsupported.
+
+## M61a practical local UI-stack concept fixture
+
+M61a adds the first practical UI-stack local concept fixture: `internal/templates/testdata/local-concepts/tailwind-react-app`. The fixture composes the built-in React app, browser SPA, Vite app, TypeScript app, and TSPack policy concepts with a local `my-company.tailwind` TOML concept under the explicit stack semantics introduced in M60d.
+
+The Tailwind concept remains local fixture data, not a built-in public concept or remote marketplace entry. It contributes Tailwind CSS v4 package intent (`tailwindcss` and `@tailwindcss/vite`) and a safe `src/style.css` file contribution that imports Tailwind. The fixture projects the ordinary React/Vite files, including a `vite.config.ts` that uses both the React and Tailwind Vite plugins, because M61a still avoids arbitrary text patching and generic config merging.
+
+This proves that expert-authored local concepts can encode a common frontend stack addition while TSPack keeps init deterministic: no command execution during init, no package installation during init, no scripts/hooks, no template inheritance, and no built-in Tailwind registry entry.

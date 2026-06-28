@@ -1,6 +1,8 @@
 package templates
 
 import (
+	"bytes"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -835,6 +837,159 @@ func TestLocalConceptManifestOptInFixture(t *testing.T) {
 	if !foundFile {
 		t.Fatal("local concept rendered file was not planned")
 	}
+}
+
+func TestTailwindLocalConceptManifestFixture(t *testing.T) {
+	tmpl, err := LoadLocal(filepath.Join("testdata", "local-concepts", "tailwind-react-app"))
+	if err != nil {
+		t.Fatalf("load fixture: %v", err)
+	}
+	values, err := tmpl.ResolveValues(map[string]string{"projectName": "Tailwind Fixture", "packageName": "tailwind-fixture", "runtime": "nodejs"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+	if err != nil {
+		t.Fatalf("plan fixture: %v", err)
+	}
+	planned := map[string]string{}
+	for _, file := range plan.Files {
+		planned[file.Path] = string(file.content)
+	}
+	manifest := planned["manifest.tsx"]
+	if manifest == "" {
+		t.Fatal("manifest.tsx was not planned")
+	}
+	for _, want := range []string{
+		"// - my-company.tailwind",
+		`tailwindcss: dep(npm("tailwindcss", "^4.0.0"))`,
+		`tailwindcssVite: tool(npm("@tailwindcss/vite", "^4.0.0"), {`,
+	} {
+		if !strings.Contains(manifest, want) {
+			t.Fatalf("manifest missing %q:\n%s", want, manifest)
+		}
+	}
+	for _, requiredPath := range []string{
+		"src/style.css",
+		"src/main.tsx",
+		"src/App.tsx",
+		"vite.config.ts",
+		"tsconfig.json",
+		"package.json",
+		"README.md",
+	} {
+		if _, ok := planned[requiredPath]; !ok {
+			t.Fatalf("required generated file %q was not planned", requiredPath)
+		}
+	}
+	if !strings.Contains(planned["src/style.css"], `@import "tailwindcss";`) {
+		t.Fatalf("Tailwind CSS import was not contributed:\n%s", planned["src/style.css"])
+	}
+	if !strings.Contains(planned["src/App.tsx"], "min-h-screen bg-slate-950") {
+		t.Fatalf("fixture app does not use Tailwind utility classes:\n%s", planned["src/App.tsx"])
+	}
+}
+
+func TestTailwindLocalConceptCompanionDiagnostics(t *testing.T) {
+	root := filepath.Join("testdata", "local-concepts", "tailwind-react-app")
+	t.Run("expects vite app", func(t *testing.T) {
+		copyRoot := copyTemplateFixture(t, root)
+		metadataPath := filepath.Join(copyRoot, MetadataFile)
+		metadata, err := os.ReadFile(metadataPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		metadata = bytes.ReplaceAll(metadata, []byte("  \"vite.app\",\n"), nil)
+		if err := os.WriteFile(metadataPath, metadata, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tmpl, err := LoadLocal(copyRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		values, err := tmpl.ResolveValues(map[string]string{"projectName": "demo", "packageName": "demo", "runtime": "nodejs"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+		if err == nil || !strings.Contains(err.Error(), `concept "my-company.tailwind" expects "vite.app"`) {
+			t.Fatalf("expected vite companion diagnostic, got %v", err)
+		}
+	})
+
+	t.Run("excludes library kind", func(t *testing.T) {
+		copyRoot := copyTemplateFixture(t, root)
+		metadataPath := filepath.Join(copyRoot, MetadataFile)
+		metadata, err := os.ReadFile(metadataPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		metadata = bytes.Replace(metadata, []byte(`kind = "app"`), []byte(`kind = "library"`), 1)
+		if err := os.WriteFile(metadataPath, metadata, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tmpl, err := LoadLocal(copyRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		values, err := tmpl.ResolveValues(map[string]string{"projectName": "demo", "packageName": "demo", "runtime": "nodejs"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+		if err == nil || !strings.Contains(err.Error(), `concept "react.app" is incompatible with kind "library"`) {
+			t.Fatalf("expected library incompatibility diagnostic, got %v", err)
+		}
+	})
+}
+
+func copyTemplateFixture(t *testing.T, source string) string {
+	t.Helper()
+	destination := t.TempDir()
+	entries, err := os.ReadDir(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		from := filepath.Join(source, entry.Name())
+		to := filepath.Join(destination, entry.Name())
+		if entry.IsDir() {
+			if err := copyDirectory(t, from, to); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		data, err := os.ReadFile(from)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(to, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return destination
+}
+
+func copyDirectory(t *testing.T, source string, destination string) error {
+	t.Helper()
+	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(destination, relative)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
 }
 
 func TestLocalConceptManifestOptInRejectsManifestProjection(t *testing.T) {
