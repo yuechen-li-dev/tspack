@@ -1,0 +1,21 @@
+format = 1
+name = "my-company.tailwind"
+description = "Local Tailwind CSS v4 additions for a React/Vite/TypeScript app"
+provides = ["my-company.tailwind"]
+expects = ["react.app", "vite.app", "typescript.app"]
+compatibleKinds = ["app"]
+
+[[dependencies]]
+key = "tailwindcss"
+source = "npm"
+range = "^4.0.0"
+
+[[tools]]
+key = "@tailwindcss/vite"
+source = "npm"
+range = "^4.0.0"
+
+[[files]]
+destination = "src/style.css"
+source = "files/style.css"
+render = false
