@@ -1,0 +1,17 @@
+format = 1
+name = "my-company.machina-layout"
+description = "Local MachinaLayout additions for a React/Vite/TypeScript app"
+provides = ["my-company.machina-layout"]
+expects = ["react.app", "vite.app", "typescript.app"]
+compatibleKinds = ["app"]
+
+[[dependencies]]
+key = "machinalayout"
+source = "npm"
+range = "^0.3.1"
+
+[[files]]
+destination = "src/machina-layout.tsx"
+source = "files/machina-layout.tsx"
+render = false
+

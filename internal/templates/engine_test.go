@@ -683,6 +683,85 @@ render = true
 		}
 	})
 
+	t.Run("conflict between local concepts rejected", func(t *testing.T) {
+		root := t.TempDir()
+		for _, dir := range []string{"files", "concepts/files-a", "concepts/files-b"} {
+			if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		metadata := `format = 1
+name = "company-react"
+description = "Company React starter"
+kind = "app"
+concepts = ["react.app", "browser.spa", "typescript.app", "my-company.first", "my-company.second"]
+
+[variables.projectName]
+default = "demo"
+
+[[files]]
+from = "files/hello.txt.tmpl"
+to = "README.md"
+
+[[localConcepts]]
+name = "my-company.first"
+path = "concepts/first.toml"
+
+[[localConcepts]]
+name = "my-company.second"
+path = "concepts/second.toml"
+`
+		if err := os.WriteFile(filepath.Join(root, MetadataFile), []byte(metadata), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "files", "hello.txt.tmpl"), []byte("hello"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		firstConcept := `format = 1
+name = "my-company.first"
+provides = ["my-company.first"]
+expects = ["react.app"]
+compatibleKinds = ["app"]
+
+[[files]]
+destination = "src/shared.ts"
+source = "files-a/shared.ts"
+render = false
+`
+		if err := os.WriteFile(filepath.Join(root, "concepts", "first.toml"), []byte(firstConcept), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		secondConcept := `format = 1
+name = "my-company.second"
+provides = ["my-company.second"]
+expects = ["react.app"]
+compatibleKinds = ["app"]
+
+[[files]]
+destination = "src/shared.ts"
+source = "files-b/shared.ts"
+render = false
+`
+		if err := os.WriteFile(filepath.Join(root, "concepts", "second.toml"), []byte(secondConcept), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "concepts", "files-a", "shared.ts"), []byte("export const owner = 'first';\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "concepts", "files-b", "shared.ts"), []byte("export const owner = 'second';\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tmpl, err := LoadLocal(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		values, _ := tmpl.ResolveValues(map[string]string{"projectName": "demo"})
+		_, err = tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+		if err == nil || !strings.Contains(err.Error(), `conflict at files.src/shared.ts`) {
+			t.Fatalf("expected deterministic concept file conflict, got %v", err)
+		}
+	})
+
 	t.Run("manifest contribution unsupported", func(t *testing.T) {
 		body := `format = 1
 name = "my-company.design-system"
@@ -938,6 +1017,171 @@ func TestTailwindLocalConceptCompanionDiagnostics(t *testing.T) {
 		}
 		_, err = tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
 		if err == nil || !strings.Contains(err.Error(), `concept "react.app" is incompatible with kind "library"`) {
+			t.Fatalf("expected library incompatibility diagnostic, got %v", err)
+		}
+	})
+}
+
+func TestTailwindMachinaLocalConceptManifestFixture(t *testing.T) {
+	tmpl, err := LoadLocal(filepath.Join("testdata", "local-concepts", "tailwind-machina-react-app"))
+	if err != nil {
+		t.Fatalf("load fixture: %v", err)
+	}
+	values, err := tmpl.ResolveValues(map[string]string{"projectName": "Tailwind Machina Fixture", "packageName": "tailwind-machina-fixture", "runtime": "nodejs"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+	if err != nil {
+		t.Fatalf("plan fixture: %v", err)
+	}
+	planned := map[string]string{}
+	for _, file := range plan.Files {
+		planned[file.Path] = string(file.content)
+	}
+	manifest := planned["manifest.tsx"]
+	if manifest == "" {
+		t.Fatal("manifest.tsx was not planned")
+	}
+	for _, want := range []string{
+		"// - my-company.tailwind",
+		"// - my-company.machina-layout",
+		`tailwindcss: dep(npm("tailwindcss", "^4.0.0"))`,
+		`tailwindcssVite: tool(npm("@tailwindcss/vite", "^4.0.0"), {`,
+		`machinalayout: dep(npm("machinalayout", "^0.3.1"))`,
+	} {
+		if !strings.Contains(manifest, want) {
+			t.Fatalf("manifest missing %q:\n%s", want, manifest)
+		}
+	}
+	for _, requiredPath := range []string{
+		"src/style.css",
+		"src/machina-layout.tsx",
+		"src/main.tsx",
+		"src/App.tsx",
+		"vite.config.ts",
+		"tsconfig.json",
+		"package.json",
+		"README.md",
+	} {
+		if _, ok := planned[requiredPath]; !ok {
+			t.Fatalf("required generated file %q was not planned", requiredPath)
+		}
+	}
+	if !strings.Contains(planned["src/style.css"], `@import "tailwindcss";`) {
+		t.Fatalf("Tailwind CSS import was not contributed:\n%s", planned["src/style.css"])
+	}
+	if !strings.Contains(planned["src/machina-layout.tsx"], `import { MachinaReactView } from "machinalayout/react";`) {
+		t.Fatalf("MachinaLayout React adapter import was not contributed:\n%s", planned["src/machina-layout.tsx"])
+	}
+	if !strings.Contains(planned["src/App.tsx"], "min-h-screen bg-slate-950") {
+		t.Fatalf("fixture app does not use Tailwind utility classes:\n%s", planned["src/App.tsx"])
+	}
+	if !strings.Contains(planned["src/App.tsx"], "MachinaLayoutExample") {
+		t.Fatalf("fixture app does not use contributed MachinaLayout component:\n%s", planned["src/App.tsx"])
+	}
+}
+
+func TestTailwindMachinaLocalConceptCompanionDiagnostics(t *testing.T) {
+	root := filepath.Join("testdata", "local-concepts", "tailwind-machina-react-app")
+	t.Run("tailwind expects vite app", func(t *testing.T) {
+		copyRoot := copyTemplateFixture(t, root)
+		metadataPath := filepath.Join(copyRoot, MetadataFile)
+		metadata, err := os.ReadFile(metadataPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		metadata = bytes.ReplaceAll(metadata, []byte("  \"vite.app\",\n"), nil)
+		if err := os.WriteFile(metadataPath, metadata, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tmpl, err := LoadLocal(copyRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		values, err := tmpl.ResolveValues(map[string]string{"projectName": "demo", "packageName": "demo", "runtime": "nodejs"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+		if err == nil || !strings.Contains(err.Error(), `concept "my-company.tailwind" expects "vite.app"`) {
+			t.Fatalf("expected Tailwind vite companion diagnostic, got %v", err)
+		}
+	})
+
+	t.Run("machina expects react app", func(t *testing.T) {
+		copyRoot := copyTemplateFixture(t, root)
+		metadataPath := filepath.Join(copyRoot, MetadataFile)
+		metadata, err := os.ReadFile(metadataPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stackStart := bytes.Index(metadata, []byte("concepts = ["))
+		stackEnd := bytes.Index(metadata[stackStart:], []byte("]\n\n[generation]"))
+		if stackStart < 0 || stackEnd < 0 {
+			t.Fatalf("fixture concept stack shape changed:\n%s", string(metadata))
+		}
+		stackEnd += stackStart + len("]")
+		metadata = append(
+			append([]byte{}, metadata[:stackStart]...),
+			append([]byte("concepts = [\n  \"browser.spa\",\n  \"vite.app\",\n  \"typescript.app\",\n  \"my-company.machina-layout\",\n  \"tspack.workspace\",\n]"), metadata[stackEnd:]...)...,
+		)
+		localConceptStart := bytes.Index(metadata, []byte("[[localConcepts]]\nname = \"my-company.tailwind\""))
+		if localConceptStart >= 0 {
+			localConceptEnd := bytes.Index(metadata[localConceptStart+1:], []byte("[[localConcepts]]"))
+			if localConceptEnd >= 0 {
+				localConceptEnd += localConceptStart + 1
+				metadata = append(metadata[:localConceptStart], metadata[localConceptEnd:]...)
+			}
+		}
+		if err := os.WriteFile(metadataPath, metadata, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tmpl, err := LoadLocal(copyRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		values, err := tmpl.ResolveValues(map[string]string{"projectName": "demo", "packageName": "demo", "runtime": "nodejs"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+		if err == nil || !strings.Contains(err.Error(), `concept "my-company.machina-layout" expects "react.app"`) {
+			t.Fatalf("expected MachinaLayout react companion diagnostic, got %v", err)
+		}
+	})
+
+	t.Run("excludes library kind", func(t *testing.T) {
+		copyRoot := copyTemplateFixture(t, root)
+		metadataPath := filepath.Join(copyRoot, MetadataFile)
+		metadata, err := os.ReadFile(metadataPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		metadata = bytes.Replace(metadata, []byte(`kind = "app"`), []byte(`kind = "library"`), 1)
+		stackStart := bytes.Index(metadata, []byte("concepts = ["))
+		stackEnd := bytes.Index(metadata[stackStart:], []byte("]\n\n[generation]"))
+		if stackStart < 0 || stackEnd < 0 {
+			t.Fatalf("fixture concept stack shape changed:\n%s", string(metadata))
+		}
+		stackEnd += stackStart + len("]")
+		metadata = append(
+			append([]byte{}, metadata[:stackStart]...),
+			append([]byte("concepts = [\n  \"my-company.tailwind\",\n  \"my-company.machina-layout\",\n  \"tspack.workspace\",\n]"), metadata[stackEnd:]...)...,
+		)
+		if err := os.WriteFile(metadataPath, metadata, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tmpl, err := LoadLocal(copyRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		values, err := tmpl.ResolveValues(map[string]string{"projectName": "demo", "packageName": "demo", "runtime": "nodejs"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
+		if err == nil || !strings.Contains(err.Error(), `is incompatible with kind "library"`) {
 			t.Fatalf("expected library incompatibility diagnostic, got %v", err)
 		}
 	})
