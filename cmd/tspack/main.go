@@ -301,6 +301,10 @@ func main() {
 		runCommand(args)
 		return
 	}
+	if args[0] == "adopt" {
+		runAdoptCommand(args)
+		return
+	}
 	if args[0] == "test" {
 		runTestCommand(args)
 		return

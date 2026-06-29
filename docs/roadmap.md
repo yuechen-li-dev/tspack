@@ -123,3 +123,17 @@ Future backend work remains deliberately out of scope: `.env` loading, strict en
 M60f adds local-only custom concept fragments for expert-authored local templates. Templates declare `[[localConcepts]]` entries, local TOML concept files are validated as inert data, fragments merge with the built-in concept registry under explicit stack semantics, and file contributions can add rendered/copy files through the normal TemplatePlan safety boundary.
 
 Unsupported manifest contributions from local concepts now fail loudly for local templates that do not have concept manifest rendering, so dependency/tool/run-target intent cannot silently disappear. M60g adds opt-in generic concept-rendered manifest support for local templates through `[generation] manifest = "concept"`, allowing local TOML concepts to contribute supported manifest rows deterministically. M60g.1 hardens the local concept-rendered fixture into a check-clean React/Vite/TypeScript project that exercises init, update, sync, check, format-check, policy dry-run, build, local dependency contribution, local run target contribution, and local file contribution. M61a adds Tailwind as a local fixture concept first, not as a built-in. M61b adds MachinaLayout as the second practical UI-stack local concept fixture using the real npm `machinalayout` package and documented React adapter imports. M61c composes Tailwind + MachinaLayout in one local React/Vite/TypeScript app fixture without promoting either concept to the built-in registry. M61d defines the built-in concept promotion policy so local concepts remain the incubation path and built-ins remain curated stable primitives. Future work may add M62 concept-authored config projections, M63 backend/service concept renderer support, Shadcn and Storybook local concept fixtures, built-in promotion of Tailwind or MachinaLayout only after the criteria are met, and remote registry exploration much later, if ever. M60f/M60g do not add remote concepts, script execution, package installation during init, template inheritance, a public marketplace, or package-manager behavior changes.
+
+## M62 incremental adoption / alongside mode
+
+M62 pivots TSPack toward incremental adoption. Package.json remains the
+compatibility substrate, while `manifest.tsx` can become an increasing source of
+truth over time. The goal is to get value beside an existing TypeScript project
+without first requiring a full migration.
+
+M62a adds the read-only foundation: package.json observation IR, an adoption
+report command, and `examples/incremental-existing-react/` as a normal
+package.json-native Vite/React/TypeScript dogfood project with no checked-in
+TSPack manifest. M62a deliberately does not add package.json script fallback,
+package.json mutation, manifest generation, projection writes, package.json
+deletion, or update/sync behavior changes.
