@@ -388,8 +388,8 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 			"package manager names such as npm/pnpm/yarn are not runtime profiles",
 		)
 	}
-	if len(ir.Packages) == 0 {
-		add("TSPACK_IR_NO_PACKAGES", "at least one package is required")
+	if len(ir.Packages) == 0 && len(ir.CompatFiles) == 0 {
+		add("TSPACK_IR_NO_PACKAGES", "at least one package or root compatibility declaration is required")
 	}
 
 	seenCompatPaths := map[string]struct{}{}

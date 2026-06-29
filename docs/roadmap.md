@@ -134,10 +134,14 @@ without first requiring a full migration.
 M62a adds the read-only foundation: package.json observation IR, an adoption
 report command, and `examples/incremental-existing-react/` as a normal
 package.json-native Vite/React/TypeScript dogfood project with no checked-in
-TSPack manifest. M62a deliberately does not add package.json script fallback,
-package.json mutation, manifest generation, projection writes, package.json
-deletion, or update/sync behavior changes.
+TSPack manifest. M62b adds `tspack init --alongside` for existing npm projects:
+it writes only a minimal root `manifest.tsx` with compat helper declarations,
+keeps package.json and lockfiles unchanged, writes no `ts-lock.toml`, and keeps
+compat materialization explicit through `tspack compat write`. M62 deliberately
+does not add package.json script fallback, package.json mutation, package.json
+projection, package.json deletion, package manifest inference, target inference,
+automatic npm install, or update/sync behavior changes.
 
 ## M63 compatibility-file management
 
-M63a adds manifest-declared JSON compatibility files with full-file ownership and explicit `tspack compat list`, `tspack compat diff`, and `tspack compat write` commands. M63b adds typed JSON compatibility helper presets such as `TsConfig.manifestEditor()`, `VSCode.settings(...)`, and `VSCode.extensions(...)`; these helpers produce the same full-file JSON declarations and do not add merge or automatic-write semantics. M63c adds explicit real npm delegation with `tspack npm <args...>` so incremental adopters can keep npm-native package materialization without TSPack emulating npm, projecting package.json, or managing npm lockfiles. This is the compatibility-management foundation needed before continuing M62 alongside-init work. M62 continuation is deferred until the M63 metadata, compatibility-file ownership model, and npm delegation bridge exist. Future work may return to M62 alongside init, add package.json projection preview later, add security lifecycle reporting around the npm-observed graph, add structured JSON patch/merge ownership, add concept-authored config projections, and consider non-npm package manager support only if deliberately scoped later.
+M63a adds manifest-declared JSON compatibility files with full-file ownership and explicit `tspack compat list`, `tspack compat diff`, and `tspack compat write` commands. M63b adds typed JSON compatibility helper presets such as `TsConfig.manifestEditor()`, `VSCode.settings(...)`, and `VSCode.extensions(...)`; these helpers produce the same full-file JSON declarations and do not add merge or automatic-write semantics. M63c adds explicit real npm delegation with `tspack npm <args...>` so incremental adopters can keep npm-native package materialization without TSPack emulating npm, projecting package.json, or managing npm lockfiles. Future work: M62c may add observed `ts-lock.toml` generation or security lifecycle reporting; M62d may add package manifest annotation; M63d may add package.json projection preview. Structured JSON patch/merge ownership, concept-authored config projections, and non-npm package manager support remain future scoped work.

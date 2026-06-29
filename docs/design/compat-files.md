@@ -25,7 +25,9 @@ The explicit commands are:
 - `tspack compat diff`
 - `tspack compat write`
 
-`check`, `sync`, and `init` do not write compatibility files.
+`check`, `sync`, and default `init --alongside` do not write compatibility
+files. `init --alongside` may write a manifest that declares compatibility files,
+but materialization remains an explicit `tspack compat write` action.
 
 ## Non-goals
 
@@ -35,9 +37,8 @@ JSON pointer ownership, or automatic writes.
 
 ## Future work
 
-Future milestones may add typed helpers for common config files, structured merge
-or JSON path ownership, package.json projection previews, concept-authored config
-projections, and `init --alongside` consuming compat declarations.
+Future milestones may add structured merge or JSON path ownership, package.json
+projection previews, and concept-authored config projections.
 
 ## M63b typed JSON helper presets
 
@@ -92,3 +93,13 @@ existing JSON, own JSON pointers, or imply partial ownership. A helper-authored
 file is still a full-file managed JSON compatibility file, and `tspack compat
 write` remains the only command that writes it. Raw `<JsonFile value={{ ... }} />`
 and `json(...)` declarations remain supported for uncommon files.
+
+## M62b init --alongside consumer
+
+`TSPack init --alongside` is the first built-in consumer of typed compat helper
+presets for existing npm projects. It writes a minimal root `manifest.tsx` that
+declares `tsconfig.tspack.json`, `.vscode/settings.json`, and
+`.vscode/extensions.json` through `TsConfig.manifestEditor()`,
+`VSCode.settings()`, and `VSCode.extensions()`. The command does not write those
+compat files by default. Users inspect drift with `tspack compat diff` and
+materialize the files only with explicit `tspack compat write`.
