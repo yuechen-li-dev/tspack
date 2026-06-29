@@ -10,7 +10,9 @@ cliff.
 
 The incremental adoption property is: get value from the first manifest file,
 with everything else unchanged. M62a starts one step earlier by allowing TSPack
-to observe a package.json-native project before a manifest exists.
+to observe a package.json-native project before a manifest exists. M63c adds an
+explicit npm delegation bridge so package.json-native projects can keep using
+real npm behavior while adoption proceeds.
 
 ## Package.json as compatibility substrate
 
@@ -24,6 +26,29 @@ The long-term direction is:
 - `manifest.tsx` becomes an increasing source of truth over time.
 - TSPack value scales with how much intent the user declares.
 - Full migration is optional.
+
+## Explicit npm delegation
+
+TSPack does not reimplement npm compatibility. npm remains the package
+materializer for package.json/package-lock workflows, including registry access,
+lifecycle behavior, lockfile updates, script execution, and npm edge cases.
+
+`tspack npm <npm-args...>` is an explicit bridge to the real npm CLI. It runs
+npm in the selected project root, passes the provided npm arguments through, and
+returns npm's exit code. Examples include:
+
+- `tspack npm install`
+- `tspack npm ci`
+- `tspack npm install -D vite`
+- `tspack npm exec vite -- --version`
+- `tspack npm run build`
+
+This is not package-manager emulation and it is intentionally not `tspack
+install`. TSPack does not mutate `package.json`, project package lockfiles,
+`manifest.tsx`, or `ts-lock.toml` on behalf of this bridge; any package.json or
+lockfile changes are npm's own changes from the user's explicit npm command.
+`TSPACK_NPM` may point at a specific npm executable when PATH resolution is not
+appropriate.
 
 ## Adoption modes
 
@@ -59,7 +84,7 @@ M62a intentionally does not add:
 - `init --alongside` writes;
 - projection writes;
 - package.json deletion;
-- npm install execution from TSPack;
+- implicit npm install execution from TSPack commands;
 - changes to update/sync semantics.
 
 ## Future milestones
@@ -71,4 +96,6 @@ Likely follow-up work includes:
 - security lifecycle warnings for observed package.json dependencies;
 - `why` and `explain` support for observed package graph evidence;
 - partial per-package `package.manifest.tsx` annotation;
-- projection preview before any compatibility-output writes.
+- projection preview before any compatibility-output writes;
+- security lifecycle reporting around the npm-observed graph;
+- broader package manager support only if deliberately scoped later.

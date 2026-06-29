@@ -36,6 +36,7 @@ func printDefaultHelp() {
 	fmt.Println("  pack       Create or verify package artifacts")
 	fmt.Println("  doctor     Diagnose project/runtime/security/inspect setup")
 	fmt.Println("  adopt      Report on package.json-native projects without writing files")
+	fmt.Println("  npm        Delegate explicitly to the real npm CLI")
 	fmt.Println("  outdated   Show available dependency updates")
 	fmt.Println("  format     Run formatter over project files")
 	fmt.Println("  lint       Run linter over project files")
@@ -44,6 +45,7 @@ func printDefaultHelp() {
 	fmt.Println("Reference shortcuts:")
 	fmt.Println("  tspack check [--root .] [--format] [--show-conflicts] [--show-lifecycle]")
 	fmt.Println("  tspack run [target] [--root .]")
+	fmt.Println("  tspack npm <npm-args...> [--root .]")
 	fmt.Println("  tspack inspect <url> [experimental]")
 	fmt.Println("  tspack format [paths...] [--root .] [--check]")
 	fmt.Println("  tspack lint [paths...] [--root .] [--fix]")
@@ -78,6 +80,7 @@ func printCommandsHelp() {
 	fmt.Println("  init        Create a new project from a template")
 	fmt.Println("  migrate     Convert package.json/package-lock evidence into manifest suggestions")
 	fmt.Println("  adopt       Report on package.json-native projects without writing files")
+	fmt.Println("  npm         Delegate explicitly to the real npm CLI")
 	fmt.Println()
 	fmt.Println("Dependency lifecycle:")
 	fmt.Println("  update      Resolve dependencies and update ts-lock.toml")
@@ -181,7 +184,7 @@ func printHelpTopic(topic string) bool {
 		printConceptsHelp()
 	case "all", "legacy", "flags":
 		printLegacyHelp()
-	case "init", "update", "sync", "check", "run", "why", "outdated", "pack", "doctor", "test", "inspect", "migrate", "format", "how":
+	case "init", "update", "sync", "check", "run", "npm", "why", "outdated", "pack", "doctor", "test", "inspect", "migrate", "format", "how":
 		printCommandHelp(topic)
 	default:
 		return false
@@ -196,6 +199,7 @@ func printCommandHelp(command string) {
 		"sync":     {"tspack sync", "Materializes dependencies from ts-lock.toml.", "Use after:", "  tspack update", "Examples:", "  tspack sync", "  tspack sync --clean", "Behavior:", "  sync materializes project tool shims in node_modules/.bin for declared tool dependencies.", "  On fresh machines, sync hydrates missing local store artifacts from the locked source without changing versions or rewriting ts-lock.toml.", "  On Windows, sync retries transient locked-file replacement failures before reporting a diagnostic.", "Important flags:", "  --root <path>   Project root", "  --clean         Rebuild materialized dependency layout", "Related:", "  update          Resolve dependencies into ts-lock.toml", "  check           Validate the current project"},
 		"check":    {"tspack check", "Validates manifest, lockfile, dependency graph, security policy, and optional formatting.", "Use before running, packaging, or committing project contract changes.", "Examples:", "  tspack check", "  tspack check --format", "  tspack check --show-conflicts", "  tspack how <code>", "Important flags:", "  --root <path>       Project root", "  --format            Run read-only format validation", "  --show-conflicts    Show individual version conflict diagnostics", "  --show-lifecycle    Show individual lifecycle script diagnostics", "  --json              Emit JSON diagnostics", "Related:", "  how             Explain diagnostic codes", "  format          Apply formatting", "  doctor          Diagnose local setup"},
 		"run":      {"tspack run", "Runs named RunTargets declared in manifest.tsx.", "Use for dev servers, builds, typechecks, and other project commands owned by the manifest.", "Examples:", "  tspack run dev", "  tspack run build", "  tspack run --list", "Behavior:", "  RunTargets are manifest-declared runtime targets, not package.json scripts.", "  Targets with ready checks are server targets; targets without ready checks are finite commands.", "  --once proves a server target becomes ready, then stops its process tree.", "  For runtime node/nodejs targets, run prepends the project tool bin from sync before host PATH.", "  Env contracts validate required variables before execution, inject defaults, and redact secrets.", "  HTTP readiness URLs may use ${PORT}-style placeholders resolved from the final RunTarget env.", "  Service(...) checks external dependencies before process start; readiness checks the target after it starts.", "Important flags:", "  --root <path>              Project root", "  --package <name>           Select package", "  --env KEY=VALUE            Add environment variables", "  --once                     Stop after readiness", "  --preflight-only           Validate env and external Service(...) requirements without starting the command", "  --ready-timeout <seconds>  Readiness timeout", "Related:", "  inspect         Inspect a running target", "  check           Validate targets before running"},
+		"npm":      {"tspack npm <npm-args...>", "Delegates explicitly to the real npm CLI.", "Use during incremental adoption when package.json/package-lock remain the npm-native compatibility substrate.", "Examples:", "  tspack npm install", "  tspack npm ci", "  tspack npm install -D vite", "  tspack npm exec vite -- --version", "  tspack npm run build", "Behavior:", "  TSPack locates npm from PATH or TSPACK_NPM and runs it in the selected project root.", "  npm arguments are passed through without npm emulation or package-manager abstraction.", "  npm exit codes are preserved when possible.", "  TSPack does not write manifest.tsx, ts-lock.toml, package.json, or package-lock.json itself.", "  `tspack npm run build` delegates to npm scripts; `tspack run build` only runs manifest-declared RunTargets.", "Important flags:", "  --root <path>   Project root for the delegated npm process", "Related:", "  adopt           Inspect package.json-native project state", "  run             Run manifest-declared RunTargets"},
 		"why":      {"tspack why", "Explains why a dependency exists and how it is reached.", "Use when auditing dependency graph decisions or investigating lockfile entries.", "Examples:", "  tspack why react", "  tspack why --reverse vite", "Important flags:", "  --root <path>      Project root", "  --package <name>   Start from one package", "  --reverse          Show reverse paths", "  --json             Emit JSON output", "Related:", "  outdated        Compare available versions", "  update          Change resolution state"},
 		"outdated": {"tspack outdated", "Shows available dependency updates.", "Use before update planning or policy review.", "Examples:", "  tspack outdated", "  tspack outdated --json", "Important flags:", "  --root <path>   Project root", "  --json          Emit JSON output", "Related:", "  update          Apply resolution changes", "  why             Explain current dependencies"},
 		"pack":     {"tspack pack", "Creates or verifies package artifacts from the manifest contract.", "Use before publishing or release validation.", "Examples:", "  tspack pack --dry-run --package @scope/pkg", "  tspack pack --verify --package @scope/pkg", "Important flags:", "  --root <path>      Project root", "  --out <dir>        Output directory", "  --package <name>   Package to pack", "  --dry-run          Preview artifact plan", "  --verify           Verify package contents", "Related:", "  artifact        Inspect artifact records", "  check           Validate package contract"},
