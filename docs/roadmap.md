@@ -4,6 +4,7 @@ This roadmap records known post-`0.1.0` work without turning the first release i
 
 ## Post-0.1.0 planned
 
+- M62c observed npm `tspack why` is implemented for package-json-only and alongside-init projects using read-only package.json/package-lock metadata. Future observed-graph work includes security lifecycle warnings, package manifest annotation, projection preview, and any planned TSPack lock generation from observed metadata.
 - Phase 11 inspect/browser deep testing.
 - Policy-driven update mutation.
 - Targeted policy planning.

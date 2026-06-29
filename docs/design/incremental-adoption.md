@@ -153,3 +153,20 @@ Likely follow-up work includes:
 - projection preview before any compatibility-output writes;
 - security lifecycle reporting around the npm-observed graph;
 - broader package manager support only if deliberately scoped later.
+
+## M62c observed npm why
+
+M62c adds `tspack why <package>` value for package.json-native npm projects before a full TSPack migration. When no `ts-lock.toml` is present but `package.json` exists, `why` automatically reads observed npm metadata and labels the source as `observed npm package.json/package-lock`.
+
+The observed explanation reads only:
+
+- `package.json` direct dependency sections (`dependencies`, `devDependencies`, `peerDependencies`, and `optionalDependencies`);
+- npm `package-lock.json` v2/v3 `packages` entries when the lockfile is present.
+
+This path does not resolve packages from the registry, run `npm install`, generate lockfiles, crawl `node_modules`, infer package manifests, or mutate `package.json`. npm remains the package materializer; TSPack explains the compatibility metadata already on disk.
+
+With a package lock, direct packages report the package.json section and requested range, plus the observed locked version and location when available. Transitive packages are explained by a simple observed lockfile graph: root direct dependencies are traversed through each package-lock entry's `dependencies` object, and `why` prints one or more shortest chains such as `root -> vite -> esbuild`. This is intentionally an observed lockfile explanation rather than a complete npm hoisting resolver.
+
+Without `package-lock.json`, `why` still explains direct package.json dependencies. Transitive explanations require npm's lockfile, so misses report that limitation and suggest running `tspack npm install` if the user wants npm to create the lockfile explicitly.
+
+Observed why currently supports npm package-lock only. If pnpm, Yarn, or Bun lockfiles are present, TSPack reports that limitation instead of attempting to parse those formats.
