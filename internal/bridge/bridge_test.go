@@ -34,6 +34,78 @@ func TestResolveFilesystemPrefersExecutableRelativeDevPath(t *testing.T) {
 	}
 }
 
+func TestResolveFilesystemUsesCanonicalWhenLegacyMissing(t *testing.T) {
+	t.Setenv("TSPACK_MANIFEST_FRONTEND", "")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_CLI", "")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR", "")
+
+	repo := t.TempDir()
+	projectRoot := t.TempDir()
+	executablePath := filepath.Join(repo, "dist", "tspack.exe")
+	canonical := filepath.Join(repo, "manifest-frontend", "dist", "cli.js")
+	writeTestBridge(t, canonical, "canonical")
+
+	resolution := ResolveWithOptions("cli.js", ResolveOptions{
+		CWD:            projectRoot,
+		ExecutablePath: executablePath,
+		ProjectRoot:    projectRoot,
+		SourceRepoRoot: repo,
+	})
+	if resolution.Path != canonical {
+		t.Fatalf("expected canonical bridge %q, got %#v", canonical, resolution)
+	}
+}
+
+func TestResolveFilesystemFallsBackToLegacyWhenCanonicalMissing(t *testing.T) {
+	t.Setenv("TSPACK_MANIFEST_FRONTEND", "")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_CLI", "")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR", "")
+
+	repo := t.TempDir()
+	projectRoot := t.TempDir()
+	executablePath := filepath.Join(repo, "dist", "tspack.exe")
+	legacy := filepath.Join(repo, "manifest-frontend", "dist", "src", "cli.js")
+	writeTestBridge(t, legacy, "legacy")
+
+	resolution := ResolveWithOptions("cli.js", ResolveOptions{
+		CWD:            projectRoot,
+		ExecutablePath: executablePath,
+		ProjectRoot:    projectRoot,
+		SourceRepoRoot: repo,
+	})
+	if resolution.Path != legacy {
+		t.Fatalf("expected legacy fallback bridge %q, got %#v", legacy, resolution)
+	}
+}
+
+func TestResolveFilesystemMissingListsCanonicalAndLegacyCandidates(t *testing.T) {
+	t.Setenv("TSPACK_MANIFEST_FRONTEND", "")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_CLI", "")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR", "")
+
+	repo := t.TempDir()
+	projectRoot := t.TempDir()
+	executablePath := filepath.Join(repo, "dist", "tspack.exe")
+	canonical := filepath.Join(repo, "manifest-frontend", "dist", "cli.js")
+	legacy := filepath.Join(repo, "manifest-frontend", "dist", "src", "cli.js")
+
+	resolution := ResolveWithOptions("cli.js", ResolveOptions{
+		CWD:            projectRoot,
+		ExecutablePath: executablePath,
+		ProjectRoot:    projectRoot,
+		SourceRepoRoot: repo,
+	})
+	if resolution.Path != "" {
+		t.Fatalf("expected missing bridge, got %#v", resolution)
+	}
+	joined := strings.Join(resolution.SearchedPaths, "\n")
+	for _, expected := range []string{canonical, legacy} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("missing searched path %q in %#v", expected, resolution.SearchedPaths)
+		}
+	}
+}
+
 func TestResolveFilesystemDoesNotUseProjectRootAsFrontendCandidate(t *testing.T) {
 	t.Setenv("TSPACK_MANIFEST_FRONTEND", "")
 	t.Setenv("TSPACK_MANIFEST_FRONTEND_CLI", "")

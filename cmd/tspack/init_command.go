@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/yuechen-li-dev/tspack/internal/adoption"
 	"github.com/yuechen-li-dev/tspack/internal/templates"
 )
 
@@ -28,6 +29,7 @@ type initConfig struct {
 	listTemplates bool
 	packageName   string
 	runtime       string
+	alongside     bool
 }
 
 type plannedFile struct {
@@ -61,6 +63,11 @@ func runInitCommand(args []string) {
 		os.Exit(1)
 	}
 
+	if cfg.alongside {
+		runAlongsideInit(cfg)
+		return
+	}
+
 	if cfg.template == "" && cfg.kind != "" {
 		runLegacyInit(cfg)
 		return
@@ -70,6 +77,90 @@ func runInitCommand(args []string) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func runAlongsideInit(cfg initConfig) {
+	obs, err := adoption.Observe(cfg.root)
+	if err != nil {
+		message := err.Error()
+		message = strings.Replace(message, "TSPACK_ADOPT_PACKAGE_JSON_MISSING", "TSPACK_INIT_ALONGSIDE_REQUIRES_PACKAGE_JSON", 1)
+		fmt.Fprintln(os.Stderr, message)
+		os.Exit(1)
+	}
+	manifestPath := filepath.Join(obs.Root, "manifest.tsx")
+	if !cfg.force {
+		if _, err := os.Stat(manifestPath); err == nil {
+			fmt.Fprintln(os.Stderr, "TSPACK_INIT_ALONGSIDE_MANIFEST_EXISTS: manifest.tsx already exists; re-run with --force to replace it")
+			os.Exit(1)
+		}
+	}
+	workspaceName := obs.Name
+	if strings.TrimSpace(workspaceName) == "" {
+		workspaceName = filepath.Base(obs.Root)
+	}
+	manifest := renderAlongsideManifest(workspaceName)
+	if cfg.dryRun {
+		fmt.Println("TSPack init --alongside dry run")
+		fmt.Printf("Would write: %s\n", manifestPath)
+		fmt.Println()
+		fmt.Println("--- manifest.tsx")
+		fmt.Print(manifest)
+		printAlongsideNextSteps()
+		return
+	}
+	if err := writeGeneratedFile(manifestPath, manifest, cfg.force); err != nil {
+		fmt.Fprintf(os.Stderr, "TSPACK_INIT_WRITE_FAILED: manifest.tsx (%v)\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Initialized TSPack alongside existing npm project %q.\n", workspaceName)
+	fmt.Println("Wrote:")
+	fmt.Println("  manifest.tsx")
+	fmt.Println("Left package.json, lockfiles, ts-lock.toml, and compatibility files unchanged.")
+	printAlongsideNextSteps()
+}
+
+func renderAlongsideManifest(workspaceName string) string {
+	return fmt.Sprintf(`import {
+  CompatFiles,
+  JsonFile,
+  TsConfig,
+  VSCode,
+  Workspace,
+  defineWorkspace,
+} from "tspack/manifest";
+
+export default defineWorkspace(
+  <Workspace name=%s>
+    <CompatFiles>
+      <JsonFile
+        path="tsconfig.tspack.json"
+        value={TsConfig.manifestEditor()}
+      />
+      <JsonFile
+        path=".vscode/settings.json"
+        value={VSCode.settings()}
+      />
+      <JsonFile
+        path=".vscode/extensions.json"
+        value={VSCode.extensions()}
+      />
+    </CompatFiles>
+  </Workspace>,
+);
+`, strconvQuote(workspaceName))
+}
+
+func strconvQuote(value string) string {
+	return fmt.Sprintf("%q", value)
+}
+
+func printAlongsideNextSteps() {
+	fmt.Println()
+	fmt.Println("Next:")
+	fmt.Println("tspack adopt --report")
+	fmt.Println("tspack compat diff")
+	fmt.Println("tspack compat write")
+	fmt.Println("tspack npm install   # only if your npm project needs dependencies installed")
 }
 
 func runLegacyInit(cfg initConfig) {
@@ -227,6 +318,8 @@ func parseInitArgs(args []string) (initConfig, []string) {
 			cfg.template = args[i]
 		case "--list-templates":
 			cfg.listTemplates = true
+		case "--alongside":
+			cfg.alongside = true
 		case "--package":
 			i++
 			if i >= len(args) {

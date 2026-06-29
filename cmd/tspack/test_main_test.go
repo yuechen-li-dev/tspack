@@ -13,9 +13,9 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "resolve repo root: %v\n", err)
 		os.Exit(1)
 	}
-	legacyCLI := filepath.Join(repo, "manifest-frontend", "dist", "src", "cli.js")
-	legacyDir := filepath.Dir(legacyCLI)
-	_ = os.Setenv("TSPACK_MANIFEST_FRONTEND_CLI", legacyCLI)
-	_ = os.Setenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR", legacyDir)
+	bridgeDir := filepath.Join(repo, "manifest-frontend", "dist")
+	_ = os.Unsetenv("TSPACK_MANIFEST_FRONTEND")
+	_ = os.Unsetenv("TSPACK_MANIFEST_FRONTEND_CLI")
+	_ = os.Setenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR", bridgeDir)
 	os.Exit(m.Run())
 }

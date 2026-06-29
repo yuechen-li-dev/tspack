@@ -161,9 +161,26 @@ func copyFile(t *testing.T, src string, dst string) {
 	}
 }
 
+func testManifestFrontendBridgeDir(t *testing.T) string {
+	t.Helper()
+	if existing := os.Getenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR"); existing != "" {
+		if !strings.Contains(filepath.ToSlash(existing), "manifest-frontend/dist") {
+			return existing
+		}
+	}
+	frontend := filepath.Join(t.TempDir(), "manifest-frontend-bridges")
+	if err := os.MkdirAll(frontend, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TSPACK_MANIFEST_FRONTEND", "")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_CLI", "")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR", frontend)
+	return frontend
+}
+
 func TestCLIPackSmokeAndDryRun(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	cliPath := filepath.Join(frontend, "cli.js")
 	stub := `#!/usr/bin/env node
@@ -219,7 +236,7 @@ process.stdout.write(JSON.stringify(out));`
 
 func TestCLIWhySmoke(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	cliPath := filepath.Join(frontend, "cli.js")
 	stub := `#!/usr/bin/env node
@@ -537,7 +554,7 @@ func TestCLIWhyJSON(t *testing.T) {
 
 func setupWhyJSONWorkspace(t *testing.T, repo string) string {
 	t.Helper()
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	if err := os.MkdirAll(frontend, 0o755); err != nil {
 		t.Fatalf("create frontend dir: %v", err)
 	}
@@ -724,7 +741,7 @@ func TestCLIUpdateDryRunUnknownFlagFailsDeterministically(t *testing.T) {
 
 func TestCLIUpdateDryRunJSON(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	cliPath := filepath.Join(frontend, "cli.js")
 	stub := `#!/usr/bin/env node
@@ -763,7 +780,7 @@ func TestCLIRootRecomputesDefaultManifestPathAndRespectsExplicitManifest(t *test
 	if err != nil {
 		t.Fatalf("abs repo: %v", err)
 	}
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	cliPath := filepath.Join(frontend, "cli.js")
 	stub := `#!/usr/bin/env node
@@ -1058,7 +1075,7 @@ func TestDocsReleaseGateIncludesRuntimeProfileCloseoutSmoke(t *testing.T) {
 
 func TestCheckJSONWarningOnlyLockfileMissing(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	cliPath := filepath.Join(frontend, "cli.js")
 	stub := `#!/usr/bin/env node
@@ -1118,7 +1135,7 @@ process.stdout.write(JSON.stringify(out));`
 
 func TestCheckJSONInvalidProjectIsNonZero(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	cliPath := filepath.Join(frontend, "cli.js")
 	stub := `#!/usr/bin/env node
@@ -1183,7 +1200,7 @@ func TestCLITestNoBackendsAndVitestUnavailable(t *testing.T) {
 
 func TestCLIArtifactCommand(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	bridge := filepath.Join(frontend, "native-test-cli.js")
 	stub := `#!/usr/bin/env node
@@ -1240,7 +1257,7 @@ fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'artifact.txt'
 
 func TestCLIDoomCommand(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	bridge := filepath.Join(frontend, "native-test-cli.js")
 	stub := `#!/usr/bin/env node
@@ -1306,7 +1323,7 @@ func TestCLIDoomBridgeMissing(t *testing.T) {
 
 func TestCLIInspectCommandRouting(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	bridge := filepath.Join(frontend, "inspect-cli.js")
 	stub := `#!/usr/bin/env node
@@ -1337,7 +1354,7 @@ func TestCLIInspectRunTargetByName(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(root, "server.js"), []byte(server), 0o644)
 	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js"],url:"http://127.0.0.1:5221",ready:{kind:"http",path:"/"}}]}]}`)
 
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	bridge := filepath.Join(frontend, "inspect-cli.js")
 	stub := `#!/usr/bin/env node
 const args=process.argv.slice(2);
@@ -1371,7 +1388,7 @@ func TestCLIInspectRunFlagExplicit(t *testing.T) {
 	server := fmt.Sprintf(`const http=require('http'); http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}).listen(%d,'127.0.0.1'); setInterval(()=>{},1000);`, port)
 	_ = os.WriteFile(filepath.Join(root, "server.js"), []byte(server), 0o644)
 	writeRunFrontendStub(t, fmt.Sprintf(`{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}}]}]}`, port))
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	bridge := filepath.Join(frontend, "inspect-cli.js")
 	stub := fmt.Sprintf(`#!/usr/bin/env node
 const args=process.argv.slice(2);
@@ -1389,7 +1406,7 @@ console.log('{"ok":true}');`, port)
 
 func TestCLIInspectTargetRequiredStillEnforced(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	bridge := filepath.Join(frontend, "inspect-cli.js")
 	_ = os.WriteFile(bridge, []byte("#!/usr/bin/env node\nprocess.stderr.write('TSPACK_INSPECT_TARGET_REQUIRED\\n'); process.exit(1)\n"), 0o755)
@@ -1407,7 +1424,7 @@ func TestCLIInspectRunTargetNotFound(t *testing.T) {
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
 	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","x.js"],url:"http://127.0.0.1:1"}]}]}`)
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	bridge := filepath.Join(frontend, "inspect-cli.js")
 	_ = os.WriteFile(bridge, []byte("#!/usr/bin/env node\nprocess.exit(0)\n"), 0o755)
 	t.Cleanup(func() { _ = os.Remove(bridge) })
@@ -1425,7 +1442,7 @@ func TestCLIInspectRunTimeoutAndExitedEarly(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "hang.js"), []byte("setInterval(()=>{},1000)\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "exit.js"), []byte("process.exit(0)\n"), 0o644)
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	bridge := filepath.Join(frontend, "inspect-cli.js")
 	_ = os.WriteFile(bridge, []byte("#!/usr/bin/env node\nconsole.log('{\"ok\":true}')\n"), 0o755)
 	t.Cleanup(func() { _ = os.Remove(bridge) })
@@ -1457,7 +1474,7 @@ func TestCLIInspectRunBridgeFailureStillStopsTargetAndJsonClean(t *testing.T) {
 const srv=http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}); srv.listen(%d,'127.0.0.1'); process.on('SIGTERM',()=>{fs.writeFileSync(%q,'stopped'); srv.close(()=>process.exit(0));}); setInterval(()=>{},1000);`, marker, port, marker)
 	_ = os.WriteFile(filepath.Join(root, "server.js"), []byte(server), 0o644)
 	writeRunFrontendStub(t, fmt.Sprintf(`{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}}]}]}`, port))
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	bridge := filepath.Join(frontend, "inspect-cli.js")
 	stub := `#!/usr/bin/env node
 console.error("bridge-failed");
@@ -1495,7 +1512,7 @@ func TestCLIInspectRunPassesThroughFlagsAndMutationContractAndNoNpmInference(t *
 require(%q);
 `, filepath.Join(root, "server.js")))
 	argsPath := filepath.Join(root, "bridge-args.json")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	bridge := filepath.Join(frontend, "inspect-cli.js")
 	stub := fmt.Sprintf(`#!/usr/bin/env node
 import fs from 'node:fs';
@@ -1622,8 +1639,7 @@ func TestInspectHelpDoesNotRequireBridge(t *testing.T) {
 
 func writeRunFrontendStub(t *testing.T, irJSON string) {
 	t.Helper()
-	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	cliPath := filepath.Join(frontend, "cli.js")
 	stub := "#!/usr/bin/env node\nconst out={ok:true,ir:" + irJSON + ",diagnostics:[]};process.stdout.write(JSON.stringify(out));"
@@ -2444,7 +2460,7 @@ type capturedBiomeInvocation struct {
 
 func writeValidCheckFrontendStub(t *testing.T, repo string) {
 	t.Helper()
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	if err := os.MkdirAll(frontend, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -3075,7 +3091,7 @@ func TestCLIHowCommand(t *testing.T) {
 
 func TestCLIDiagnosticDetailsPrintedAndJSONStructured(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	cliPath := filepath.Join(frontend, "cli.js")
 	stub := `#!/usr/bin/env node
@@ -3142,7 +3158,7 @@ process.stdout.write(JSON.stringify(out));`
 
 func TestCheckJSONBoundaryDiagnosticsAndTextOutput(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	if err := os.MkdirAll(frontend, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -3304,7 +3320,7 @@ import "vite";
 
 func TestCheckVersionConflictTextAndLockfileImmutable(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	cliPath := filepath.Join(frontend, "cli.js")
 	stub := `#!/usr/bin/env node
@@ -3349,7 +3365,7 @@ process.stdout.write(JSON.stringify(out));`
 
 func TestCheckVersionConflictJSON(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	cliPath := filepath.Join(frontend, "cli.js")
 	stub := `#!/usr/bin/env node
@@ -3530,7 +3546,7 @@ func TestCLICheckHelpIncludesNoisyWarningRevealFlags(t *testing.T) {
 
 func TestCLIUpdateTargetedDryRunJSONIncludesTargetFieldsOnlyJSON(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	cliPath := filepath.Join(frontend, "cli.js")
 	stub := `#!/usr/bin/env node
@@ -3572,7 +3588,7 @@ process.stdout.write(JSON.stringify(out));`
 
 func TestCLIUpdateProgressStderrAndQuiet(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	cliPath := filepath.Join(frontend, "cli.js")
 	stub := `#!/usr/bin/env node
@@ -3618,7 +3634,7 @@ process.stdout.write(JSON.stringify(out));`
 
 func TestCLIUpdateDryRunProgressStderr(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	cliPath := filepath.Join(frontend, "cli.js")
 	stub := `#!/usr/bin/env node
@@ -3650,7 +3666,7 @@ process.stdout.write(JSON.stringify(out));`
 
 func TestCLIUpdateTargetedProgressStderr(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	cliPath := filepath.Join(frontend, "cli.js")
 	stub := `#!/usr/bin/env node
@@ -3710,7 +3726,7 @@ func writeCLIPathUpdateFixture(t *testing.T) string {
 
 func TestCheckExplainTextJSONAndValidation(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	if err := os.MkdirAll(frontend, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -3826,7 +3842,7 @@ process.stdout.write(JSON.stringify({ ok: true, ir: manifestIR, diagnostics: [] 
 
 func TestCheckTypeBoundaryJSONTextAndExplain(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	if err := os.MkdirAll(frontend, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -4283,7 +4299,7 @@ func TestCLIRunManifestFlag(t *testing.T) {
 
 func writeRunManifestSwitchingStub(t *testing.T, repo string, explicitBase string, defaultPort int, explicitPort int) {
 	t.Helper()
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	cliPath := filepath.Join(frontend, "cli.js")
 	stub := fmt.Sprintf(`#!/usr/bin/env node
@@ -5014,7 +5030,7 @@ setInterval(() => {}, 1000);
 	_ = os.WriteFile(filepath.Join(root, "server.js"), []byte(script), 0o644)
 	writeRunFrontendStub(t, fmt.Sprintf(`{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}}]}]}`, port))
 
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	bridge := filepath.Join(frontend, "inspect-cli.js")
 	stub := `#!/usr/bin/env node
 import http from 'node:http';
@@ -5357,7 +5373,7 @@ func assertShellCapture(t *testing.T, path string, expected string) {
 
 func writeBasicFrontendStub(t *testing.T, repo string) {
 	t.Helper()
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	if err := os.MkdirAll(frontend, 0o755); err != nil {
 		t.Fatalf("create frontend stub directory: %v", err)
 	}

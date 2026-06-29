@@ -671,3 +671,183 @@ func loadManifestIR(opts project.Options) (map[string]any, error) {
 	}
 	return ir, nil
 }
+
+func TestInitAlongsideDryRunWritesNothing(t *testing.T) {
+	repo := repoRoot(t)
+	bin := buildTspackBinary(t, repo)
+	root := copyDogfoodProject(t, repo)
+	packageBefore := readFileString(t, filepath.Join(root, "package.json"))
+
+	cmd := tspackTestCommand(t, repo, bin, "init", "--alongside", "--dry-run", "--root", root)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("init alongside dry-run failed: %v\n%s", err, string(out))
+	}
+	text := string(out)
+	for _, expected := range []string{"TSPack init --alongside dry run", "Would write:", "manifest.tsx", "TsConfig.manifestEditor()", "tspack compat write"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("dry-run output missing %q:\n%s", expected, text)
+		}
+	}
+	assertPathMissing(t, filepath.Join(root, "manifest.tsx"))
+	assertPathMissing(t, filepath.Join(root, "ts-lock.toml"))
+	if got := readFileString(t, filepath.Join(root, "package.json")); got != packageBefore {
+		t.Fatalf("package.json changed during dry-run")
+	}
+}
+
+func TestInitAlongsideWritesOnlyManifest(t *testing.T) {
+	repo := repoRoot(t)
+	bin := buildTspackBinary(t, repo)
+	root := copyDogfoodProject(t, repo)
+	packageBefore := readFileString(t, filepath.Join(root, "package.json"))
+	lockBefore := readFileString(t, filepath.Join(root, "package-lock.json"))
+
+	cmd := tspackTestCommand(t, repo, bin, "init", "--alongside", "--root", root)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("init alongside failed: %v\n%s", err, string(out))
+	}
+	manifestText := readFileString(t, filepath.Join(root, "manifest.tsx"))
+	for _, expected := range []string{"Workspace name=\"incremental-existing-react\"", "TsConfig.manifestEditor()", "VSCode.settings()", "VSCode.extensions()"} {
+		if !strings.Contains(manifestText, expected) {
+			t.Fatalf("manifest missing %q:\n%s", expected, manifestText)
+		}
+	}
+	if got := readFileString(t, filepath.Join(root, "package.json")); got != packageBefore {
+		t.Fatalf("package.json changed during init alongside")
+	}
+	if got := readFileString(t, filepath.Join(root, "package-lock.json")); got != lockBefore {
+		t.Fatalf("package-lock.json changed during init alongside")
+	}
+	assertPathMissing(t, filepath.Join(root, "ts-lock.toml"))
+	assertPathMissing(t, filepath.Join(root, ".vscode"))
+	assertPathMissing(t, filepath.Join(root, "tsconfig.tspack.json"))
+}
+
+func TestInitAlongsideCompatAndAdoptTransition(t *testing.T) {
+	repo := repoRoot(t)
+	bin := buildTspackBinary(t, repo)
+	root := copyDogfoodProject(t, repo)
+
+	before := runCommandOutput(t, bin, "adopt", "--report", "--root", root)
+	if !strings.Contains(before, "Suggested adoption mode: package-json-only") {
+		t.Fatalf("adopt before init did not report package-json-only:\n%s", before)
+	}
+	runCommandOutput(t, bin, "init", "--alongside", "--root", root)
+	after := runCommandOutput(t, bin, "adopt", "--report", "--root", root)
+	for _, expected := range []string{"Suggested adoption mode: observe", "not TSPack RunTargets", "no ts-lock.toml yet"} {
+		if !strings.Contains(after, expected) {
+			t.Fatalf("adopt after init missing %q:\n%s", expected, after)
+		}
+	}
+	diffCmd := tspackTestCommand(t, repo, bin, "compat", "diff", "--root", root)
+	diffOut, err := diffCmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("compat diff before write unexpectedly succeeded:\n%s", string(diffOut))
+	}
+	for _, expected := range []string{"missing tsconfig.tspack.json", "missing .vscode/settings.json", "missing .vscode/extensions.json"} {
+		if !strings.Contains(string(diffOut), expected) {
+			t.Fatalf("compat diff missing %q:\n%s", expected, string(diffOut))
+		}
+	}
+	runCommandOutput(t, bin, "compat", "write", "--root", root)
+	runCommandOutput(t, bin, "compat", "diff", "--root", root)
+	for _, path := range []string{"tsconfig.tspack.json", ".vscode/settings.json", ".vscode/extensions.json"} {
+		if _, err := os.Stat(filepath.Join(root, path)); err != nil {
+			t.Fatalf("compat write did not create %s: %v", path, err)
+		}
+	}
+	assertPathMissing(t, filepath.Join(root, "ts-lock.toml"))
+}
+
+func TestInitAlongsideExistingManifestForceAndPackageJSONErrors(t *testing.T) {
+	repo := repoRoot(t)
+	bin := buildTspackBinary(t, repo)
+	root := copyDogfoodProject(t, repo)
+	if err := os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("old manifest\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := tspackTestCommand(t, repo, bin, "init", "--alongside", "--root", root)
+	out, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "TSPACK_INIT_ALONGSIDE_MANIFEST_EXISTS") {
+		t.Fatalf("existing manifest should fail clearly: %v\n%s", err, string(out))
+	}
+	runCommandOutput(t, bin, "init", "--alongside", "--force", "--root", root)
+	if strings.Contains(readFileString(t, filepath.Join(root, "manifest.tsx")), "old manifest") {
+		t.Fatalf("--force did not replace manifest")
+	}
+
+	missingRoot := t.TempDir()
+	cmd = tspackTestCommand(t, repo, bin, "init", "--alongside", "--root", missingRoot)
+	out, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "TSPACK_INIT_ALONGSIDE_REQUIRES_PACKAGE_JSON") {
+		t.Fatalf("missing package.json should fail clearly: %v\n%s", err, string(out))
+	}
+
+	malformedRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(malformedRoot, "package.json"), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd = tspackTestCommand(t, repo, bin, "init", "--alongside", "--root", malformedRoot)
+	out, err = cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "TSPACK_ADOPT_PACKAGE_JSON_MALFORMED") {
+		t.Fatalf("malformed package.json should fail clearly: %v\n%s", err, string(out))
+	}
+}
+
+func TestInitAlongsideDoesNotMakePackageScriptsRunTargets(t *testing.T) {
+	repo := repoRoot(t)
+	bin := buildTspackBinary(t, repo)
+	root := copyDogfoodProject(t, repo)
+	runCommandOutput(t, bin, "init", "--alongside", "--root", root)
+	cmd := tspackTestCommand(t, repo, bin, "run", "build", "--root", root)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("tspack run build unexpectedly succeeded by falling back to package.json:\n%s", string(out))
+	}
+	if !strings.Contains(string(out), "TSPACK_RUN_TARGET_NOT_FOUND") && !strings.Contains(string(out), "target") {
+		t.Fatalf("run failure did not look like missing manifest RunTarget:\n%s", string(out))
+	}
+}
+
+func readFileString(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func assertPathMissing(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); err == nil {
+		t.Fatalf("expected %s to be absent", path)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+}
+
+func runCommandOutput(t *testing.T, bin string, args ...string) string {
+	t.Helper()
+	repo := repoRoot(t)
+	cmd := tspackTestCommand(t, repo, bin, args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %s %s\n%v\n%s", bin, strings.Join(args, " "), err, string(out))
+	}
+	return string(out)
+}
+
+func tspackTestCommand(t *testing.T, repo string, bin string, args ...string) *exec.Cmd {
+	t.Helper()
+	cmd := exec.Command(bin, args...)
+	cliPath := filepath.Join(repo, "manifest-frontend", "dist", "cli.js")
+	bridgeDir := filepath.Join(repo, "manifest-frontend", "dist")
+	cmd.Env = append(os.Environ(),
+		"TSPACK_MANIFEST_FRONTEND="+cliPath,
+		"TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR="+bridgeDir,
+	)
+	return cmd
+}
