@@ -156,45 +156,36 @@ func printAdoptSecurityReport(report npmobserve.Report) {
 	fmt.Println()
 
 	fmt.Println("Summary:")
-	fmt.Printf("  root lifecycle scripts: %d\n", len(report.RootScripts))
-	fmt.Printf("  dependency lifecycle scripts: %d\n", len(report.DependencyScripts))
-	fmt.Printf("  direct dependency hooks: %d\n", countObservedScriptsByPresence(report.DependencyScripts, npmobserve.PresenceDirect))
-	fmt.Printf("  transitive dependency hooks: %d\n", countObservedScriptsByPresence(report.DependencyScripts, npmobserve.PresenceTransitive))
+	fmt.Printf("  lifecycle scripts found: %d\n", report.Summary.LifecycleScripts)
+	fmt.Printf("  install-time hooks: %d\n", report.Summary.InstallTimeHooks)
+	fmt.Printf("  direct hooks: %d\n", report.Summary.DirectHooks)
+	fmt.Printf("  transitive hooks: %d\n", report.Summary.TransitiveHooks)
+	fmt.Printf("  optional hooks: %d\n", report.Summary.OptionalHooks)
+	fmt.Printf("  root lifecycle scripts: %d\n", report.Summary.RootLifecycleScripts)
 	if len(report.MetadataSources) > 0 {
 		fmt.Printf("  metadata sources: %s\n", strings.Join(report.MetadataSources, ", "))
 	}
 	fmt.Println()
 
-	if len(report.RootScripts) > 0 {
-		fmt.Println("Root package lifecycle scripts")
-		for _, script := range report.RootScripts {
-			fmt.Printf("%s\n", formatObservedScriptTitle(script))
-			fmt.Printf("  source: %s\n", script.Source)
-			fmt.Printf("  command: %s\n", script.Command)
+	dependencyWarnings := filterCapabilityWarnings(report.CapabilityWarnings, false)
+	if len(dependencyWarnings) > 0 {
+		fmt.Println("Lifecycle capability warnings")
+		for _, warning := range dependencyWarnings {
+			printCapabilityWarning(warning)
 		}
 		fmt.Println()
 	}
 
-	if len(report.DependencyScripts) > 0 {
-		fmt.Println("Dependency lifecycle scripts")
-		for _, script := range report.DependencyScripts {
-			fmt.Printf("%s\n", formatObservedScriptTitle(script))
-			fmt.Printf("  location: %s\n", script.Location)
-			fmt.Printf("  presence: %s\n", formatObservedPresence(script))
-			fmt.Printf("  source: %s\n", script.Source)
-			fmt.Printf("  command: %s\n", script.Command)
-			if len(script.WhyChains) > 0 {
-				fmt.Println("  why:")
-				for _, chain := range script.WhyChains {
-					fmt.Printf("    %s\n", strings.Join(chain, " -> "))
-				}
-			}
+	if len(report.RootScripts) > 0 {
+		fmt.Println("Root package lifecycle scripts")
+		for _, warning := range filterCapabilityWarnings(report.CapabilityWarnings, true) {
+			printCapabilityWarning(warning)
 		}
 		fmt.Println()
 	}
 
 	if len(report.Limitations) > 0 {
-		fmt.Println("Limitations:")
+		fmt.Println("Metadata limitations:")
 		for _, limitation := range report.Limitations {
 			fmt.Printf("  - %s\n", limitation)
 		}
@@ -210,7 +201,58 @@ func printAdoptSecurityReport(report npmobserve.Report) {
 	}
 
 	fmt.Println("Adoption note:")
-	fmt.Println("  This report is based on observed npm metadata, not TSPack manifest security policy.")
+	fmt.Println("  This report is based on observed npm metadata. It is not yet a TSPack manifest security policy decision.")
+}
+
+func printCapabilityWarning(warning npmobserve.CapabilityWarning) {
+	version := warning.Version
+	if version == "" {
+		version = "unknown"
+	}
+	if warning.Presence == npmobserve.PresenceRoot {
+		fmt.Printf("%s\n", warning.Phase)
+	} else {
+		fmt.Printf("%s@%s\n", warning.PackageName, version)
+	}
+	fmt.Printf("  phase: %s\n", warning.Phase)
+	fmt.Printf("  command: %s\n", warning.Command)
+	fmt.Printf("  capability: %s\n", warning.Title)
+	fmt.Printf("  attention: %s\n", formatWarningAttention(warning))
+	fmt.Printf("  source: %s\n", warning.Source)
+	fmt.Printf("  presence: %s\n", warning.Presence)
+	if warning.Location != "" {
+		fmt.Printf("  location: %s\n", warning.Location)
+	}
+	if len(warning.Chains) > 0 {
+		fmt.Println("  why:")
+		for _, chain := range warning.Chains {
+			fmt.Printf("    %s\n", strings.Join(chain, " -> "))
+		}
+	}
+	fmt.Println("  meaning:")
+	fmt.Printf("    %s\n", warning.Meaning)
+}
+
+func formatWarningAttention(warning npmobserve.CapabilityWarning) string {
+	parts := []string{warning.AttentionLevel}
+	if warning.Reason != "" {
+		parts = append(parts, warning.Reason)
+	}
+	if len(warning.Flags) > 0 {
+		parts = append(parts, strings.Join(warning.Flags, ","))
+	}
+	return strings.Join(parts, " — ")
+}
+
+func filterCapabilityWarnings(warnings []npmobserve.CapabilityWarning, rootOnly bool) []npmobserve.CapabilityWarning {
+	out := []npmobserve.CapabilityWarning{}
+	for _, warning := range warnings {
+		isRoot := warning.Presence == npmobserve.PresenceRoot
+		if isRoot == rootOnly {
+			out = append(out, warning)
+		}
+	}
+	return out
 }
 
 func formatObservedScriptTitle(script npmobserve.LifecycleScript) string {

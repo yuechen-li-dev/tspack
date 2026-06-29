@@ -274,3 +274,11 @@ Exact `acknowledgedCapabilities` entries remain stronger package/script/command 
 Exact `Security.acknowledgedCapabilities` rows pass matching candidate lifecycle capabilities when package, script, and command match the candidate package ID. `Security.acknowledgedLifecycleCategories` rows can pass matching lifecycle categories when no exact acknowledgment is present. Stale or mismatched acknowledgments do not pass a candidate.
 
 An unacknowledged consumer-install lifecycle script (`preinstall`, `install`, or `postinstall`) blocks policy-plan readiness. An unacknowledged maintainer-publish lifecycle script such as `prepare` or `prepublishOnly` requires review. Passing a policy-plan gate is not execution permission: lifecycle execution remains blocked by default. Behavior fixture/report paths remain evidence for review surfaces and do not run during policy planning.
+
+## Observed npm lifecycle capability warnings (M62e)
+
+`tspack adopt --security` reports lifecycle scripts in existing npm projects as observed capabilities. An install-time lifecycle script means npm may execute package code during install or materialization phases such as `preinstall`, `install`, `postinstall`, or `prepare`. This is common in parts of the npm ecosystem, including some platform-selector or binary-helper packages, but presence does not mean a package is malicious.
+
+The report distinguishes root scripts from dependency scripts and labels direct, transitive, optional, dev, and peer context when local `package.json`, `package-lock.json`, or installed package metadata makes that visible. Optional findings should be read carefully: optional packages are often platform-specific, but TSPack does not infer native behavior or trust from the package name alone.
+
+The observed npm report is read-only and intentionally narrower than `npm audit`: it does not fetch vulnerability feeds, execute package code, run lifecycle hooks, or decide manifest security policy. Its job is to show install-time and pack/publish behavior with source metadata and why chains so users can make informed adoption decisions without alarmist labels.

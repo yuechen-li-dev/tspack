@@ -66,13 +66,15 @@ M56a keeps help output human-readable and deterministic. Structured JSON help su
 
 M62d adds `tspack adopt --security`, a read-only observed npm lifecycle/security report for package.json/package-lock projects. It is an adoption aid, not a manifest policy engine: the command labels whether findings came from root `package.json`, `package-lock.json`, or installed package metadata, reports direct/transitive context and why chains when available, and clearly states lockfile metadata limitations instead of guessing.
 
+M62e adds observed lifecycle capability pull-chain warnings. The same command now classifies install-time, root install, and pack/publish lifecycle behavior, explains direct/transitive/optional/dev context without claiming maliciousness, and exposes structured JSON `capabilityWarnings` for adoption tooling.
+
 Future incremental adoption follow-ups remain open:
 
-- richer observed graph pull-chain detail
-- package manifest annotations mapped from observed npm metadata
-- explicit TSPack policy mapping for adopted lifecycle findings
-- package.json projection preview flows
-- richer npm metadata inspection when lockfile metadata is incomplete
+- TSPack manifest security policy mapping for adopted lifecycle findings
+- capability pull-chain recording in `ts-lock.toml`
+- package manifest annotation for observed lifecycle capabilities
+- package.json projection preview for reviewed compatibility output
+- richer installed metadata reporting when lockfile metadata is incomplete
 
 ## Experimental Python module design
 

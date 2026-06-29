@@ -29,18 +29,48 @@ type Options struct {
 }
 
 type Report struct {
-	RootDir              string            `json:"root"`
-	SourceKind           string            `json:"sourceKind"`
-	PackageJSONPath      string            `json:"packageJsonPath"`
-	LockfilePath         string            `json:"lockfilePath,omitempty"`
-	LockfilePresent      bool              `json:"lockfilePresent"`
-	NodeModulesPresent   bool              `json:"nodeModulesPresent"`
-	NodeModulesInspected bool              `json:"nodeModulesInspected"`
-	MetadataSources      []string          `json:"metadataSources"`
-	RootScripts          []LifecycleScript `json:"rootScripts"`
-	DependencyScripts    []LifecycleScript `json:"lifecycleScripts"`
-	Limitations          []string          `json:"limitations,omitempty"`
-	Notes                []string          `json:"notes,omitempty"`
+	RootDir              string              `json:"root"`
+	SourceKind           string              `json:"sourceKind"`
+	PackageJSONPath      string              `json:"packageJsonPath"`
+	LockfilePath         string              `json:"lockfilePath,omitempty"`
+	LockfilePresent      bool                `json:"lockfilePresent"`
+	NodeModulesPresent   bool                `json:"nodeModulesPresent"`
+	NodeModulesInspected bool                `json:"nodeModulesInspected"`
+	MetadataSources      []string            `json:"metadataSources"`
+	RootScripts          []LifecycleScript   `json:"rootScripts"`
+	DependencyScripts    []LifecycleScript   `json:"lifecycleScripts"`
+	Summary              Summary             `json:"summary"`
+	CapabilityWarnings   []CapabilityWarning `json:"capabilityWarnings"`
+	Limitations          []string            `json:"limitations,omitempty"`
+	Notes                []string            `json:"notes,omitempty"`
+}
+
+type Summary struct {
+	LifecycleScripts     int `json:"lifecycleScripts"`
+	InstallTimeHooks     int `json:"installTimeHooks"`
+	DirectHooks          int `json:"directHooks"`
+	TransitiveHooks      int `json:"transitiveHooks"`
+	OptionalHooks        int `json:"optionalHooks"`
+	RootLifecycleScripts int `json:"rootLifecycleScripts"`
+}
+
+type CapabilityWarning struct {
+	PackageName         string     `json:"packageName"`
+	Version             string     `json:"version,omitempty"`
+	Location            string     `json:"location"`
+	Phase               string     `json:"phase"`
+	Command             string     `json:"command"`
+	CapabilityID        string     `json:"capabilityID"`
+	Title               string     `json:"title"`
+	AttentionLevel      string     `json:"attentionLevel"`
+	Reason              string     `json:"reason"`
+	Meaning             string     `json:"meaning"`
+	RecommendedNextStep string     `json:"recommendedNextStep,omitempty"`
+	Presence            string     `json:"presence"`
+	Source              string     `json:"source"`
+	Flags               []string   `json:"flags,omitempty"`
+	Chains              [][]string `json:"chains,omitempty"`
+	Tags                []string   `json:"tags"`
 }
 
 type LifecycleScript struct {
@@ -208,7 +238,206 @@ func finalizeReport(report Report) Report {
 	report.Notes = uniqueSorted(report.Notes)
 	sortScripts(report.RootScripts)
 	sortScripts(report.DependencyScripts)
+	report.Summary = summarizeLifecycle(report.RootScripts, report.DependencyScripts)
+	report.CapabilityWarnings = buildCapabilityWarnings(report.RootScripts, report.DependencyScripts)
 	return report
+}
+
+func summarizeLifecycle(rootScripts []LifecycleScript, dependencyScripts []LifecycleScript) Summary {
+	summary := Summary{
+		LifecycleScripts:     len(rootScripts) + len(dependencyScripts),
+		RootLifecycleScripts: len(rootScripts),
+	}
+	for _, script := range dependencyScripts {
+		if isInstallTimePhase(script.Phase) {
+			summary.InstallTimeHooks++
+		}
+		if script.Presence == PresenceDirect && isInstallTimePhase(script.Phase) {
+			summary.DirectHooks++
+		}
+		if script.Presence == PresenceTransitive && isInstallTimePhase(script.Phase) {
+			summary.TransitiveHooks++
+		}
+		if script.Optional && isInstallTimePhase(script.Phase) {
+			summary.OptionalHooks++
+		}
+	}
+	for _, script := range rootScripts {
+		if isInstallTimePhase(script.Phase) {
+			summary.InstallTimeHooks++
+		}
+	}
+	return summary
+}
+
+func buildCapabilityWarnings(rootScripts []LifecycleScript, dependencyScripts []LifecycleScript) []CapabilityWarning {
+	warnings := []CapabilityWarning{}
+	for _, script := range dependencyScripts {
+		warnings = append(warnings, classifyCapabilityWarning(script))
+	}
+	for _, script := range rootScripts {
+		warnings = append(warnings, classifyCapabilityWarning(script))
+	}
+	sort.SliceStable(warnings, func(i, j int) bool {
+		left := capabilitySortKey(warnings[i])
+		right := capabilitySortKey(warnings[j])
+		return left < right
+	})
+	return warnings
+}
+
+func classifyCapabilityWarning(script LifecycleScript) CapabilityWarning {
+	warning := CapabilityWarning{
+		PackageName:         script.PackageName,
+		Version:             script.Version,
+		Location:            script.Location,
+		Phase:               script.Phase,
+		Command:             script.Command,
+		AttentionLevel:      "notice",
+		Presence:            script.Presence,
+		Source:              script.Source,
+		Flags:               lifecycleFlags(script),
+		Chains:              copyChains(script.WhyChains),
+		Tags:                lifecycleTags(script),
+		RecommendedNextStep: "Review whether this install-time behavior is expected for the package and chain that pulled it in.",
+	}
+
+	if script.Presence == PresenceRoot && isInstallTimePhase(script.Phase) {
+		warning.CapabilityID = "root-install-lifecycle"
+		warning.Title = "root install lifecycle script"
+		warning.Reason = "this project declares an install-time lifecycle script"
+		warning.Meaning = "npm may execute this project's lifecycle script during install workflows. This is project-owned behavior, not a dependency finding."
+		return warning
+	}
+
+	if isPublishOrPackPhase(script.Phase) {
+		warning.CapabilityID = "publish-or-pack-lifecycle"
+		warning.Title = "publish or pack lifecycle script"
+		warning.AttentionLevel = "info"
+		warning.Reason = "this lifecycle phase is associated with npm pack or publish workflows"
+		warning.Meaning = "npm may execute this script during pack or publish workflows. The prepare phase can also run in some dependency install contexts, especially git-style installs."
+		return warning
+	}
+
+	warning.CapabilityID = "install-time-code-execution"
+	warning.Title = "install-time code execution"
+	warning.Reason = installTimeReason(script)
+	warning.Meaning = "npm may execute this package's lifecycle script during install or materialization. This is common for some packages, but it is still install-time code execution worth making visible."
+	return warning
+}
+
+func installTimeReason(script LifecycleScript) string {
+	if script.Optional {
+		return "optional dependency install hook observed"
+	}
+	if script.Presence == PresenceDirect {
+		return "direct dependency install hook observed"
+	}
+	if script.Presence == PresenceTransitive {
+		return "transitive dependency install hook observed"
+	}
+	return "install-time lifecycle hook observed"
+}
+
+func lifecycleFlags(script LifecycleScript) []string {
+	flags := []string{}
+	if script.Optional {
+		flags = append(flags, "optional")
+	}
+	if script.Dev {
+		flags = append(flags, "dev")
+	}
+	if script.Peer {
+		flags = append(flags, "peer")
+	}
+	return flags
+}
+
+func lifecycleTags(script LifecycleScript) []string {
+	tags := []string{script.Presence}
+	if isInstallTimePhase(script.Phase) {
+		tags = append(tags, "install-time", "install-time-code-execution")
+		if script.Presence == PresenceDirect {
+			tags = append(tags, "direct-dependency-install-hook")
+		}
+		if script.Presence == PresenceTransitive {
+			tags = append(tags, "transitive-dependency-install-hook")
+		}
+		if script.Optional {
+			tags = append(tags, "optional-dependency-install-hook")
+		}
+	}
+	if isPublishOrPackPhase(script.Phase) {
+		tags = append(tags, "publish-time")
+	}
+	if script.Optional {
+		tags = append(tags, "optional")
+	}
+	if script.Dev {
+		tags = append(tags, "dev")
+	}
+	if script.Peer {
+		tags = append(tags, "peer")
+	}
+	if script.Source == SourceInstalledPackage {
+		tags = append(tags, "installed-metadata")
+	}
+	if script.Presence == PresenceRoot && isInstallTimePhase(script.Phase) {
+		tags = append(tags, "root-install-lifecycle")
+	}
+	if isPublishOrPackPhase(script.Phase) {
+		tags = append(tags, "publish-or-pack-lifecycle")
+	}
+	if script.Source == SourcePackageLock {
+		tags = append(tags, "lockfile-metadata")
+	}
+	return uniqueSorted(tags)
+}
+
+func isInstallTimePhase(phase string) bool {
+	switch phase {
+	case "preinstall", "install", "postinstall", "prepare":
+		return true
+	default:
+		return false
+	}
+}
+
+func isPublishOrPackPhase(phase string) bool {
+	switch phase {
+	case "prepack", "postpack", "prepublish", "prepublishOnly":
+		return true
+	default:
+		return false
+	}
+}
+
+func capabilitySortKey(warning CapabilityWarning) string {
+	return attentionSortPrefix(warning.AttentionLevel) + "|" + presenceSortPrefix(warning.Presence) + "|" + warning.PackageName + "|" + warning.Phase
+}
+
+func attentionSortPrefix(level string) string {
+	switch level {
+	case "warning":
+		return "0"
+	case "notice":
+		return "1"
+	default:
+		return "2"
+	}
+}
+
+func presenceSortPrefix(presence string) string {
+	switch presence {
+	case PresenceRoot:
+		return "0"
+	case PresenceDirect:
+		return "1"
+	case PresenceTransitive:
+		return "2"
+	default:
+		return "3"
+	}
 }
 
 func loadPackageJSON(path string) (packageJSONModel, error) {
