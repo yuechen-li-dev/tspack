@@ -93,6 +93,24 @@ The top-level report contains `command`, `query`, the `package` filter or `null`
 In JSON mode, not-found and lockfile diagnostics are also structured. For example, a bare transitive-name miss such as `tspack why loose-envify --json` returns parseable JSON with `TSPACK_WHY_NOT_FOUND`; its `details` list includes matching lock IDs and suggested full lock-ID commands when lock data is available.
 
 
+
+
+## Observed npm projects
+
+`tspack why <package>` also works in package.json-native npm projects before a TSPack lock exists. When `package.json` is present and `ts-lock.toml` is absent, the command uses observed npm metadata and clearly labels the source as `observed npm package.json/package-lock`.
+
+Examples:
+
+```sh
+tspack why react
+tspack why vite
+tspack why esbuild
+```
+
+For direct dependencies, TSPack reports the package.json section and requested range. When `package-lock.json` is present, it also reports observed locked versions and lockfile locations. For transitive dependencies, TSPack reads npm package-lock v2/v3 `packages` entries and prints an observed dependency chain from the root through direct dependencies.
+
+This is not a TSPack manifest dependency classification yet. The observed npm path does not run npm, install packages, resolve from the registry, write `package.json`, write `package-lock.json`, generate `ts-lock.toml`, or crawl `node_modules`. If no `package-lock.json` is available, direct package.json dependencies can still be explained, but transitive npm explanations require npm's lockfile.
+
 ## Reverse why
 
 `tspack why --reverse <query>` answers the inverse lock-graph question: which declared roots ultimately pull a locked package into `ts-lock.toml`?

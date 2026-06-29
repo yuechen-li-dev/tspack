@@ -23,6 +23,7 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
 	"github.com/yuechen-li-dev/tspack/internal/npmbridge"
+	"github.com/yuechen-li-dev/tspack/internal/npmobserve"
 	"github.com/yuechen-li-dev/tspack/internal/project"
 	"github.com/yuechen-li-dev/tspack/internal/testcmd"
 	"github.com/yuechen-li-dev/tspack/internal/version"
@@ -1163,7 +1164,29 @@ func runCommand(args []string) {
 	case "pack":
 		result = project.Pack(opts, packOpts)
 	case "why":
-		result = project.Why(opts, whyOpts)
+		if shouldUseObservedNPMWhy(opts, whyOpts) {
+			observed, err := npmobserve.Explain(opts.RootDir, whyOpts.Query)
+			if err != nil {
+				result = project.Result{
+					Diagnostics: []diag.Diagnostic{
+						{
+							Code:     "TSPACK_OBSERVED_NPM_WHY_FAILED",
+							Severity: diag.SeverityError,
+							Message:  err.Error(),
+						},
+					},
+				}
+			} else {
+				if jsonOutput {
+					printObservedNPMWhyJSON(observed)
+				} else {
+					printObservedNPMWhy(observed)
+				}
+				return
+			}
+		} else {
+			result = project.Why(opts, whyOpts)
+		}
 	case "outdated":
 		result = project.Outdated(opts)
 	}
@@ -2282,6 +2305,163 @@ func buildCheckJSONReport(opts project.Options, result project.Result) CheckJSON
 		Summary:      summary,
 		Diagnostics:  jsonDiagnostics,
 	}
+}
+
+func shouldUseObservedNPMWhy(opts project.Options, whyOpts project.WhyOptions) bool {
+	if whyOpts.Reverse || whyOpts.PackageName != "" || strings.TrimSpace(whyOpts.Query) == "" {
+		return false
+	}
+	if !npmobserve.HasPackageJSON(opts.RootDir) {
+		return false
+	}
+	if _, err := os.Stat(opts.LockfilePath); err == nil {
+		return false
+	}
+	return true
+}
+
+func printObservedNPMWhyJSON(result npmobserve.ExplainResult) {
+	report := map[string]any{
+		"query":               result.Query,
+		"sourceKind":          "observed-npm",
+		"source":              npmobserve.SourceLabel,
+		"found":               len(result.Direct) > 0 || len(result.Matches) > 0,
+		"direct":              len(result.Direct) > 0,
+		"packageJsonSections": observedJSONSections(result.Direct),
+		"requestedRange":      observedJSONRequestedRange(result.Direct),
+		"matches":             result.Matches,
+		"chains":              result.Chains,
+		"notes":               result.Notes,
+		"lockfilePresent":     result.LockfilePresent,
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(report); err != nil {
+		fmt.Fprintf(os.Stderr, "TSPACK_OBSERVED_NPM_WHY_JSON_ENCODE_FAILED: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func observedJSONSections(matches []npmobserve.DirectMatch) []string {
+	sections := []string{}
+	for _, match := range matches {
+		sections = append(sections, match.Section)
+	}
+	return sections
+}
+
+func observedJSONRequestedRange(matches []npmobserve.DirectMatch) string {
+	if len(matches) == 0 {
+		return ""
+	}
+	return matches[0].Range
+}
+
+func printObservedNPMWhy(result npmobserve.ExplainResult) {
+	fmt.Println("source: " + npmobserve.SourceLabel)
+	fmt.Println()
+	for _, lockfile := range result.UnsupportedLockfiles {
+		fmt.Printf("note: %s is present; observed why currently supports npm package-lock only.\n", lockfile)
+	}
+	if len(result.UnsupportedLockfiles) > 0 {
+		fmt.Println()
+	}
+
+	if len(result.Direct) > 0 || len(result.Matches) > 0 {
+		if len(result.Direct) > 0 {
+			fmt.Printf("%s is present in the observed npm project.\n", result.Query)
+		} else {
+			fmt.Printf("%s is present in the observed npm lockfile.\n", result.Query)
+		}
+		fmt.Println()
+		printObservedSources(result)
+		printObservedVersions(result)
+		printObservedReasons(result)
+		printObservedChains(result)
+		printObservedAdoptionNote()
+		return
+	}
+
+	if result.LockfilePresent {
+		fmt.Printf("%s was not found in package.json or package-lock.json.\n", result.Query)
+		printObservedAdoptionNote()
+		return
+	}
+
+	fmt.Printf("%s was not found in package.json.\n", result.Query)
+	fmt.Println("No package-lock.json is available, so TSPack cannot explain transitive npm packages yet.")
+	fmt.Println("To create npm's lockfile, run:")
+	fmt.Println("tspack npm install")
+	printObservedAdoptionNote()
+}
+
+func printObservedSources(result npmobserve.ExplainResult) {
+	fmt.Println("Source:")
+	if len(result.Direct) > 0 {
+		for _, direct := range result.Direct {
+			fmt.Println(direct.Section)
+		}
+	}
+	if result.LockfilePresent {
+		fmt.Println("package-lock.json")
+	}
+	fmt.Println()
+}
+
+func printObservedVersions(result npmobserve.ExplainResult) {
+	if len(result.Matches) == 0 {
+		return
+	}
+	fmt.Println("Version:")
+	for _, match := range result.Matches {
+		if match.Version == "" {
+			fmt.Printf("%s at %s\n", match.Name, match.Location)
+		} else {
+			fmt.Printf("%s %s at %s\n", match.Name, match.Version, match.Location)
+		}
+	}
+	fmt.Println()
+}
+
+func printObservedReasons(result npmobserve.ExplainResult) {
+	if len(result.Direct) == 0 {
+		return
+	}
+	fmt.Println("Reason:")
+	for _, direct := range result.Direct {
+		section := strings.TrimPrefix(direct.Section, "package.json ")
+		fmt.Printf("root package declares %s in %s as %s\n", result.Query, section, direct.Range)
+	}
+	fmt.Println()
+}
+
+func printObservedChains(result npmobserve.ExplainResult) {
+	if len(result.Chains) == 0 {
+		return
+	}
+	fmt.Println("Chain:")
+	for chainIndex, chain := range result.Chains {
+		if chainIndex > 0 {
+			fmt.Println()
+		}
+		for nodeIndex, node := range chain.Nodes {
+			prefix := ""
+			if nodeIndex > 0 {
+				prefix = strings.Repeat("  ", nodeIndex-1) + "└─ "
+			}
+			if node.Version == "" {
+				fmt.Printf("%s%s\n", prefix, node.Name)
+			} else {
+				fmt.Printf("%s%s %s\n", prefix, node.Name, node.Version)
+			}
+		}
+	}
+	fmt.Println()
+}
+
+func printObservedAdoptionNote() {
+	fmt.Println("Adoption note:")
+	fmt.Println("This explanation is from observed npm metadata. It is not a TSPack manifest dependency classification yet.")
 }
 
 func buildWhyJSONReport(opts project.Options, whyOpts project.WhyOptions, result project.Result) WhyJSONReport {
