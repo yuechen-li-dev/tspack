@@ -22,6 +22,7 @@ export type ManifestIr = {
   workspace: { name: string; runtime: RuntimeProfile };
   security?: Record<string, unknown>;
   updatePolicy?: Record<string, unknown>;
+  compatFiles?: Array<Record<string, unknown>>;
   packages: Array<Record<string, unknown>>;
 };
 
@@ -32,8 +33,8 @@ type PackageRow = { name: string; root: string; manifest: string };
 type InternalDoc = { mode: DocMode; ir: ManifestIr; rows?: PackageRow[] };
 
 const ALLOWED_IMPORT = 'tspack/manifest';
-const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'defineDeps', 'npm', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service']);
-const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'Policies', 'Targets', 'RunTargets', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy']);
+const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'defineDeps', 'npm', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service', 'json']);
+const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'Policies', 'Targets', 'RunTargets', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy', 'CompatFiles', 'JsonFile']);
 
 export function parseManifestFile(filePath: string): ManifestParseResult {
   const parsed = parseManifestDocument(filePath, 'root');
@@ -243,6 +244,7 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
     if (name === 'workspace') return { kind: 'workspace', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'Env') return { name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'Service') return { kind: 'service', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
+    if (name === 'json') return args[0];
   }
   if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) return jsxEval(node, sf, diags, file, env);
   diags.push({ code: 'TSPACK_MANIFEST_FORBIDDEN_DYNAMIC_EXPRESSION', severity: 'error', message: `Unsupported expression: ${node.kind}`, file });
@@ -256,11 +258,13 @@ function jsxToRootDoc(root: unknown, diags: Diagnostic[], file: string): Interna
   const packagesNode = children.find((c: any) => c.__tag === 'Packages');
   const securityNode = children.find((c: any) => c.__tag === 'Security');
   const updatePolicyNode = children.find((c: any) => c.__tag === 'UpdatePolicy');
+  const compatFilesNode = children.find((c: any) => c.__tag === 'CompatFiles');
   const baseIr = {
     format: 1 as const,
     workspace: { name: r?.name ?? 'workspace', runtime: runtimeProfile(r?.runtime, diags, file) },
     ...(securityNode ? { security: mapSecurity(securityNode) } : {}),
     ...(updatePolicyNode ? { updatePolicy: mapUpdatePolicy(updatePolicyNode) } : {}),
+    ...(compatFilesNode ? { compatFiles: mapCompatFiles(compatFilesNode, diags, file) } : {}),
   };
   if (packagesNode && inlinePackages.length > 0) {
     return { mode: 'split', ir: { ...baseIr, packages: [] }, rows: [] };
@@ -288,6 +292,33 @@ function runtimeProfile(value: unknown, diags: Diagnostic[], file: string): Runt
     file,
   });
   return 'nodejs';
+}
+
+function mapCompatFiles(compatFiles: any, diags: Diagnostic[], file: string): Array<Record<string, unknown>> {
+  const rows = compatFiles.__children?.filter((child: any) => child.__tag === 'JsonFile') ?? [];
+  return rows.map((row: any) => {
+    if (typeof row.path !== 'string') {
+      diags.push({ code: 'TSPACK_COMPAT_PATH_INVALID', severity: 'error', message: 'JsonFile path is required', file });
+    }
+    if (!Object.prototype.hasOwnProperty.call(row, 'value')) {
+      diags.push({ code: 'TSPACK_COMPAT_VALUE_INVALID', severity: 'error', message: 'JsonFile value is required', file });
+    }
+    if (!isJSONCompatible(row.value)) {
+      diags.push({ code: 'TSPACK_COMPAT_VALUE_INVALID', severity: 'error', message: 'JsonFile value must be JSON-compatible', file });
+    }
+    return { path: row.path, format: 'json', value: row.value };
+  });
+}
+
+function isJSONCompatible(value: unknown): boolean {
+  if (value === null) return true;
+  if (typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every((item) => isJSONCompatible(item));
+  if (value && typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>).every((item) => isJSONCompatible(item));
+  }
+  return false;
 }
 
 function mapSecurity(security: any): Record<string, unknown> {

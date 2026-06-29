@@ -16,6 +16,7 @@ import (
 
 	"github.com/yuechen-li-dev/tspack/internal/capability"
 	"github.com/yuechen-li-dev/tspack/internal/check"
+	compatplan "github.com/yuechen-li-dev/tspack/internal/compat"
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/how"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
@@ -301,6 +302,10 @@ func main() {
 		runCommand(args)
 		return
 	}
+	if args[0] == "compat" {
+		runCompatCommand(args)
+		return
+	}
 	if args[0] == "adopt" {
 		runAdoptCommand(args)
 		return
@@ -360,6 +365,81 @@ func main() {
 	fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", args[0])
 	printDefaultHelp()
 	os.Exit(1)
+}
+
+func runCompatCommand(args []string) {
+	if len(args) < 2 {
+		fmt.Fprintln(os.Stderr, "usage: tspack compat list|diff|write [--root .]")
+		os.Exit(2)
+	}
+	subcommand := args[1]
+	root := "."
+	for i := 2; i < len(args); i++ {
+		switch args[i] {
+		case "--root":
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(os.Stderr, "--root requires a value")
+				os.Exit(2)
+			}
+			root = args[i]
+		default:
+			fmt.Fprintf(os.Stderr, "unknown compat flag: %s\n", args[i])
+			os.Exit(2)
+		}
+	}
+	if subcommand != "list" && subcommand != "diff" && subcommand != "write" {
+		fmt.Fprintf(os.Stderr, "unknown compat subcommand: %s\n", subcommand)
+		os.Exit(2)
+	}
+	root = resolveWorkspaceRoot(root)
+	ir := loadManifestPathForRun(root, filepath.Join(root, "manifest.tsx"))
+	statuses, err := compatplan.Plan(root, ir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "TSPACK_COMPAT_FAILED: %v\n", err)
+		os.Exit(1)
+	}
+	if len(statuses) == 0 {
+		fmt.Println("No compatibility files declared.")
+		return
+	}
+	hasDrift := false
+	for _, status := range statuses {
+		if status.State != compatplan.StateClean {
+			hasDrift = true
+		}
+	}
+	switch subcommand {
+	case "list":
+		for _, status := range statuses {
+			fmt.Printf("%s %s %s\n", status.State, status.Format, status.Path)
+		}
+	case "diff":
+		for _, status := range statuses {
+			fmt.Printf("%s %s\n", status.State, status.Path)
+			if status.State == compatplan.StateMissing {
+				fmt.Printf("--- %s (missing)\n+++ %s (desired)\n%s", status.Path, status.Path, string(status.Desired))
+			}
+			if status.State == compatplan.StateDrifted {
+				fmt.Printf("--- %s (existing sha256 %s)\n+++ %s (desired sha256 %s)\n", status.Path, status.ExistingHash, status.Path, status.DesiredHash)
+			}
+		}
+		if hasDrift {
+			os.Exit(1)
+		}
+	case "write":
+		if err := compatplan.Write(root, statuses); err != nil {
+			fmt.Fprintf(os.Stderr, "TSPACK_COMPAT_WRITE_FAILED: %v\n", err)
+			os.Exit(1)
+		}
+		for _, status := range statuses {
+			if status.State == compatplan.StateClean {
+				fmt.Printf("up-to-date %s\n", status.Path)
+			} else {
+				fmt.Printf("written %s\n", status.Path)
+			}
+		}
+	}
 }
 
 func printVersion() {

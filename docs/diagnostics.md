@@ -398,3 +398,10 @@ A `Security.acknowledgedLifecycleCategories` row includes a script that is not p
 - `TSPACK_RUN_READY_ENV_MISSING`: a RunTarget HTTP readiness URL references an env placeholder that is not present after host env, `--env`, and RunTarget defaults are resolved.
 - `TSPACK_RUN_READY_ENV_SECRET`: a RunTarget HTTP readiness URL references an env declared with `secret: true`; secrets are rejected because readiness URLs can appear in logs.
 - `TSPACK_MANIFEST_READY_INVALID`: a readiness URL placeholder is malformed or uses an unsupported env name. Only simple `${NAME}` placeholders are supported.
+
+## Compatibility file diagnostics
+
+- `TSPACK_COMPAT_PATH_INVALID`: a manifest-declared compatibility file path is missing or is not a safe project-relative JSON path. Paths must not be absolute, use `..`, contain backslashes, target `node_modules`/`.git`, or escape the project root.
+- `TSPACK_COMPAT_UNSUPPORTED_FILE`: the file is outside M63a scope, such as `package.json`, package-manager lockfiles, `manifest.tsx`, non-JSON files, or a non-JSON format.
+- `TSPACK_COMPAT_DUPLICATE_FILE`: more than one compatibility declaration owns the same path.
+- `TSPACK_COMPAT_VALUE_INVALID`: a JSON compatibility file declaration is missing `value` or contains a value that cannot be rendered as JSON.

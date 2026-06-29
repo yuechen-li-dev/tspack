@@ -9,6 +9,7 @@ const initManifestTypesDTS = "" +
 	"\n" +
 	"declare module 'tspack/manifest' {\n" +
 	"  export type Primitive = string | number | boolean | null;\n" +
+	"  export type JSONValue = Primitive | JSONValue[] | { [key: string]: JSONValue };\n" +
 	"\n" +
 	"  export type RuntimeProfile = 'nodejs' | 'bun' | 'deno';\n" +
 	"\n" +
@@ -251,6 +252,15 @@ const initManifestTypesDTS = "" +
 	"    rows: UpdatePolicyRow[];\n" +
 	"  };\n" +
 	"\n" +
+	"  export type CompatFilesProps = {\n" +
+	"    children?: ManifestNode;\n" +
+	"  };\n" +
+	"\n" +
+	"  export type JsonFileProps = {\n" +
+	"    path: string;\n" +
+	"    value: JSONValue;\n" +
+	"  };\n" +
+	"\n" +
 	"  export type ToolsProps = {\n" +
 	"    values: DependencyRefLike[];\n" +
 	"  };\n" +
@@ -299,6 +309,7 @@ const initManifestTypesDTS = "" +
 	"  export function tool(source: DependencySource, options?: DependencyOptions): ToolIntent;\n" +
 	"  export function Env(name: string, options?: Omit<RunTargetEnvRow, 'name'>): RunTargetEnvRow;\n" +
 	"  export function Service(name: string, options?: Omit<RunTargetServiceRequirementRow, 'name' | 'kind'>): RunTargetServiceRequirementRow;\n" +
+	"  export function json<T extends JSONValue>(value: T): T;\n" +
 	"\n" +
 	"  export const Workspace: ManifestComponent<WorkspaceProps>;\n" +
 	"  export const Packages: ManifestComponent<PackagesProps>;\n" +
@@ -311,6 +322,8 @@ const initManifestTypesDTS = "" +
 	"  export const Publish: ManifestComponent<PublishProps>;\n" +
 	"  export const Security: ManifestComponent<SecurityProps>;\n" +
 	"  export const UpdatePolicy: ManifestComponent<UpdatePolicyProps>;\n" +
+	"  export const CompatFiles: ManifestComponent<CompatFilesProps>;\n" +
+	"  export const JsonFile: ManifestComponent<JsonFileProps>;\n" +
 	"\n" +
 	"  export {};\n" +
 	"}\n" +
@@ -327,5 +340,4 @@ const initManifestTypesDTS = "" +
 	"  interface IntrinsicElements {\n" +
 	"    [elemName: string]: never;\n" +
 	"  }\n" +
-	"}\n" +
-	""
+	"}\n"
