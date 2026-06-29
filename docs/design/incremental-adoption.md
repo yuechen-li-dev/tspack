@@ -170,3 +170,40 @@ With a package lock, direct packages report the package.json section and request
 Without `package-lock.json`, `why` still explains direct package.json dependencies. Transitive explanations require npm's lockfile, so misses report that limitation and suggest running `tspack npm install` if the user wants npm to create the lockfile explicitly.
 
 Observed why currently supports npm package-lock only. If pnpm, Yarn, or Bun lockfiles are present, TSPack reports that limitation instead of attempting to parse those formats.
+
+## M62d observed npm lifecycle/security report
+
+M62d adds `tspack adopt --security` for package.json/package-lock projects. This
+is a read-only observed npm lifecycle visibility report, not a vulnerability
+scanner and not `npm audit`.
+
+The report reads:
+
+- root `package.json`;
+- npm `package-lock.json` v2/v3 `packages` entries when present;
+- installed `node_modules/**/package.json` metadata read-only when available
+  locally and needed because the lockfile does not expose script details.
+
+It reports:
+
+- root lifecycle scripts separately from dependency lifecycle scripts;
+- observed lifecycle phases such as `preinstall`, `install`, `postinstall`,
+  `prepare`, `prepack`, `postpack`, `prepublish`, and `prepublishOnly`;
+- direct versus transitive presence;
+- optional/dev/peer context when known;
+- why chains when they can be derived from observed lock metadata;
+- explicit metadata source labels such as `root-package-json`, `package-lock`,
+  and `installed-package-json`.
+
+This path does not run npm, execute lifecycle scripts, fetch registry metadata,
+generate lockfiles, mutate `package.json`, mutate npm lockfiles, or generate
+`ts-lock.toml`.
+
+Important limitation honesty:
+
+- if `package-lock.json` lacks dependency script metadata, the report says so;
+- if `node_modules` is absent, the report suggests running `tspack npm install`
+  and rerunning the report;
+- if installed package metadata is inspected, findings are clearly labeled as
+  observed installed package metadata rather than lockfile truth or TSPack
+  policy.

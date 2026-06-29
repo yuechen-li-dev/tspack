@@ -78,7 +78,7 @@ func printCommandsHelp() {
 	fmt.Println("TSPack commands")
 	fmt.Println()
 	fmt.Println("Project setup:")
-	fmt.Println("  init        Create a new project from a template")
+	fmt.Println("  init        Create a new project from a template or alongside an npm project")
 	fmt.Println("  migrate     Convert package.json/package-lock evidence into manifest suggestions")
 	fmt.Println("  adopt       Report on package.json-native projects without writing files")
 	fmt.Println("  npm         Delegate explicitly to the real npm CLI")
@@ -185,7 +185,7 @@ func printHelpTopic(topic string) bool {
 		printConceptsHelp()
 	case "all", "legacy", "flags":
 		printLegacyHelp()
-	case "init", "update", "sync", "check", "run", "npm", "why", "outdated", "pack", "doctor", "test", "inspect", "migrate", "format", "how":
+	case "init", "update", "sync", "check", "run", "npm", "why", "outdated", "pack", "doctor", "test", "inspect", "adopt", "migrate", "format", "how":
 		printCommandHelp(topic)
 	default:
 		return false
@@ -207,6 +207,7 @@ func printCommandHelp(command string) {
 		"doctor":   {"tspack doctor", "Diagnoses project, runtime, security, formatting, and inspect setup.", "Use when local tooling or environment behavior looks wrong.", "Examples:", "  tspack doctor", "  tspack doctor inspect", "  tspack doctor security --json", "Important flags:", "  --root <path>   Project root", "  --json          Emit JSON output", "Related:", "  check           Validate project state", "  how             Explain diagnostic codes"},
 		"test":     {"tspack test", "Runs xTest/Vitest-compatible project tests.", "Use for project tests declared in the TSPack test flow.", "Examples:", "  tspack test", "  tspack test --list", "  tspack test --filter login", "Important flags:", "  --root <path>          Project root", "  --list                 List tests", "  --filter <text>        Filter tests", "  --update-snapshots     Update snapshots", "Related:", "  check           Validate before testing", "  run             Run project targets"},
 		"inspect":  {"tspack inspect", "Inspects browser/app/runtime targets (experimental).", "Use to inspect a URL or a RunTarget-backed app with browser backends.", "Usage:", "  tspack inspect <url> [experimental] [--run target] [--browser backend]", "Examples:", "  tspack inspect https://example.test", "  tspack inspect --run dev --url http://localhost:5173", "Important flags:", "  --run <target>        Start a RunTarget before inspecting", "  --browser <backend>   Select browser backend", "  --selector <css>      Inspect a selector", "  --json                Emit JSON output", "Related:", "  run             Start targets", "  doctor inspect  Diagnose inspect setup"},
+		"adopt":    {"tspack adopt", "Observes existing npm project metadata without writing files.", "Use during incremental adoption to inspect package.json/package-lock project state before migration.", "Examples:", "  tspack adopt --report", "  tspack adopt --security", "  tspack adopt --security --json", "Important flags:", "  --root <path>   Project root", "  --report        Read-only package.json/native adoption summary", "  --security      Read-only observed npm lifecycle/security report", "  --json          Emit machine-readable output", "Behavior:", "  Reads package.json, package-lock.json, and installed package metadata when available.", "  Does not run npm, execute scripts, fetch registry metadata, or write files.", "Related:", "  npm             Delegate to the real npm CLI", "  migrate         Generate manifest suggestions", "  why             Inspect observed npm reasoning once migrated"},
 		"migrate":  {"tspack migrate", "Converts package.json/package-lock evidence into manifest suggestions.", "Use when adopting TSPack in an existing JavaScript or TypeScript project.", "Examples:", "  tspack migrate --check", "  tspack migrate --write", "Important flags:", "  --root <path>          Project root", "  --package-json <path>  package.json evidence", "  --package-lock <path>  package-lock evidence", "  --scan-source          Include source import evidence", "  --write                Write suggestions", "Related:", "  init            Start new projects", "  check           Validate migrated contracts"},
 		"format":   {"tspack format", "Runs formatter over project files.", "Use to apply or check the formatting policy used by tspack check --format.", "Examples:", "  tspack format", "  tspack format --check", "Important flags:", "  --root <path>   Project root", "  --check         Check without writing", "Related:", "  check --format  Include formatting in validation", "  doctor format   Diagnose formatter backend"},
 		"how":      {"tspack how", "Explains TSPack diagnostic codes.", "Use when check, doctor, update, or another command reports a TSPack_* code.", "Examples:", "  tspack how TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT", "  tspack how TSPACK_FORMAT_BACKEND_MISSING", "  tspack how --list", "Important flags:", "  --json          Emit JSON output", "Related:", "  check           Produces diagnostics", "  doctor          Produces environment diagnostics"},

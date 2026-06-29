@@ -1,0 +1,7 @@
+{
+  "name": "fixture-no-node-modules",
+  "version": "1.0.0",
+  "dependencies": {
+    "direct-hook": "1.0.0"
+  }
+}

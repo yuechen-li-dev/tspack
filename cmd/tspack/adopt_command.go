@@ -7,11 +7,13 @@ import (
 	"strings"
 
 	"github.com/yuechen-li-dev/tspack/internal/adoption"
+	"github.com/yuechen-li-dev/tspack/internal/npmobserve"
 )
 
 func runAdoptCommand(args []string) {
 	root := "."
 	reportRequested := false
+	securityRequested := false
 	jsonOutput := false
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
@@ -24,6 +26,8 @@ func runAdoptCommand(args []string) {
 			root = args[i]
 		case "--report":
 			reportRequested = true
+		case "--security":
+			securityRequested = true
 		case "--json":
 			jsonOutput = true
 		default:
@@ -31,9 +35,17 @@ func runAdoptCommand(args []string) {
 			os.Exit(1)
 		}
 	}
-	if !reportRequested {
-		fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_REPORT_REQUIRED: adopt currently supports read-only --report only")
+	if reportRequested && securityRequested {
+		fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_INVALID_ARGS: --report and --security cannot be combined")
 		os.Exit(1)
+	}
+	if !reportRequested && !securityRequested {
+		fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_INVALID_ARGS: adopt requires either --report or --security")
+		os.Exit(1)
+	}
+	if securityRequested {
+		runAdoptSecurity(root, jsonOutput)
+		return
 	}
 	obs, err := adoption.Observe(root)
 	if err != nil {
@@ -51,6 +63,24 @@ func runAdoptCommand(args []string) {
 		return
 	}
 	printAdoptionReport(report)
+}
+
+func runAdoptSecurity(root string, jsonOutput bool) {
+	report, err := npmobserve.Observe(npmobserve.Options{Root: root})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "TSPACK_ADOPT_SECURITY_FAILED: %v\n", err)
+		os.Exit(1)
+	}
+	if jsonOutput {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(report); err != nil {
+			fmt.Fprintf(os.Stderr, "TSPACK_ADOPT_SECURITY_JSON_ENCODE_FAILED: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	printAdoptSecurityReport(report)
 }
 
 func printAdoptionReport(report adoption.Report) {
@@ -100,4 +130,127 @@ func emptyAsDash(value string) string {
 		return "-"
 	}
 	return value
+}
+
+func printAdoptSecurityReport(report npmobserve.Report) {
+	fmt.Println("Observed npm lifecycle/security report")
+	fmt.Println()
+	fmt.Printf("Root: %s\n", report.RootDir)
+	fmt.Println("Mode: read-only observed npm metadata")
+	fmt.Println()
+
+	fmt.Println("Sources:")
+	fmt.Printf("  package.json: %s\n", report.PackageJSONPath)
+	if report.LockfilePresent {
+		fmt.Printf("  package-lock.json: %s\n", report.LockfilePath)
+	} else {
+		fmt.Println("  package-lock.json: not found")
+	}
+	if report.NodeModulesInspected {
+		fmt.Println("  installed package metadata: inspected read-only")
+	} else if report.NodeModulesPresent {
+		fmt.Println("  installed package metadata: available but not inspected")
+	} else {
+		fmt.Println("  installed package metadata: node_modules not present")
+	}
+	fmt.Println()
+
+	fmt.Println("Summary:")
+	fmt.Printf("  root lifecycle scripts: %d\n", len(report.RootScripts))
+	fmt.Printf("  dependency lifecycle scripts: %d\n", len(report.DependencyScripts))
+	fmt.Printf("  direct dependency hooks: %d\n", countObservedScriptsByPresence(report.DependencyScripts, npmobserve.PresenceDirect))
+	fmt.Printf("  transitive dependency hooks: %d\n", countObservedScriptsByPresence(report.DependencyScripts, npmobserve.PresenceTransitive))
+	if len(report.MetadataSources) > 0 {
+		fmt.Printf("  metadata sources: %s\n", strings.Join(report.MetadataSources, ", "))
+	}
+	fmt.Println()
+
+	if len(report.RootScripts) > 0 {
+		fmt.Println("Root package lifecycle scripts")
+		for _, script := range report.RootScripts {
+			fmt.Printf("%s\n", formatObservedScriptTitle(script))
+			fmt.Printf("  source: %s\n", script.Source)
+			fmt.Printf("  command: %s\n", script.Command)
+		}
+		fmt.Println()
+	}
+
+	if len(report.DependencyScripts) > 0 {
+		fmt.Println("Dependency lifecycle scripts")
+		for _, script := range report.DependencyScripts {
+			fmt.Printf("%s\n", formatObservedScriptTitle(script))
+			fmt.Printf("  location: %s\n", script.Location)
+			fmt.Printf("  presence: %s\n", formatObservedPresence(script))
+			fmt.Printf("  source: %s\n", script.Source)
+			fmt.Printf("  command: %s\n", script.Command)
+			if len(script.WhyChains) > 0 {
+				fmt.Println("  why:")
+				for _, chain := range script.WhyChains {
+					fmt.Printf("    %s\n", strings.Join(chain, " -> "))
+				}
+			}
+		}
+		fmt.Println()
+	}
+
+	if len(report.Limitations) > 0 {
+		fmt.Println("Limitations:")
+		for _, limitation := range report.Limitations {
+			fmt.Printf("  - %s\n", limitation)
+		}
+		fmt.Println()
+	}
+
+	if len(report.Notes) > 0 {
+		fmt.Println("Next steps:")
+		for _, note := range report.Notes {
+			fmt.Printf("  - %s\n", note)
+		}
+		fmt.Println()
+	}
+
+	fmt.Println("Adoption note:")
+	fmt.Println("  This report is based on observed npm metadata, not TSPack manifest security policy.")
+}
+
+func formatObservedScriptTitle(script npmobserve.LifecycleScript) string {
+	if script.Presence == npmobserve.PresenceRoot {
+		return fmt.Sprintf("%s [%s]", script.Phase, script.LifecycleCategory)
+	}
+	version := script.Version
+	if version == "" {
+		version = "unknown"
+	}
+	return fmt.Sprintf("%s@%s %s [%s]", script.PackageName, version, script.Phase, script.LifecycleCategory)
+}
+
+func formatObservedPresence(script npmobserve.LifecycleScript) string {
+	parts := []string{script.Presence}
+	if len(script.DependencySections) > 0 {
+		parts = append(parts, strings.Join(script.DependencySections, "+"))
+	}
+	flags := []string{}
+	if script.Optional {
+		flags = append(flags, "optional")
+	}
+	if script.Dev {
+		flags = append(flags, "dev")
+	}
+	if script.Peer {
+		flags = append(flags, "peer")
+	}
+	if len(flags) > 0 {
+		parts = append(parts, strings.Join(flags, ","))
+	}
+	return strings.Join(parts, " ")
+}
+
+func countObservedScriptsByPresence(scripts []npmobserve.LifecycleScript, presence string) int {
+	count := 0
+	for _, script := range scripts {
+		if script.Presence == presence {
+			count++
+		}
+	}
+	return count
 }

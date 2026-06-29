@@ -50,6 +50,7 @@ Capabilities are sorted/deduplicated deterministically and round-trip through lo
 
 - `tspack update` produces lockfile changes when capabilities change.
 - `tspack check` warns with `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT` when lockfile packages include lifecycle capabilities. Human check output summarizes multiple lifecycle-present warnings by default because execution is blocked by policy; use `tspack check --show-lifecycle` for every script and pull-chain detail. `tspack check --json` remains full-detail, and serious security diagnostics stay visible in default human output.
+- `tspack adopt --security` is a read-only observed npm metadata report for existing package.json/package-lock projects. It labels whether lifecycle script data came from `package.json`, `package-lock.json`, or installed package metadata and does not treat the result as manifest policy truth.
 - `tspack update` may fetch npm tarballs and populate the store, but it never executes package code or lifecycle scripts.
 - `tspack update --dry-run` may fetch registry metadata for version resolution but does not fetch/store tarballs or materialize `node_modules`.
 - `tspack sync` materializes files only and never executes scripts.
@@ -59,6 +60,27 @@ Capabilities are sorted/deduplicated deterministically and round-trip through lo
 - Lifecycle scripts are blocked by design (never executed).
 - No script allowlist execution exists in v1.
 - No capability approval execution flow exists in v1.
+
+## Observed npm lifecycle visibility
+
+`tspack adopt --security` exists for incremental adoption before a project has been migrated into a TSPack manifest. It surfaces observed npm lifecycle scripts so users can review hidden install-time behavior in an existing npm-style project.
+
+Important boundaries:
+
+- this is not a CVE scanner
+- this is not `npm audit`
+- this does not execute package code
+- this does not imply a package is malicious
+- this does not create TSPack policy decisions automatically
+
+The report focuses on lifecycle visibility and context:
+
+- root package lifecycle scripts are reported separately
+- dependency lifecycle scripts are labeled as direct or transitive
+- optional/dev/peer context is shown when known
+- why chains are shown when they can be derived from observed lock metadata
+
+When `package-lock.json` lacks script metadata, the report says so explicitly. If installed `node_modules` metadata is available, TSPack may inspect `package.json` files read-only and label those findings as `installed-package-json`.
 
 ## Non-goals for M14
 

@@ -62,6 +62,18 @@ Planned follow-up phases:
 
 M56a keeps help output human-readable and deterministic. Structured JSON help such as `tspack help commands --json` or `tspack help init --json` remains future work rather than a release blocker for v0.1.3.
 
+## Incremental adoption roadmap
+
+M62d adds `tspack adopt --security`, a read-only observed npm lifecycle/security report for package.json/package-lock projects. It is an adoption aid, not a manifest policy engine: the command labels whether findings came from root `package.json`, `package-lock.json`, or installed package metadata, reports direct/transitive context and why chains when available, and clearly states lockfile metadata limitations instead of guessing.
+
+Future incremental adoption follow-ups remain open:
+
+- richer observed graph pull-chain detail
+- package manifest annotations mapped from observed npm metadata
+- explicit TSPack policy mapping for adopted lifecycle findings
+- package.json projection preview flows
+- richer npm metadata inspection when lockfile metadata is incomplete
+
 ## Experimental Python module design
 
 M57a records an exploratory Python module/domain design in `docs/design/python-module-experiment.md`. The direction is one manifest frontend with multiple project/package backends: `manifest.tsx` remains the universal typed contract, while TypeScript/npm remains the product focus today and Python/PyPI stays experimental future work.
