@@ -38,3 +38,57 @@ JSON pointer ownership, or automatic writes.
 Future milestones may add typed helpers for common config files, structured merge
 or JSON path ownership, package.json projection previews, concept-authored config
 projections, and `init --alongside` consuming compat declarations.
+
+## M63b typed JSON helper presets
+
+M63b adds small typed helper presets to the manifest API for common JSON
+compatibility files:
+
+```tsx
+import { TsConfig, VSCode, defineWorkspace } from "tspack/manifest";
+
+export default defineWorkspace(
+  <Workspace name="my-project">
+    <CompatFiles>
+      <JsonFile path="tsconfig.tspack.json" value={TsConfig.manifestEditor()} />
+      <JsonFile
+        path=".vscode/settings.json"
+        value={VSCode.settings({
+          "typescript.tsdk": "node_modules/typescript/lib",
+          "editor.defaultFormatter": "biomejs.biome",
+        })}
+      />
+      <JsonFile
+        path=".vscode/extensions.json"
+        value={VSCode.extensions({
+          recommendations: ["biomejs.biome"],
+        })}
+      />
+    </CompatFiles>
+  </Workspace>
+);
+```
+
+These helpers are authoring ergonomics only. They return plain
+JSON-compatible values and lower through the same `<JsonFile>` manifest IR as
+raw JSON literals. There is no helper-specific Go IR field, renderer branch, or
+ownership mode.
+
+`TsConfig.manifestEditor()` returns the same manifest editor boundary shape used
+by generated templates: `jsx: "preserve"`, `moduleResolution: "Bundler"`, a
+local `tspack/manifest` path mapping, manifest and xTest include patterns, and
+app-source exclusions.
+
+`VSCode.settings(value?)` returns the provided full settings object when one is
+supplied. Without an argument it returns a minimal TypeScript SDK setting for
+project-local editor support.
+
+`VSCode.extensions(value?)` accepts the VS Code `recommendations` and
+`unwantedRecommendations` arrays. Without an argument it returns a small Biome
+recommendation because current generated templates already use Biome.
+
+Helpers do not read the filesystem, preserve existing disk files, merge with
+existing JSON, own JSON pointers, or imply partial ownership. A helper-authored
+file is still a full-file managed JSON compatibility file, and `tspack compat
+write` remains the only command that writes it. Raw `<JsonFile value={{ ... }} />`
+and `json(...)` declarations remain supported for uncommon files.

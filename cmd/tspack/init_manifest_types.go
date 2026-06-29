@@ -10,6 +10,20 @@ const initManifestTypesDTS = "" +
 	"declare module 'tspack/manifest' {\n" +
 	"  export type Primitive = string | number | boolean | null;\n" +
 	"  export type JSONValue = Primitive | JSONValue[] | { [key: string]: JSONValue };\n" +
+	"  export type JSONObject = { [key: string]: JSONValue };\n" +
+	"\n" +
+	"  export type TsConfigManifestEditor = {\n" +
+	"    compilerOptions: JSONObject;\n" +
+	"    include: string[];\n" +
+	"    exclude: string[];\n" +
+	"  };\n" +
+	"\n" +
+	"  export type VSCodeSettings = JSONObject;\n" +
+	"\n" +
+	"  export type VSCodeExtensions = {\n" +
+	"    recommendations?: string[];\n" +
+	"    unwantedRecommendations?: string[];\n" +
+	"  };\n" +
 	"\n" +
 	"  export type RuntimeProfile = 'nodejs' | 'bun' | 'deno';\n" +
 	"\n" +
@@ -310,6 +324,15 @@ const initManifestTypesDTS = "" +
 	"  export function Env(name: string, options?: Omit<RunTargetEnvRow, 'name'>): RunTargetEnvRow;\n" +
 	"  export function Service(name: string, options?: Omit<RunTargetServiceRequirementRow, 'name' | 'kind'>): RunTargetServiceRequirementRow;\n" +
 	"  export function json<T extends JSONValue>(value: T): T;\n" +
+	"\n" +
+	"  export const TsConfig: {\n" +
+	"    manifestEditor(): TsConfigManifestEditor;\n" +
+	"  };\n" +
+	"\n" +
+	"  export const VSCode: {\n" +
+	"    settings<T extends VSCodeSettings = VSCodeSettings>(value?: T): T;\n" +
+	"    extensions<T extends VSCodeExtensions = VSCodeExtensions>(value?: T): T;\n" +
+	"  };\n" +
 	"\n" +
 	"  export const Workspace: ManifestComponent<WorkspaceProps>;\n" +
 	"  export const Packages: ManifestComponent<PackagesProps>;\n" +

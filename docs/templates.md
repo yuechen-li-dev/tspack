@@ -115,6 +115,37 @@ Run targets are intentionally simple and Node-oriented: `build` runs Vite librar
 
 The editor boundary mirrors the other built-in templates: `tsconfig.tspack.json` covers TSPack-owned manifest files without requiring the React JSX runtime, while the library `tsconfig.json` uses `jsx: "react-jsx"` and excludes TSPack-owned files.
 
+## Manifest JSON compat helper presets
+
+Compatibility manifests can use typed JSON helper presets for common editor files instead of large raw JSON blobs:
+
+```tsx
+import { TsConfig, VSCode, defineWorkspace } from "tspack/manifest";
+
+export default defineWorkspace(
+  <Workspace name="my-project">
+    <CompatFiles>
+      <JsonFile path="tsconfig.tspack.json" value={TsConfig.manifestEditor()} />
+      <JsonFile
+        path=".vscode/settings.json"
+        value={VSCode.settings({
+          "typescript.tsdk": "node_modules/typescript/lib",
+          "editor.defaultFormatter": "biomejs.biome",
+        })}
+      />
+      <JsonFile
+        path=".vscode/extensions.json"
+        value={VSCode.extensions({
+          recommendations: ["biomejs.biome"],
+        })}
+      />
+    </CompatFiles>
+  </Workspace>
+);
+```
+
+The helpers return full JSON-compatible values for the existing compatibility-file pipeline. They do not add merge behavior, package.json projection, or automatic writes from `check`, `sync`, or `init`.
+
 ## Concept maturity and promotion
 
 TSPack distinguishes local concepts, fixture concepts, and built-in concepts. Local concepts are user/template-owned inert TOML fragments and carry no TSPack compatibility promise beyond local validation. Fixture concepts are local concepts checked into TSPack testdata to dogfood and regress behavior; they are not public built-ins. Built-in concepts are Go-embedded registry entries maintained by TSPack with stable names, stable semantics, documentation, and compatibility coverage.

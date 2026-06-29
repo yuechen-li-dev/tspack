@@ -35,6 +35,7 @@ type InternalDoc = { mode: DocMode; ir: ManifestIr; rows?: PackageRow[] };
 const ALLOWED_IMPORT = 'tspack/manifest';
 const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'defineDeps', 'npm', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service', 'json']);
 const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'Policies', 'Targets', 'RunTargets', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy', 'CompatFiles', 'JsonFile']);
+const APPROVED_PROPERTY_HELPERS = new Set(['TsConfig.manifestEditor', 'VSCode.settings', 'VSCode.extensions']);
 
 export function parseManifestFile(filePath: string): ManifestParseResult {
   const parsed = parseManifestDocument(filePath, 'root');
@@ -177,6 +178,7 @@ function parseManifestDocument(filePath: string, modeHint: ParseMode): { doc?: I
       const expr = node.expression;
       if (ts.isPropertyAccessExpression(expr) && ['map', 'filter', 'reduce'].includes(expr.name.text)) addDiag(node, 'TSPACK_MANIFEST_FORBIDDEN_DYNAMIC_EXPRESSION', 'Dynamic collection transforms are forbidden.');
       else if (ts.isIdentifier(expr) && !APPROVED_HELPERS.has(expr.text)) addDiag(node, 'TSPACK_MANIFEST_UNKNOWN_HELPER', `Unknown helper: ${expr.text}`);
+      else if (ts.isPropertyAccessExpression(expr) && !APPROVED_PROPERTY_HELPERS.has(expr.getText(sf))) addDiag(node, 'TSPACK_MANIFEST_UNKNOWN_HELPER', `Unknown helper: ${expr.getText(sf)}`);
     }
     if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
       const tag = node.tagName.getText(sf);
@@ -245,10 +247,57 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
     if (name === 'Env') return { name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'Service') return { kind: 'service', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'json') return args[0];
+    if (name === 'TsConfig.manifestEditor') return manifestEditorTsConfig();
+    if (name === 'VSCode.settings') return args.length > 0 ? args[0] : defaultVSCodeSettings();
+    if (name === 'VSCode.extensions') return args.length > 0 ? args[0] : defaultVSCodeExtensions();
   }
   if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) return jsxEval(node, sf, diags, file, env);
   diags.push({ code: 'TSPACK_MANIFEST_FORBIDDEN_DYNAMIC_EXPRESSION', severity: 'error', message: `Unsupported expression: ${node.kind}`, file });
   return undefined;
+}
+
+
+function manifestEditorTsConfig(): Record<string, unknown> {
+  return {
+    compilerOptions: {
+      target: 'ES2022',
+      module: 'ESNext',
+      moduleResolution: 'Bundler',
+      jsx: 'preserve',
+      strict: true,
+      noEmit: true,
+      baseUrl: '.',
+      paths: {
+        'tspack/manifest': ['.tspack/types/tspack-manifest.d.ts'],
+      },
+    },
+    include: [
+      'manifest.tsx',
+      'package.manifest.tsx',
+      '**/*.manifest.tsx',
+      '**/*.xtest.tsx',
+      '.tspack/types/**/*.d.ts',
+    ],
+    exclude: [
+      'src/**',
+      'dist/**',
+      'node_modules/**',
+      '.tspack/store/**',
+      'tspack-artifacts/**',
+    ],
+  };
+}
+
+function defaultVSCodeSettings(): Record<string, unknown> {
+  return {
+    'typescript.tsdk': 'node_modules/typescript/lib',
+  };
+}
+
+function defaultVSCodeExtensions(): Record<string, unknown> {
+  return {
+    recommendations: ['biomejs.biome'],
+  };
 }
 
 function jsxToRootDoc(root: unknown, diags: Diagnostic[], file: string): InternalDoc {

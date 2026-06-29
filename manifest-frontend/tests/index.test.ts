@@ -494,6 +494,49 @@ export default definePackage(
     const sorted = [...result.diagnostics].sort((a, b) => `${a.file}:${a.line ?? 0}:${a.column ?? 0}:${a.code}:${a.message}`.localeCompare(`${b.file}:${b.line ?? 0}:${b.column ?? 0}:${b.code}:${b.message}`));
     expect(result.diagnostics).toEqual(sorted);
   });
+  it('lowers typed JSON compat helper presets through compatFiles IR', () => {
+    withTemporaryManifest(
+      'tmp-compat-json-helpers-',
+      `import { TsConfig, VSCode, defineWorkspace } from "tspack/manifest";
+export default defineWorkspace(
+  <Workspace name="compat-json-helpers">
+    <CompatFiles>
+      <JsonFile path="tsconfig.tspack.json" value={TsConfig.manifestEditor()} />
+      <JsonFile path=".vscode/settings.json" value={VSCode.settings({ "typescript.tsdk": "node_modules/typescript/lib" })} />
+      <JsonFile path=".vscode/extensions.json" value={VSCode.extensions({ recommendations: ["biomejs.biome"] })} />
+    </CompatFiles>
+  </Workspace>
+);`,
+      (manifestPath) => {
+        const result = parseManifestFile(manifestPath);
+        expect(result.ok).toBe(true);
+        expect(result.ir?.compatFiles).toEqual([
+          {
+            format: 'json',
+            path: 'tsconfig.tspack.json',
+            value: expect.objectContaining({
+              compilerOptions: expect.objectContaining({
+                jsx: 'preserve',
+                moduleResolution: 'Bundler',
+              }),
+              include: expect.arrayContaining(['manifest.tsx']),
+            }),
+          },
+          {
+            format: 'json',
+            path: '.vscode/settings.json',
+            value: { 'typescript.tsdk': 'node_modules/typescript/lib' },
+          },
+          {
+            format: 'json',
+            path: '.vscode/extensions.json',
+            value: { recommendations: ['biomejs.biome'] },
+          },
+        ]);
+      },
+    );
+  });
+
 });
 
   it('parses UpdatePolicy in root manifests', () => {
