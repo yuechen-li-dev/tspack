@@ -21,9 +21,11 @@ func TestAdoptSecurityFixtureHuman(t *testing.T) {
 	text := string(out)
 	for _, expected := range []string{
 		"Observed npm lifecycle/security report",
+		"Lifecycle capability warnings",
 		"Root package lifecycle scripts",
-		"Dependency lifecycle scripts",
-		"direct-hook@1.0.0 postinstall",
+		"direct-hook@1.0.0",
+		"capability: install-time code execution",
+		"attention: notice — direct dependency install hook observed",
 		"root -> parent -> transitive-hook",
 		"package-lock.json did not expose dependency lifecycle script details.",
 		"Adoption note:",
@@ -53,6 +55,15 @@ func TestAdoptSecurityFixtureJSON(t *testing.T) {
 			PackageName string `json:"packageName"`
 			Source      string `json:"source"`
 		} `json:"lifecycleScripts"`
+		Summary struct {
+			LifecycleScripts int `json:"lifecycleScripts"`
+			InstallTimeHooks int `json:"installTimeHooks"`
+		} `json:"summary"`
+		CapabilityWarnings []struct {
+			PackageName  string   `json:"packageName"`
+			CapabilityID string   `json:"capabilityID"`
+			Tags         []string `json:"tags"`
+		} `json:"capabilityWarnings"`
 	}
 	if err := json.Unmarshal(out, &report); err != nil {
 		t.Fatalf("decode report json: %v\n%s", err, string(out))
@@ -62,6 +73,15 @@ func TestAdoptSecurityFixtureJSON(t *testing.T) {
 	}
 	if len(report.LifecycleScripts) != 2 {
 		t.Fatalf("expected two dependency lifecycle scripts, got %#v", report.LifecycleScripts)
+	}
+	if report.Summary.LifecycleScripts != 2 || report.Summary.InstallTimeHooks != 2 {
+		t.Fatalf("unexpected summary counts: %#v", report.Summary)
+	}
+	if len(report.CapabilityWarnings) != 2 {
+		t.Fatalf("expected two capability warnings, got %#v", report.CapabilityWarnings)
+	}
+	if report.CapabilityWarnings[0].CapabilityID == "" || !containsString(report.CapabilityWarnings[0].Tags, "install-time-code-execution") {
+		t.Fatalf("expected capability warning classification, got %#v", report.CapabilityWarnings)
 	}
 	for _, script := range report.LifecycleScripts {
 		if script.Source != "package-lock" {

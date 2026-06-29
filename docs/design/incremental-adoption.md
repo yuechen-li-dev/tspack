@@ -207,3 +207,13 @@ Important limitation honesty:
 - if installed package metadata is inspected, findings are clearly labeled as
   observed installed package metadata rather than lockfile truth or TSPack
   policy.
+
+## M62e observed lifecycle capability pull-chain warnings
+
+M62e extends `tspack adopt --security` from raw lifecycle-script visibility into calm capability explanation for observed npm projects. The command still reads only local metadata: root `package.json`, `package-lock.json` when present, and installed `node_modules/*/package.json` files when they already exist. It does not run npm, execute lifecycle scripts, fetch registry metadata, create `package-lock.json`, generate `ts-lock.toml`, or mutate package files.
+
+The report classifies observed lifecycle scripts into behavioral categories such as `install-time-code-execution`, `root-install-lifecycle`, and `publish-or-pack-lifecycle`. These categories are not CVEs, malware findings, or TSPack manifest policy decisions. They explain what npm may do in install, pack, or publish workflows so an adopter can review behavior before deciding how a future manifest security policy should model it.
+
+Capability warnings include direct, transitive, optional, dev, peer, root, source-metadata, and timing tags where the local metadata supports them. When package-lock graph data is sufficient, warnings include bounded why chains such as `root -> parent -> transitive-hook`; when that context is unavailable, the lifecycle script remains visible and the limitation is reported instead of guessed.
+
+Human output is grouped into a summary, dependency lifecycle capability warnings, root package lifecycle scripts, metadata limitations, and an adoption note. JSON output preserves the existing M62d lifecycle script fields and adds `summary`, `capabilityWarnings`, and `limitations` data for tools that want structured pull-chain review.
