@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -21,6 +22,7 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/how"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/npmbridge"
 	"github.com/yuechen-li-dev/tspack/internal/project"
 	"github.com/yuechen-li-dev/tspack/internal/testcmd"
 	"github.com/yuechen-li-dev/tspack/internal/version"
@@ -302,6 +304,10 @@ func main() {
 		runCommand(args)
 		return
 	}
+	if args[0] == "npm" {
+		runNpmCommand(args)
+		return
+	}
 	if args[0] == "compat" {
 		runCompatCommand(args)
 		return
@@ -365,6 +371,53 @@ func main() {
 	fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", args[0])
 	printDefaultHelp()
 	os.Exit(1)
+}
+
+func runNpmCommand(args []string) {
+	root := "."
+	npmArgs := []string{}
+
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--root" {
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(os.Stderr, "--root requires a value")
+				os.Exit(2)
+			}
+			root = args[i]
+			continue
+		}
+		npmArgs = append(npmArgs, arg)
+	}
+
+	if len(npmArgs) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: tspack npm <npm-args...>")
+		fmt.Fprintln(os.Stderr, "examples: install, ci, update, exec vite -- --version")
+		os.Exit(2)
+	}
+
+	root = resolveWorkspaceRoot(root)
+	result, err := npmbridge.Run(npmbridge.Options{
+		Cwd:    root,
+		Args:   npmArgs,
+		Stdin:  os.Stdin,
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	})
+	if err != nil {
+		var notFound npmbridge.NotFoundError
+		if errors.As(err, &notFound) {
+			fmt.Fprintf(os.Stderr, "TSPACK_NPM_NOT_FOUND: %v\n", notFound)
+			os.Exit(127)
+		}
+		fmt.Fprintf(os.Stderr, "TSPACK_NPM_FAILED: %v\n", err)
+		os.Exit(1)
+	}
+	if result.ExitCode != 0 {
+		os.Exit(result.ExitCode)
+	}
+	fmt.Fprintln(os.Stderr, "TSPack: npm completed. Run `tspack adopt --report` to inspect the package.json-native project state.")
 }
 
 func runCompatCommand(args []string) {
@@ -467,6 +520,7 @@ func printLegacyHelp() {
 	fmt.Println("  tspack bench [--root .] [--list] [--filter text] [--json]")
 	fmt.Println("  tspack doom [--root .] [--list] [--filter text] [--json] [--out path]")
 	fmt.Println("  tspack run [target] [--root .] [--manifest path] [--ready-timeout seconds] [--env KEY=VALUE] [--once] [--preflight-only]")
+	fmt.Println("  tspack npm <npm-args...> [--root .]")
 	fmt.Println("  tspack format [paths...] [--root .] [--check]")
 	fmt.Println("  tspack lint [paths...] [--root .] [--fix] [--unsafe]")
 	fmt.Println("  tspack inspect <url> [experimental] [--run target] [--env KEY=VALUE] [--url <url>] [--browser auto|vscode|playwright-chromium|chromium|browser-path|host-path|cdp] [--host-path path] [--browser-path path] [--cdp endpoint] [--list-targets] [--target index-or-id] [--target-url substring] [--viewport WxH] [--selector css] [--point x,y] [--json] [--out file] [--text file]")
