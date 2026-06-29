@@ -978,7 +978,7 @@ func TestTailwindLocalConceptCompanionDiagnostics(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		metadata = bytes.ReplaceAll(metadata, []byte("  \"vite.app\",\n"), nil)
+		metadata = replaceMetadataOnce(t, metadata, "  \"vite.app\",\n", "")
 		if err := os.WriteFile(metadataPath, metadata, 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -1003,7 +1003,7 @@ func TestTailwindLocalConceptCompanionDiagnostics(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		metadata = bytes.Replace(metadata, []byte(`kind = "app"`), []byte(`kind = "library"`), 1)
+		metadata = replaceMetadataOnce(t, metadata, `kind = "app"`, `kind = "library"`)
 		if err := os.WriteFile(metadataPath, metadata, 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -1091,7 +1091,7 @@ func TestTailwindMachinaLocalConceptCompanionDiagnostics(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		metadata = bytes.ReplaceAll(metadata, []byte("  \"vite.app\",\n"), nil)
+		metadata = replaceMetadataOnce(t, metadata, "  \"vite.app\",\n", "")
 		if err := os.WriteFile(metadataPath, metadata, 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -1158,7 +1158,7 @@ func TestTailwindMachinaLocalConceptCompanionDiagnostics(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		metadata = bytes.Replace(metadata, []byte(`kind = "app"`), []byte(`kind = "library"`), 1)
+		metadata = replaceMetadataOnce(t, metadata, `kind = "app"`, `kind = "library"`)
 		stackStart := bytes.Index(metadata, []byte("concepts = ["))
 		stackEnd := bytes.Index(metadata[stackStart:], []byte("]\n\n[generation]"))
 		if stackStart < 0 || stackEnd < 0 {
@@ -1247,7 +1247,7 @@ func TestMachinaLayoutLocalConceptCompanionDiagnostics(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		metadata = bytes.ReplaceAll(metadata, []byte("  \"vite.app\",\n"), nil)
+		metadata = replaceMetadataOnce(t, metadata, "  \"vite.app\",\n", "")
 		if err := os.WriteFile(metadataPath, metadata, 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -1272,7 +1272,7 @@ func TestMachinaLayoutLocalConceptCompanionDiagnostics(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		metadata = bytes.Replace(metadata, []byte(`kind = "app"`), []byte(`kind = "library"`), 1)
+		metadata = replaceMetadataOnce(t, metadata, `kind = "app"`, `kind = "library"`)
 		stackStart := bytes.Index(metadata, []byte("concepts = ["))
 		stackEnd := bytes.Index(metadata[stackStart:], []byte("]\n\n[generation]"))
 		if stackStart < 0 || stackEnd < 0 {
@@ -1299,6 +1299,16 @@ func TestMachinaLayoutLocalConceptCompanionDiagnostics(t *testing.T) {
 			t.Fatalf("expected library incompatibility diagnostic, got %v", err)
 		}
 	})
+}
+
+func replaceMetadataOnce(t *testing.T, metadata []byte, old string, new string) []byte {
+	t.Helper()
+	oldBytes := []byte(old)
+	count := bytes.Count(metadata, oldBytes)
+	if count != 1 {
+		t.Fatalf("expected metadata replacement %q exactly once, found %d:\n%s", old, count, string(metadata))
+	}
+	return bytes.Replace(metadata, oldBytes, []byte(new), 1)
 }
 
 func copyTemplateFixture(t *testing.T, source string) string {
