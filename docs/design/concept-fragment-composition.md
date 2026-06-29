@@ -14,6 +14,10 @@ M60b adds the first internal implementation slice for concept fragment compositi
 This is infrastructure only. Existing static, React app, and React library templates are not migrated to fragment-driven rendering in M60b, and no public custom concept format or CLI surface is added. The current template pipeline and generated output remain behavior-preserving while tests prove that the current static, React app, and React library concept compositions can resolve and merge into semantic IR.
 
 
+## M61d implementation note
+
+M61d adds the built-in concept promotion policy in `docs/design/concept-promotion-policy.md`. The policy defines local, fixture, candidate built-in, built-in, and deprecated built-in maturity levels; a promotion checklist; anti-patterns; validation expectations; and a promotion workflow. It preserves the M60/M61 explicit stack thesis: local concepts incubate integrations, fixture concepts prove behavior, and built-ins remain curated stable primitives rather than a junk drawer of starter kits.
+
 ## M61c implementation note
 
 M61c adds `internal/templates/testdata/local-concepts/tailwind-machina-react-app`, a composed local React/Vite/TypeScript fixture that uses both `my-company.tailwind` and `my-company.machina-layout` in one explicit concept stack. React, browser SPA, Vite, and TypeScript provide the app substrate; Tailwind and MachinaLayout then contribute additive dependency/tool/file intent; TSPack workspace, manifest-boundary, update-policy, and security-policy concepts remain at the bottom of the stack.

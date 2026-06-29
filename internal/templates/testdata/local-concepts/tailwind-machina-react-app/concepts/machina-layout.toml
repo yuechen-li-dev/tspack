@@ -1,3 +1,4 @@
+# Fixture local concept for TSPack regression coverage; not a public built-in concept.
 format = 1
 name = "my-company.machina-layout"
 description = "Local MachinaLayout additions for a React/Vite/TypeScript app"

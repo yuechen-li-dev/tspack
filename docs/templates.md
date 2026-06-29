@@ -115,6 +115,14 @@ Run targets are intentionally simple and Node-oriented: `build` runs Vite librar
 
 The editor boundary mirrors the other built-in templates: `tsconfig.tspack.json` covers TSPack-owned manifest files without requiring the React JSX runtime, while the library `tsconfig.json` uses `jsx: "react-jsx"` and excludes TSPack-owned files.
 
+## Concept maturity and promotion
+
+TSPack distinguishes local concepts, fixture concepts, and built-in concepts. Local concepts are user/template-owned inert TOML fragments and carry no TSPack compatibility promise beyond local validation. Fixture concepts are local concepts checked into TSPack testdata to dogfood and regress behavior; they are not public built-ins. Built-in concepts are Go-embedded registry entries maintained by TSPack with stable names, stable semantics, documentation, and compatibility coverage.
+
+The Tailwind, MachinaLayout, and composed Tailwind + MachinaLayout examples under `internal/templates/testdata/local-concepts/` are fixture concepts. They demonstrate local concept composition and generated-project validation, but they are not public built-in Tailwind or MachinaLayout concepts.
+
+Promotion from local or fixture concept to built-in behavior is governed by `docs/design/concept-promotion-policy.md`. In short, a promoted concept must have narrow scope, inert data-only behavior, explicit stack semantics, deterministic file ownership, supported manifest semantics, smoke and regression coverage, user documentation, and a maintainable compatibility story.
+
 ## Experimental local custom concept fragments
 
 Local templates may opt into experimental local concept fragments. They are inert TOML files declared by the template; they do not run scripts, execute commands, fetch remote content, install packages, or invoke other templates.
