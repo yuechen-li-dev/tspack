@@ -74,7 +74,7 @@ func TestInvalidCases(t *testing.T) {
 		{"invalid json", `{`, "TSPACK_IR_INVALID_JSON"},
 		{"format", `{"format":2,"workspace":{"name":"mono"},"packages":[]}`, "TSPACK_IR_UNSUPPORTED_FORMAT"},
 		{"missing workspace", `{"format":1,"workspace":{"name":""},"packages":[{"name":"p","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`, "TSPACK_IR_MISSING_WORKSPACE"},
-		{"no packages", `{"format":1,"workspace":{"name":"mono"},"packages":[]}`, "TSPACK_IR_NO_PACKAGES"},
+		{"no packages or compat files", `{"format":1,"workspace":{"name":"mono"},"packages":[]}`, "TSPACK_IR_NO_PACKAGES"},
 		{"bad package name", `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"bad name","version":"1.0.0","kind":"library","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`, "TSPACK_IR_INVALID_PACKAGE_NAME"},
 		{"bad version", `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"banana","kind":"library","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`, "TSPACK_IR_INVALID_PACKAGE_VERSION"},
 	}
@@ -92,6 +92,13 @@ func TestInvalidCases(t *testing.T) {
 				t.Fatalf("expected code %s got %#v", tc.code, diags)
 			}
 		})
+	}
+}
+
+func TestRootCompatOnlyManifestValidates(t *testing.T) {
+	_, diags := LoadBytes("x.json", []byte(`{"format":1,"workspace":{"name":"mono"},"compatFiles":[{"format":"json","path":"tsconfig.tspack.json","value":{}}],"packages":[]}`))
+	if len(diags) != 0 {
+		t.Fatalf("root compat-only manifest should validate: %#v", diags)
 	}
 }
 

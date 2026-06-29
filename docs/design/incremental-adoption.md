@@ -10,9 +10,11 @@ cliff.
 
 The incremental adoption property is: get value from the first manifest file,
 with everything else unchanged. M62a starts one step earlier by allowing TSPack
-to observe a package.json-native project before a manifest exists. M63c adds an
-explicit npm delegation bridge so package.json-native projects can keep using
-real npm behavior while adoption proceeds.
+to observe a package.json-native project before a manifest exists. M62b adds
+`tspack init --alongside`, which creates only a small root `manifest.tsx` beside
+an existing npm project. M63c adds an explicit npm delegation bridge so
+package.json-native projects can keep using real npm behavior while adoption
+proceeds.
 
 ## Package.json as compatibility substrate
 
@@ -74,14 +76,67 @@ M62a adds the foundation only:
   `examples/incremental-existing-react/`;
 - tests that assert reporting does not write `manifest.tsx` or `ts-lock.toml`.
 
+
+## M62b alongside init flow
+
+`tspack init --alongside` requires an existing `package.json`, observes it with
+the same package.json observation path used by `tspack adopt --report`, and
+writes a minimal root `manifest.tsx`. The command does not mutate
+`package.json`, does not touch npm lockfiles, does not run npm install, does not
+run TSPack update or sync, and does not generate `ts-lock.toml`.
+
+The generated manifest declares workspace identity from `package.json` `name`
+(or the directory basename when the name is absent) and managed editor
+compatibility files using helper presets:
+
+```tsx
+import {
+  CompatFiles,
+  JsonFile,
+  TsConfig,
+  VSCode,
+  Workspace,
+  defineWorkspace,
+} from "tspack/manifest";
+
+export default defineWorkspace(
+  <Workspace name="existing-project-name">
+    <CompatFiles>
+      <JsonFile
+        path="tsconfig.tspack.json"
+        value={TsConfig.manifestEditor()}
+      />
+      <JsonFile path=".vscode/settings.json" value={VSCode.settings()} />
+      <JsonFile path=".vscode/extensions.json" value={VSCode.extensions()} />
+    </CompatFiles>
+  </Workspace>,
+);
+```
+
+By default, `init --alongside` writes only `manifest.tsx`. The declared compat
+files are inspectable intent until the user explicitly runs:
+
+```bash
+tspack compat diff
+tspack compat write
+```
+
+`--dry-run` previews the manifest and writes nothing. `--force` replaces an
+existing root `manifest.tsx` but still leaves `package.json`, lockfiles,
+`ts-lock.toml`, and compat files untouched. After the manifest exists,
+`tspack adopt --report` transitions from `package-json-only` to `observe`: npm
+scripts remain npm scripts, dependencies remain observed package.json evidence,
+and package.json scripts are not TSPack RunTargets. Use `tspack npm run ...` for
+real npm script delegation; `tspack run ...` remains manifest-only.
+
 ## Non-goals
 
 M62a intentionally does not add:
 
 - package.json script fallback for `tspack run`;
 - package.json mutation;
-- manifest generation;
-- `init --alongside` writes;
+- package manifest inference;
+- package.json projection or migration;
 - projection writes;
 - package.json deletion;
 - implicit npm install execution from TSPack commands;
@@ -91,8 +146,7 @@ M62a intentionally does not add:
 
 Likely follow-up work includes:
 
-- `init --alongside` dry-run and then explicit writes;
-- `ts-lock.toml` generation from observed package.json evidence;
+- observed `ts-lock.toml` generation only if explicitly designed later;
 - security lifecycle warnings for observed package.json dependencies;
 - `why` and `explain` support for observed package graph evidence;
 - partial per-package `package.manifest.tsx` annotation;

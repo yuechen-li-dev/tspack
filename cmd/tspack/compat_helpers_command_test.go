@@ -58,12 +58,6 @@ func ensureManifestFrontendCLI(t *testing.T, repo string) {
 		t.Fatalf("build manifest frontend failed: %v\n%s", err, string(out))
 	}
 
-	distSrc := filepath.Join(repo, "manifest-frontend", "dist", "src")
-	if err := os.MkdirAll(distSrc, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	copyFile(t, filepath.Join(repo, "manifest-frontend", "dist", "cli.js"), filepath.Join(distSrc, "cli.js"))
-	copyFile(t, filepath.Join(repo, "manifest-frontend", "dist", "index.js"), filepath.Join(distSrc, "index.js"))
 }
 
 func runCompatHelperCommand(bin string, root string, subcommand string) (string, error) {

@@ -17,7 +17,7 @@ import (
 
 func writeManifestStub(t *testing.T, repo string) {
 	t.Helper()
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	cliPath := filepath.Join(frontend, "cli.js")
 	stub := `#!/usr/bin/env node
@@ -559,7 +559,7 @@ func doctorPathWithNodeOnly(t *testing.T) string {
 
 func writeManifestStubWithIR(t *testing.T, repo string, irJSON string) {
 	t.Helper()
-	frontend := filepath.Join(repo, "manifest-frontend", "dist", "src")
+	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	cliPath := filepath.Join(frontend, "cli.js")
 	stub := "#!/usr/bin/env node\nconst out={ok:true,ir:" + irJSON + ",diagnostics:[]};process.stdout.write(JSON.stringify(out));"
