@@ -22,6 +22,13 @@ type ManifestIR struct {
 	Security     Security     `json:"security,omitempty"`
 	UpdatePolicy UpdatePolicy `json:"updatePolicy,omitempty"`
 	Packages     []Package    `json:"packages"`
+	CompatFiles  []CompatFile `json:"compatFiles,omitempty"`
+}
+
+type CompatFile struct {
+	Path   string          `json:"path"`
+	Format string          `json:"format"`
+	Value  json.RawMessage `json:"value"`
 }
 
 type Workspace struct {
@@ -297,6 +304,58 @@ func isValidBehaviorReportPath(filePath string) bool {
 	return strings.HasSuffix(filePath, ".json")
 }
 
+func validateCompatFile(add func(string, string, ...string), prefix string, compatFile CompatFile) {
+	if strings.TrimSpace(compatFile.Path) == "" {
+		add("TSPACK_COMPAT_PATH_INVALID", prefix+".path is required")
+		return
+	}
+	if compatFile.Format != "json" {
+		add("TSPACK_COMPAT_UNSUPPORTED_FILE", prefix+".format must be json")
+	}
+	if !isValidCompatPath(compatFile.Path) {
+		add("TSPACK_COMPAT_PATH_INVALID", prefix+".path must be a safe project-relative JSON path")
+	}
+	if isUnsupportedCompatPath(compatFile.Path) {
+		add("TSPACK_COMPAT_UNSUPPORTED_FILE", prefix+".path is not supported by M63a compat file management")
+	}
+	if len(compatFile.Value) == 0 || string(compatFile.Value) == "null" {
+		add("TSPACK_COMPAT_VALUE_INVALID", prefix+".value is required")
+		return
+	}
+	var decoded any
+	if err := json.Unmarshal(compatFile.Value, &decoded); err != nil {
+		add("TSPACK_COMPAT_VALUE_INVALID", prefix+".value must be valid JSON", err.Error())
+	}
+}
+
+func isValidCompatPath(value string) bool {
+	if strings.Contains(value, `\`) || strings.Contains(value, "://") || strings.Contains(value, ":") {
+		return false
+	}
+	if strings.HasPrefix(value, "/") || strings.HasPrefix(value, "./") || value == "." {
+		return false
+	}
+	if strings.Contains(value, "//") || strings.Contains(value, "/../") || strings.HasPrefix(value, "../") || strings.HasSuffix(value, "/..") {
+		return false
+	}
+	if strings.Contains(value, "/./") || strings.HasSuffix(value, "/") || strings.Contains(value, "//") {
+		return false
+	}
+	if strings.HasPrefix(value, "node_modules/") || strings.HasPrefix(value, ".git/") {
+		return false
+	}
+	return strings.HasSuffix(value, ".json")
+}
+
+func isUnsupportedCompatPath(value string) bool {
+	switch value {
+	case "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lock" + "b", "manifest.tsx":
+		return true
+	default:
+		return false
+	}
+}
+
 func isNormalizedSafeProjectPath(filePath string) bool {
 	if !pathutil.IsSafePackageFilePath(filePath) {
 		return false
@@ -331,6 +390,18 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 	}
 	if len(ir.Packages) == 0 {
 		add("TSPACK_IR_NO_PACKAGES", "at least one package is required")
+	}
+
+	seenCompatPaths := map[string]struct{}{}
+	for index, compatFile := range ir.CompatFiles {
+		prefix := fmt.Sprintf("compatFiles[%d]", index)
+		validateCompatFile(add, prefix, compatFile)
+		if compatFile.Path != "" {
+			if _, ok := seenCompatPaths[compatFile.Path]; ok {
+				add("TSPACK_COMPAT_DUPLICATE_FILE", "duplicate compat file path: "+compatFile.Path)
+			}
+			seenCompatPaths[compatFile.Path] = struct{}{}
+		}
 	}
 
 	seenAcknowledgedCapabilities := map[string]struct{}{}

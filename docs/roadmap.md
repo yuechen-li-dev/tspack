@@ -137,3 +137,7 @@ package.json-native Vite/React/TypeScript dogfood project with no checked-in
 TSPack manifest. M62a deliberately does not add package.json script fallback,
 package.json mutation, manifest generation, projection writes, package.json
 deletion, or update/sync behavior changes.
+
+## M63 compatibility-file management
+
+M63a adds manifest-declared JSON compatibility files with full-file ownership and explicit `tspack compat list`, `tspack compat diff`, and `tspack compat write` commands. This is the compatibility-management foundation needed before continuing M62 alongside-init work. M62 continuation is deferred until the M63 metadata and compatibility-file ownership model exists.

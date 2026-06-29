@@ -46,5 +46,8 @@ describe('manifest API type surface', () => {
     expect(result.output).toContain("missing the following properties from type 'PackageProps': name, version");
     expect(result.output).toContain("missing the following properties from type 'TargetRow': entry, runtime");
     expect(result.output).toContain("Type 'number' is not assignable to type 'string'");
+    expect(result.output).toContain("Property 'path' is missing");
+    expect(result.output).toContain("Property 'value' is missing");
+    expect(result.output).toContain("Type '() => string' is not assignable to type 'JSONValue'");
   });
 });

@@ -6,6 +6,7 @@
 
 declare module 'tspack/manifest' {
   export type Primitive = string | number | boolean | null;
+  export type JSONValue = Primitive | JSONValue[] | { [key: string]: JSONValue };
 
   export type RuntimeProfile = 'nodejs' | 'bun' | 'deno';
 
@@ -248,6 +249,15 @@ declare module 'tspack/manifest' {
     rows: UpdatePolicyRow[];
   };
 
+  export type CompatFilesProps = {
+    children?: ManifestNode;
+  };
+
+  export type JsonFileProps = {
+    path: string;
+    value: JSONValue;
+  };
+
   export type ToolsProps = {
     values: DependencyRefLike[];
   };
@@ -296,6 +306,7 @@ declare module 'tspack/manifest' {
   export function tool(source: DependencySource, options?: DependencyOptions): ToolIntent;
   export function Env(name: string, options?: Omit<RunTargetEnvRow, 'name'>): RunTargetEnvRow;
   export function Service(name: string, options?: Omit<RunTargetServiceRequirementRow, 'name' | 'kind'>): RunTargetServiceRequirementRow;
+  export function json<T extends JSONValue>(value: T): T;
 
   export const Workspace: ManifestComponent<WorkspaceProps>;
   export const Packages: ManifestComponent<PackagesProps>;
@@ -308,6 +319,8 @@ declare module 'tspack/manifest' {
   export const Publish: ManifestComponent<PublishProps>;
   export const Security: ManifestComponent<SecurityProps>;
   export const UpdatePolicy: ManifestComponent<UpdatePolicyProps>;
+  export const CompatFiles: ManifestComponent<CompatFilesProps>;
+  export const JsonFile: ManifestComponent<JsonFileProps>;
 
   export {};
 }
