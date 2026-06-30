@@ -217,3 +217,11 @@ The report classifies observed lifecycle scripts into behavioral categories such
 Capability warnings include direct, transitive, optional, dev, peer, root, source-metadata, and timing tags where the local metadata supports them. When package-lock graph data is sufficient, warnings include bounded why chains such as `root -> parent -> transitive-hook`; when that context is unavailable, the lifecycle script remains visible and the limitation is reported instead of guessed.
 
 Human output is grouped into a summary, dependency lifecycle capability warnings, root package lifecycle scripts, metadata limitations, and an adoption note. JSON output preserves the existing M62d lifecycle script fields and adds `summary`, `capabilityWarnings`, and `limitations` data for tools that want structured pull-chain review.
+
+## M62g package annotation suggestions
+
+M62g adds `tspack adopt --suggest-package <package-root>` as a dry-run helper for creating an initial `package.manifest.tsx` annotation. The command reads the selected package's `package.json` and prints a reviewable `annotatePackage(<PackageAnnotations />)` manifest to stdout. It does not write `package.manifest.tsx`, mutate `package.json`, generate `ts-lock.toml`, install packages, infer targets, or project npm metadata.
+
+The suggestion uses package.json sections as the source of truth: `dependencies` and `optionalDependencies` become `dep(...)`, `peerDependencies` become `peer(...)`, and `devDependencies` become `tool(...)`. Conservative TypeScript ecosystem heuristics classify obvious tooling such as `typescript`, `@types/*`, Vite, Vitest, Playwright, ESLint, Prettier, Biome, Rollup, esbuild, tsup, webpack, Babel, and SWC packages as `tool(...)`. React is not silently moved from `dependencies` to `peer(...)`; for library-shaped packages the output includes a note asking the user to review whether `peer(...)` would be more appropriate.
+
+If `package.manifest.tsx` already exists, the command reports that fact on stderr and still prints the suggestion to stdout without overwriting anything. To test a suggestion, save stdout as the package's `package.manifest.tsx` and rerun `tspack adopt --report`.

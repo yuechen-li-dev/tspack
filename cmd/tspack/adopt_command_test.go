@@ -131,3 +131,43 @@ func assertNoGeneratedAdoptionFiles(t *testing.T, root string) {
 		}
 	}
 }
+
+func TestAdoptSuggestPackageCommandPrintsAndWritesNothing(t *testing.T) {
+	repo := repoRoot(t)
+	bin := buildTspackBinary(t, repo)
+	root := t.TempDir()
+	pkgRoot := filepath.Join(root, "packages", "ui")
+	if err := os.MkdirAll(pkgRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	packageJSON := `{"dependencies":{"clsx":"^2.1.1","react":"^19.0.0"},"devDependencies":{"typescript":"^5.9.0"},"peerDependencies":{"react-dom":"^19.0.0"}}`
+	packageJSONPath := filepath.Join(pkgRoot, "package.json")
+	if err := os.WriteFile(packageJSONPath, []byte(packageJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(bin, "adopt", "--suggest-package", "packages/ui", "--root", root)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("adopt suggest failed: %v\n%s", err, string(out))
+	}
+	text := string(out)
+	for _, expected := range []string{"annotatePackage(", "clsx: dep(", "react: dep(", "reactDom: peer(", "typescript: tool("} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("suggest output missing %q:\n%s", expected, text)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(pkgRoot, "package.manifest.tsx")); !os.IsNotExist(err) {
+		t.Fatalf("suggest command wrote package.manifest.tsx or stat failed: %v", err)
+	}
+	afterPackageJSON, err := os.ReadFile(packageJSONPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(afterPackageJSON) != packageJSON {
+		t.Fatalf("suggest command mutated package.json:\n%s", string(afterPackageJSON))
+	}
+	if _, err := os.Stat(filepath.Join(root, "ts-lock.toml")); !os.IsNotExist(err) {
+		t.Fatalf("suggest command wrote ts-lock.toml or stat failed: %v", err)
+	}
+}

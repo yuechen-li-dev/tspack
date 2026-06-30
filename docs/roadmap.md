@@ -68,8 +68,14 @@ M62d adds `tspack adopt --security`, a read-only observed npm lifecycle/security
 
 M62e adds observed lifecycle capability pull-chain warnings. The same command now classifies install-time, root install, and pack/publish lifecycle behavior, explains direct/transitive/optional/dev context without claiming maliciousness, and exposes structured JSON `capabilityWarnings` for adoption tooling.
 
+M62g adds dry-run package annotation suggestions with `tspack adopt --suggest-package <package-root>`. The command prints advisory `package.manifest.tsx` annotation source, keeps package.json authoritative, and writes nothing by default.
+
 Future incremental adoption follow-ups remain open:
 
+- explicit package annotation `--write` flag if desired
+- package annotation diff/check and govern mode
+- target and run target suggestions
+- package.json projection preview
 - TSPack manifest security policy mapping for adopted lifecycle findings
 - capability pull-chain recording in `ts-lock.toml`
 - package manifest annotation for observed lifecycle capabilities
