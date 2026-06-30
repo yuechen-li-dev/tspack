@@ -171,3 +171,123 @@ func TestAdoptSuggestPackageCommandPrintsAndWritesNothing(t *testing.T) {
 		t.Fatalf("suggest command wrote ts-lock.toml or stat failed: %v", err)
 	}
 }
+
+func TestAdoptCheckAnnotationsReportsClassificationMismatch(t *testing.T) {
+	repo := repoRoot(t)
+	bin := buildTspackBinary(t, repo)
+	root := copyExampleProject(t, repo, "incremental-existing-monorepo")
+
+	cmd := exec.Command(bin, "adopt", "--check-annotations", "--root", root)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("adopt check annotations should fail on warning drift:\n%s", string(out))
+	}
+	text := string(out)
+	for _, expected := range []string{"Package annotation consistency check", "classification-mismatch", "react", "Annotation drift found"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("check output missing %q:\n%s", expected, text)
+		}
+	}
+	assertNoGeneratedAdoptionFiles(t, root)
+	if _, err := os.Stat(filepath.Join(root, "packages", "ui", "package.manifest.tsx")); err != nil {
+		t.Fatalf("checked annotation manifest missing after read-only check: %v", err)
+	}
+}
+
+func TestAdoptCheckAnnotationsJSONReportsRangeMismatch(t *testing.T) {
+	repo := repoRoot(t)
+	bin := buildTspackBinary(t, repo)
+	root := copyExampleProject(t, repo, "incremental-existing-monorepo")
+	packageJSONPath := filepath.Join(root, "packages", "ui", "package.json")
+	data, err := os.ReadFile(packageJSONPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutated := strings.Replace(string(data), `"clsx": "^2.1.1"`, `"clsx": "^2.2.0"`, 1)
+	if err := os.WriteFile(packageJSONPath, []byte(mutated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(bin, "adopt", "--check-annotations", "--json", "--root", root)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("adopt check annotations json should fail on warning drift:\n%s", string(out))
+	}
+	var report struct {
+		Summary struct {
+			Warnings int `json:"warnings"`
+		} `json:"summary"`
+		Findings []struct {
+			Code           string `json:"code"`
+			DependencyName string `json:"dependencyName"`
+		} `json:"findings"`
+	}
+	if err := json.Unmarshal(out, &report); err != nil {
+		t.Fatalf("decode check json: %v\n%s", err, string(out))
+	}
+	if report.Summary.Warnings == 0 || !jsonFindingExists(report.Findings, "range-mismatch", "clsx") {
+		t.Fatalf("range mismatch was not reported: %#v", report)
+	}
+}
+
+func TestAdoptCheckAnnotationsNoAnnotationsAndNoticeOnlyExitZero(t *testing.T) {
+	repo := repoRoot(t)
+	bin := buildTspackBinary(t, repo)
+	noAnnotationRoot := copyDogfoodProject(t, repo)
+	cmd := exec.Command(bin, "adopt", "--check-annotations", "--root", noAnnotationRoot)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("no annotations should exit zero: %v\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "No package annotation manifests found") {
+		t.Fatalf("no annotation message missing:\n%s", string(out))
+	}
+
+	noticeRoot := t.TempDir()
+	pkgRoot := filepath.Join(noticeRoot, "packages", "ui")
+	if err := os.MkdirAll(pkgRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(noticeRoot, "package.json"), []byte(`{"workspaces":["packages/*"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pkgJSON := `{"name":"@acme/ui","dependencies":{"clsx":"^2.1.1","lodash":"^4.17.21"}}`
+	if err := os.WriteFile(filepath.Join(pkgRoot, "package.json"), []byte(pkgJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `import { PackageAnnotations, annotatePackage, defineDeps, dep, npm } from "tspack/manifest";
+const deps = defineDeps({ clsx: dep(npm("clsx", "^2.1.1")) });
+export default annotatePackage(<PackageAnnotations name="@acme/ui" dependencies={{ values: [deps.clsx] }} />);
+`
+	if err := os.WriteFile(filepath.Join(pkgRoot, "package.manifest.tsx"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd = exec.Command(bin, "adopt", "--check-annotations", "--root", noticeRoot)
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("notice-only check should exit zero: %v\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "unannotated-package-json-dependency") || !strings.Contains(string(out), "Package annotations are consistent") {
+		t.Fatalf("notice-only output missing expected content:\n%s", string(out))
+	}
+}
+
+func copyExampleProject(t *testing.T, repo string, name string) string {
+	t.Helper()
+	src := filepath.Join(repo, "examples", name)
+	dst := filepath.Join(t.TempDir(), name)
+	copyPath(t, src, dst)
+	return dst
+}
+
+func jsonFindingExists(findings []struct {
+	Code           string `json:"code"`
+	DependencyName string `json:"dependencyName"`
+}, code string, dependencyName string) bool {
+	for _, finding := range findings {
+		if finding.Code == code && finding.DependencyName == dependencyName {
+			return true
+		}
+	}
+	return false
+}

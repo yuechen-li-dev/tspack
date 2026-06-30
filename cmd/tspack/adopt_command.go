@@ -14,6 +14,7 @@ func runAdoptCommand(args []string) {
 	root := "."
 	reportRequested := false
 	securityRequested := false
+	checkAnnotationsRequested := false
 	suggestPackage := ""
 	jsonOutput := false
 	for i := 1; i < len(args); i++ {
@@ -29,6 +30,8 @@ func runAdoptCommand(args []string) {
 			reportRequested = true
 		case "--security":
 			securityRequested = true
+		case "--check-annotations":
+			checkAnnotationsRequested = true
 		case "--suggest-package":
 			i++
 			if i >= len(args) {
@@ -50,19 +53,26 @@ func runAdoptCommand(args []string) {
 	if securityRequested {
 		requestedCount++
 	}
+	if checkAnnotationsRequested {
+		requestedCount++
+	}
 	if suggestPackage != "" {
 		requestedCount++
 	}
 	if requestedCount > 1 {
-		fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_INVALID_ARGS: --report, --security, and --suggest-package cannot be combined")
+		fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_INVALID_ARGS: --report, --security, --check-annotations, and --suggest-package cannot be combined")
 		os.Exit(1)
 	}
 	if requestedCount == 0 {
-		fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_INVALID_ARGS: adopt requires --report, --security, or --suggest-package")
+		fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_INVALID_ARGS: adopt requires --report, --security, --check-annotations, or --suggest-package")
 		os.Exit(1)
 	}
 	if securityRequested {
 		runAdoptSecurity(root, jsonOutput)
+		return
+	}
+	if checkAnnotationsRequested {
+		runAdoptCheckAnnotations(root, jsonOutput)
 		return
 	}
 	if suggestPackage != "" {
@@ -90,6 +100,84 @@ func runAdoptCommand(args []string) {
 		return
 	}
 	printAdoptionReport(report)
+}
+
+func runAdoptCheckAnnotations(root string, jsonOutput bool) {
+	report, err := adoption.CheckPackageAnnotations(root, manifestFrontendCLIPath())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
+	if jsonOutput {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(report); err != nil {
+			fmt.Fprintf(os.Stderr, "TSPACK_ADOPT_ANNOTATION_CHECK_JSON_ENCODE_FAILED: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		printAnnotationCheckReport(report)
+	}
+	if report.HasErrors || report.HasWarnings {
+		os.Exit(1)
+	}
+}
+
+func printAnnotationCheckReport(report adoption.AnnotationCheckReport) {
+	if report.AnnotationManifests == 0 {
+		fmt.Println("No package annotation manifests found.")
+		fmt.Println("To create one:")
+		fmt.Println("tspack adopt --suggest-package <package-root>")
+		return
+	}
+	fmt.Println("Package annotation consistency check")
+	fmt.Println()
+	fmt.Printf("packages checked: %d\n", report.PackagesChecked)
+	fmt.Printf("annotation manifests: %d\n", report.AnnotationManifests)
+	fmt.Printf("errors: %d\n", report.Summary.Errors)
+	fmt.Printf("warnings: %d\n", report.Summary.Warnings)
+	fmt.Printf("notices: %d\n", report.Summary.Notices)
+	fmt.Println()
+	for _, checkedPackage := range report.Packages {
+		fmt.Printf("%s (%s)\n", checkedPackage.PackageRoot, emptyAsDash(checkedPackage.PackageName))
+		fmt.Printf("manifest: %s\n", checkedPackage.AnnotationManifestPath)
+		fmt.Printf("package.json: %s\n", checkedPackage.PackageJSONPath)
+		printAnnotationFindingsBySeverity(checkedPackage.Findings, "error", "errors")
+		printAnnotationFindingsBySeverity(checkedPackage.Findings, "warning", "warnings")
+		printAnnotationFindingsBySeverity(checkedPackage.Findings, "notice", "notices")
+		fmt.Println()
+	}
+	if report.HasErrors || report.HasWarnings {
+		fmt.Println("Result:")
+		fmt.Println("Annotation drift found. Review package.manifest.tsx or package.json.")
+		return
+	}
+	fmt.Println("Result:")
+	fmt.Println("Package annotations are consistent with package.json.")
+}
+
+func printAnnotationFindingsBySeverity(findings []adoption.AnnotationCheckFinding, severity string, heading string) {
+	printedHeading := false
+	for _, finding := range findings {
+		if finding.Severity != severity {
+			continue
+		}
+		if !printedHeading {
+			fmt.Printf("%s:\n", heading)
+			printedHeading = true
+		}
+		if finding.DependencyName == "" {
+			fmt.Printf("  %s: %s\n", finding.Code, finding.Message)
+		} else {
+			fmt.Printf("  %s: %s: %s\n", finding.Code, finding.DependencyName, finding.Message)
+		}
+		if finding.PackageJSONRange != "" {
+			fmt.Printf("    package.json range: %s\n", finding.PackageJSONRange)
+		}
+		if finding.AnnotationRange != "" {
+			fmt.Printf("    annotation range: %s\n", finding.AnnotationRange)
+		}
+	}
 }
 
 func runAdoptSuggestPackage(root string, packageRoot string) {
