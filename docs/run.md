@@ -4,6 +4,8 @@
 
 RunTargets are manifest-declared runtime targets. `tspack run` is intentionally not `npm run` and does not fall back to `package.json` scripts.
 
+TSPack does not manage Node.js runtime versions. Node-backed RunTargets expect a working Node on `PATH`; if you want a runtime manager, `mise` is the recommended option: https://mise.jdx.dev/
+
 RunTarget lifecycle semantics are explicit:
 - targets with `ready` are server targets
 - targets without `ready` are finite commands
@@ -170,6 +172,7 @@ The `dev-node` target resolves to `node (explicit)`, so Bun does not override it
 ### RunTarget runtime values
 
 - `node` / `nodejs`: uses Node.js as the runtime identity for local tool execution. After `tspack sync`, TSPack prepends the project materialized tool bin at `node_modules/.bin` before host `PATH` and resolves the first command token from that project bin when it is a bare command name. On Windows this includes `.cmd` shims such as `vite.cmd` and `tsc.cmd`. It does **not** prepend `node` to path-containing script files. For JavaScript files, use `command: ["node", "packages/demo/server.js"]` or make the file executable with a shebang.
+- If Node.js is missing, `tspack run` fails with `TSPACK_NODE_NOT_FOUND` and explains that TSPack does not manage JavaScript runtime versions. The diagnostic recommends activating an existing Node.js runtime or using `mise`.
 - `bun`: invokes `bun` with the declared argv payload. For example, `command: ["server.js"]` runs as `bun server.js`. TSPack does not run `bun run`, read package scripts, use npm, or use npx as a fallback.
 - `deno`: invokes `deno` with the declared argv payload. For example, `command: ["run", "--allow-net=127.0.0.1:8080", "server.ts"]` runs as `deno run --allow-net=127.0.0.1:8080 server.ts`.
 - `system`: built-in runtime support that executes the declared argv directly as a system command. It does not use node-local tool resolution. For JavaScript files, include `node`, `bun`, or `deno` explicitly if needed. `tspack doctor run` reports this runtime as available without looking for a binary named `system`.

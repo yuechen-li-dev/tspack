@@ -15,6 +15,7 @@ func runAdoptCommand(args []string) {
 	reportRequested := false
 	securityRequested := false
 	suggestPackage := ""
+	checkAnnotationsRequested := false
 	jsonOutput := false
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
@@ -36,6 +37,8 @@ func runAdoptCommand(args []string) {
 				os.Exit(1)
 			}
 			suggestPackage = args[i]
+		case "--check-annotations":
+			checkAnnotationsRequested = true
 		case "--json":
 			jsonOutput = true
 		default:
@@ -53,12 +56,15 @@ func runAdoptCommand(args []string) {
 	if suggestPackage != "" {
 		requestedCount++
 	}
+	if checkAnnotationsRequested {
+		requestedCount++
+	}
 	if requestedCount > 1 {
-		fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_INVALID_ARGS: --report, --security, and --suggest-package cannot be combined")
+		fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_INVALID_ARGS: --report, --security, --suggest-package, and --check-annotations cannot be combined")
 		os.Exit(1)
 	}
 	if requestedCount == 0 {
-		fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_INVALID_ARGS: adopt requires --report, --security, or --suggest-package")
+		fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_INVALID_ARGS: adopt requires --report, --security, --suggest-package, or --check-annotations")
 		os.Exit(1)
 	}
 	if securityRequested {
@@ -67,6 +73,10 @@ func runAdoptCommand(args []string) {
 	}
 	if suggestPackage != "" {
 		runAdoptSuggestPackage(root, suggestPackage)
+		return
+	}
+	if checkAnnotationsRequested {
+		runAdoptCheckAnnotations(root)
 		return
 	}
 	obs, err := adoption.Observe(root)
@@ -120,6 +130,46 @@ func runAdoptSecurity(root string, jsonOutput bool) {
 		return
 	}
 	printAdoptSecurityReport(report)
+}
+
+func runAdoptCheckAnnotations(root string) {
+	annotations, err := adoption.DiscoverPackageAnnotations(root, manifestFrontendCLIPath())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
+	if len(annotations) == 0 {
+		fmt.Println("No package annotations found.")
+		return
+	}
+
+	warningsFound := false
+	for _, annotation := range annotations {
+		if len(annotation.Warnings) == 0 {
+			continue
+		}
+		if !warningsFound {
+			fmt.Println("Package annotation check found mismatches:")
+			fmt.Println()
+		}
+		warningsFound = true
+		fmt.Printf("%s (%s)\n", annotation.Root, emptyAsDash(annotation.PackageName))
+		fmt.Printf("  manifest: %s\n", annotation.ManifestPath)
+		for _, warning := range annotation.Warnings {
+			fmt.Printf("  warning: %s\n", warning)
+		}
+		fmt.Println()
+	}
+	if warningsFound {
+		fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_ANNOTATION_MISMATCH: package annotations differ from package.json metadata")
+		os.Exit(1)
+	}
+
+	fmt.Printf("Package annotation check passed for %d package", len(annotations))
+	if len(annotations) != 1 {
+		fmt.Print("s")
+	}
+	fmt.Println(".")
 }
 
 func printAdoptionReport(report adoption.Report) {

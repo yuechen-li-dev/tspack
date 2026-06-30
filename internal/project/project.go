@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -22,6 +21,7 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
 	"github.com/yuechen-li-dev/tspack/internal/materialize"
+	"github.com/yuechen-li-dev/tspack/internal/nodecmd"
 	"github.com/yuechen-li-dev/tspack/internal/pack"
 	"github.com/yuechen-li-dev/tspack/internal/resolver"
 	"github.com/yuechen-li-dev/tspack/internal/securityevidence"
@@ -401,11 +401,12 @@ func populateStoreParallel(ctx context.Context, st *store.Store, client resolver
 	}
 	go func() {
 		defer close(jobCh)
-		for _, pkg := range packagesToPopulate {
+		for index, pkg := range packagesToPopulate {
 			select {
 			case <-ctx.Done():
 				return
 			case jobCh <- storePopulateJob{Index: packageIndex(packages, pkg), Pkg: pkg}:
+				progress.Step("%s [%d/%d] %s", storeFetchProgressLabel(pkg), index+1, len(packagesToPopulate), packageProgressLabel(pkg))
 			}
 		}
 	}()
@@ -478,6 +479,30 @@ func packagesNeedingStorePopulation(st *store.Store, packages []lockfile.Package
 		out = append(out, pkg)
 	}
 	return out
+}
+
+func storeFetchProgressLabel(pkg lockfile.Package) string {
+	switch pkg.Source {
+	case "npm":
+		return "fetching npm artifacts"
+	case "path", "workspace":
+		return "capturing local packages"
+	default:
+		return "populating store artifacts"
+	}
+}
+
+func packageProgressLabel(pkg lockfile.Package) string {
+	if pkg.Name != "" && pkg.Version != "" {
+		return pkg.Name + "@" + pkg.Version
+	}
+	if pkg.Name != "" {
+		return pkg.Name
+	}
+	if pkg.ID != "" {
+		return pkg.ID
+	}
+	return "<unknown package>"
 }
 
 func selectUpdateTargets(g *graph.WorkspaceGraph, query string) ([]UpdateSelectedTarget, []diag.Diagnostic) {
@@ -857,10 +882,25 @@ func Sync(opts Options, clean bool) Result {
 		return Result{Diagnostics: out}
 	}
 	mat := materialize.NodeModulesMaterializer{}
-	mr := mat.Materialize(context.Background(), materialize.Request{WorkspaceRoot: opts.RootDir, Graph: g, Lock: lf, Store: st, Options: materialize.Options{Clean: clean}})
+	materializeOptions := materialize.Options{Clean: clean}
+	if shouldReportMaterializeProgress(opts.RootDir, clean) {
+		materializeOptions.OnPackage = func(index int, total int, pkg lockfile.Package) {
+			opts.Progress.Step("materializing packages [%d/%d] %s", index, total, packageProgressLabel(pkg))
+		}
+	}
+	mr := mat.Materialize(context.Background(), materialize.Request{WorkspaceRoot: opts.RootDir, Graph: g, Lock: lf, Store: st, Options: materializeOptions})
 	out = append(out, mr.Diagnostics...)
 	diag.SortDiagnostics(out)
 	return Result{Diagnostics: out}
+}
+
+func shouldReportMaterializeProgress(rootDir string, clean bool) bool {
+	if clean {
+		return true
+	}
+	markerPath := filepath.Join(rootDir, "node_modules", ".tspack-materialized")
+	_, err := os.Stat(markerPath)
+	return os.IsNotExist(err)
 }
 
 func loadManifestAndGraph(opts Options) (*manifest.ManifestIR, *graph.WorkspaceGraph, []diag.Diagnostic) {
@@ -919,7 +959,18 @@ func loadManifestIR(opts Options) (*manifest.ManifestIR, []diag.Diagnostic) {
 		details = append(details, bridge.BuildNeededDetails()...)
 		return nil, []diag.Diagnostic{errDiag("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", "manifest frontend CLI not found", details...)}
 	}
-	cmd := exec.Command("node", cliPath, opts.ManifestPath)
+	cmd, err := nodecmd.Command(cliPath, opts.ManifestPath)
+	if err != nil {
+		if nodecmd.IsNotFound(err) {
+			return nil, []diag.Diagnostic{{
+				Code:     nodecmd.DiagnosticCode,
+				Severity: diag.SeverityError,
+				Message:  "Node.js was not found on PATH.",
+				Details:  nodecmd.GuidanceLines(),
+			}}
+		}
+		return nil, []diag.Diagnostic{errDiag("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", "failed to prepare manifest frontend command", err.Error())}
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

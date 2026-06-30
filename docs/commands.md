@@ -26,6 +26,7 @@
 - `tspack update` resolves dependency intent, fetches required npm artifacts into the content-addressed store, and writes deterministic `ts-lock.toml` only after required store population succeeds.
 - It does not materialize `node_modules`; `tspack sync` consumes the lock/store state after update.
 - Text-mode progress is written to **stderr** so stdout remains reserved for human diff output or JSON payloads, depending on mode.
+- Cold store population prints deterministic plain-text lines such as `fetching npm artifacts [3/20] vite@7.1.0`.
 - `tspack update --quiet` suppresses progress/status lines while leaving diagnostics and errors on stderr.
 
 ## `tspack sync`
@@ -35,6 +36,14 @@
 - Hydration is lock-driven, not resolver-driven: sync uses the locked package identity and verification data, does not pick newer versions, and does not rewrite `ts-lock.toml`.
 - If the artifact is already present and verifies locally, sync does not refetch it.
 - `tspack sync` may need network access when the local store is empty and a locked npm artifact must be downloaded.
+- Cold materialization may print deterministic plain-text lines such as `materializing packages [12/20] react@19.2.7`.
+
+## Runtime versions
+
+- TSPack delegates npm package operations to the real npm CLI.
+- TSPack does not manage Node.js runtime versions.
+- Commands that need Node.js expect an existing runtime on `PATH`.
+- Recommended runtime manager: `mise`, https://mise.jdx.dev/
 
 
 ## `tspack check --explain <file>`

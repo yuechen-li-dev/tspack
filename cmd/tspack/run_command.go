@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/nodecmd"
 )
 
 type runTargetRef struct {
@@ -465,7 +466,13 @@ func loadManifestForRun(root string) *manifest.ManifestIR {
 func loadManifestPathForRun(root string, manifestPath string) *manifest.ManifestIR {
 	_ = root
 	cliPath := manifestFrontendCLIPath()
-	cmd := exec.Command("node", cliPath, manifestPath)
+	cmd, err := nodecmd.Command(cliPath, manifestPath)
+	if err != nil {
+		if nodecmd.IsNotFound(err) {
+			failRun(nodecmd.DiagnosticCode, nodecmd.MessageBody())
+		}
+		failRun("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", err.Error())
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -1196,6 +1203,12 @@ func resolveRunTargetLaunchCommand(root string, target manifest.RunTarget) ([]st
 		return prependRunTargetExecutable(executable, target.Command), nil
 	}
 	if target.Runtime == "node" || target.Runtime == "nodejs" {
+		if _, err := nodecmd.Locate(); err != nil {
+			return nil, &runErr{
+				code: nodecmd.DiagnosticCode,
+				msg:  nodecmd.MessageBody(),
+			}
+		}
 		return resolveNodeLocalCommand(root, target.Command), nil
 	}
 	return target.Command, nil

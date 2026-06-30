@@ -42,6 +42,7 @@ This inventory groups primary diagnostic families by subsystem to keep command-s
 - `TSPACK_RESOLVE_*`
 - `TSPACK_STORE_*`
 - `TSPACK_MATERIALIZE_*`
+- `TSPACK_NODE_NOT_FOUND`: a command that requires Node.js could not find it on `PATH`. The diagnostic states that TSPack does not manage JavaScript runtime versions and recommends activating/installing Node.js manually; `mise` is suggested as an optional runtime manager.
 - `TSPACK_PROJECT_*`
 - `TSPACK_CHECK_*`
 - `TSPACK_SYNC_*`

@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/yuechen-li-dev/tspack/internal/nodecmd"
 )
 
 type PackageAnnotation struct {
@@ -74,7 +75,13 @@ func DiscoverPackageAnnotations(root string, frontendCLIPath string) ([]PackageA
 }
 
 func parsePackageAnnotation(root string, relRoot string, manifestPath string, frontendCLIPath string) (PackageAnnotation, bool, error) {
-	cmd := exec.Command("node", frontendCLIPath, manifestPath)
+	cmd, err := nodecmd.Command(frontendCLIPath, manifestPath)
+	if err != nil {
+		if nodecmd.IsNotFound(err) {
+			return PackageAnnotation{}, false, fmt.Errorf("%s: %s", nodecmd.DiagnosticCode, nodecmd.MessageBody())
+		}
+		return PackageAnnotation{}, false, err
+	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout

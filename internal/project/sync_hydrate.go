@@ -27,6 +27,7 @@ func ensureStoreArtifactsForLock(ctx context.Context, opts Options, st *store.St
 		client = resolver.NewHTTPRegistryClient("")
 	}
 
+	missing := make([]lockfile.Package, 0)
 	var out []diag.Diagnostic
 	for _, pkg := range lf.Packages {
 		hash, ok := lockPackageStoreHash(pkg)
@@ -37,6 +38,10 @@ func ensureStoreArtifactsForLock(ctx context.Context, opts Options, st *store.St
 		if len(st.Verify(hash)) == 0 {
 			continue
 		}
+		missing = append(missing, pkg)
+	}
+	for index, pkg := range missing {
+		opts.Progress.Step("%s [%d/%d] %s", storeFetchProgressLabel(pkg), index+1, len(missing), packageProgressLabel(pkg))
 		out = append(out, hydrateMissingStoreArtifact(ctx, opts.RootDir, st, client, pkg)...)
 	}
 	return out

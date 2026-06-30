@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/nodecmd"
 )
 
 const (
@@ -395,7 +395,31 @@ func runMigrationManifestFrontend(frontendCLIPath string, manifestPath string) m
 		}
 	}
 
-	cmd := exec.Command("node", frontendCLIPath, manifestPath)
+	cmd, err := nodecmd.Command(frontendCLIPath, manifestPath)
+	if err != nil {
+		if nodecmd.IsNotFound(err) {
+			return migrationFrontendResult{
+				OK: false,
+				Diagnostics: []diag.Diagnostic{{
+					Code:     nodecmd.DiagnosticCode,
+					Severity: diag.SeverityError,
+					Message:  "Node.js was not found on PATH.",
+					File:     manifestPath,
+					Details:  nodecmd.GuidanceLines(),
+				}},
+			}
+		}
+		return migrationFrontendResult{
+			OK: false,
+			Diagnostics: []diag.Diagnostic{{
+				Code:     "TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED",
+				Severity: diag.SeverityError,
+				Message:  "failed to prepare manifest frontend command",
+				File:     manifestPath,
+				Details:  []string{err.Error()},
+			}},
+		}
+	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout

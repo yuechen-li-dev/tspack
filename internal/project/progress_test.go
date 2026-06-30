@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 )
@@ -27,6 +28,8 @@ func TestUpdateProgressReportsPhasesAndPackageFetches(t *testing.T) {
 		"resolving packages...",
 		"populating store...",
 		"populating store: 2 packages with 2 workers",
+		"fetching npm artifacts [1/2] dep-a@1.0.0",
+		"fetching npm artifacts [2/2] left-pad@1.2.0",
 		"writing lockfile...",
 		"update complete",
 	} {
@@ -143,6 +146,68 @@ func TestUpdateProgressReportsStoreTarballFailure(t *testing.T) {
 	}
 	if !strings.Contains(progress.String(), "populating store: 2 packages with 2 workers") {
 		t.Fatalf("expected deterministic store population progress before store failure, got %q", progress.String())
+	}
+}
+
+func TestSyncProgressReportsHydrationAndColdMaterialization(t *testing.T) {
+	root := t.TempDir()
+	irPath := writeIR(t, root, progressNPMIR("dep-a", "dep-a", "1.0.0"))
+	opts := DefaultOptions(root)
+	opts.ManifestIRPath = irPath
+	opts.ResolverClient = buildRegistry()
+
+	updateResult := Update(opts)
+	if hasErrors(updateResult.Diagnostics) {
+		t.Fatalf("update failed: %#v", updateResult.Diagnostics)
+	}
+	if err := os.RemoveAll(opts.StoreRoot); err != nil {
+		t.Fatalf("remove store: %v", err)
+	}
+
+	var progress bytes.Buffer
+	opts.Progress = Progress{Enabled: true, Writer: &progress}
+	syncResult := Sync(opts, false)
+	if hasErrors(syncResult.Diagnostics) {
+		t.Fatalf("sync failed: %#v", syncResult.Diagnostics)
+	}
+
+	text := progress.String()
+	for _, want := range []string{
+		"fetching npm artifacts [1/2] dep-a@1.0.0",
+		"fetching npm artifacts [2/2] left-pad@1.2.0",
+		"materializing packages [1/2] dep-a@1.0.0",
+		"materializing packages [2/2] left-pad@1.2.0",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("sync progress missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestSyncProgressStaysQuietWhenAlreadyMaterialized(t *testing.T) {
+	root := t.TempDir()
+	irPath := writeIR(t, root, progressNPMIR("dep-a", "dep-a", "1.0.0"))
+	opts := DefaultOptions(root)
+	opts.ManifestIRPath = irPath
+	opts.ResolverClient = buildRegistry()
+
+	updateResult := Update(opts)
+	if hasErrors(updateResult.Diagnostics) {
+		t.Fatalf("update failed: %#v", updateResult.Diagnostics)
+	}
+	firstSync := Sync(opts, false)
+	if hasErrors(firstSync.Diagnostics) {
+		t.Fatalf("first sync failed: %#v", firstSync.Diagnostics)
+	}
+
+	var progress bytes.Buffer
+	opts.Progress = Progress{Enabled: true, Writer: &progress}
+	secondSync := Sync(opts, false)
+	if hasErrors(secondSync.Diagnostics) {
+		t.Fatalf("second sync failed: %#v", secondSync.Diagnostics)
+	}
+	if strings.Contains(progress.String(), "fetching npm artifacts [") || strings.Contains(progress.String(), "materializing packages [") {
+		t.Fatalf("expected warm sync to avoid indexed progress noise, got:\n%s", progress.String())
 	}
 }
 

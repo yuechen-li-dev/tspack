@@ -32,8 +32,9 @@ type Request struct {
 }
 
 type Options struct {
-	Clean    bool
-	LinkMode LinkMode
+	Clean     bool
+	LinkMode  LinkMode
+	OnPackage func(index int, total int, pkg lockfile.Package)
 }
 
 type LinkMode string
@@ -135,6 +136,10 @@ func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) R
 	rootEdges := collectRootEdges(req.Lock.Edges)
 	rootVisible := map[string]lockfile.Package{}
 	state := newMaterializeState()
+	if req.Options.OnPackage != nil {
+		state.progress = req.Options.OnPackage
+		state.progressTotal = len(buildMaterializePlan(rootEdges, pkgs, edgesByFrom, nmRoot))
+	}
 	for _, e := range rootEdges {
 		pkg, ok := pkgs[e.To]
 		if !ok {
@@ -180,6 +185,9 @@ type materializeState struct {
 	seenLocations map[string]struct{}
 	stack         []string
 	inStack       map[string]int
+	progress      func(index int, total int, pkg lockfile.Package)
+	progressTotal int
+	progressIndex int
 }
 
 func newMaterializeState() *materializeState {
@@ -228,6 +236,10 @@ func materializePkg(req Request, out *Result, pkgs map[string]lockfile.Package, 
 		return
 	}
 	state.seenLocations[key] = struct{}{}
+	if state.progress != nil && state.progressTotal > 0 {
+		state.progressIndex++
+		state.progress(state.progressIndex, state.progressTotal, pkg)
+	}
 	cycleLeaf := state.containsPackage(pkg.ID)
 	if !cycleLeaf && len(state.stack) >= maxMaterializeDependencyDepth {
 		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{
@@ -296,6 +308,48 @@ func PackageStoreHash(pkg lockfile.Package) (string, bool) {
 		return pkg.TreeHash, true
 	}
 	return "", false
+}
+
+func buildMaterializePlan(rootEdges []lockfile.Edge, pkgs map[string]lockfile.Package, edgesByFrom map[string][]lockfile.Edge, nmRoot string) []lockfile.Package {
+	state := newMaterializeState()
+	plan := []lockfile.Package{}
+	for _, edge := range rootEdges {
+		pkg, ok := pkgs[edge.To]
+		if !ok {
+			continue
+		}
+		appendMaterializePlan(&plan, pkgs, edgesByFrom, pkg, nmRoot, state)
+	}
+	return plan
+}
+
+func appendMaterializePlan(plan *[]lockfile.Package, pkgs map[string]lockfile.Package, edgesByFrom map[string][]lockfile.Edge, pkg lockfile.Package, parentNodeModules string, state *materializeState) {
+	dest, err := safePackagePath(parentNodeModules, pkg.Name)
+	if err != nil {
+		return
+	}
+	key := pkg.ID + "@" + dest
+	if _, ok := state.seenLocations[key]; ok {
+		return
+	}
+	state.seenLocations[key] = struct{}{}
+	*plan = append(*plan, pkg)
+	cycleLeaf := state.containsPackage(pkg.ID)
+	if cycleLeaf || len(state.stack) >= maxMaterializeDependencyDepth {
+		return
+	}
+
+	state.push(pkg.ID)
+	defer state.pop(pkg.ID)
+
+	childNM := filepath.Join(dest, "node_modules")
+	for _, edge := range edgesByFrom[pkg.ID] {
+		dep, ok := pkgs[edge.To]
+		if !ok {
+			continue
+		}
+		appendMaterializePlan(plan, pkgs, edgesByFrom, dep, childNM, state)
+	}
 }
 
 func safePackagePath(base, name string) (string, error) {

@@ -16,6 +16,7 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/nodecmd"
 	"github.com/yuechen-li-dev/tspack/internal/securityevidence"
 )
 
@@ -689,7 +690,22 @@ func loadDoctorSecurityManifest(root string) (*manifest.ManifestIR, []DoctorChec
 		return nil, []DoctorCheck{{Name: "security manifest", Status: "error", Message: "manifest frontend CLI not found", Details: map[string]any{"path": cliPath}, Recommendation: "Run `cd manifest-frontend && npm run build`."}}
 	}
 
-	cmd := exec.Command("node", cliPath, manifestPath)
+	cmd, err := nodecmd.Command(cliPath, manifestPath)
+	if err != nil {
+		if nodecmd.IsNotFound(err) {
+			return nil, []DoctorCheck{{
+				Name:           "security manifest",
+				Status:         "error",
+				Message:        "Node.js was not found on PATH.",
+				Recommendation: "Install Node.js or activate it in your shell. Recommended: use mise (https://mise.jdx.dev/).",
+				Details: map[string]any{
+					"diagnosticCode": nodecmd.DiagnosticCode,
+					"guidance":       nodecmd.GuidanceLines(),
+				},
+			}}
+		}
+		return nil, []DoctorCheck{{Name: "security manifest", Status: "error", Message: "failed to prepare manifest frontend command", Details: map[string]any{"error": err.Error()}}}
+	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout

@@ -27,6 +27,8 @@ TSPACK_VERSION=v0.1.3 sh scripts/install.sh
 
 The installer downloads GitHub Release artifacts, verifies the checksum entry, and installs `tspack` to `$HOME/.local/bin` unless `TSPACK_INSTALL_DIR` is set. Review installer scripts before running them from raw URLs. `get.tspack.dev` is not live.
 
+TSPack delegates npm package operations to real npm and does not manage Node.js runtime versions. Use a Node already on `PATH`; if you want a runtime manager, `mise` is the recommended option: https://mise.jdx.dev/
+
 ## Quickstart
 
 ```bash
@@ -95,6 +97,8 @@ tspack run dev
 ```
 
 The default static template creates a minimal TypeScript browser app. The explicit React template creates a React + Vite + TypeScript app. `tspack init` prints next-step hints, and `tspack help workflow`, `tspack help concepts`, and `tspack help init` explain the lifecycle without requiring source-code reading. Remote template workflows are planned later.
+
+Cold `tspack update` and `tspack sync` runs may print plain `[i/n]` progress lines while store artifacts are fetched or packages are materialized.
 
 
 Built-in templates include `static`, `react` for React + Vite apps, and `react-library` for React + Vite component libraries.

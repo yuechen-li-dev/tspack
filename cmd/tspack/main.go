@@ -22,6 +22,7 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/how"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/nodecmd"
 	"github.com/yuechen-li-dev/tspack/internal/npmbridge"
 	"github.com/yuechen-li-dev/tspack/internal/npmobserve"
 	"github.com/yuechen-li-dev/tspack/internal/project"
@@ -422,6 +423,10 @@ func runNpmCommand(args []string) {
 }
 
 func runCompatCommand(args []string) {
+	if len(args) >= 2 && (args[1] == "--help" || args[1] == "-h" || args[1] == "help") {
+		printCommandHelp("compat")
+		return
+	}
 	if len(args) < 2 {
 		fmt.Fprintln(os.Stderr, "usage: tspack compat list|diff|write [--root .]")
 		os.Exit(2)
@@ -676,7 +681,25 @@ func runInspectCommand(args []string) {
 	} else {
 		nodeArgs = append(nodeArgs, args[1:]...)
 	}
-	cmd := exec.Command("node", nodeArgs...)
+	cmd, err := nodecmd.Command(nodeArgs...)
+	if err != nil {
+		if nodecmd.IsNotFound(err) {
+			exitMessage = nodecmd.Message()
+			exitCode = 127
+			if runTarget != "" {
+				return
+			}
+			fmt.Fprintln(os.Stderr, exitMessage)
+			os.Exit(exitCode)
+		}
+		exitMessage = fmt.Sprintf("TSPACK_INSPECT_FAILED: %v", err)
+		exitCode = 1
+		if runTarget != "" {
+			return
+		}
+		fmt.Fprintln(os.Stderr, exitMessage)
+		os.Exit(exitCode)
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -746,7 +769,15 @@ func runDoomCommand(args []string) {
 	if jsonOut {
 		nodeArgs = append(nodeArgs, "--json")
 	}
-	cmd := exec.Command("node", nodeArgs...)
+	cmd, err := nodecmd.Command(nodeArgs...)
+	if err != nil {
+		if nodecmd.IsNotFound(err) {
+			fmt.Fprintln(os.Stderr, nodecmd.Message())
+			os.Exit(127)
+		}
+		fmt.Fprintf(os.Stderr, "TSPACK_DOOM_FAILED: %v\n", err)
+		os.Exit(1)
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -791,7 +822,15 @@ func runBenchCommand(args []string) {
 	if jsonOut {
 		nodeArgs = append(nodeArgs, "--json")
 	}
-	cmd := exec.Command("node", nodeArgs...)
+	cmd, err := nodecmd.Command(nodeArgs...)
+	if err != nil {
+		if nodecmd.IsNotFound(err) {
+			fmt.Fprintln(os.Stderr, nodecmd.Message())
+			os.Exit(127)
+		}
+		fmt.Fprintf(os.Stderr, "TSPACK_BENCH_FAILED: %v\n", err)
+		os.Exit(1)
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -843,7 +882,15 @@ func runArtifactCommand(args []string) {
 	if jsonOut {
 		nodeArgs = append(nodeArgs, "--json")
 	}
-	cmd := exec.Command("node", nodeArgs...)
+	cmd, err := nodecmd.Command(nodeArgs...)
+	if err != nil {
+		if nodecmd.IsNotFound(err) {
+			fmt.Fprintln(os.Stderr, nodecmd.Message())
+			os.Exit(127)
+		}
+		fmt.Fprintf(os.Stderr, "TSPACK_ARTIFACT_FAILED: %v\n", err)
+		os.Exit(1)
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -1141,6 +1188,9 @@ func runCommand(args []string) {
 		os.Exit(1)
 	}
 	if cmd == "update" && !updatePolicy && !updateQuiet && !jsonOutput {
+		opts.Progress = project.Progress{Enabled: true, Writer: os.Stderr}
+	}
+	if cmd == "sync" && !jsonOutput {
 		opts.Progress = project.Progress{Enabled: true, Writer: os.Stderr}
 	}
 	updateOptions := project.UpdateOptions{Query: updateQuery}
