@@ -405,3 +405,5 @@ A `Security.acknowledgedLifecycleCategories` row includes a script that is not p
 - `TSPACK_COMPAT_UNSUPPORTED_FILE`: the file is outside M63a scope, such as `package.json`, package-manager lockfiles, `manifest.tsx`, non-JSON files, or a non-JSON format.
 - `TSPACK_COMPAT_DUPLICATE_FILE`: more than one compatibility declaration owns the same path.
 - `TSPACK_COMPAT_VALUE_INVALID`: a JSON compatibility file declaration is missing `value` or contains a value that cannot be rendered as JSON.
+
+- `TSPACK_MANIFEST_PACKAGE_ANNOTATION_NOT_FULL_PACKAGE`: an annotation-only `package.manifest.tsx` was referenced where a full package contract is required. Use `definePackage(<Package ... />)` for native split workspace packages, or keep `annotatePackage(<PackageAnnotations ... />)` for incremental adoption reports.

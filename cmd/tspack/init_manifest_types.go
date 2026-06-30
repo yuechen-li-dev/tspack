@@ -1,7 +1,6 @@
 package main
 
-const initManifestTypesDTS = "" +
-	"/**\n" +
+const initManifestTypesDTS = "/**\n" +
 	" * Authoring-time types for `tspack/manifest`.\n" +
 	" * Keep this aligned with the manifest frontend parser and Go IR validator.\n" +
 	" * This file is type-surface support only; it is not runtime implementation.\n" +
@@ -223,6 +222,14 @@ const initManifestTypesDTS = "" +
 	"    manifest: string;\n" +
 	"  };\n" +
 	"\n" +
+	"  export type PackageAnnotationProps = {\n" +
+	"    name?: string;\n" +
+	"    dependencies?: {\n" +
+	"      values: DependencyIntent[];\n" +
+	"    };\n" +
+	"    children?: ManifestNode;\n" +
+	"  };\n" +
+	"\n" +
 	"  export type PackageProps = {\n" +
 	"    name: string;\n" +
 	"    version: string;\n" +
@@ -310,6 +317,7 @@ const initManifestTypesDTS = "" +
 	"  export function define(input: ManifestNode): ManifestDocument;\n" +
 	"  export function defineWorkspace(input: ManifestNode): ManifestDocument;\n" +
 	"  export function definePackage(input: ManifestNode): ManifestDocument;\n" +
+	"  export function annotatePackage(input: ManifestNode): ManifestDocument;\n" +
 	"\n" +
 	"  export function defineDeps<T extends Record<string, DependencyIntent>>(deps: T): T;\n" +
 	"\n" +
@@ -337,6 +345,7 @@ const initManifestTypesDTS = "" +
 	"  export const Workspace: ManifestComponent<WorkspaceProps>;\n" +
 	"  export const Packages: ManifestComponent<PackagesProps>;\n" +
 	"  export const Package: ManifestComponent<PackageProps>;\n" +
+	"  export const PackageAnnotations: ManifestComponent<PackageAnnotationProps>;\n" +
 	"  export const Policies: ManifestComponent<PoliciesProps>;\n" +
 	"  export const Targets: ManifestComponent<TargetsProps>;\n" +
 	"  export const RunTargets: ManifestComponent<RunTargetsProps>;\n" +

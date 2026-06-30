@@ -320,3 +320,36 @@ Service names must be non-empty and unique per RunTarget. Exactly one endpoint k
 ### RunTarget readiness URL placeholders
 
 HTTP RunTargets may include `${NAME}` placeholders in `url` so readiness follows resolved `Env(...)` values such as ports. Placeholder names use the same portable env variable shape as `Env(...)`. Values are resolved at `tspack run` time after host env, `--env` overlays, and RunTarget defaults. Secret env values cannot be interpolated into readiness URLs.
+
+## Incremental `package.manifest.tsx` annotations
+
+`package.manifest.tsx` now has two explicit modes:
+
+- `definePackage(<Package ... />)` is the full TSPack package contract used by native workspace operations.
+- `annotatePackage(<PackageAnnotations ... />)` is an incremental annotation file for an existing package.json package.
+
+Annotation mode is intentionally not full package ownership. During incremental adoption, `package.json` remains authoritative and TSPack does not rewrite dependency sections, infer targets, generate run targets, project package.json, or write a lockfile. An annotation manifest can classify selected package.json dependencies as semantic `dep`, `peer`, or `tool` intent so `tspack adopt --report` can point out mismatches.
+
+```tsx
+import {
+  PackageAnnotations,
+  annotatePackage,
+  defineDeps,
+  dep,
+  npm,
+  peer,
+  tool,
+} from "tspack/manifest";
+
+const deps = defineDeps({
+  clsx: dep(npm("clsx", "^2.1.1")),
+  react: peer(npm("react", "^19.0.0")),
+  typescript: tool(npm("typescript", "^5.9.0")),
+});
+
+export default annotatePackage(
+  <PackageAnnotations dependencies={{ values: [deps.clsx, deps.react, deps.typescript] }} />,
+);
+```
+
+If an annotation manifest is used where a full split-workspace package contract is required, TSPack rejects it with a diagnostic instead of silently treating partial annotations as a native package.

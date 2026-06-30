@@ -52,7 +52,12 @@ func runAdoptCommand(args []string) {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
-	report := adoption.BuildReport(obs)
+	annotations, err := adoption.DiscoverPackageAnnotations(obs.Root, manifestFrontendCLIPath())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
+	report := adoption.BuildReportWithAnnotations(obs, annotations)
 	if jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -119,10 +124,31 @@ func printAdoptionReport(report adoption.Report) {
 	fmt.Printf("manifest.tsx exists: %t\n", report.ManifestExists)
 	fmt.Printf("ts-lock.toml exists: %t\n", report.LockfileExists)
 	fmt.Println()
+	printPackageAnnotations(report.PackageAnnotations)
+
 	fmt.Println("Notes:")
 	for _, warning := range report.Warnings {
 		fmt.Printf("  - %s\n", warning)
 	}
+}
+
+func printPackageAnnotations(annotations []adoption.PackageAnnotation) {
+	fmt.Println("Package annotations:")
+	if len(annotations) == 0 {
+		fmt.Println("  none")
+		fmt.Println()
+		return
+	}
+	fmt.Println("  package.json remains authoritative; annotations report semantic intent only")
+	for _, annotation := range annotations {
+		fmt.Printf("  - %s (%s)\n", annotation.Root, emptyAsDash(annotation.PackageName))
+		fmt.Printf("    manifest: %s\n", annotation.ManifestPath)
+		fmt.Printf("    classification counts: dep=%d peer=%d tool=%d\n", annotation.DependencyCounts["dep"], annotation.DependencyCounts["peer"], annotation.DependencyCounts["tool"])
+		for _, warning := range annotation.Warnings {
+			fmt.Printf("    warning: %s\n", warning)
+		}
+	}
+	fmt.Println()
 }
 
 func emptyAsDash(value string) string {
