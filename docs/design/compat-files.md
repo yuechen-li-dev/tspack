@@ -46,7 +46,14 @@ M63b adds small typed helper presets to the manifest API for common JSON
 compatibility files:
 
 ```tsx
-import { TsConfig, VSCode, defineWorkspace } from "tspack/manifest";
+import {
+  CompatFiles,
+  JsonFile,
+  TsConfig,
+  VSCode,
+  Workspace,
+  defineWorkspace,
+} from "tspack/manifest";
 
 export default defineWorkspace(
   <Workspace name="my-project">
@@ -81,8 +88,8 @@ local `tspack/manifest` path mapping, manifest and xTest include patterns, and
 app-source exclusions.
 
 `VSCode.settings(value?)` returns the provided full settings object when one is
-supplied. Without an argument it returns a minimal TypeScript SDK setting for
-project-local editor support.
+supplied. Without an argument it returns a minimal project-local TypeScript SDK
+setting for editor support.
 
 `VSCode.extensions(value?)` accepts the VS Code `recommendations` and
 `unwantedRecommendations` arrays. Without an argument it returns a small Biome
@@ -103,3 +110,9 @@ declares `tsconfig.tspack.json`, `.vscode/settings.json`, and
 `VSCode.settings()`, and `VSCode.extensions()`. The command does not write those
 compat files by default. Users inspect drift with `tspack compat diff` and
 materialize the files only with explicit `tspack compat write`.
+
+When `tsconfig.tspack.json` is declared, `tspack compat write` also materializes
+the local `.tspack/types/tspack-manifest.d.ts` declaration file that the
+generated tsconfig maps `tspack/manifest` to. If VS Code was already open, run
+`TypeScript: Restart TS Server` after writing the files so the editor picks up
+the new manifest project boundary immediately.

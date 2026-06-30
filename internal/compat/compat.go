@@ -11,6 +11,7 @@ import (
 	"sort"
 
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/manifesttypes"
 )
 
 type State string
@@ -32,31 +33,65 @@ type FileStatus struct {
 }
 
 func Plan(root string, ir *manifest.ManifestIR) ([]FileStatus, error) {
-	statuses := make([]FileStatus, 0, len(ir.CompatFiles))
+	statuses := make([]FileStatus, 0, len(ir.CompatFiles)+1)
 	for _, file := range ir.CompatFiles {
 		desired, err := RenderJSON(file.Value)
 		if err != nil {
 			return nil, fmt.Errorf("render %s: %w", file.Path, err)
 		}
-		status := FileStatus{Path: file.Path, Format: file.Format, Desired: desired, DesiredHash: hashBytes(desired)}
-		existing, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file.Path)))
-		if os.IsNotExist(err) {
-			status.State = StateMissing
-		} else if err != nil {
+		status := FileStatus{
+			Path:        file.Path,
+			Format:      file.Format,
+			Desired:     desired,
+			DesiredHash: hashBytes(desired),
+		}
+		if err := applyExistingFileStatus(root, &status); err != nil {
 			return nil, err
-		} else {
-			status.Existing = existing
-			status.ExistingHash = hashBytes(existing)
-			if bytes.Equal(existing, desired) {
-				status.State = StateClean
-			} else {
-				status.State = StateDrifted
-			}
+		}
+		statuses = append(statuses, status)
+	}
+	if requiresManifestEditorTypes(ir) {
+		status := FileStatus{
+			Path:        ".tspack/types/tspack-manifest.d.ts",
+			Format:      "text",
+			Desired:     []byte(manifesttypes.TSPackManifestDTS),
+			DesiredHash: hashBytes([]byte(manifesttypes.TSPackManifestDTS)),
+		}
+		if err := applyExistingFileStatus(root, &status); err != nil {
+			return nil, err
 		}
 		statuses = append(statuses, status)
 	}
 	sort.Slice(statuses, func(i int, j int) bool { return statuses[i].Path < statuses[j].Path })
 	return statuses, nil
+}
+
+func applyExistingFileStatus(root string, status *FileStatus) error {
+	existing, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(status.Path)))
+	if os.IsNotExist(err) {
+		status.State = StateMissing
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	status.Existing = existing
+	status.ExistingHash = hashBytes(existing)
+	if bytes.Equal(existing, status.Desired) {
+		status.State = StateClean
+		return nil
+	}
+	status.State = StateDrifted
+	return nil
+}
+
+func requiresManifestEditorTypes(ir *manifest.ManifestIR) bool {
+	for _, file := range ir.CompatFiles {
+		if file.Path == "tsconfig.tspack.json" {
+			return true
+		}
+	}
+	return false
 }
 
 func Write(root string, statuses []FileStatus) error {

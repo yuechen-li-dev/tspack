@@ -120,7 +120,14 @@ The editor boundary mirrors the other built-in templates: `tsconfig.tspack.json`
 Compatibility manifests can use typed JSON helper presets for common editor files instead of large raw JSON blobs:
 
 ```tsx
-import { TsConfig, VSCode, defineWorkspace } from "tspack/manifest";
+import {
+  CompatFiles,
+  JsonFile,
+  TsConfig,
+  VSCode,
+  Workspace,
+  defineWorkspace,
+} from "tspack/manifest";
 
 export default defineWorkspace(
   <Workspace name="my-project">

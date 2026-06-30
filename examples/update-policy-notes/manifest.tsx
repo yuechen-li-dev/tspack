@@ -1,4 +1,18 @@
-import { define, defineDeps, dep, npm, peer, tool, workspace } from "tspack/manifest";
+import {
+  Package,
+  Publish,
+  Security,
+  Targets,
+  UpdatePolicy,
+  Workspace,
+  define,
+  defineDeps,
+  dep,
+  npm,
+  peer,
+  tool,
+  workspace,
+} from "tspack/manifest";
 
 const deps = defineDeps({
   typescript: tool(npm("typescript", "^5.8.0")),

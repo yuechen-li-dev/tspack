@@ -664,7 +664,7 @@ render = true
 		tmpl, _ := LoadLocal(root)
 		values, _ := tmpl.ResolveValues(map[string]string{"projectName": "demo"})
 		_, err := tmpl.Plan(PlanOptions{Destination: t.TempDir(), Values: values})
-		if err == nil || !strings.Contains(err.Error(), "TSPACK_TEMPLATE_CONCEPT_PATH_INVALID") {
+		if err == nil || !strings.Contains(err.Error(), "TSPACK_TEMPLATE_PATH_INVALID") {
 			t.Fatalf("expected path diagnostic, got %v", err)
 		}
 	})
@@ -1331,6 +1331,7 @@ func copyTemplateFixture(t *testing.T, source string) string {
 		if err != nil {
 			t.Fatal(err)
 		}
+		data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
 		if err := os.WriteFile(to, data, 0o644); err != nil {
 			t.Fatal(err)
 		}

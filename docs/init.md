@@ -62,6 +62,12 @@ They are not runtime helpers and are not the manifest parser or validator source
 If an existing `tsconfig.json` is present, init leaves it unchanged and prints guidance to exclude TSPack-owned files if the app config includes root TSX broadly.
 If removed, regenerate these files by rerunning `tspack init --force` in the project root.
 
+For `tspack init --alongside`, the root manifest is written first and the editor
+support files remain explicit compat outputs. Run `tspack compat write` to
+materialize `tsconfig.tspack.json`, `.vscode/settings.json`,
+`.vscode/extensions.json`, and `.tspack/types/tspack-manifest.d.ts`. If VS Code
+was already open, run `TypeScript: Restart TS Server` after the compat write.
+
 ## Template engine (M54a)
 
 By default, `tspack init` now renders the built-in `static` template through the same inert template engine used by local templates. Use `--template <name-or-path>` to select a built-in template name or a local directory containing `tspack-template.toml`.

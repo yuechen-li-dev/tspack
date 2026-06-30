@@ -207,7 +207,7 @@ declare module 'tspack/manifest' {
     name: string;
     runtime?: 'system' | 'node' | 'bun' | 'deno';
     command: string[];
-    url: string;
+    url?: string;
     cwd?: 'workspace' | 'package';
     ready?: RunTargetReady;
     env?: RunTargetEnvRow[];

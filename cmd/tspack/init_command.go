@@ -159,8 +159,9 @@ func printAlongsideNextSteps() {
 	fmt.Println("Next:")
 	fmt.Println("tspack adopt --report")
 	fmt.Println("tspack compat diff")
-	fmt.Println("tspack compat write")
+	fmt.Println("tspack compat write   # creates tsconfig.tspack.json, .vscode/*, and .tspack/types/tspack-manifest.d.ts for editor support")
 	fmt.Println("tspack npm install   # only if your npm project needs dependencies installed")
+	fmt.Println("If VS Code was already open, run \"TypeScript: Restart TS Server\" after compat write.")
 }
 
 func runLegacyInit(cfg initConfig) {

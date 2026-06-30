@@ -1,4 +1,16 @@
-import { define, defineDeps, dep, npm, tool } from "tspack/manifest";
+import {
+	Package,
+	RunTargets,
+	Security,
+	Tools,
+	UpdatePolicy,
+	Workspace,
+	define,
+	defineDeps,
+	dep,
+	npm,
+	tool,
+} from "tspack/manifest";
 
 const deps = defineDeps({
 	manifestFrontendTypescript: tool(npm("typescript", "^5.6.3"), { key: "typescript" }),

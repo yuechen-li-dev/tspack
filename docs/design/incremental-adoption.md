@@ -121,6 +121,11 @@ tspack compat diff
 tspack compat write
 ```
 
+That compat write materializes `tsconfig.tspack.json`, `.vscode/*`, and the
+local `.tspack/types/tspack-manifest.d.ts` declaration surface that lets VS
+Code resolve `tspack/manifest` without React. If VS Code was already open, run
+`TypeScript: Restart TS Server` once after the write.
+
 `--dry-run` previews the manifest and writes nothing. `--force` replaces an
 existing root `manifest.tsx` but still leaves `package.json`, lockfiles,
 `ts-lock.toml`, and compat files untouched. After the manifest exists,

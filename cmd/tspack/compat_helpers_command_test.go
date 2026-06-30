@@ -20,7 +20,7 @@ func TestCompatHelpersFixtureCommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compat list failed: %v\n%s", err, listOut)
 	}
-	for _, expected := range []string{"tsconfig.tspack.json", ".vscode/settings.json", ".vscode/extensions.json", "compat.raw.json"} {
+	for _, expected := range []string{"tsconfig.tspack.json", ".vscode/settings.json", ".vscode/extensions.json", "compat.raw.json", ".tspack/types/tspack-manifest.d.ts"} {
 		if !strings.Contains(listOut, expected) {
 			t.Fatalf("compat list missing %s:\n%s", expected, listOut)
 		}
@@ -48,6 +48,9 @@ func TestCompatHelpersFixtureCommands(t *testing.T) {
 	assertJSONFileContainsKey(t, filepath.Join(root, ".vscode", "settings.json"), "typescript.tsdk")
 	assertJSONFileContainsKey(t, filepath.Join(root, ".vscode", "extensions.json"), "recommendations")
 	assertJSONFileContainsKey(t, filepath.Join(root, "compat.raw.json"), "raw")
+	if _, err := os.Stat(filepath.Join(root, ".tspack", "types", "tspack-manifest.d.ts")); err != nil {
+		t.Fatalf("compat write did not create manifest type support: %v", err)
+	}
 }
 
 func ensureManifestFrontendCLI(t *testing.T, repo string) {

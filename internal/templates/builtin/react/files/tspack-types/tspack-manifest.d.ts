@@ -6,6 +6,21 @@
 
 declare module 'tspack/manifest' {
   export type Primitive = string | number | boolean | null;
+  export type JSONValue = Primitive | JSONValue[] | { [key: string]: JSONValue };
+  export type JSONObject = { [key: string]: JSONValue };
+
+  export type TsConfigManifestEditor = {
+    compilerOptions: JSONObject;
+    include: string[];
+    exclude: string[];
+  };
+
+  export type VSCodeSettings = JSONObject;
+
+  export type VSCodeExtensions = {
+    recommendations?: string[];
+    unwantedRecommendations?: string[];
+  };
 
   export type RuntimeProfile = 'nodejs' | 'bun' | 'deno';
 
@@ -167,13 +182,36 @@ declare module 'tspack/manifest' {
         stream?: 'stdout' | 'stderr' | 'both';
       };
 
+  export type RunTargetEnvRow = {
+    name: string;
+    required?: boolean;
+    default?: string;
+    secret?: boolean;
+    description?: string;
+  };
+
+  export type RunTargetServiceRequirementBase = {
+    kind?: 'service';
+    name: string;
+    expectStatus?: number;
+    timeoutMs?: number;
+    optional?: boolean;
+    description?: string;
+  };
+
+  export type RunTargetServiceRequirementRow =
+    | (RunTargetServiceRequirementBase & { tcp: string; http?: never })
+    | (RunTargetServiceRequirementBase & { http: string; tcp?: never });
+
   export type RunTargetRow = {
     name: string;
     runtime?: 'system' | 'node' | 'bun' | 'deno';
     command: string[];
-    url: string;
+    url?: string;
     cwd?: 'workspace' | 'package';
     ready?: RunTargetReady;
+    env?: RunTargetEnvRow[];
+    requires?: RunTargetServiceRequirementRow[];
   };
 
   export type PackageRow = {
@@ -182,10 +220,18 @@ declare module 'tspack/manifest' {
     manifest: string;
   };
 
+  export type PackageAnnotationProps = {
+    name?: string;
+    dependencies?: {
+      values: DependencyIntent[];
+    };
+    children?: ManifestNode;
+  };
+
   export type PackageProps = {
     name: string;
     version: string;
-    kind: 'library' | 'app';
+    kind: 'library' | 'app' | 'service';
     license?: string;
     dependencies?: {
       values: DependencyIntent[];
@@ -225,6 +271,15 @@ declare module 'tspack/manifest' {
     rows: UpdatePolicyRow[];
   };
 
+  export type CompatFilesProps = {
+    children?: ManifestNode;
+  };
+
+  export type JsonFileProps = {
+    path: string;
+    value: JSONValue;
+  };
+
   export type ToolsProps = {
     values: DependencyRefLike[];
   };
@@ -260,6 +315,7 @@ declare module 'tspack/manifest' {
   export function define(input: ManifestNode): ManifestDocument;
   export function defineWorkspace(input: ManifestNode): ManifestDocument;
   export function definePackage(input: ManifestNode): ManifestDocument;
+  export function annotatePackage(input: ManifestNode): ManifestDocument;
 
   export function defineDeps<T extends Record<string, DependencyIntent>>(deps: T): T;
 
@@ -271,10 +327,23 @@ declare module 'tspack/manifest' {
   export function dep(source: DependencySource, options?: DependencyOptions): DepIntent;
   export function peer(source: DependencySource, options?: PeerOptions): PeerIntent;
   export function tool(source: DependencySource, options?: DependencyOptions): ToolIntent;
+  export function Env(name: string, options?: Omit<RunTargetEnvRow, 'name'>): RunTargetEnvRow;
+  export function Service(name: string, options?: Omit<RunTargetServiceRequirementRow, 'name' | 'kind'>): RunTargetServiceRequirementRow;
+  export function json<T extends JSONValue>(value: T): T;
+
+  export const TsConfig: {
+    manifestEditor(): TsConfigManifestEditor;
+  };
+
+  export const VSCode: {
+    settings<T extends VSCodeSettings = VSCodeSettings>(value?: T): T;
+    extensions<T extends VSCodeExtensions = VSCodeExtensions>(value?: T): T;
+  };
 
   export const Workspace: ManifestComponent<WorkspaceProps>;
   export const Packages: ManifestComponent<PackagesProps>;
   export const Package: ManifestComponent<PackageProps>;
+  export const PackageAnnotations: ManifestComponent<PackageAnnotationProps>;
   export const Policies: ManifestComponent<PoliciesProps>;
   export const Targets: ManifestComponent<TargetsProps>;
   export const RunTargets: ManifestComponent<RunTargetsProps>;
@@ -283,6 +352,8 @@ declare module 'tspack/manifest' {
   export const Publish: ManifestComponent<PublishProps>;
   export const Security: ManifestComponent<SecurityProps>;
   export const UpdatePolicy: ManifestComponent<UpdatePolicyProps>;
+  export const CompatFiles: ManifestComponent<CompatFilesProps>;
+  export const JsonFile: ManifestComponent<JsonFileProps>;
 
   export {};
 }

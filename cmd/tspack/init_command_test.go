@@ -543,9 +543,54 @@ func TestInitManifestTypeSupportDriftAndTypecheck(t *testing.T) {
 	}
 }
 
+func TestTemplateManifestTypeSupportDrift(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	canonicalPath := filepath.Join(repo, "manifest-frontend", "src", "tspack-manifest.d.ts")
+	canonical, err := os.ReadFile(canonicalPath)
+	if err != nil {
+		t.Fatalf("read canonical declaration: %v", err)
+	}
+
+	templatePaths := []string{
+		filepath.Join(repo, "internal", "templates", "builtin", "static", "files", "tspack-types", "tspack-manifest.d.ts"),
+		filepath.Join(repo, "internal", "templates", "builtin", "react", "files", "tspack-types", "tspack-manifest.d.ts"),
+		filepath.Join(repo, "internal", "templates", "builtin", "react-library", "files", "tspack-types", "tspack-manifest.d.ts"),
+		filepath.Join(repo, "internal", "templates", "testdata", "local-concepts", "concept-manifest-app", "files", "tspack-types", "tspack-manifest.d.ts"),
+		filepath.Join(repo, "internal", "templates", "testdata", "local-concepts", "machina-react-app", "files", "tspack-types", "tspack-manifest.d.ts"),
+		filepath.Join(repo, "internal", "templates", "testdata", "local-concepts", "tailwind-machina-react-app", "files", "tspack-types", "tspack-manifest.d.ts"),
+		filepath.Join(repo, "internal", "templates", "testdata", "local-concepts", "tailwind-react-app", "files", "tspack-types", "tspack-manifest.d.ts"),
+	}
+
+	for _, templatePath := range templatePaths {
+		templateBytes, err := os.ReadFile(templatePath)
+		if err != nil {
+			t.Fatalf("read template declaration %s: %v", templatePath, err)
+		}
+		if normalizeManifestTypeDecl(string(templateBytes)) != normalizeManifestTypeDecl(string(canonical)) {
+			t.Fatalf("template declaration drifted from canonical: %s", templatePath)
+		}
+	}
+}
+
 func normalizeManifestTypeDecl(value string) string {
 	value = strings.ReplaceAll(value, "\r\n", "\n")
 	return strings.TrimSuffix(value, "\n")
+}
+
+func runManifestEditorTypecheck(t *testing.T, repo string, root string, configName string) {
+	t.Helper()
+
+	tscPath, err := filepath.Abs(filepath.Join(repo, "manifest-frontend", "node_modules", "typescript", "bin", "tsc"))
+	if err != nil {
+		t.Fatalf("resolve tsc path: %v", err)
+	}
+
+	tsc := exec.Command("node", tscPath, "--project", filepath.Join(root, configName), "--noEmit")
+	tsc.Dir = repo
+	out, err := tsc.CombinedOutput()
+	if err != nil {
+		t.Fatalf("tsc manifest editor typecheck failed: %v\n%s", err, string(out))
+	}
 }
 
 func assertGeneratedReactAppTSConfig(t *testing.T, root string) {
@@ -746,19 +791,95 @@ func TestInitAlongsideCompatAndAdoptTransition(t *testing.T) {
 	if err == nil {
 		t.Fatalf("compat diff before write unexpectedly succeeded:\n%s", string(diffOut))
 	}
-	for _, expected := range []string{"missing tsconfig.tspack.json", "missing .vscode/settings.json", "missing .vscode/extensions.json"} {
+	for _, expected := range []string{"missing tsconfig.tspack.json", "missing .vscode/settings.json", "missing .vscode/extensions.json", "missing .tspack/types/tspack-manifest.d.ts"} {
 		if !strings.Contains(string(diffOut), expected) {
 			t.Fatalf("compat diff missing %q:\n%s", expected, string(diffOut))
 		}
 	}
 	runCommandOutput(t, bin, "compat", "write", "--root", root)
 	runCommandOutput(t, bin, "compat", "diff", "--root", root)
-	for _, path := range []string{"tsconfig.tspack.json", ".vscode/settings.json", ".vscode/extensions.json"} {
+	for _, path := range []string{"tsconfig.tspack.json", ".vscode/settings.json", ".vscode/extensions.json", ".tspack/types/tspack-manifest.d.ts"} {
 		if _, err := os.Stat(filepath.Join(root, path)); err != nil {
 			t.Fatalf("compat write did not create %s: %v", path, err)
 		}
 	}
 	assertPathMissing(t, filepath.Join(root, "ts-lock.toml"))
+}
+
+func TestInitAlongsideManifestEditorTypecheck(t *testing.T) {
+	repo := repoRoot(t)
+	bin := buildTspackBinary(t, repo)
+	root := copyDogfoodProject(t, repo)
+
+	runCommandOutput(t, bin, "init", "--alongside", "--root", root)
+	runCommandOutput(t, bin, "compat", "write", "--root", root)
+
+	runManifestEditorTypecheck(t, repo, root, "tsconfig.tspack.json")
+}
+
+func TestTemplateManifestEditorTypecheck(t *testing.T) {
+	repo := repoRoot(t)
+
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "static",
+			args: []string{"run", "./cmd/tspack", "init", "--root", "", "--template", "static", "--name", "hello-static"},
+		},
+		{
+			name: "react",
+			args: []string{"run", "./cmd/tspack", "init", "--root", "", "--template", "react", "--name", "hello-react", "--package", "@acme/hello-react"},
+		},
+		{
+			name: "react-library",
+			args: []string{"run", "./cmd/tspack", "init", "--root", "", "--template", "react-library", "--name", "ui-kit", "--package", "@acme/ui-kit"},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			args := append([]string{}, tc.args...)
+			args[4] = root
+
+			cmd := exec.Command("go", args...)
+			cmd.Dir = repo
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("init %s failed: %v\n%s", tc.name, err, string(out))
+			}
+
+			runManifestEditorTypecheck(t, repo, root, "tsconfig.tspack.json")
+		})
+	}
+}
+
+func TestPackageAnnotationManifestEditorTypecheck(t *testing.T) {
+	repo := repoRoot(t)
+	root := t.TempDir()
+
+	sourcePath := filepath.Join(repo, "examples", "incremental-existing-monorepo", "packages", "ui", "package.manifest.tsx")
+	contents, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatalf("read package annotation manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "package.manifest.tsx"), contents, 0o644); err != nil {
+		t.Fatalf("write package annotation manifest: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".tspack", "types"), 0o755); err != nil {
+		t.Fatalf("mkdir manifest types: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".tspack", "types", "tspack-manifest.d.ts"), []byte(initManifestTypesDTS), 0o644); err != nil {
+		t.Fatalf("write manifest declarations: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tsconfig.tspack.json"), []byte(initTSPackTSConfigJSON), 0o644); err != nil {
+		t.Fatalf("write tsconfig.tspack.json: %v", err)
+	}
+
+	runManifestEditorTypecheck(t, repo, root, "tsconfig.tspack.json")
 }
 
 func TestInitAlongsideExistingManifestForceAndPackageJSONErrors(t *testing.T) {

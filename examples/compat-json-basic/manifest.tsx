@@ -1,4 +1,15 @@
-import { TsConfig, VSCode, defineWorkspace, json } from "tspack/manifest";
+import {
+  CompatFiles,
+  JsonFile,
+  Package,
+  Publish,
+  Targets,
+  TsConfig,
+  VSCode,
+  Workspace,
+  defineWorkspace,
+  json,
+} from "tspack/manifest";
 
 export default defineWorkspace(
   <Workspace name="compat-json-basic">

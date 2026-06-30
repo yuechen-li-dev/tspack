@@ -28,8 +28,9 @@ func TestPlanAndWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if statuses[0].State != StateMissing {
-		t.Fatalf("state = %s, want missing", statuses[0].State)
+	tsconfigStatus := findStatusByPath(t, statuses, "tsconfig.tspack.json")
+	if tsconfigStatus.State != StateMissing {
+		t.Fatalf("state = %s, want missing", tsconfigStatus.State)
 	}
 	if err := Write(root, statuses); err != nil {
 		t.Fatal(err)
@@ -38,8 +39,9 @@ func TestPlanAndWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if statuses[0].State != StateClean {
-		t.Fatalf("state = %s, want clean", statuses[0].State)
+	tsconfigStatus = findStatusByPath(t, statuses, "tsconfig.tspack.json")
+	if tsconfigStatus.State != StateClean {
+		t.Fatalf("state = %s, want clean", tsconfigStatus.State)
 	}
 	if err := os.WriteFile(filepath.Join(root, "tsconfig.tspack.json"), []byte(`{"drift":true}\n`), 0o644); err != nil {
 		t.Fatal(err)
@@ -48,7 +50,19 @@ func TestPlanAndWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if statuses[0].State != StateDrifted || !strings.HasPrefix(statuses[0].DesiredHash, "") {
-		t.Fatalf("state = %s, want drifted", statuses[0].State)
+	tsconfigStatus = findStatusByPath(t, statuses, "tsconfig.tspack.json")
+	if tsconfigStatus.State != StateDrifted || !strings.HasPrefix(tsconfigStatus.DesiredHash, "") {
+		t.Fatalf("state = %s, want drifted", tsconfigStatus.State)
 	}
+}
+
+func findStatusByPath(t *testing.T, statuses []FileStatus, want string) FileStatus {
+	t.Helper()
+	for _, status := range statuses {
+		if status.Path == want {
+			return status
+		}
+	}
+	t.Fatalf("missing status for %s in %#v", want, statuses)
+	return FileStatus{}
 }
