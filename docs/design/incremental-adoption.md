@@ -230,3 +230,19 @@ M62g adds `tspack adopt --suggest-package <package-root>` as a dry-run helper fo
 The suggestion uses package.json sections as the source of truth: `dependencies` and `optionalDependencies` become `dep(...)`, `peerDependencies` become `peer(...)`, and `devDependencies` become `tool(...)`. Conservative TypeScript ecosystem heuristics classify obvious tooling such as `typescript`, `@types/*`, Vite, Vitest, Playwright, ESLint, Prettier, Biome, Rollup, esbuild, tsup, webpack, Babel, and SWC packages as `tool(...)`. React is not silently moved from `dependencies` to `peer(...)`; for library-shaped packages the output includes a note asking the user to review whether `peer(...)` would be more appropriate.
 
 If `package.manifest.tsx` already exists, the command reports that fact on stderr and still prints the suggestion to stdout without overwriting anything. To test a suggestion, save stdout as the package's `package.manifest.tsx` and rerun `tspack adopt --report`.
+
+
+## M62h package annotation consistency check
+
+M62h adds `tspack adopt --check-annotations` as a CI-friendly read-only check for package annotation manifests. The command uses the same workspace/package-root annotation discovery as `tspack adopt --report`, compares each discovered `annotatePackage(<PackageAnnotations />)` file with the authoritative package `package.json`, and writes nothing. It does not mutate `package.json`, rewrite `package.manifest.tsx`, move dependency sections, generate `ts-lock.toml`, resolve registry metadata, or infer targets.
+
+The check reports these consistency categories:
+
+- `classification-mismatch` is a warning when semantic annotation intent disagrees with the package.json section, such as `peer(...)` in `dependencies`, `tool(...)` in `dependencies`, or `dep(...)` only in `devDependencies`.
+- `range-mismatch` is a warning when an npm annotation range differs from the package.json range string.
+- `missing-in-package-json` is an error when an annotation names a dependency that no longer appears in any package.json dependency section.
+- `unannotated-package-json-dependency` is a notice when package.json contains a dependency that is not annotated. Partial annotations are allowed, so notices do not fail the check.
+- package.json missing or malformed cases are errors because package.json is the authoritative comparison substrate.
+- full `definePackage(<Package />)` package manifests are not annotation manifests and are skipped by adoption annotation checks.
+
+Exit behavior is intentionally CI-friendly: errors and warnings return nonzero, notice-only reports return zero, and repositories with no package annotation manifests return zero with a suggestion to run `tspack adopt --suggest-package <package-root>`. `--json` emits a stable structured report with package rows, findings, and summary counts.

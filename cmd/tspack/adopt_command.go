@@ -76,7 +76,7 @@ func runAdoptCommand(args []string) {
 		return
 	}
 	if checkAnnotationsRequested {
-		runAdoptCheckAnnotations(root)
+		runAdoptCheckAnnotations(root, jsonOutput)
 		return
 	}
 	obs, err := adoption.Observe(root)
@@ -132,44 +132,88 @@ func runAdoptSecurity(root string, jsonOutput bool) {
 	printAdoptSecurityReport(report)
 }
 
-func runAdoptCheckAnnotations(root string) {
-	annotations, err := adoption.DiscoverPackageAnnotations(root, manifestFrontendCLIPath())
+func runAdoptCheckAnnotations(root string, jsonOutput bool) {
+	report, err := adoption.CheckPackageAnnotations(root, manifestFrontendCLIPath())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
-	if len(annotations) == 0 {
-		fmt.Println("No package annotations found.")
+
+	if jsonOutput {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(report); err != nil {
+			fmt.Fprintf(os.Stderr, "TSPACK_ADOPT_ANNOTATION_CHECK_JSON_ENCODE_FAILED: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		printAnnotationCheckReport(report)
+	}
+
+	if report.HasErrors || report.HasWarnings {
+		os.Exit(1)
+	}
+}
+
+func printAnnotationCheckReport(report adoption.AnnotationCheckReport) {
+	if report.AnnotationManifests == 0 {
+		fmt.Println("No package annotation manifests found.")
+		fmt.Println("To create one:")
+		fmt.Println("tspack adopt --suggest-package <package-root>")
 		return
 	}
 
-	warningsFound := false
-	for _, annotation := range annotations {
-		if len(annotation.Warnings) == 0 {
-			continue
-		}
-		if !warningsFound {
-			fmt.Println("Package annotation check found mismatches:")
-			fmt.Println()
-		}
-		warningsFound = true
-		fmt.Printf("%s (%s)\n", annotation.Root, emptyAsDash(annotation.PackageName))
-		fmt.Printf("  manifest: %s\n", annotation.ManifestPath)
-		for _, warning := range annotation.Warnings {
-			fmt.Printf("  warning: %s\n", warning)
-		}
+	fmt.Println("Package annotation consistency check")
+	fmt.Println()
+	fmt.Printf("packages checked: %d\n", report.PackagesChecked)
+	fmt.Printf("annotation manifests: %d\n", report.AnnotationManifests)
+	fmt.Printf("errors: %d\n", report.Summary.Errors)
+	fmt.Printf("warnings: %d\n", report.Summary.Warnings)
+	fmt.Printf("notices: %d\n", report.Summary.Notices)
+	fmt.Println()
+
+	for _, checkedPackage := range report.Packages {
+		fmt.Printf("%s (%s)\n", checkedPackage.PackageRoot, emptyAsDash(checkedPackage.PackageName))
+		fmt.Printf("manifest: %s\n", checkedPackage.AnnotationManifestPath)
+		fmt.Printf("package.json: %s\n", checkedPackage.PackageJSONPath)
+		printAnnotationFindingsBySeverity(checkedPackage.Findings, "error", "errors")
+		printAnnotationFindingsBySeverity(checkedPackage.Findings, "warning", "warnings")
+		printAnnotationFindingsBySeverity(checkedPackage.Findings, "notice", "notices")
 		fmt.Println()
 	}
-	if warningsFound {
-		fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_ANNOTATION_MISMATCH: package annotations differ from package.json metadata")
-		os.Exit(1)
+
+	if report.HasErrors || report.HasWarnings {
+		fmt.Println("Result:")
+		fmt.Println("Annotation drift found. Review package.manifest.tsx or package.json.")
+		return
 	}
 
-	fmt.Printf("Package annotation check passed for %d package", len(annotations))
-	if len(annotations) != 1 {
-		fmt.Print("s")
+	fmt.Println("Result:")
+	fmt.Println("Package annotations are consistent with package.json.")
+}
+
+func printAnnotationFindingsBySeverity(findings []adoption.AnnotationCheckFinding, severity string, heading string) {
+	printedHeading := false
+	for _, finding := range findings {
+		if finding.Severity != severity {
+			continue
+		}
+		if !printedHeading {
+			fmt.Printf("%s:\n", heading)
+			printedHeading = true
+		}
+		if finding.DependencyName == "" {
+			fmt.Printf("  %s: %s\n", finding.Code, finding.Message)
+		} else {
+			fmt.Printf("  %s: %s: %s\n", finding.Code, finding.DependencyName, finding.Message)
+		}
+		if finding.PackageJSONRange != "" {
+			fmt.Printf("    package.json range: %s\n", finding.PackageJSONRange)
+		}
+		if finding.AnnotationRange != "" {
+			fmt.Printf("    annotation range: %s\n", finding.AnnotationRange)
+		}
 	}
-	fmt.Println(".")
 }
 
 func printAdoptionReport(report adoption.Report) {

@@ -70,10 +70,12 @@ M62e adds observed lifecycle capability pull-chain warnings. The same command no
 
 M62g adds dry-run package annotation suggestions with `tspack adopt --suggest-package <package-root>`. The command prints advisory `package.manifest.tsx` annotation source, keeps package.json authoritative, and writes nothing by default.
 
+M62h adds the package annotation consistency check with `tspack adopt --check-annotations`. The check is read-only, reports classification/range/missing drift, treats unannotated package.json dependencies as non-failing notices for incremental adoption, supports JSON output, and exits nonzero on errors or warnings for CI.
+
 Future incremental adoption follow-ups remain open:
 
 - explicit package annotation `--write` flag if desired
-- package annotation diff/check and govern mode
+- package annotation diff and govern mode
 - target and run target suggestions
 - package.json projection preview
 - TSPack manifest security policy mapping for adopted lifecycle findings
