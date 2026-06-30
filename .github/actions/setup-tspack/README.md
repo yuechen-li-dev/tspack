@@ -22,7 +22,7 @@ GitHub Actions cannot normally resolve `uses: yuechen-li-dev/tspack/setup-tspack
 
 | Input | Default | Description |
 | --- | --- | --- |
-| `version` | `latest` | TSPack version to install. Use `latest` or a release tag such as `v0.1.3`. |
+| `version` | `latest` | TSPack version to install. Use `latest` or a release tag such as `v0.1.5`. |
 | `repo` | `yuechen-li-dev/tspack` | Repository to download TSPack releases from. |
 | `github-token` | unset | Optional GitHub token for API requests, useful for rate limits or private forks. The action also reads `GITHUB_TOKEN` when this input is not provided. |
 | `install-dir` | runner temp `tspack-bin` directory | Directory where the `tspack` binary is installed. |
@@ -41,7 +41,7 @@ GitHub Actions cannot normally resolve `uses: yuechen-li-dev/tspack/setup-tspack
 steps:
   - uses: yuechen-li-dev/tspack/.github/actions/setup-tspack@v1
     with:
-      version: v0.1.3
+      version: v0.1.5
 ```
 
 ## Supported runners

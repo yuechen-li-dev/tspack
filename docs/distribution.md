@@ -51,7 +51,7 @@ sh scripts/install.sh
 Install a specific release tag with:
 
 ```sh
-TSPACK_VERSION=v0.1.3 sh scripts/install.sh
+TSPACK_VERSION=v0.1.5 sh scripts/install.sh
 ```
 
 Install to a custom user-writable directory with:
@@ -83,7 +83,7 @@ steps:
   - run: tspack test --root .
 ```
 
-The action resolves `latest` through the GitHub Releases API or accepts a pinned tag such as `v0.1.3`, downloads the matching M45b release artifact plus `checksums.txt`, verifies the artifact SHA256, extracts the binary, installs it into a runner-temp bin directory by default, and appends that directory to `GITHUB_PATH`.
+The action resolves `latest` through the GitHub Releases API or accepts a pinned tag such as `v0.1.5`, downloads the matching release artifact plus `checksums.txt`, verifies the artifact SHA256, extracts the binary, installs it into a runner-temp bin directory by default, and appends that directory to `GITHUB_PATH`.
 
 Supported action artifacts are Linux `amd64`/`arm64`, macOS `amd64`/`arm64`, and Windows `amd64`. Windows `arm64` and other unsupported combinations fail before download. The action uses the Node 20 GitHub Actions runtime and only Node built-ins; it does not build from source, install npm dependencies, use `get.tspack.dev`, or implement any package-manager distribution channel.
 
@@ -130,7 +130,7 @@ Build a local host release binary and run the no-dist embedded bridge smoke with
 Build a specific release archive locally with:
 
 ```sh
-./scripts/package-release.sh --goos linux --goarch amd64 --version v0.1.3
+./scripts/package-release.sh --goos linux --goarch amd64 --version v0.1.5
 ```
 
 `scripts/install.sh` downloads these GitHub Release artifacts on Unix platforms. `get.tspack.dev` remains a future TODO and is not a live distribution surface yet.

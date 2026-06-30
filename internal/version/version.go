@@ -1,5 +1,5 @@
 package version
 
-var Version = "0.1.3-dev"
+var Version = "0.1.5"
 var Commit = "unknown"
 var Date = "unknown"

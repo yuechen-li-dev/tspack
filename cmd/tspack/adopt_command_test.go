@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -204,6 +205,53 @@ func TestAdoptCheckAnnotationsPassesForSuggestedManifest(t *testing.T) {
 	}
 	if !strings.Contains(string(checkOut), "Package annotation check passed for 1 package.") {
 		t.Fatalf("unexpected check output:\n%s", string(checkOut))
+	}
+}
+
+func TestAdoptSuggestPackageSupportsRedirectToPackageManifestPath(t *testing.T) {
+	repo := repoRoot(t)
+	bin := buildTspackBinary(t, repo)
+	root := t.TempDir()
+	pkgRoot := filepath.Join(root, "packages", "ui")
+	if err := os.MkdirAll(pkgRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	packageJSON := `{"name":"@acme/ui","dependencies":{"clsx":"^2.1.1","react":"^19.0.0"},"devDependencies":{"typescript":"^5.9.0"}}`
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"workspace","workspaces":["packages/*"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgRoot, "package.json"), []byte(packageJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	manifestPath := filepath.Join(pkgRoot, "package.manifest.tsx")
+	file, err := os.Create(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	cmd := exec.Command(bin, "adopt", "--suggest-package", "packages/ui", "--root", root)
+	cmd.Stdout = file
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	if err != nil {
+		t.Fatalf("adopt suggest with redirected stdout failed: %v\n%s", err, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr when redirecting to an empty package.manifest.tsx target, got:\n%s", stderr.String())
+	}
+
+	content, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, expected := range []string{"annotatePackage(", "clsx: dep(", "react: dep(", "typescript: tool("} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("redirected suggest output missing %q:\n%s", expected, text)
+		}
 	}
 }
 

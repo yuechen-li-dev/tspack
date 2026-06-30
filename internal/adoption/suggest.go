@@ -202,6 +202,13 @@ func utf8FirstRune(value string) (rune, bool) {
 }
 
 func existingManifestKind(path string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	if info.Size() == 0 {
+		return ""
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""
