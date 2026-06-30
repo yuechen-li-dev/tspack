@@ -105,3 +105,32 @@ func writeFile(t *testing.T, path string, contents string) {
 		t.Fatalf("write fixture: %v", err)
 	}
 }
+
+func TestBuildReportWithPackageAnnotations(t *testing.T) {
+	obs := Observation{Root: t.TempDir(), Name: "root"}
+	annotations := []PackageAnnotation{{
+		Root:             "packages/ui",
+		PackageName:      "@acme/ui",
+		DependencyCounts: map[string]int{"dep": 1, "peer": 1, "tool": 1},
+		Warnings:         []string{"annotation peer(react) differs from package.json section dependencies"},
+	}}
+	report := BuildReportWithAnnotations(obs, annotations)
+	if report.SuggestedAdoptionMode != "observe-with-package-annotations" {
+		t.Fatalf("unexpected mode: %s", report.SuggestedAdoptionMode)
+	}
+	if len(report.PackageAnnotations) != 1 || report.PackageAnnotations[0].DependencyCounts["peer"] != 1 {
+		t.Fatalf("annotation metadata missing: %#v", report.PackageAnnotations)
+	}
+}
+
+func TestValidateAnnotatedDependencyWarnings(t *testing.T) {
+	warnings := validateAnnotatedDependency(AnnotatedDep{Name: "react", Kind: "peer", Range: "^19.0.0", PackageJSONSection: "dependencies", PackageJSONRange: "^18.0.0"})
+	joined := strings.Join(warnings, "\n")
+	if !strings.Contains(joined, "peer(react)") || !strings.Contains(joined, "range for react") {
+		t.Fatalf("expected peer and range warnings, got %q", joined)
+	}
+	missing := validateAnnotatedDependency(AnnotatedDep{Name: "missing", Kind: "tool"})
+	if len(missing) != 1 || !strings.Contains(missing[0], "not present") {
+		t.Fatalf("expected missing warning, got %#v", missing)
+	}
+}

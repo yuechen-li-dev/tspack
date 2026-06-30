@@ -16,3 +16,7 @@
 - M13 why command
 - M14 security/capability policy pass
 - M15 hardening, fixtures, docs, and release gate
+
+## M62f incremental package annotations
+
+Status: implemented. `package.manifest.tsx` supports explicit `annotatePackage(<PackageAnnotations />)` mode for existing npm packages. `tspack adopt --report` discovers annotation files under simple npm workspace patterns, reports dependency classification counts, and warns when annotation intent differs from package.json sections or ranges. Future work remains separate: optional observed package refs, govern/full ownership mode, target declarations, package.json projection previews, and per-package why/security reporting.

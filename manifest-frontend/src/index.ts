@@ -24,17 +24,18 @@ export type ManifestIr = {
   updatePolicy?: Record<string, unknown>;
   compatFiles?: Array<Record<string, unknown>>;
   packages: Array<Record<string, unknown>>;
+  packageAnnotations?: Array<Record<string, unknown>>;
 };
 
 type RuntimeProfile = 'nodejs' | 'bun' | 'deno';
 type ParseMode = 'root' | 'package';
-type DocMode = 'single' | 'split' | 'package';
+type DocMode = 'single' | 'split' | 'package' | 'annotation';
 type PackageRow = { name: string; root: string; manifest: string };
 type InternalDoc = { mode: DocMode; ir: ManifestIr; rows?: PackageRow[] };
 
 const ALLOWED_IMPORT = 'tspack/manifest';
-const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'defineDeps', 'npm', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service', 'json']);
-const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'Policies', 'Targets', 'RunTargets', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy', 'CompatFiles', 'JsonFile']);
+const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'annotatePackage', 'defineDeps', 'npm', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service', 'json']);
+const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'PackageAnnotations', 'Policies', 'Targets', 'RunTargets', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy', 'CompatFiles', 'JsonFile']);
 const APPROVED_PROPERTY_HELPERS = new Set(['TsConfig.manifestEditor', 'VSCode.settings', 'VSCode.extensions']);
 
 export function parseManifestFile(filePath: string): ManifestParseResult {
@@ -111,6 +112,10 @@ export function parseWorkspace(rootManifestPath: string): ManifestParseResult {
     const packageParsed = parseManifestDocument(packageManifestPath, 'package');
     diags.push(...packageParsed.diagnostics);
     if (packageParsed.diagnostics.length > 0 || !packageParsed.doc) {
+      continue;
+    }
+    if (packageParsed.doc.mode === 'annotation') {
+      diags.push({ code: 'TSPACK_MANIFEST_PACKAGE_ANNOTATION_NOT_FULL_PACKAGE', severity: 'error', message: 'annotation package manifests are for incremental adoption and do not define full package contracts', file: path.resolve(packageManifestPath) });
       continue;
     }
     const pkg = packageParsed.doc.ir.packages[0];
@@ -198,8 +203,8 @@ function parseManifestDocument(filePath: string, modeHint: ParseMode): { doc?: I
   if (modeHint === 'root' && !['define', 'defineWorkspace'].includes(helper)) {
     diagnostics.push({ code: 'TSPACK_MANIFEST_INVALID_DEFAULT_EXPORT', severity: 'error', message: 'Root manifest default export must be define(...) or defineWorkspace(...)', file: normalizedPath });
   }
-  if (modeHint === 'package' && helper !== 'definePackage') {
-    diagnostics.push({ code: 'TSPACK_MANIFEST_PACKAGE_MANIFEST_INVALID_DEFAULT_EXPORT', severity: 'error', message: 'Package manifest default export must be definePackage(...)', file: normalizedPath });
+  if (modeHint === 'package' && !['definePackage', 'annotatePackage'].includes(helper)) {
+    diagnostics.push({ code: 'TSPACK_MANIFEST_PACKAGE_MANIFEST_INVALID_DEFAULT_EXPORT', severity: 'error', message: 'Package manifest default export must be definePackage(...) or annotatePackage(...)', file: normalizedPath });
   }
 
   const evaluated = evalNode(exp.expression, sf, diagnostics, normalizedPath, constEnv) as any;
@@ -208,6 +213,7 @@ function parseManifestDocument(filePath: string, modeHint: ParseMode): { doc?: I
 
   if (evaluated?.mode === 'split' && modeHint === 'root') return { diagnostics: [], doc: evaluated };
   if (evaluated?.mode === 'package' && modeHint === 'package') return { diagnostics: [], doc: evaluated };
+  if (evaluated?.mode === 'annotation' && modeHint === 'package') return { diagnostics: [], doc: evaluated };
   if (evaluated?.mode === 'single' && modeHint === 'root') return { diagnostics: [], doc: evaluated };
 
   return { diagnostics: [{ code: 'TSPACK_MANIFEST_INVALID_MODE', severity: 'error', message: 'Invalid manifest mode for file type', file: normalizedPath }] };
@@ -238,6 +244,7 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
     const args = node.arguments.map((a) => evalNode(a, sf, diags, file, env));
     if (name === 'define' || name === 'defineWorkspace') return jsxToRootDoc(args[0], diags, file);
     if (name === 'definePackage') return jsxToPackageDoc(args[0]);
+    if (name === 'annotatePackage') return jsxToPackageAnnotationDoc(args[0], diags, file);
     if (name === 'defineDeps') return attachDependencyKeys(args[0]);
     if (name === 'npm') return { kind: 'npm', package: args[0], range: args[1] };
     if (name === 'git') return { kind: 'git', ref: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
@@ -380,6 +387,30 @@ function mapSecurity(security: any): Record<string, unknown> {
 function mapUpdatePolicy(updatePolicy: any): Record<string, unknown> {
   return {
     rows: updatePolicy.rows ?? [],
+  };
+}
+
+
+function jsxToPackageAnnotationDoc(root: unknown, diags: Diagnostic[], file: string): InternalDoc {
+  const p = root as any;
+  if (p?.__tag !== 'PackageAnnotations') {
+    diags.push({ code: 'TSPACK_MANIFEST_PACKAGE_ANNOTATION_INVALID', severity: 'error', message: 'annotatePackage(...) must wrap <PackageAnnotations />', file });
+  }
+  return {
+    mode: 'annotation',
+    ir: {
+      format: 1,
+      workspace: { name: 'workspace', runtime: 'nodejs' },
+      packages: [],
+      packageAnnotations: [mapPackageAnnotation(p)],
+    },
+  };
+}
+
+function mapPackageAnnotation(p: any): Record<string, unknown> {
+  return {
+    name: p.name,
+    dependencies: mapDependencies(p.dependencies?.values ?? []),
   };
 }
 

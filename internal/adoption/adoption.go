@@ -43,17 +43,18 @@ type Lockfile struct {
 }
 
 type Report struct {
-	Root                  string         `json:"root"`
-	PackageName           string         `json:"packageName,omitempty"`
-	Version               string         `json:"version,omitempty"`
-	DependencyCounts      map[string]int `json:"dependencyCounts"`
-	Scripts               []string       `json:"scripts"`
-	Lockfiles             []Lockfile     `json:"lockfiles"`
-	ManifestExists        bool           `json:"manifestExists"`
-	LockfileExists        bool           `json:"lockfileExists"`
-	SuggestedAdoptionMode string         `json:"suggestedAdoptionMode"`
-	Warnings              []string       `json:"warnings"`
-	Observation           Observation    `json:"observation"`
+	Root                  string              `json:"root"`
+	PackageName           string              `json:"packageName,omitempty"`
+	Version               string              `json:"version,omitempty"`
+	DependencyCounts      map[string]int      `json:"dependencyCounts"`
+	Scripts               []string            `json:"scripts"`
+	Lockfiles             []Lockfile          `json:"lockfiles"`
+	ManifestExists        bool                `json:"manifestExists"`
+	LockfileExists        bool                `json:"lockfileExists"`
+	SuggestedAdoptionMode string              `json:"suggestedAdoptionMode"`
+	Warnings              []string            `json:"warnings"`
+	PackageAnnotations    []PackageAnnotation `json:"packageAnnotations,omitempty"`
+	Observation           Observation         `json:"observation"`
 }
 
 type packageJSON struct {
@@ -117,9 +118,16 @@ func Observe(root string) (Observation, error) {
 }
 
 func BuildReport(obs Observation) Report {
+	return BuildReportWithAnnotations(obs, nil)
+}
+
+func BuildReportWithAnnotations(obs Observation, annotations []PackageAnnotation) Report {
 	mode := "package-json-only"
 	if obs.ManifestExists {
 		mode = "observe"
+	}
+	if len(annotations) > 0 {
+		mode = "observe-with-package-annotations"
 	}
 	counts := map[string]int{
 		"dependencies":         len(obs.Dependencies),
@@ -148,6 +156,7 @@ func BuildReport(obs Observation) Report {
 		LockfileExists:        obs.LockfileExists,
 		SuggestedAdoptionMode: mode,
 		Warnings:              warnings,
+		PackageAnnotations:    annotations,
 		Observation:           obs,
 	}
 }

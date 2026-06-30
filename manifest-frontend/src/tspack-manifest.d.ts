@@ -220,6 +220,14 @@ declare module 'tspack/manifest' {
     manifest: string;
   };
 
+  export type PackageAnnotationProps = {
+    name?: string;
+    dependencies?: {
+      values: DependencyIntent[];
+    };
+    children?: ManifestNode;
+  };
+
   export type PackageProps = {
     name: string;
     version: string;
@@ -307,6 +315,7 @@ declare module 'tspack/manifest' {
   export function define(input: ManifestNode): ManifestDocument;
   export function defineWorkspace(input: ManifestNode): ManifestDocument;
   export function definePackage(input: ManifestNode): ManifestDocument;
+  export function annotatePackage(input: ManifestNode): ManifestDocument;
 
   export function defineDeps<T extends Record<string, DependencyIntent>>(deps: T): T;
 
@@ -334,6 +343,7 @@ declare module 'tspack/manifest' {
   export const Workspace: ManifestComponent<WorkspaceProps>;
   export const Packages: ManifestComponent<PackagesProps>;
   export const Package: ManifestComponent<PackageProps>;
+  export const PackageAnnotations: ManifestComponent<PackageAnnotationProps>;
   export const Policies: ManifestComponent<PoliciesProps>;
   export const Targets: ManifestComponent<TargetsProps>;
   export const RunTargets: ManifestComponent<RunTargetsProps>;
