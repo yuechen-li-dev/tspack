@@ -32,6 +32,10 @@ Native xTest files may use these globals without importing them:
 - `inspect`: observes browser/CDP targets and provides inspect tree helpers.
 - `runLifecycleScript`: runs a package lifecycle command under the native lifecycle guard for behavior fixtures.
 
+After `tspack compat write` or `tspack init`, editor support materializes both
+`.tspack/types/tspack-manifest.d.ts` and `.tspack/types/tspack-xtest.d.ts`.
+If VS Code was already open before materialization, run `TypeScript: Restart TS Server`.
+
 `ctx` is not a native xTest global. Use the documented globals above, explicit imports, or callback parameters provided by specific tags such as `<Project>`.
 
 `runLifecycleScript` is intended for lifecycle behavior fixtures. It runs supported Node lifecycle commands under guard, returns the behavior report (`violations`, `reads`, `writes`, `stdout`, `stderr`, `exitCode`, and timeout/signal fields), and does not allow scripts to affect the real project outside the package/probe policy roots. The helper is an explicit test probe; normal `update`, `sync`, materialization, `check`, and `doctor security` do not execute lifecycle scripts.

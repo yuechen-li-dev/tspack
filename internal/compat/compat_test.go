@@ -29,8 +29,16 @@ func TestPlanAndWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	tsconfigStatus := findStatusByPath(t, statuses, "tsconfig.tspack.json")
+	manifestStatus := findStatusByPath(t, statuses, ".tspack/types/tspack-manifest.d.ts")
+	xtestStatus := findStatusByPath(t, statuses, ".tspack/types/tspack-xtest.d.ts")
 	if tsconfigStatus.State != StateMissing {
 		t.Fatalf("state = %s, want missing", tsconfigStatus.State)
+	}
+	if manifestStatus.State != StateMissing {
+		t.Fatalf("manifest state = %s, want missing", manifestStatus.State)
+	}
+	if xtestStatus.State != StateMissing {
+		t.Fatalf("xtest state = %s, want missing", xtestStatus.State)
 	}
 	if err := Write(root, statuses); err != nil {
 		t.Fatal(err)
@@ -40,8 +48,16 @@ func TestPlanAndWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	tsconfigStatus = findStatusByPath(t, statuses, "tsconfig.tspack.json")
+	manifestStatus = findStatusByPath(t, statuses, ".tspack/types/tspack-manifest.d.ts")
+	xtestStatus = findStatusByPath(t, statuses, ".tspack/types/tspack-xtest.d.ts")
 	if tsconfigStatus.State != StateClean {
 		t.Fatalf("state = %s, want clean", tsconfigStatus.State)
+	}
+	if manifestStatus.State != StateClean {
+		t.Fatalf("manifest state = %s, want clean", manifestStatus.State)
+	}
+	if xtestStatus.State != StateClean {
+		t.Fatalf("xtest state = %s, want clean", xtestStatus.State)
 	}
 	if err := os.WriteFile(filepath.Join(root, "tsconfig.tspack.json"), []byte(`{"drift":true}\n`), 0o644); err != nil {
 		t.Fatal(err)

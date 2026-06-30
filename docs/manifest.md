@@ -7,10 +7,10 @@ TSPack parses/analyzes AST and never executes user manifest code. Manifest TSX i
 
 TSPack provides a local TypeScript authoring surface at `tspack/manifest`.
 - Import helpers, policy types, and JSX manifest elements directly from `tspack/manifest`.
-- `tspack init` writes project-local declaration support (`.tspack/types/tspack-manifest.d.ts` and `tspack-env.d.ts`) so standard TypeScript tooling resolves the module without an npm package or editor extension.
+- `tspack init` writes project-local declaration support (`.tspack/types/tspack-manifest.d.ts`, `.tspack/types/tspack-xtest.d.ts`, and `tspack-env.d.ts`) so standard TypeScript tooling resolves the module and native xTest globals without an npm package or editor extension.
 - `tspack init --alongside` plus `tspack compat write` materializes the same local declaration support for existing npm projects.
 - `tspack init` also writes `tsconfig.tspack.json` for editor and type-surface support of manifest files.
-- `tsconfig.tspack.json` uses `jsx: preserve` so manifest TSX does not require React or `react/jsx-runtime`.
+- `tsconfig.tspack.json` uses `jsx: preserve` so manifest TSX and `*.xtest.tsx` do not require React or `react/jsx-runtime`.
 - This surface is for editor autocomplete/typechecking only.
 - Parser, normalized IR, and Go validation remain authoritative.
 - Manifests are still statically parsed; helper functions are not runtime-executed.
@@ -307,7 +307,7 @@ The declared `<UpdatePolicy />` can be inspected with `tspack outdated` and plan
 
 ## Init templates and manifest authoring
 
-`tspack init` templates generate the initial `manifest.tsx` and the editor boundary files (`tsconfig.tspack.json`, `.tspack/types/tspack-manifest.d.ts`, and `tspack-env.d.ts`). The generated manifest is the ongoing project contract; generated config files are tooling projections for authoring support.
+`tspack init` templates generate the initial `manifest.tsx` and the editor boundary files (`tsconfig.tspack.json`, `.tspack/types/tspack-manifest.d.ts`, `.tspack/types/tspack-xtest.d.ts`, and `tspack-env.d.ts`). The generated manifest is the ongoing project contract; generated config files are tooling projections for authoring support.
 
 ## RunTarget env schema
 

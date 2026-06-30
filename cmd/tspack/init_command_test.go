@@ -231,6 +231,9 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, ".tspack", "types", "tspack-manifest.d.ts")); err != nil {
 			t.Fatalf("missing manifest type support: %v", err)
 		}
+		if _, err := os.Stat(filepath.Join(root, ".tspack", "types", "tspack-xtest.d.ts")); err != nil {
+			t.Fatalf("missing xtest type support: %v", err)
+		}
 		assertGeneratedTSPackTSConfig(t, root)
 		if !strings.Contains(string(b), "Generated tsconfig.tspack.json for TSPack manifest editor support") {
 			t.Fatalf("init output missing editor support note: %s", string(b))
@@ -304,7 +307,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, "manifest.tsx")); !os.IsNotExist(err) {
 			t.Fatalf("dry-run should not write files")
 		}
-		if !strings.Contains(string(b), "Would write") || !strings.Contains(string(b), "src/main.ts") || !strings.Contains(string(b), ".tspack/types/tspack-manifest.d.ts") || !strings.Contains(string(b), "tsconfig.tspack.json") || !strings.Contains(string(b), "tspack-env.d.ts") {
+		if !strings.Contains(string(b), "Would write") || !strings.Contains(string(b), "src/main.ts") || !strings.Contains(string(b), ".tspack/types/tspack-manifest.d.ts") || !strings.Contains(string(b), ".tspack/types/tspack-xtest.d.ts") || !strings.Contains(string(b), "tsconfig.tspack.json") || !strings.Contains(string(b), "tspack-env.d.ts") {
 			t.Fatalf("dry-run output missing file list: %s", string(b))
 		}
 
@@ -317,6 +320,9 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		manifestPath := filepath.Join(root, "manifest.tsx")
 		if _, err := os.Stat(filepath.Join(root, ".tspack", "types", "tspack-manifest.d.ts")); err != nil {
 			t.Fatalf("missing manifest type support: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(root, ".tspack", "types", "tspack-xtest.d.ts")); err != nil {
+			t.Fatalf("missing xtest type support: %v", err)
 		}
 		assertGeneratedTSPackTSConfig(t, root)
 		if _, err := os.Stat(filepath.Join(root, "tspack-env.d.ts")); err != nil {
@@ -497,6 +503,14 @@ func TestInitManifestTypeSupportDriftAndTypecheck(t *testing.T) {
 	if normalizeManifestTypeDecl(string(canonical)) != normalizeManifestTypeDecl(initManifestTypesDTS) {
 		t.Fatalf("init type support drifted from canonical declaration")
 	}
+	xtestCanonicalPath := filepath.Join(repo, "manifest-frontend", "src", "tspack-xtest.d.ts")
+	xtestCanonical, err := os.ReadFile(xtestCanonicalPath)
+	if err != nil {
+		t.Fatalf("read canonical xtest declaration: %v", err)
+	}
+	if normalizeManifestTypeDecl(string(xtestCanonical)) != normalizeManifestTypeDecl(initXTestTypesDTS) {
+		t.Fatalf("init xtest type support drifted from canonical declaration")
+	}
 
 	cases := []struct {
 		kind string
@@ -523,11 +537,36 @@ func TestInitManifestTypeSupportDriftAndTypecheck(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read manifest declarations: %v", err)
 			}
+			xtestTypeBytes, err := os.ReadFile(filepath.Join(root, ".tspack", "types", "tspack-xtest.d.ts"))
+			if err != nil {
+				t.Fatalf("read xtest declarations: %v", err)
+			}
 			if !strings.Contains(string(manifestBytes), `from "tspack/manifest"`) {
 				t.Fatalf("generated manifest should import tspack/manifest:\n%s", string(manifestBytes))
 			}
 			if !strings.Contains(string(typeBytes), "declare module 'tspack/manifest'") && !strings.Contains(string(typeBytes), `declare module "tspack/manifest"`) {
 				t.Fatalf("generated type surface should declare tspack/manifest module")
+			}
+			if strings.Contains(string(xtestTypeBytes), "interface IntrinsicElements") {
+				t.Fatalf("materialized xtest declarations must not declare JSX.IntrinsicElements")
+			}
+			xtestPath := filepath.Join(root, "src", "Button.xtest.tsx")
+			if err := os.MkdirAll(filepath.Dir(xtestPath), 0o755); err != nil {
+				t.Fatalf("mkdir xtest dir: %v", err)
+			}
+			if err := os.WriteFile(xtestPath, []byte(`export default (
+  <Suite name="button">
+    <Fact name="renders">{() => {
+      expect(true).toBe(true).because("boolean stays true");
+      assert.ok(true, "truthy value is allowed");
+    }}</Fact>
+    <Fact name="can skip">{() => {
+      skip("example");
+    }}</Fact>
+  </Suite>
+);
+`), 0o644); err != nil {
+				t.Fatalf("write xtest fixture: %v", err)
 			}
 			tscPath, err := filepath.Abs(filepath.Join(repo, "manifest-frontend", "node_modules", "typescript", "bin", "tsc"))
 			if err != nil {
@@ -550,6 +589,11 @@ func TestTemplateManifestTypeSupportDrift(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read canonical declaration: %v", err)
 	}
+	xtestCanonicalPath := filepath.Join(repo, "manifest-frontend", "src", "tspack-xtest.d.ts")
+	xtestCanonical, err := os.ReadFile(xtestCanonicalPath)
+	if err != nil {
+		t.Fatalf("read canonical xtest declaration: %v", err)
+	}
 
 	templatePaths := []string{
 		filepath.Join(repo, "internal", "templates", "builtin", "static", "files", "tspack-types", "tspack-manifest.d.ts"),
@@ -560,6 +604,15 @@ func TestTemplateManifestTypeSupportDrift(t *testing.T) {
 		filepath.Join(repo, "internal", "templates", "testdata", "local-concepts", "tailwind-machina-react-app", "files", "tspack-types", "tspack-manifest.d.ts"),
 		filepath.Join(repo, "internal", "templates", "testdata", "local-concepts", "tailwind-react-app", "files", "tspack-types", "tspack-manifest.d.ts"),
 	}
+	xtestTemplatePaths := []string{
+		filepath.Join(repo, "internal", "templates", "builtin", "static", "files", "tspack-types", "tspack-xtest.d.ts"),
+		filepath.Join(repo, "internal", "templates", "builtin", "react", "files", "tspack-types", "tspack-xtest.d.ts"),
+		filepath.Join(repo, "internal", "templates", "builtin", "react-library", "files", "tspack-types", "tspack-xtest.d.ts"),
+		filepath.Join(repo, "internal", "templates", "testdata", "local-concepts", "concept-manifest-app", "files", "tspack-types", "tspack-xtest.d.ts"),
+		filepath.Join(repo, "internal", "templates", "testdata", "local-concepts", "machina-react-app", "files", "tspack-types", "tspack-xtest.d.ts"),
+		filepath.Join(repo, "internal", "templates", "testdata", "local-concepts", "tailwind-machina-react-app", "files", "tspack-types", "tspack-xtest.d.ts"),
+		filepath.Join(repo, "internal", "templates", "testdata", "local-concepts", "tailwind-react-app", "files", "tspack-types", "tspack-xtest.d.ts"),
+	}
 
 	for _, templatePath := range templatePaths {
 		templateBytes, err := os.ReadFile(templatePath)
@@ -568,6 +621,15 @@ func TestTemplateManifestTypeSupportDrift(t *testing.T) {
 		}
 		if normalizeManifestTypeDecl(string(templateBytes)) != normalizeManifestTypeDecl(string(canonical)) {
 			t.Fatalf("template declaration drifted from canonical: %s", templatePath)
+		}
+	}
+	for _, templatePath := range xtestTemplatePaths {
+		templateBytes, err := os.ReadFile(templatePath)
+		if err != nil {
+			t.Fatalf("read template xtest declaration %s: %v", templatePath, err)
+		}
+		if normalizeManifestTypeDecl(string(templateBytes)) != normalizeManifestTypeDecl(string(xtestCanonical)) {
+			t.Fatalf("template xtest declaration drifted from canonical: %s", templatePath)
 		}
 	}
 }
@@ -791,14 +853,14 @@ func TestInitAlongsideCompatAndAdoptTransition(t *testing.T) {
 	if err == nil {
 		t.Fatalf("compat diff before write unexpectedly succeeded:\n%s", string(diffOut))
 	}
-	for _, expected := range []string{"missing tsconfig.tspack.json", "missing .vscode/settings.json", "missing .vscode/extensions.json", "missing .tspack/types/tspack-manifest.d.ts"} {
+	for _, expected := range []string{"missing tsconfig.tspack.json", "missing .vscode/settings.json", "missing .vscode/extensions.json", "missing .tspack/types/tspack-manifest.d.ts", "missing .tspack/types/tspack-xtest.d.ts"} {
 		if !strings.Contains(string(diffOut), expected) {
 			t.Fatalf("compat diff missing %q:\n%s", expected, string(diffOut))
 		}
 	}
 	runCommandOutput(t, bin, "compat", "write", "--root", root)
 	runCommandOutput(t, bin, "compat", "diff", "--root", root)
-	for _, path := range []string{"tsconfig.tspack.json", ".vscode/settings.json", ".vscode/extensions.json", ".tspack/types/tspack-manifest.d.ts"} {
+	for _, path := range []string{"tsconfig.tspack.json", ".vscode/settings.json", ".vscode/extensions.json", ".tspack/types/tspack-manifest.d.ts", ".tspack/types/tspack-xtest.d.ts"} {
 		if _, err := os.Stat(filepath.Join(root, path)); err != nil {
 			t.Fatalf("compat write did not create %s: %v", path, err)
 		}
@@ -874,6 +936,9 @@ func TestPackageAnnotationManifestEditorTypecheck(t *testing.T) {
 	}
 	if err := os.WriteFile(filepath.Join(root, ".tspack", "types", "tspack-manifest.d.ts"), []byte(initManifestTypesDTS), 0o644); err != nil {
 		t.Fatalf("write manifest declarations: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".tspack", "types", "tspack-xtest.d.ts"), []byte(initXTestTypesDTS), 0o644); err != nil {
+		t.Fatalf("write xtest declarations: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "tsconfig.tspack.json"), []byte(initTSPackTSConfigJSON), 0o644); err != nil {
 		t.Fatalf("write tsconfig.tspack.json: %v", err)

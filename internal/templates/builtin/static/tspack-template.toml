@@ -42,6 +42,10 @@ from = "files/tspack-types/tspack-manifest.d.ts"
 to = ".tspack/types/tspack-manifest.d.ts"
 
 [[files]]
+from = "files/tspack-types/tspack-xtest.d.ts"
+to = ".tspack/types/tspack-xtest.d.ts"
+
+[[files]]
 from = "files/tspack-env.d.ts"
 to = "tspack-env.d.ts"
 

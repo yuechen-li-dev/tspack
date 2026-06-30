@@ -33,7 +33,7 @@ type FileStatus struct {
 }
 
 func Plan(root string, ir *manifest.ManifestIR) ([]FileStatus, error) {
-	statuses := make([]FileStatus, 0, len(ir.CompatFiles)+1)
+	statuses := make([]FileStatus, 0, len(ir.CompatFiles)+2)
 	for _, file := range ir.CompatFiles {
 		desired, err := RenderJSON(file.Value)
 		if err != nil {
@@ -56,6 +56,16 @@ func Plan(root string, ir *manifest.ManifestIR) ([]FileStatus, error) {
 			Format:      "text",
 			Desired:     []byte(manifesttypes.TSPackManifestDTS),
 			DesiredHash: hashBytes([]byte(manifesttypes.TSPackManifestDTS)),
+		}
+		if err := applyExistingFileStatus(root, &status); err != nil {
+			return nil, err
+		}
+		statuses = append(statuses, status)
+		status = FileStatus{
+			Path:        ".tspack/types/tspack-xtest.d.ts",
+			Format:      "text",
+			Desired:     []byte(manifesttypes.TSPackXTestDTS),
+			DesiredHash: hashBytes([]byte(manifesttypes.TSPackXTestDTS)),
 		}
 		if err := applyExistingFileStatus(root, &status); err != nil {
 			return nil, err

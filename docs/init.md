@@ -14,6 +14,7 @@ Generated manifests import from `tspack/manifest`, so TS-aware editors provide a
 - `src/index.ts` for libraries
 - `src/main.ts` for apps
 - `.tspack/types/tspack-manifest.d.ts` (local manifest authoring declaration surface)
+- `.tspack/types/tspack-xtest.d.ts` (local native xTest global declaration surface)
 - `tsconfig.tspack.json` (editor/type support for TSPack-owned manifest and xTest TSX files)
 - `tspack-env.d.ts` (project-level TypeScript reference for `tspack/manifest`)
 
@@ -58,14 +59,15 @@ By default, `tspack init` refuses to overwrite existing generated files and emit
 
 The generated declaration files and `tsconfig.tspack.json` exist only for local editor/autocomplete/typechecking support.
 They are not runtime helpers and are not the manifest parser or validator source of truth.
-`tsconfig.tspack.json` maps `tspack/manifest` to `.tspack/types/tspack-manifest.d.ts`, includes TSPack-owned manifest and `*.xtest.tsx` files, excludes app source, and uses `jsx: preserve` so React and `react/jsx-runtime` are not required for manifest editing.
+`tsconfig.tspack.json` maps `tspack/manifest` to `.tspack/types/tspack-manifest.d.ts`, includes TSPack-owned manifest and `*.xtest.tsx` files, excludes app source, and uses `jsx: preserve` so React and `react/jsx-runtime` are not required for manifest or xTest editing.
 If an existing `tsconfig.json` is present, init leaves it unchanged and prints guidance to exclude TSPack-owned files if the app config includes root TSX broadly.
 If removed, regenerate these files by rerunning `tspack init --force` in the project root.
 
 For `tspack init --alongside`, the root manifest is written first and the editor
 support files remain explicit compat outputs. Run `tspack compat write` to
 materialize `tsconfig.tspack.json`, `.vscode/settings.json`,
-`.vscode/extensions.json`, and `.tspack/types/tspack-manifest.d.ts`. If VS Code
+.vscode/extensions.json`, `.tspack/types/tspack-manifest.d.ts`, and
+`.tspack/types/tspack-xtest.d.ts`. If VS Code
 was already open, run `TypeScript: Restart TS Server` after the compat write.
 
 ## Template engine (M54a)

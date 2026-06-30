@@ -33,7 +33,7 @@ TSPack delegates npm package operations to real npm and does not manage Node.js 
 
 ```bash
 tspack init --kind library --name my-package
-# init also writes tsconfig.tspack.json and local manifest editor types.
+# init also writes tsconfig.tspack.json and local manifest/xTest editor types.
 tspack update
 tspack check
 tspack check --format
