@@ -1,9 +1,13 @@
 import {
+  CompatFiles,
   Env,
+  JsonFile,
   Package,
   RunTargets,
   Service,
+  TsConfig,
   Tools,
+  VSCode,
   Workspace,
   define,
   defineDeps,
@@ -32,6 +36,11 @@ const deps = defineDeps({
 
 export default define(
   <Workspace name="nestjs-service-example" runtime="nodejs">
+    <CompatFiles>
+      <JsonFile path="tsconfig.tspack.json" value={TsConfig.manifestEditor()} />
+      <JsonFile path=".vscode/settings.json" value={VSCode.settings()} />
+      <JsonFile path=".vscode/extensions.json" value={VSCode.extensions()} />
+    </CompatFiles>
     <Package
       name="@tspack-examples/nestjs-service"
       version="0.1.0"

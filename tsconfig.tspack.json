@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "ignoreDeprecations": "5.0",
+    "jsx": "preserve",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "paths": {
+      "tspack/manifest": [
+        ".tspack/types/tspack-manifest.d.ts"
+      ]
+    },
+    "strict": true,
+    "target": "ES2022",
+    "types": []
+  },
+  "exclude": [
+    "dist/**",
+    "node_modules/**",
+    ".tspack/store/**",
+    "tspack-artifacts/**"
+  ],
+  "include": [
+    "manifest.tsx",
+    "package.manifest.tsx",
+    "examples/**/*.manifest.tsx",
+    "examples/**/*.xtest.tsx",
+    ".tspack/types/**/*.d.ts"
+  ]
+}

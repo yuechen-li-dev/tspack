@@ -1,13 +1,18 @@
 import {
+	CompatFiles,
+	JsonFile,
 	Package,
 	RunTargets,
 	Security,
+	TsConfig,
 	Tools,
 	UpdatePolicy,
+	VSCode,
 	Workspace,
 	define,
 	defineDeps,
 	dep,
+	json,
 	npm,
 	tool,
 } from "tspack/manifest";
@@ -25,6 +30,42 @@ const deps = defineDeps({
 
 export default define(
 	<Workspace name="tspack" runtime="nodejs">
+		<CompatFiles>
+			<JsonFile
+				path="tsconfig.tspack.json"
+				value={json({
+					compilerOptions: {
+						target: "ES2022",
+						module: "ESNext",
+						moduleResolution: "Bundler",
+						jsx: "preserve",
+						strict: true,
+						noEmit: true,
+						types: [],
+						baseUrl: ".",
+						ignoreDeprecations: "5.0",
+						paths: {
+							"tspack/manifest": [".tspack/types/tspack-manifest.d.ts"],
+						},
+					},
+					include: [
+						"manifest.tsx",
+						"package.manifest.tsx",
+						"examples/**/*.manifest.tsx",
+						"examples/**/*.xtest.tsx",
+						".tspack/types/**/*.d.ts",
+					],
+					exclude: [
+						"dist/**",
+						"node_modules/**",
+						".tspack/store/**",
+						"tspack-artifacts/**",
+					],
+				})}
+			/>
+			<JsonFile path=".vscode/settings.json" value={VSCode.settings()} />
+			<JsonFile path=".vscode/extensions.json" value={VSCode.extensions()} />
+		</CompatFiles>
 		<Security
 			acknowledgedLifecycleCategories={[
 				{

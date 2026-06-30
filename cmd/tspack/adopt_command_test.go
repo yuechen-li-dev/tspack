@@ -97,6 +97,7 @@ func copyDogfoodProject(t *testing.T, repo string) string {
 	for _, entry := range entries {
 		copyPath(t, filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name()))
 	}
+	stripDogfoodEditorSupport(t, dst)
 	return dst
 }
 
@@ -277,7 +278,25 @@ func copyExampleProject(t *testing.T, repo string, name string) string {
 	src := filepath.Join(repo, "examples", name)
 	dst := filepath.Join(t.TempDir(), name)
 	copyPath(t, src, dst)
+	stripDogfoodEditorSupport(t, dst)
 	return dst
+}
+
+func stripDogfoodEditorSupport(t *testing.T, root string) {
+	t.Helper()
+
+	for _, relativePath := range []string{
+		"manifest.tsx",
+		"tsconfig.tspack.json",
+		"tspack-env.d.ts",
+		".tspack",
+		".vscode",
+	} {
+		path := filepath.Join(root, relativePath)
+		if err := os.RemoveAll(path); err != nil {
+			t.Fatalf("remove %s: %v", path, err)
+		}
+	}
 }
 
 func jsonFindingExists(findings []struct {

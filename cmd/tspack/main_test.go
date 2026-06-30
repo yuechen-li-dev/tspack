@@ -5705,6 +5705,11 @@ func TestCLIObservedNPMWhyWithoutLockfile(t *testing.T) {
 func TestCLIObservedNPMWhyAfterInitAlongsideAndNoWrites(t *testing.T) {
 	repo := repoRoot(t)
 	root := copyTestDir(t, filepath.Join(repo, "examples", "incremental-existing-react"))
+	for _, relativePath := range []string{"manifest.tsx", "tsconfig.tspack.json", "tspack-env.d.ts", ".tspack", ".vscode"} {
+		if err := os.RemoveAll(filepath.Join(root, relativePath)); err != nil {
+			t.Fatalf("remove %s: %v", relativePath, err)
+		}
+	}
 
 	initResult := runTSPack(t, repo, "init", "--alongside", "--root", root)
 	if initResult.err != nil {

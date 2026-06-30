@@ -1,9 +1,13 @@
 import {
+  CompatFiles,
+  JsonFile,
   Package,
   Publish,
   Security,
   Targets,
+  TsConfig,
   UpdatePolicy,
+  VSCode,
   Workspace,
   define,
   defineDeps,
@@ -27,6 +31,11 @@ const deps = defineDeps({
 
 export default define(
   <Workspace name="update-policy-notes" runtime="nodejs">
+    <CompatFiles>
+      <JsonFile path="tsconfig.tspack.json" value={TsConfig.manifestEditor()} />
+      <JsonFile path=".vscode/settings.json" value={VSCode.settings()} />
+      <JsonFile path=".vscode/extensions.json" value={VSCode.extensions()} />
+    </CompatFiles>
     <Security
       acknowledgedCapabilities={[
         {

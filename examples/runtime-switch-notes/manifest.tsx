@@ -1,4 +1,18 @@
-import { define, defineDeps, dep, workspace } from "tspack/manifest";
+import {
+  CompatFiles,
+  JsonFile,
+  Package,
+  Publish,
+  RunTargets,
+  Targets,
+  TsConfig,
+  VSCode,
+  Workspace,
+  define,
+  defineDeps,
+  dep,
+  workspace,
+} from "tspack/manifest";
 
 const deps = defineDeps({
   ui: dep(workspace("@tspack-examples/runtime-switch-ui")),
@@ -6,6 +20,11 @@ const deps = defineDeps({
 
 export default define(
   <Workspace name="runtime-switch-notes" runtime="nodejs">
+    <CompatFiles>
+      <JsonFile path="tsconfig.tspack.json" value={TsConfig.manifestEditor()} />
+      <JsonFile path=".vscode/settings.json" value={VSCode.settings()} />
+      <JsonFile path=".vscode/extensions.json" value={VSCode.extensions()} />
+    </CompatFiles>
     <Package
       name="@tspack-examples/runtime-switch-ui"
       version="0.1.0"
