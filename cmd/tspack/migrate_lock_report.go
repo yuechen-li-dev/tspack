@@ -11,7 +11,9 @@ func renderPackageLockEvidenceSection(builder *strings.Builder, evidence package
 
 	switch evidence.Status {
 	case packageLockEvidenceFound:
-		builder.WriteString("- lockfile path: `" + evidence.Path + "`\n")
+		builder.WriteString("- lockfile path: `")
+		builder.WriteString(evidence.Path)
+		builder.WriteString("`\n")
 		builder.WriteString(fmt.Sprintf("- lockfileVersion: `%d`\n", evidence.Version))
 		builder.WriteString(fmt.Sprintf("- package count: `%d`\n", evidence.PackageCount))
 	case packageLockEvidenceSkipped:
@@ -19,10 +21,14 @@ func renderPackageLockEvidenceSection(builder *strings.Builder, evidence package
 		builder.WriteString("\n")
 		return
 	case packageLockEvidenceInvalid:
-		builder.WriteString("- lockfile path: `" + evidence.Path + "`\n")
+		builder.WriteString("- lockfile path: `")
+		builder.WriteString(evidence.Path)
+		builder.WriteString("`\n")
 		builder.WriteString("- lock evidence: invalid; ignored\n")
 		if evidence.StatusReason != "" {
-			builder.WriteString("- reason: " + evidence.StatusReason + "\n")
+			builder.WriteString("- reason: ")
+			builder.WriteString(evidence.StatusReason)
+			builder.WriteString("\n")
 		}
 		writeLockWarnings(builder, evidence.Warnings)
 		builder.WriteString("\n")
@@ -70,7 +76,17 @@ func renderDirectLockEvidence(builder *strings.Builder, direct []directLockEvide
 			}
 			lockEvidence = strings.Join(parts, "; ")
 		}
-		builder.WriteString("| `" + row.Name + "` | `" + row.DeclaredRange + "` | `" + resolved + "` | `" + row.Kind + "` | `" + lockEvidence + "` |\n")
+		builder.WriteString("| `")
+		builder.WriteString(row.Name)
+		builder.WriteString("` | `")
+		builder.WriteString(row.DeclaredRange)
+		builder.WriteString("` | `")
+		builder.WriteString(resolved)
+		builder.WriteString("` | `")
+		builder.WriteString(row.Kind)
+		builder.WriteString("` | `")
+		builder.WriteString(lockEvidence)
+		builder.WriteString("` |\n")
 	}
 	builder.WriteString("\n")
 }
@@ -89,7 +105,15 @@ func renderFanoutEvidence(builder *strings.Builder, fanout []fanoutEvidence) {
 		if row.Large {
 			note = row.Name + " pulls in " + fmt.Sprintf("%d", row.ReachableCount) + " transitive packages"
 		}
-		builder.WriteString("| `" + row.Name + "` | " + fmt.Sprintf("%d", row.ReachableCount) + " | `" + strings.Join(row.TopDeps, "`, `") + "` | " + note + " |\n")
+		builder.WriteString("| `")
+		builder.WriteString(row.Name)
+		builder.WriteString("` | ")
+		builder.WriteString(fmt.Sprintf("%d", row.ReachableCount))
+		builder.WriteString(" | `")
+		builder.WriteString(strings.Join(row.TopDeps, "`, `"))
+		builder.WriteString("` | ")
+		builder.WriteString(note)
+		builder.WriteString(" |\n")
 	}
 	builder.WriteString("\n")
 }
@@ -104,7 +128,17 @@ func renderLifecycleLockEvidence(builder *strings.Builder, scripts []lifecycleSc
 	builder.WriteString("| package | script | command | direct/transitive | lock path |\n")
 	builder.WriteString("|---|---|---|---|---|\n")
 	for _, row := range scripts {
-		builder.WriteString("| `" + packageVersionLabel(row.Name, row.Version) + "` | `" + row.ScriptName + "` | `" + row.Command + "` | `" + directLabel(row.Direct) + "` | `" + row.LockPath + "` |\n")
+		builder.WriteString("| `")
+		builder.WriteString(packageVersionLabel(row.Name, row.Version))
+		builder.WriteString("` | `")
+		builder.WriteString(row.ScriptName)
+		builder.WriteString("` | `")
+		builder.WriteString(row.Command)
+		builder.WriteString("` | `")
+		builder.WriteString(directLabel(row.Direct))
+		builder.WriteString("` | `")
+		builder.WriteString(row.LockPath)
+		builder.WriteString("` |\n")
 	}
 	builder.WriteString("\n")
 }
@@ -118,7 +152,15 @@ func renderBinaryLockEvidence(builder *strings.Builder, binaries []binaryEvidenc
 	builder.WriteString("| package | bins | direct/transitive | lock path |\n")
 	builder.WriteString("|---|---|---|---|\n")
 	for _, row := range binaries {
-		builder.WriteString("| `" + packageVersionLabel(row.Name, row.Version) + "` | `" + strings.Join(row.Bins, "`, `") + "` | `" + directLabel(row.Direct) + "` | `" + row.LockPath + "` |\n")
+		builder.WriteString("| `")
+		builder.WriteString(packageVersionLabel(row.Name, row.Version))
+		builder.WriteString("` | `")
+		builder.WriteString(strings.Join(row.Bins, "`, `"))
+		builder.WriteString("` | `")
+		builder.WriteString(directLabel(row.Direct))
+		builder.WriteString("` | `")
+		builder.WriteString(row.LockPath)
+		builder.WriteString("` |\n")
 	}
 	builder.WriteString("\n")
 }
@@ -132,7 +174,17 @@ func renderPeerLockEvidence(builder *strings.Builder, peers []peerPackageEvidenc
 	builder.WriteString("| package | peerDependencies | peerDependenciesMeta | direct/transitive | lock path |\n")
 	builder.WriteString("|---|---|---|---|---|\n")
 	for _, row := range peers {
-		builder.WriteString("| `" + packageVersionLabel(row.Name, row.Version) + "` | `" + strings.Join(row.PeerDependencies, "`, `") + "` | `" + strings.Join(row.PeerDependenciesMeta, "`, `") + "` | `" + directLabel(row.Direct) + "` | `" + row.LockPath + "` |\n")
+		builder.WriteString("| `")
+		builder.WriteString(packageVersionLabel(row.Name, row.Version))
+		builder.WriteString("` | `")
+		builder.WriteString(strings.Join(row.PeerDependencies, "`, `"))
+		builder.WriteString("` | `")
+		builder.WriteString(strings.Join(row.PeerDependenciesMeta, "`, `"))
+		builder.WriteString("` | `")
+		builder.WriteString(directLabel(row.Direct))
+		builder.WriteString("` | `")
+		builder.WriteString(row.LockPath)
+		builder.WriteString("` |\n")
 	}
 	builder.WriteString("\n")
 }
@@ -146,7 +198,15 @@ func renderPlatformLockEvidence(builder *strings.Builder, platforms []platformPa
 	builder.WriteString("| package | reasons | direct/transitive | lock path |\n")
 	builder.WriteString("|---|---|---|---|\n")
 	for _, row := range platforms {
-		builder.WriteString("| `" + packageVersionLabel(row.Name, row.Version) + "` | `" + strings.Join(row.Reasons, "`, `") + "` | `" + directLabel(row.Direct) + "` | `" + row.LockPath + "` |\n")
+		builder.WriteString("| `")
+		builder.WriteString(packageVersionLabel(row.Name, row.Version))
+		builder.WriteString("` | `")
+		builder.WriteString(strings.Join(row.Reasons, "`, `"))
+		builder.WriteString("` | `")
+		builder.WriteString(directLabel(row.Direct))
+		builder.WriteString("` | `")
+		builder.WriteString(row.LockPath)
+		builder.WriteString("` |\n")
 	}
 	builder.WriteString("\n")
 }
@@ -155,19 +215,31 @@ func renderMismatchLockEvidence(builder *strings.Builder, evidence packageLockEv
 	builder.WriteString("### Notable warnings and mismatches\n")
 	wrote := false
 	if len(evidence.MissingDirect) > 0 {
-		builder.WriteString("- package.json direct dependencies missing from lock evidence: `" + strings.Join(evidence.MissingDirect, "`, `") + "`.\n")
+		builder.WriteString("- package.json direct dependencies missing from lock evidence: `")
+		builder.WriteString(strings.Join(evidence.MissingDirect, "`, `"))
+		builder.WriteString("`.\n")
 		wrote = true
 	}
 	if len(evidence.RootUndeclaredDirect) > 0 {
-		builder.WriteString("- lock root dependencies not declared in package.json fields consumed by migrate: `" + strings.Join(evidence.RootUndeclaredDirect, "`, `") + "`.\n")
+		builder.WriteString("- lock root dependencies not declared in package.json fields consumed by migrate: `")
+		builder.WriteString(strings.Join(evidence.RootUndeclaredDirect, "`, `"))
+		builder.WriteString("`.\n")
 		wrote = true
 	}
 	for _, duplicate := range evidence.DuplicateVersions {
-		builder.WriteString("- duplicate locked versions for `" + duplicate.Name + "`: `" + strings.Join(duplicate.Versions, "`, `") + "` at `" + strings.Join(duplicate.Paths, "`, `") + "`.\n")
+		builder.WriteString("- duplicate locked versions for `")
+		builder.WriteString(duplicate.Name)
+		builder.WriteString("`: `")
+		builder.WriteString(strings.Join(duplicate.Versions, "`, `"))
+		builder.WriteString("` at `")
+		builder.WriteString(strings.Join(duplicate.Paths, "`, `"))
+		builder.WriteString("`.\n")
 		wrote = true
 	}
 	if len(evidence.TypePackageNames) > 0 {
-		builder.WriteString("- lock evidence includes type packages needing type-policy review: `" + strings.Join(evidence.TypePackageNames, "`, `") + "`.\n")
+		builder.WriteString("- lock evidence includes type packages needing type-policy review: `")
+		builder.WriteString(strings.Join(evidence.TypePackageNames, "`, `"))
+		builder.WriteString("`.\n")
 		wrote = true
 	}
 	if !wrote {
@@ -178,7 +250,9 @@ func renderMismatchLockEvidence(builder *strings.Builder, evidence packageLockEv
 
 func writeLockWarnings(builder *strings.Builder, warnings []string) {
 	for _, warning := range warnings {
-		builder.WriteString("- notable warning: " + warning + "\n")
+		builder.WriteString("- notable warning: ")
+		builder.WriteString(warning)
+		builder.WriteString("\n")
 	}
 }
 

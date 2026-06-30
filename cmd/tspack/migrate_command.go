@@ -1148,8 +1148,8 @@ func targetNameFromExport(exportName string) string {
 
 func guessMigrationEntry(runtime string, exportName string) string {
 	cleaned := strings.TrimPrefix(runtime, "./")
-	if strings.HasPrefix(cleaned, "dist/") {
-		cleaned = strings.TrimPrefix(cleaned, "dist/")
+	if after, ok := strings.CutPrefix(cleaned, "dist/"); ok {
+		cleaned = after
 	}
 	cleaned = strings.TrimSuffix(cleaned, ".cjs")
 	cleaned = strings.TrimSuffix(cleaned, ".mjs")
@@ -1800,21 +1800,39 @@ func renderMigrationReport(draft *migrationDraft) string {
 	var builder strings.Builder
 	builder.WriteString("# TSPack Migration Report\n\n")
 	builder.WriteString("## Inputs\n")
-	builder.WriteString("- root: `" + draft.Config.root + "`\n")
-	builder.WriteString("- package.json path: `" + draft.Config.packageJSONPath + "`\n")
-	builder.WriteString("- package-lock evidence: " + migrationLockInputSummary(draft.LockEvidence) + "\n")
-	builder.WriteString("- source scan: " + migrationSourceInputSummary(draft.SourceEvidence) + "\n")
-	builder.WriteString("- generated manifest path: `" + draft.Config.outManifestPath + "`\n")
-	builder.WriteString("- generated report path: `" + draft.Config.outReportPath + "`\n\n")
+	builder.WriteString("- root: `")
+	builder.WriteString(draft.Config.root)
+	builder.WriteString("`\n")
+	builder.WriteString("- package.json path: `")
+	builder.WriteString(draft.Config.packageJSONPath)
+	builder.WriteString("`\n")
+	builder.WriteString("- package-lock evidence: ")
+	builder.WriteString(migrationLockInputSummary(draft.LockEvidence))
+	builder.WriteString("\n")
+	builder.WriteString("- source scan: ")
+	builder.WriteString(migrationSourceInputSummary(draft.SourceEvidence))
+	builder.WriteString("\n")
+	builder.WriteString("- generated manifest path: `")
+	builder.WriteString(draft.Config.outManifestPath)
+	builder.WriteString("`\n")
+	builder.WriteString("- generated report path: `")
+	builder.WriteString(draft.Config.outReportPath)
+	builder.WriteString("`\n\n")
 
 	builder.WriteString("## Summary\n")
-	builder.WriteString("- package: `" + packageSummary(draft.Package) + "`\n")
-	builder.WriteString("- inferred kind: `" + draft.Kind + "`\n")
+	builder.WriteString("- package: `")
+	builder.WriteString(packageSummary(draft.Package))
+	builder.WriteString("`\n")
+	builder.WriteString("- inferred kind: `")
+	builder.WriteString(draft.Kind)
+	builder.WriteString("`\n")
 	builder.WriteString(fmt.Sprintf("- dependency counts: %d runtime, %d peer, %d tool\n", countDepsByKind(draft.Dependencies, "dep"), countDepsByKind(draft.Dependencies, "peer"), countDepsByKind(draft.Dependencies, "tool")))
 	builder.WriteString(fmt.Sprintf("- generated target count: %d\n", len(draft.Targets)))
 	builder.WriteString(fmt.Sprintf("- TODO count: %d\n", draft.TotalTodos))
 	if len(draft.Package.InvalidFields) > 0 {
-		builder.WriteString("- unsupported package shapes were skipped with TODOs: " + strings.Join(draft.Package.InvalidFields, "; ") + "\n")
+		builder.WriteString("- unsupported package shapes were skipped with TODOs: ")
+		builder.WriteString(strings.Join(draft.Package.InvalidFields, "; "))
+		builder.WriteString("\n")
 	}
 	builder.WriteString("\n")
 
@@ -1835,17 +1853,31 @@ func renderMigrationReport(draft *migrationDraft) string {
 		builder.WriteString("| key | package | range | kind | source |\n")
 		builder.WriteString("|---|---|---|---|---|\n")
 		for _, dep := range draft.Dependencies {
-			builder.WriteString("| `" + dep.Key + "` | `" + dep.PackageName + "` | `" + dep.Range + "` | `" + dep.Kind + "` | `" + dep.SourceField + "` |\n")
+			builder.WriteString("| `")
+			builder.WriteString(dep.Key)
+			builder.WriteString("` | `")
+			builder.WriteString(dep.PackageName)
+			builder.WriteString("` | `")
+			builder.WriteString(dep.Range)
+			builder.WriteString("` | `")
+			builder.WriteString(dep.Kind)
+			builder.WriteString("` | `")
+			builder.WriteString(dep.SourceField)
+			builder.WriteString("` |\n")
 		}
 		builder.WriteString("\n")
 	}
 	if len(draft.DuplicatePeerDeps) > 0 {
-		builder.WriteString("Duplicate dependency/peer declarations preferred peer classification for: `" + strings.Join(draft.DuplicatePeerDeps, "`, `") + "`.\n\n")
+		builder.WriteString("Duplicate dependency/peer declarations preferred peer classification for: `")
+		builder.WriteString(strings.Join(draft.DuplicatePeerDeps, "`, `"))
+		builder.WriteString("`.\n\n")
 	}
 	if len(draft.IdentifierCollisions) > 0 {
 		builder.WriteString("Identifier collisions were resolved deterministically:\n")
 		for _, collision := range draft.IdentifierCollisions {
-			builder.WriteString("- " + collision + "\n")
+			builder.WriteString("- ")
+			builder.WriteString(collision)
+			builder.WriteString("\n")
 		}
 		builder.WriteString("\n")
 	}
@@ -1855,9 +1887,13 @@ func renderMigrationReport(draft *migrationDraft) string {
 	renderMigrationValidationSection(&builder, draft)
 	builder.WriteString("## TODOs for human/LLM review\n")
 	for _, todo := range migrationTodoOrder {
-		builder.WriteString("### " + todo + "\n")
+		builder.WriteString("### ")
+		builder.WriteString(todo)
+		builder.WriteString("\n")
 		for _, message := range todoMessagesForReport(todo, draft) {
-			builder.WriteString("- " + message + "\n")
+			builder.WriteString("- ")
+			builder.WriteString(message)
+			builder.WriteString("\n")
 		}
 		builder.WriteString("\n")
 	}
@@ -1867,7 +1903,9 @@ func renderMigrationReport(draft *migrationDraft) string {
 	if len(draft.LifecycleScripts) > 0 || len(draft.LockEvidence.LifecycleScripts) > 0 {
 		builder.WriteString("## Security\n")
 		if len(draft.LifecycleScripts) > 0 {
-			builder.WriteString("package.json lifecycle scripts detected and not executed: `" + strings.Join(draft.LifecycleScripts, "`, `") + "`. Review before acknowledging capabilities.\n")
+			builder.WriteString("package.json lifecycle scripts detected and not executed: `")
+			builder.WriteString(strings.Join(draft.LifecycleScripts, "`, `"))
+			builder.WriteString("`. Review before acknowledging capabilities.\n")
 		}
 		if len(draft.LockEvidence.LifecycleScripts) > 0 {
 			builder.WriteString(fmt.Sprintf("Lock evidence detected %d dependency lifecycle script capabilities. TSPack will not execute them by default.\n", len(draft.LockEvidence.LifecycleScripts)))
@@ -1879,11 +1917,19 @@ func renderMigrationReport(draft *migrationDraft) string {
 	if !draft.Config.check {
 		builder.WriteString("- Run: `tspack migrate --check`.\n")
 	}
-	builder.WriteString("- Review `" + filepath.Base(draft.Config.outManifestPath) + "`.\n")
+	builder.WriteString("- Review `")
+	builder.WriteString(filepath.Base(draft.Config.outManifestPath))
+	builder.WriteString("`.\n")
 	builder.WriteString("- Resolve `MIGRATION_TODO_*` comments.\n")
-	builder.WriteString("- Run: `tspack check --manifest " + filepath.Base(draft.Config.outManifestPath) + "`.\n")
-	builder.WriteString("- Run: `tspack update --manifest " + filepath.Base(draft.Config.outManifestPath) + "`.\n")
-	builder.WriteString("- Run: `tspack pack --dry-run --manifest " + filepath.Base(draft.Config.outManifestPath) + "`.\n")
+	builder.WriteString("- Run: `tspack check --manifest ")
+	builder.WriteString(filepath.Base(draft.Config.outManifestPath))
+	builder.WriteString("`.\n")
+	builder.WriteString("- Run: `tspack update --manifest ")
+	builder.WriteString(filepath.Base(draft.Config.outManifestPath))
+	builder.WriteString("`.\n")
+	builder.WriteString("- Run: `tspack pack --dry-run --manifest ")
+	builder.WriteString(filepath.Base(draft.Config.outManifestPath))
+	builder.WriteString("`.\n")
 	builder.WriteString("\nThis report does not claim migration is complete. It is a mechanical draft for human/LLM review.\n")
 	return builder.String()
 }
@@ -1903,10 +1949,16 @@ func renderMigrationValidationSection(builder *strings.Builder, draft *migration
 	if draft.Validation.Passed {
 		status = "passed"
 	}
-	builder.WriteString("Status: " + status + "\n\n")
-	builder.WriteString("- Manifest frontend: " + draft.Validation.ManifestFrontend + "\n")
+	builder.WriteString("Status: ")
+	builder.WriteString(status)
+	builder.WriteString("\n\n")
+	builder.WriteString("- Manifest frontend: ")
+	builder.WriteString(draft.Validation.ManifestFrontend)
+	builder.WriteString("\n")
 	appendValidationDiagnostics(builder, draft.Validation.FrontendDiagnostics)
-	builder.WriteString("- Manifest IR validation: " + draft.Validation.ManifestIR + "\n")
+	builder.WriteString("- Manifest IR validation: ")
+	builder.WriteString(draft.Validation.ManifestIR)
+	builder.WriteString("\n")
 	appendValidationDiagnostics(builder, draft.Validation.IRDiagnostics)
 	builder.WriteString(fmt.Sprintf("- Remaining TODOs: %d\n\n", draft.Validation.RemainingTodos))
 	builder.WriteString("This means the draft is structurally valid, not semantically complete. Review MIGRATION_TODO_* comments before using it as authoritative.\n\n")
@@ -1918,7 +1970,11 @@ func appendValidationDiagnostics(builder *strings.Builder, diagnostics []diag.Di
 		if message == "" {
 			message = string(diagnostic.Severity)
 		}
-		builder.WriteString("  - `" + diagnostic.Code + "`: " + escapeMarkdownTable(message) + "\n")
+		builder.WriteString("  - `")
+		builder.WriteString(diagnostic.Code)
+		builder.WriteString("`: ")
+		builder.WriteString(escapeMarkdownTable(message))
+		builder.WriteString("\n")
 	}
 }
 
@@ -1933,11 +1989,23 @@ func renderScriptSuggestionsSection(builder *strings.Builder, draft *migrationDr
 		builder.WriteString("| script | category | command | action |\n")
 		builder.WriteString("|---|---|---|---|\n")
 		for _, analysis := range draft.ScriptAnalyses {
-			builder.WriteString("| `" + escapeMarkdownTable(analysis.Name) + "` | `" + analysis.Category + "` | `" + escapeMarkdownTable(analysis.Command) + "` | " + escapeMarkdownTable(analysis.Action) + " |\n")
+			builder.WriteString("| `")
+			builder.WriteString(escapeMarkdownTable(analysis.Name))
+			builder.WriteString("` | `")
+			builder.WriteString(analysis.Category)
+			builder.WriteString("` | `")
+			builder.WriteString(escapeMarkdownTable(analysis.Command))
+			builder.WriteString("` | ")
+			builder.WriteString(escapeMarkdownTable(analysis.Action))
+			builder.WriteString(" |\n")
 		}
 		builder.WriteString("\nRaw script evidence:\n")
 		for _, analysis := range draft.ScriptAnalyses {
-			builder.WriteString("- `" + analysis.Name + "`: `" + analysis.Command + "`\n")
+			builder.WriteString("- `")
+			builder.WriteString(analysis.Name)
+			builder.WriteString("`: `")
+			builder.WriteString(analysis.Command)
+			builder.WriteString("`\n")
 		}
 		builder.WriteString("\n")
 	}
@@ -1971,7 +2039,21 @@ func renderScriptSuggestionsSection(builder *strings.Builder, draft *migrationDr
 				}
 				notes = suggestion.Notes
 			}
-			builder.WriteString("| `" + escapeMarkdownTable(analysis.Name) + "` | `" + escapeMarkdownTable(name) + "` | `" + confidence + "` | `" + escapeMarkdownTable(argv) + "` | `" + escapeMarkdownTable(url) + "` | `" + escapeMarkdownTable(ready) + "` | " + escapeMarkdownTable(strings.Join(uniqueStrings(notes), "; ")) + " |\n")
+			builder.WriteString("| `")
+			builder.WriteString(escapeMarkdownTable(analysis.Name))
+			builder.WriteString("` | `")
+			builder.WriteString(escapeMarkdownTable(name))
+			builder.WriteString("` | `")
+			builder.WriteString(confidence)
+			builder.WriteString("` | `")
+			builder.WriteString(escapeMarkdownTable(argv))
+			builder.WriteString("` | `")
+			builder.WriteString(escapeMarkdownTable(url))
+			builder.WriteString("` | `")
+			builder.WriteString(escapeMarkdownTable(ready))
+			builder.WriteString("` | ")
+			builder.WriteString(escapeMarkdownTable(strings.Join(uniqueStrings(notes), "; ")))
+			builder.WriteString(" |\n")
 		}
 		builder.WriteString("\n")
 	}
@@ -1983,7 +2065,13 @@ func renderScriptSuggestionsSection(builder *strings.Builder, draft *migrationDr
 	} else {
 		builder.WriteString("Build/test/lint/format/package scripts are not RunTargets. Use TSPack check/format/lint/test surfaces where appropriate, and keep external tooling until an explicit TSPack command exists.\n\n")
 		for _, analysis := range nonRuntime {
-			builder.WriteString("- `" + analysis.Name + "` (`" + analysis.Category + "`): `" + analysis.Command + "`\n")
+			builder.WriteString("- `")
+			builder.WriteString(analysis.Name)
+			builder.WriteString("` (`")
+			builder.WriteString(analysis.Category)
+			builder.WriteString("`): `")
+			builder.WriteString(analysis.Command)
+			builder.WriteString("`\n")
 		}
 		builder.WriteString("\n")
 	}
@@ -1994,7 +2082,13 @@ func renderScriptSuggestionsSection(builder *strings.Builder, draft *migrationDr
 		builder.WriteString("No shell-composite or environment-prefix script review items were detected.\n\n")
 	} else {
 		for _, analysis := range reviewScripts {
-			builder.WriteString("- `" + analysis.Name + "`: `" + analysis.Command + "` — " + strings.Join(uniqueStrings(analysis.ReviewNotes), "; ") + "\n")
+			builder.WriteString("- `")
+			builder.WriteString(analysis.Name)
+			builder.WriteString("`: `")
+			builder.WriteString(analysis.Command)
+			builder.WriteString("` — ")
+			builder.WriteString(strings.Join(uniqueStrings(analysis.ReviewNotes), "; "))
+			builder.WriteString("\n")
 		}
 		builder.WriteString("\n")
 	}

@@ -2268,10 +2268,10 @@ func lifecycleDiagnosticDetail(diagnostic diag.Diagnostic, key string) string {
 func lifecyclePackageName(diagnostic diag.Diagnostic) string {
 	for _, detail := range diagnostic.Details {
 		trimmed := strings.TrimSpace(detail)
-		if strings.HasPrefix(trimmed, "package: ") {
-			packageID := strings.TrimPrefix(trimmed, "package: ")
-			if strings.HasPrefix(packageID, "npm:") {
-				packageID = strings.TrimPrefix(packageID, "npm:")
+		if after, ok := strings.CutPrefix(trimmed, "package: "); ok {
+			packageID := after
+			if after, ok := strings.CutPrefix(packageID, "npm:"); ok {
+				packageID = after
 			}
 			if at := strings.LastIndex(packageID, "@"); at > 0 {
 				return packageID[:at]

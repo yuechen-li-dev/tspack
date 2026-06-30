@@ -705,11 +705,15 @@ func renderSourceImportEvidenceSection(builder *strings.Builder, draft *migratio
 	builder.WriteString("## Source import evidence\n\n")
 	builder.WriteString("### Scan summary\n")
 	if !evidence.Enabled || evidence.SkippedReason != "" {
-		builder.WriteString("- status: " + migrationSourceInputSummary(evidence) + "\n\n")
+		builder.WriteString("- status: ")
+		builder.WriteString(migrationSourceInputSummary(evidence))
+		builder.WriteString("\n\n")
 		return
 	}
 	builder.WriteString("- status: enabled\n")
-	builder.WriteString("- roots scanned: " + formatSourceScanRoots(evidence.Roots) + "\n")
+	builder.WriteString("- roots scanned: ")
+	builder.WriteString(formatSourceScanRoots(evidence.Roots))
+	builder.WriteString("\n")
 	builder.WriteString(fmt.Sprintf("- files scanned: %d\n", evidence.FilesScanned))
 	builder.WriteString(fmt.Sprintf("- files skipped: %d\n", evidence.FilesSkipped))
 	builder.WriteString(fmt.Sprintf("- external packages observed: %d\n", len(evidence.Packages)))
@@ -731,7 +735,17 @@ func renderSourceImportEvidenceSection(builder *strings.Builder, draft *migratio
 		builder.WriteString("| package | observed usage | package.json declaration | files | samples |\n")
 		builder.WriteString("|---|---|---|---|---|\n")
 		for _, pkg := range evidence.Packages {
-			builder.WriteString("| `" + pkg.PackageName + "` | `" + sourceObservedUsage(pkg) + "` | `" + pkg.Declaration + "` | " + markdownInlineList(pkg.Files) + " | " + markdownInlineList(pkg.Samples) + " |\n")
+			builder.WriteString("| `")
+			builder.WriteString(pkg.PackageName)
+			builder.WriteString("` | `")
+			builder.WriteString(sourceObservedUsage(pkg))
+			builder.WriteString("` | `")
+			builder.WriteString(pkg.Declaration)
+			builder.WriteString("` | ")
+			builder.WriteString(markdownInlineList(pkg.Files))
+			builder.WriteString(" | ")
+			builder.WriteString(markdownInlineList(pkg.Samples))
+			builder.WriteString(" |\n")
 		}
 		builder.WriteString("\n")
 	}
@@ -739,21 +753,29 @@ func renderSourceImportEvidenceSection(builder *strings.Builder, draft *migratio
 	builder.WriteString("### Classification hints\n")
 	runtimeDev := sourceRuntimeDevPackages(evidence)
 	if len(runtimeDev) > 0 {
-		builder.WriteString("- " + migrationTodoDepClassification + ": runtime imports declared only as devDependencies: " + formatSourcePackageList(runtimeDev) + ".\n")
+		builder.WriteString("- " + migrationTodoDepClassification + ": runtime imports declared only as devDependencies: ")
+		builder.WriteString(formatSourcePackageList(runtimeDev))
+		builder.WriteString(".\n")
 	} else {
 		builder.WriteString("- No runtime imports declared only as devDependencies were observed.\n")
 	}
 	typeOnly := sourceTypeOnlyPackages(evidence)
 	if len(typeOnly) > 0 {
-		builder.WriteString("- " + migrationTodoTypes + ": packages observed only through type-only imports: " + formatSourcePackageList(typeOnly) + ".\n")
+		builder.WriteString("- " + migrationTodoTypes + ": packages observed only through type-only imports: ")
+		builder.WriteString(formatSourcePackageList(typeOnly))
+		builder.WriteString(".\n")
 	}
 	missing := sourceMissingPackages(evidence)
 	if len(missing) > 0 {
-		builder.WriteString("- " + migrationTodoDepClassification + ": imported packages missing from direct package.json declarations: " + formatSourcePackageList(missing) + ".\n")
+		builder.WriteString("- " + migrationTodoDepClassification + ": imported packages missing from direct package.json declarations: ")
+		builder.WriteString(formatSourcePackageList(missing))
+		builder.WriteString(".\n")
 	}
 	unused := sourceUnusedDeclaredPackages(draft)
 	if len(unused) > 0 {
-		builder.WriteString("- Declared packages not observed in scanned source: " + formatSourcePackageList(unused) + ". These may still be build-only, runtime-only, optional, or used from unscanned files.\n")
+		builder.WriteString("- Declared packages not observed in scanned source: ")
+		builder.WriteString(formatSourcePackageList(unused))
+		builder.WriteString(". These may still be build-only, runtime-only, optional, or used from unscanned files.\n")
 	}
 	if len(evidence.Builtins) > 0 {
 		builder.WriteString("- Node builtin imports observed: ")
@@ -761,7 +783,8 @@ func renderSourceImportEvidenceSection(builder *strings.Builder, draft *migratio
 		for _, builtin := range evidence.Builtins {
 			parts = append(parts, fmt.Sprintf("`%s` (%d)", builtin.Name, builtin.Count))
 		}
-		builder.WriteString(strings.Join(parts, ", ") + ". Review runtime environment assumptions.\n")
+		builder.WriteString(strings.Join(parts, ", "))
+		builder.WriteString(". Review runtime environment assumptions.\n")
 	}
 	if evidence.UnknownDynamicCount > 0 {
 		builder.WriteString(fmt.Sprintf("- Unknown dynamic import expressions observed: %d. Review manually; no package names were inferred.\n", evidence.UnknownDynamicCount))
@@ -772,7 +795,9 @@ func renderSourceImportEvidenceSection(builder *strings.Builder, draft *migratio
 	if len(hints) > 0 {
 		builder.WriteString("### Target hints\n")
 		for _, hint := range hints {
-			builder.WriteString("- " + hint + "\n")
+			builder.WriteString("- ")
+			builder.WriteString(hint)
+			builder.WriteString("\n")
 		}
 		builder.WriteString("\n")
 	}
@@ -780,7 +805,11 @@ func renderSourceImportEvidenceSection(builder *strings.Builder, draft *migratio
 	if len(evidence.Warnings) > 0 {
 		builder.WriteString("### Source scan warnings\n")
 		for _, warning := range evidence.Warnings {
-			builder.WriteString("- `" + warning.Path + "`: " + warning.Message + "\n")
+			builder.WriteString("- `")
+			builder.WriteString(warning.Path)
+			builder.WriteString("`: ")
+			builder.WriteString(warning.Message)
+			builder.WriteString("\n")
 		}
 		builder.WriteString("\n")
 	}
