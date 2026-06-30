@@ -34,6 +34,7 @@ Native xTest files may use these globals without importing them:
 
 After `tspack compat write` or `tspack init`, editor support materializes both
 `.tspack/types/tspack-manifest.d.ts` and `.tspack/types/tspack-xtest.d.ts`.
+The generated `tsconfig.tspack.json` also sets `"types": []`, so app ambient packages such as `@types/react` do not leak into native xTest globals while `src/*.xtest.tsx` remains included in the manifest-editor project.
 If VS Code was already open before materialization, run `TypeScript: Restart TS Server`.
 
 `ctx` is not a native xTest global. Use the documented globals above, explicit imports, or callback parameters provided by specific tags such as `<Project>`.

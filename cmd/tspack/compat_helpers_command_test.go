@@ -48,6 +48,13 @@ func TestCompatHelpersFixtureCommands(t *testing.T) {
 	assertJSONFileContainsKey(t, filepath.Join(root, ".vscode", "settings.json"), "typescript.tsdk")
 	assertJSONFileContainsKey(t, filepath.Join(root, ".vscode", "extensions.json"), "recommendations")
 	assertJSONFileContainsKey(t, filepath.Join(root, "compat.raw.json"), "raw")
+	gotTSConfig, err := os.ReadFile(filepath.Join(root, "tsconfig.tspack.json"))
+	if err != nil {
+		t.Fatalf("read generated tsconfig.tspack.json: %v", err)
+	}
+	if !jsonBytesEqual(t, gotTSConfig, []byte(initTSPackTSConfigJSON)) {
+		t.Fatalf("compat helper tsconfig.tspack.json drifted from initTSPackTSConfigJSON:\n%s", string(gotTSConfig))
+	}
 	if _, err := os.Stat(filepath.Join(root, ".tspack", "types", "tspack-manifest.d.ts")); err != nil {
 		t.Fatalf("compat write did not create manifest type support: %v", err)
 	}
@@ -85,4 +92,28 @@ func assertJSONFileContainsKey(t *testing.T, path string, key string) {
 	if _, ok := value[key]; !ok {
 		t.Fatalf("%s did not contain key %s: %s", path, key, string(contents))
 	}
+}
+
+func jsonBytesEqual(t *testing.T, left []byte, right []byte) bool {
+	t.Helper()
+
+	var leftValue any
+	if err := json.Unmarshal(left, &leftValue); err != nil {
+		t.Fatalf("parse left JSON: %v", err)
+	}
+	var rightValue any
+	if err := json.Unmarshal(right, &rightValue); err != nil {
+		t.Fatalf("parse right JSON: %v", err)
+	}
+
+	leftCanon, err := json.Marshal(leftValue)
+	if err != nil {
+		t.Fatalf("marshal left JSON: %v", err)
+	}
+	rightCanon, err := json.Marshal(rightValue)
+	if err != nil {
+		t.Fatalf("marshal right JSON: %v", err)
+	}
+
+	return string(leftCanon) == string(rightCanon)
 }

@@ -11,6 +11,7 @@ TSPack provides a local TypeScript authoring surface at `tspack/manifest`.
 - `tspack init --alongside` plus `tspack compat write` materializes the same local declaration support for existing npm projects.
 - `tspack init` also writes `tsconfig.tspack.json` for editor and type-surface support of manifest files.
 - `tsconfig.tspack.json` uses `jsx: preserve` so manifest TSX and `*.xtest.tsx` do not require React or `react/jsx-runtime`.
+- `tsconfig.tspack.json` also sets `"types": []`, so app ambient packages such as `@types/react` do not leak JSX globals into manifest or xTest authoring.
 - This surface is for editor autocomplete/typechecking only.
 - Parser, normalized IR, and Go validation remain authoritative.
 - Manifests are still statically parsed; helper functions are not runtime-executed.
@@ -25,13 +26,13 @@ TSPack owns these TSX/type contexts:
 - `**/*.xtest.tsx`
 - `.tspack/types/**/*.d.ts`
 
-App and framework tooling owns normal app source such as `src/**/*.ts`, `src/**/*.tsx`, app test files, and framework configs. If an app `tsconfig.json` includes root TSX broadly, exclude TSPack-owned files there and use `tsconfig.tspack.json` when editing manifests. TSPack parses only manifest entrypoints as manifest DSL.
+App and framework tooling owns normal app source such as `src/**/*.ts`, `src/**/*.tsx`, app test files, and framework configs. `tsconfig.tspack.json` intentionally allowlists only manifest files, `*.xtest.tsx`, and `.tspack/types/**/*.d.ts`, so ordinary app files such as `src/App.tsx` do not join the manifest editor project. If an app `tsconfig.json` includes root TSX broadly, exclude TSPack-owned files there and use `tsconfig.tspack.json` when editing manifests. TSPack parses only manifest entrypoints as manifest DSL.
 
 ## Troubleshooting manifest editor errors
 
 - `Cannot find module "tspack/manifest"` usually means the local editor support files have not been materialized yet. Run `tspack compat write` in alongside projects, or rerun `tspack init --force` in init-owned projects.
 - `Cannot find name 'Workspace'` and similar JSX symbol errors usually mean the manifest did not import every JSX component it uses from `tspack/manifest`.
-- `Cannot find module 'react/jsx-runtime'` means the manifest is being checked under the wrong tsconfig. Use `tsconfig.tspack.json`, which keeps `jsx: preserve`, and restart the TypeScript server if VS Code had the project open before the file was created.
+- `Cannot find module 'react/jsx-runtime'` means the manifest is being checked under the wrong tsconfig. Use `tsconfig.tspack.json`, which keeps `jsx: preserve`, and restart the TypeScript server if VS Code had the project open before the file was created or before `tspack compat write` materialized the editor files.
 
 ## M1 constraints
 

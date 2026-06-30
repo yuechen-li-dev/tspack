@@ -518,8 +518,12 @@ export default defineWorkspace(
               compilerOptions: expect.objectContaining({
                 jsx: 'preserve',
                 moduleResolution: 'Bundler',
+                types: [],
+                baseUrl: '.',
+                ignoreDeprecations: '5.0',
               }),
-              include: expect.arrayContaining(['manifest.tsx']),
+              include: expect.arrayContaining(['manifest.tsx', '**/*.xtest.tsx']),
+              exclude: expect.not.arrayContaining(['src/**']),
             }),
           },
           {

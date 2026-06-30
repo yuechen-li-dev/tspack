@@ -655,6 +655,87 @@ func runManifestEditorTypecheck(t *testing.T, repo string, root string, configNa
 	}
 }
 
+func runManifestEditorListFiles(t *testing.T, repo string, root string, configName string) []string {
+	t.Helper()
+
+	tscPath, err := filepath.Abs(filepath.Join(repo, "manifest-frontend", "node_modules", "typescript", "bin", "tsc"))
+	if err != nil {
+		t.Fatalf("resolve tsc path: %v", err)
+	}
+
+	tsc := exec.Command("node", tscPath, "--project", filepath.Join(root, configName), "--noEmit", "--listFiles")
+	tsc.Dir = repo
+	out, err := tsc.CombinedOutput()
+	if err != nil {
+		t.Fatalf("tsc manifest editor listFiles failed: %v\n%s", err, string(out))
+	}
+
+	lines := strings.Split(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n")
+	files := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		files = append(files, filepath.Clean(trimmed))
+	}
+	return files
+}
+
+func writeManifestEditorFixtureFiles(t *testing.T, root string) {
+	t.Helper()
+
+	xtestPath := filepath.Join(root, "src", "Button.xtest.tsx")
+	if err := os.MkdirAll(filepath.Dir(xtestPath), 0o755); err != nil {
+		t.Fatalf("mkdir xtest dir: %v", err)
+	}
+	if err := os.WriteFile(xtestPath, []byte(`export default (
+  <Suite name="button">
+    <Fact name="renders">{() => {
+      expect(true).toBe(true).because("boolean stays true");
+      assert.ok(true, "truthy value is allowed");
+    }}</Fact>
+    <Fact name="can skip">{() => {
+      skip("example");
+    }}</Fact>
+  </Suite>
+);
+`), 0o644); err != nil {
+		t.Fatalf("write xtest fixture: %v", err)
+	}
+
+	appPath := filepath.Join(root, "src", "App.tsx")
+	if err := os.WriteFile(appPath, []byte(`export default function App() {
+  return <div>app</div>;
+}
+`), 0o644); err != nil {
+		t.Fatalf("write app fixture: %v", err)
+	}
+}
+
+func assertListContainsPath(t *testing.T, files []string, path string) {
+	t.Helper()
+
+	target := filepath.Clean(path)
+	for _, file := range files {
+		if filepath.Clean(file) == target {
+			return
+		}
+	}
+	t.Fatalf("expected listFiles to include %s\nfiles:\n%s", target, strings.Join(files, "\n"))
+}
+
+func assertListDoesNotContainPath(t *testing.T, files []string, path string) {
+	t.Helper()
+
+	target := filepath.Clean(path)
+	for _, file := range files {
+		if filepath.Clean(file) == target {
+			t.Fatalf("expected listFiles to exclude %s\nfiles:\n%s", target, strings.Join(files, "\n"))
+		}
+	}
+}
+
 func assertGeneratedReactAppTSConfig(t *testing.T, root string) {
 	t.Helper()
 
@@ -710,6 +791,19 @@ func assertGeneratedTSPackTSConfig(t *testing.T, root string) {
 	if compilerOptions["jsx"] != "preserve" {
 		t.Fatalf("generated TSPack tsconfig should preserve JSX, got %#v", compilerOptions["jsx"])
 	}
+	typesValues, ok := compilerOptions["types"].([]any)
+	if !ok {
+		t.Fatalf("generated TSPack tsconfig should set compilerOptions.types to an empty array: %#v", compilerOptions["types"])
+	}
+	if len(typesValues) != 0 {
+		t.Fatalf("generated TSPack tsconfig should isolate ambient @types packages with an empty types array, got %#v", typesValues)
+	}
+	if compilerOptions["ignoreDeprecations"] != "5.0" {
+		t.Fatalf("generated TSPack tsconfig should deliberately guard baseUrl deprecation warnings, got %#v", compilerOptions["ignoreDeprecations"])
+	}
+	if compilerOptions["baseUrl"] != "." {
+		t.Fatalf("generated TSPack tsconfig should keep baseUrl for non-relative paths mapping, got %#v", compilerOptions["baseUrl"])
+	}
 	paths, ok := compilerOptions["paths"].(map[string]any)
 	if !ok {
 		t.Fatalf("generated TSPack tsconfig missing paths: %#v", compilerOptions)
@@ -727,10 +821,13 @@ func assertGeneratedTSPackTSConfig(t *testing.T, root string) {
 	}
 
 	excludeSet := jsonStringArraySet(t, config["exclude"])
-	for _, want := range []string{"src/**", "dist/**", "node_modules/**", ".tspack/store/**", "tspack-artifacts/**"} {
+	for _, want := range []string{"dist/**", "node_modules/**", ".tspack/store/**", "tspack-artifacts/**"} {
 		if !excludeSet[want] {
 			t.Fatalf("generated TSPack tsconfig missing exclude %q in %#v", want, excludeSet)
 		}
+	}
+	if excludeSet["src/**"] {
+		t.Fatalf("generated TSPack tsconfig must not exclude src/** because that drops src/*.xtest.tsx")
 	}
 }
 
@@ -830,6 +927,91 @@ func TestInitAlongsideWritesOnlyManifest(t *testing.T) {
 	assertPathMissing(t, filepath.Join(root, "ts-lock.toml"))
 	assertPathMissing(t, filepath.Join(root, ".vscode"))
 	assertPathMissing(t, filepath.Join(root, "tsconfig.tspack.json"))
+}
+
+func TestInitGeneratedManifestEditorTSConfigListFilesIsolation(t *testing.T) {
+	repo := repoRoot(t)
+	bin := buildTspackBinary(t, repo)
+	root := t.TempDir()
+
+	cmd := tspackTestCommand(t, repo, bin, "init", "--template", "react", "--name", "m64b-react", "--root", root)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("init failed: %v\n%s", err, string(out))
+	}
+
+	writeManifestEditorFixtureFiles(t, root)
+
+	reactTypesDir := filepath.Join(root, "node_modules", "@types", "react")
+	if err := os.MkdirAll(reactTypesDir, 0o755); err != nil {
+		t.Fatalf("mkdir @types/react fixture: %v", err)
+	}
+	reactTypesPath := filepath.Join(reactTypesDir, "index.d.ts")
+	if err := os.WriteFile(reactTypesPath, []byte(`declare namespace JSX {
+  interface IntrinsicElements {
+    div: { id?: string };
+  }
+}
+`), 0o644); err != nil {
+		t.Fatalf("write @types/react fixture: %v", err)
+	}
+
+	runManifestEditorTypecheck(t, repo, root, "tsconfig.tspack.json")
+	files := runManifestEditorListFiles(t, repo, root, "tsconfig.tspack.json")
+
+	assertListContainsPath(t, files, filepath.Join(root, "manifest.tsx"))
+	assertListContainsPath(t, files, filepath.Join(root, ".tspack", "types", "tspack-manifest.d.ts"))
+	assertListContainsPath(t, files, filepath.Join(root, ".tspack", "types", "tspack-xtest.d.ts"))
+	assertListContainsPath(t, files, filepath.Join(root, "src", "Button.xtest.tsx"))
+	assertListDoesNotContainPath(t, files, filepath.Join(root, "src", "App.tsx"))
+	assertListDoesNotContainPath(t, files, reactTypesPath)
+}
+
+func TestInitAlongsideManifestEditorTSConfigListFilesIsolation(t *testing.T) {
+	repo := repoRoot(t)
+	bin := buildTspackBinary(t, repo)
+	root := copyDogfoodProject(t, repo)
+
+	initCmd := tspackTestCommand(t, repo, bin, "init", "--alongside", "--root", root)
+	if out, err := initCmd.CombinedOutput(); err != nil {
+		t.Fatalf("init alongside failed: %v\n%s", err, string(out))
+	}
+
+	compatCmd := tspackTestCommand(t, repo, bin, "compat", "write", "--root", root)
+	if out, err := compatCmd.CombinedOutput(); err != nil {
+		t.Fatalf("compat write failed: %v\n%s", err, string(out))
+	}
+
+	writeManifestEditorFixtureFiles(t, root)
+	files := runManifestEditorListFiles(t, repo, root, "tsconfig.tspack.json")
+
+	assertListContainsPath(t, files, filepath.Join(root, "manifest.tsx"))
+	assertListContainsPath(t, files, filepath.Join(root, "src", "Button.xtest.tsx"))
+	assertListDoesNotContainPath(t, files, filepath.Join(root, "src", "App.tsx"))
+}
+
+func TestInitTSPackTSConfigConstantMatchesTemplateCopies(t *testing.T) {
+	repo := repoRoot(t)
+	expected := normalizeManifestTypeDecl(initTSPackTSConfigJSON)
+
+	templatePaths := []string{
+		filepath.Join(repo, "internal", "templates", "builtin", "static", "files", "tsconfig.tspack.json"),
+		filepath.Join(repo, "internal", "templates", "builtin", "react", "files", "tsconfig.tspack.json"),
+		filepath.Join(repo, "internal", "templates", "builtin", "react-library", "files", "tsconfig.tspack.json"),
+		filepath.Join(repo, "internal", "templates", "testdata", "local-concepts", "concept-manifest-app", "files", "tsconfig.tspack.json"),
+		filepath.Join(repo, "internal", "templates", "testdata", "local-concepts", "machina-react-app", "files", "tsconfig.tspack.json"),
+		filepath.Join(repo, "internal", "templates", "testdata", "local-concepts", "tailwind-machina-react-app", "files", "tsconfig.tspack.json"),
+		filepath.Join(repo, "internal", "templates", "testdata", "local-concepts", "tailwind-react-app", "files", "tsconfig.tspack.json"),
+	}
+
+	for _, templatePath := range templatePaths {
+		templateBytes, err := os.ReadFile(templatePath)
+		if err != nil {
+			t.Fatalf("read template tsconfig %s: %v", templatePath, err)
+		}
+		if normalizeManifestTypeDecl(string(templateBytes)) != expected {
+			t.Fatalf("template tsconfig drifted from initTSPackTSConfigJSON: %s", templatePath)
+		}
+	}
 }
 
 func TestInitAlongsideCompatAndAdoptTransition(t *testing.T) {

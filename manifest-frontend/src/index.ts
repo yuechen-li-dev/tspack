@@ -273,7 +273,9 @@ function manifestEditorTsConfig(): Record<string, unknown> {
       jsx: 'preserve',
       strict: true,
       noEmit: true,
+      types: [],
       baseUrl: '.',
+      ignoreDeprecations: '5.0',
       paths: {
         'tspack/manifest': ['.tspack/types/tspack-manifest.d.ts'],
       },
@@ -286,7 +288,6 @@ function manifestEditorTsConfig(): Record<string, unknown> {
       '.tspack/types/**/*.d.ts',
     ],
     exclude: [
-      'src/**',
       'dist/**',
       'node_modules/**',
       '.tspack/store/**',

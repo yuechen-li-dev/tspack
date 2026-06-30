@@ -92,7 +92,7 @@ Variables:
 - `packageName` from `--package`, defaulting to `projectName`
 - `runtime` from `--runtime`, allowed values `nodejs`, `bun`, and `deno`
 
-Generated files include `manifest.tsx`, `tsconfig.tspack.json`, `tsconfig.json`, `biome.json`, `vite.config.ts`, `package.json`, `index.html`, `src/main.tsx`, `src/App.tsx`, `src/style.css`, and `README.md`. The app tsconfig uses React JSX and excludes TSPack manifest/xTest files, while `tsconfig.tspack.json` preserves JSX for manifest/xTest editing and picks up generated local declarations from `.tspack/types/**/*.d.ts`.
+Generated files include `manifest.tsx`, `tsconfig.tspack.json`, `tsconfig.json`, `biome.json`, `vite.config.ts`, `package.json`, `index.html`, `src/main.tsx`, `src/App.tsx`, `src/style.css`, and `README.md`. The app tsconfig uses React JSX and excludes TSPack manifest/xTest files, while `tsconfig.tspack.json` preserves JSX for manifest/xTest editing, isolates ambient `@types/*` packages with `"types": []`, includes `src/*.xtest.tsx`, and picks up generated local declarations from `.tspack/types/**/*.d.ts`.
 
 The manifest declares `react` and `react-dom` as runtime dependencies, Vite/TypeScript/plugin/type/Biome packages as tools, Node-backed Vite run targets (`dev`, `build`, and `preview`), manual React runtime update policy, rolling minor tooling update policy, and consumer-install plus maintainer-publish lifecycle category acknowledgments. Acknowledgments keep known tool-closure lifecycle scripts auditable and do not allow execution; TSPack still blocks lifecycle execution by default. `package.json` is compatibility glue only and contains no lifecycle scripts. Run `tspack update` and `tspack sync` before `tspack check --format`, `tspack run dev`, or `tspack run build`; sync materializes the project `node_modules/.bin` shims that let TSPack launch Vite without a global install.
 
@@ -113,7 +113,7 @@ React and React DOM are modeled as peer dependencies in the manifest and compati
 
 Run targets are intentionally simple and Node-oriented: `build` runs Vite library mode, `build-types` emits declarations with `tsc -p tsconfig.build.json`, and `typecheck` runs `tsc -p tsconfig.json --noEmit`. TSPack does not sequence those targets yet, so run both `build` and `build-types` before pack verification.
 
-The editor boundary mirrors the other built-in templates: `tsconfig.tspack.json` covers TSPack-owned manifest and `*.xtest.tsx` files without requiring the React JSX runtime, while the library `tsconfig.json` uses `jsx: "react-jsx"` and excludes TSPack-owned files.
+The editor boundary mirrors the other built-in templates: `tsconfig.tspack.json` covers TSPack-owned manifest and `*.xtest.tsx` files without requiring the React JSX runtime, keeps ambient app packages such as `@types/react` out of the editor project with `"types": []`, and leaves ordinary library app files under the main `tsconfig.json`, which uses `jsx: "react-jsx"` and excludes TSPack-owned files.
 
 ## Manifest JSON compat helper presets
 
