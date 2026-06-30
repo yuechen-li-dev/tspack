@@ -353,3 +353,7 @@ export default annotatePackage(
 ```
 
 If an annotation manifest is used where a full split-workspace package contract is required, TSPack rejects it with a diagnostic instead of silently treating partial annotations as a native package.
+
+### Suggested annotation manifests
+
+Existing npm packages can bootstrap annotation mode with `tspack adopt --suggest-package <package-root>`. The command prints advisory `annotatePackage(<PackageAnnotations />)` source that uses the annotation dependency helpers documented above. The generated file is intentionally limited to dependency annotations: it does not declare targets, run targets, policies, or full package ownership, and `package.json` remains authoritative until the package explicitly moves to a full TSPack package contract.

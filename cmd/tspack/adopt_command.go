@@ -14,6 +14,7 @@ func runAdoptCommand(args []string) {
 	root := "."
 	reportRequested := false
 	securityRequested := false
+	suggestPackage := ""
 	jsonOutput := false
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
@@ -28,6 +29,13 @@ func runAdoptCommand(args []string) {
 			reportRequested = true
 		case "--security":
 			securityRequested = true
+		case "--suggest-package":
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_SUGGEST_PACKAGE_REQUIRED: --suggest-package requires a package root")
+				os.Exit(1)
+			}
+			suggestPackage = args[i]
 		case "--json":
 			jsonOutput = true
 		default:
@@ -35,16 +43,30 @@ func runAdoptCommand(args []string) {
 			os.Exit(1)
 		}
 	}
-	if reportRequested && securityRequested {
-		fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_INVALID_ARGS: --report and --security cannot be combined")
+	requestedCount := 0
+	if reportRequested {
+		requestedCount++
+	}
+	if securityRequested {
+		requestedCount++
+	}
+	if suggestPackage != "" {
+		requestedCount++
+	}
+	if requestedCount > 1 {
+		fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_INVALID_ARGS: --report, --security, and --suggest-package cannot be combined")
 		os.Exit(1)
 	}
-	if !reportRequested && !securityRequested {
-		fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_INVALID_ARGS: adopt requires either --report or --security")
+	if requestedCount == 0 {
+		fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_INVALID_ARGS: adopt requires --report, --security, or --suggest-package")
 		os.Exit(1)
 	}
 	if securityRequested {
 		runAdoptSecurity(root, jsonOutput)
+		return
+	}
+	if suggestPackage != "" {
+		runAdoptSuggestPackage(root, suggestPackage)
 		return
 	}
 	obs, err := adoption.Observe(root)
@@ -68,6 +90,18 @@ func runAdoptCommand(args []string) {
 		return
 	}
 	printAdoptionReport(report)
+}
+
+func runAdoptSuggestPackage(root string, packageRoot string) {
+	suggestion, err := adoption.SuggestPackageAnnotation(root, packageRoot)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
+	if suggestion.ExistingManifestKind != "" {
+		fmt.Fprintf(os.Stderr, "TSPACK_ADOPT_SUGGEST_PACKAGE_MANIFEST_EXISTS: %s already exists as a %s; not overwriting.\n", suggestion.ManifestPath, suggestion.ExistingManifestKind)
+	}
+	fmt.Print(suggestion.Content)
 }
 
 func runAdoptSecurity(root string, jsonOutput bool) {
