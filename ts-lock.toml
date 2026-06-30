@@ -1194,17 +1194,17 @@ Workspace = ''
 Hash = 'sha256:2f9c0a0dc4d68c5bd759f4730d7be1d4e9b45fb5ff937a1906069dd4e69252c3'
 
 [[package]]
-ID = 'npm:postcss@8.5.15'
+ID = 'npm:postcss@8.5.16'
 Name = 'postcss'
-Version = '8.5.15'
+Version = '8.5.16'
 Source = 'npm'
-Integrity = 'sha512-FfR8sjd4em2T6fb3I2MwAJU7HWVMr9zba+enmQeeWFfCbm+UOC/0X4DS8XtpUTMwWMGbjKYP7xjfNekzyGmB3A=='
+Integrity = 'sha512-vuwillviilfKZsg0VGj5R/YwwcHx4SLsIOI/7K6mQkWx+l5cUHTjj5g0AasTBcyXsbfTgrwsUNmVUb5xVwyPwg=='
 Repo = ''
 Rev = ''
 TreeHash = ''
 Path = ''
 Workspace = ''
-Hash = 'sha256:f674b1612cb8fb65b2328d35ba33fecd6fd85edd65ac8d72eac2ca86dcfb2056'
+Hash = 'sha256:52d87ea0637d59954a71a4ee23c2848bfd570d0b7d6488100c456c4310963c98'
 
 [[package]]
 ID = 'npm:rollup@4.62.2'
@@ -1847,19 +1847,19 @@ Kind = 'runtime'
 Optional = false
 
 [[edge]]
-From = 'npm:postcss@8.5.15'
+From = 'npm:postcss@8.5.16'
 To = 'npm:nanoid@3.3.15'
 Kind = 'runtime'
 Optional = false
 
 [[edge]]
-From = 'npm:postcss@8.5.15'
+From = 'npm:postcss@8.5.16'
 To = 'npm:picocolors@1.1.1'
 Kind = 'runtime'
 Optional = false
 
 [[edge]]
-From = 'npm:postcss@8.5.15'
+From = 'npm:postcss@8.5.16'
 To = 'npm:source-map-js@1.2.1'
 Kind = 'runtime'
 Optional = false
@@ -2070,7 +2070,7 @@ Optional = true
 
 [[edge]]
 From = 'npm:vite@5.4.21'
-To = 'npm:postcss@8.5.15'
+To = 'npm:postcss@8.5.16'
 Kind = 'runtime'
 Optional = false
 
