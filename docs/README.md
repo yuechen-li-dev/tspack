@@ -2,6 +2,7 @@
 
 ## Release and status
 
+- [v0.1.5 planned release notes](releases/v0.1.5.md)
 - [v0.1.3 release notes](releases/v0.1.3.md)
 - [0.1.0 release notes](releases/v0.1.0.md)
 - [0.1.0 release readiness and tagging checklist](release-0.1.0.md)

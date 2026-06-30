@@ -4,7 +4,7 @@ TSPack is an early TypeScript project lifecycle manager built around explicit ma
 
 ## Status
 
-TSPack is preparing for its `v0.1.3` patch release. It is useful for early dogfooding and release-candidate validation, but it is not production-stable and the CLI, manifest API, and generated artifacts may still change.
+The latest public release is `v0.1.4`, and the repository is preparing for the next patch release. It is useful for early dogfooding and release-candidate validation, but it is not production-stable and the CLI, manifest API, and generated artifacts may still change.
 
 The repository is self-hosted after bootstrap: a trusted source checkout or binary is required first, then TSPack can manage, check, audit, and describe its own project contract. See [self-hosting](docs/self-hosting.md) and the [release gate](docs/release-gate.md).
 
@@ -17,12 +17,12 @@ The repository is self-hosted after bootstrap: a trusted source checkout or bina
 
 ## Install
 
-After `v0.1.3` is published, download release artifacts from GitHub Releases. Release archives are expected to include SHA256 coverage through `checksums.txt`.
+Download release artifacts from GitHub Releases. Release archives are expected to include SHA256 coverage through `checksums.txt`.
 
 From a trusted checkout, Unix users can run:
 
 ```bash
-TSPACK_VERSION=v0.1.3 sh scripts/install.sh
+TSPACK_VERSION=v0.1.4 sh scripts/install.sh
 ```
 
 The installer downloads GitHub Release artifacts, verifies the checksum entry, and installs `tspack` to `$HOME/.local/bin` unless `TSPACK_INSTALL_DIR` is set. Review installer scripts before running them from raw URLs. `get.tspack.dev` is not live.
@@ -79,7 +79,7 @@ TSPack is self-hosted after bootstrap. The root `manifest.tsx` and `ts-lock.toml
 
 ## Docs
 
-Start with [docs/README.md](docs/README.md), especially the [v0.1.3 release notes](docs/releases/v0.1.3.md), [roadmap](docs/roadmap.md), [distribution](docs/distribution.md), [security](docs/security.md), and [release gate](docs/release-gate.md).
+Start with [docs/README.md](docs/README.md), especially the [v0.1.5 planned release notes](docs/releases/v0.1.5.md), [v0.1.3 release notes](docs/releases/v0.1.3.md), [roadmap](docs/roadmap.md), [distribution](docs/distribution.md), [security](docs/security.md), and [release gate](docs/release-gate.md).
 
 ### Quickstart template
 
