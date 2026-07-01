@@ -50,7 +50,7 @@ Before writing package content, materializer:
 
 1. derives package store hash from lock package (`hash`, fallback `tree_hash`)
 2. verifies artifact in store
-3. copies extracted content into destination
+3. materializes extracted content into destination with hardlink-first regular-file writes and copy fallback when hardlinking is unavailable
 
 No fetch or resolve happens in materialization.
 
@@ -65,14 +65,32 @@ A defensive dependency-depth guard also stops materialization with `TSPACK_MATER
 Supported:
 
 - `copy`
-- `auto` (currently resolves to `copy`)
+- `hardlink`
+- `auto` (resolves to hardlink-first)
 
 Not yet implemented in M10:
 
 - `symlink`
-- `hardlink`
 
 Unsupported modes return diagnostics.
+
+## Hardlink-first behavior (M65a)
+
+Regular package files now materialize from the content-addressed store with a hardlink-first strategy:
+
+- TSPack tries to hardlink each regular store file into `node_modules`.
+- If the filesystem, device, permissions, or platform do not allow hardlinks, TSPack falls back to byte-copying that file.
+- Directory staging and final replacement remain atomic at the package-directory level.
+
+This reduces disk amplification and speeds up `tspack sync`, but it also means a store file and a materialized `node_modules` file may be the same underlying file identity.
+
+Treat `node_modules` as immutable generated output:
+
+- do not edit files under `node_modules`
+- do not run tools that patch dependency files in place
+- in-place writes to a hardlinked dependency file can mutate the shared store artifact for every project using that package version
+
+TSPack does not add store corruption detection or copy-on-write in M65a. If hardlinking is unsupported in the current environment, materialization falls back to copying automatically.
 
 ## Non-goals in M10
 

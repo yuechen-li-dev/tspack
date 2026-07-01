@@ -2,6 +2,7 @@ package materialize
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -215,6 +216,137 @@ func TestDeterministicAndLinkMode(t *testing.T) {
 	assertCode(t, bad, "TSPACK_MATERIALIZE_UNSUPPORTED_LINK_MODE")
 }
 
+func TestMaterializeFileHardlinksWhenAvailable(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := t.TempDir()
+	src := filepath.Join(srcDir, "tool.js")
+	dest := filepath.Join(destDir, "tool.js")
+	if err := os.WriteFile(src, []byte("#!/usr/bin/env node\nconsole.log('hi')\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := materializeFile(src, dest, info, LinkModeHardlink); err != nil {
+		t.Fatal(err)
+	}
+	assertFileContent(t, dest, "#!/usr/bin/env node\nconsole.log('hi')\n")
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destInfo, err := os.Stat(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(srcInfo, destInfo) {
+		t.Skip("hardlinks unavailable in this environment; content fallback succeeded")
+	}
+	if runtime.GOOS != "windows" && destInfo.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("expected executable mode on hardlinked file, got %o", destInfo.Mode().Perm())
+	}
+}
+
+func TestMaterializeFileFallsBackToCopyWhenHardlinkFails(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := t.TempDir()
+	src := filepath.Join(srcDir, "package.json")
+	dest := filepath.Join(destDir, "package.json")
+	if err := os.WriteFile(src, []byte("{\"name\":\"pkg\"}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalLink := materializeLink
+	materializeLink = func(oldname string, newname string) error {
+		return errors.New("hardlinks disabled for test")
+	}
+	t.Cleanup(func() {
+		materializeLink = originalLink
+	})
+	if err := materializeFile(src, dest, info, LinkModeHardlink); err != nil {
+		t.Fatal(err)
+	}
+	assertFileContent(t, dest, "{\"name\":\"pkg\"}\n")
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destInfo, err := os.Stat(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if os.SameFile(srcInfo, destInfo) {
+		t.Fatal("fallback copy should not share file identity with source")
+	}
+	if runtime.GOOS != "windows" && destInfo.Mode().Perm() != 0o644 {
+		t.Fatalf("expected copied mode 0644, got %o", destInfo.Mode().Perm())
+	}
+}
+
+func TestMaterializePackageFilesHardlinkFromStoreWhenAvailable(t *testing.T) {
+	ws := t.TempDir()
+	s, _ := store.Open(t.TempDir())
+	h := putPkgWithPackageJSON(
+		t,
+		s,
+		"npm:tool@1.0.0",
+		"tool",
+		`{"name":"tool","bin":{"tool":"bin/tool.js"}}`,
+		[]fileSpec{{path: "bin/tool.js", content: "#!/usr/bin/env node\nconsole.log('tool')\n", mode: 0o755}},
+	)
+	lf := &lockfile.Lockfile{
+		Packages: []lockfile.Package{{ID: "npm:tool@1.0.0", Name: "tool", Hash: h}},
+		Edges:    []lockfile.Edge{{From: "app:tool", To: "npm:tool@1.0.0", Kind: "tool"}},
+	}
+	res := NodeModulesMaterializer{}.Materialize(context.Background(), Request{WorkspaceRoot: ws, Lock: lf, Store: s})
+	if len(res.Diagnostics) > 0 {
+		t.Fatalf("diags: %#v", res.Diagnostics)
+	}
+	ref, diags := s.Get(h)
+	if len(diags) > 0 {
+		t.Fatalf("store get diags: %#v", diags)
+	}
+	storeFile := filepath.Join(ref.ExtractedPath, "package.json")
+	materializedFile := filepath.Join(ws, "node_modules", "tool", "package.json")
+	mustExist(t, materializedFile)
+	assertFileContent(t, materializedFile, "{\"name\":\"tool\",\"bin\":{\"tool\":\"bin/tool.js\"}}")
+	storeInfo, err := os.Stat(storeFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	materializedInfo, err := os.Stat(materializedFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(storeInfo, materializedInfo) {
+		t.Skip("hardlinks unavailable in this environment; package materialization fell back to copy")
+	}
+}
+
+func TestMaterializeCanReplaceExistingTreeWithoutClean(t *testing.T) {
+	ws := t.TempDir()
+	s, _ := store.Open(t.TempDir())
+	h := putPkg(t, s, "npm:pkg@1.0.0", "pkg")
+	lf := &lockfile.Lockfile{
+		Packages: []lockfile.Package{{ID: "npm:pkg@1.0.0", Name: "pkg", Hash: h}},
+		Edges:    []lockfile.Edge{{From: "app:target:core", To: "npm:pkg@1.0.0", Kind: "runtime"}},
+	}
+	m := NodeModulesMaterializer{}
+	first := m.Materialize(context.Background(), Request{WorkspaceRoot: ws, Lock: lf, Store: s})
+	if len(first.Diagnostics) > 0 {
+		t.Fatalf("first diags: %#v", first.Diagnostics)
+	}
+	second := m.Materialize(context.Background(), Request{WorkspaceRoot: ws, Lock: lf, Store: s})
+	if len(second.Diagnostics) > 0 {
+		t.Fatalf("second diags: %#v", second.Diagnostics)
+	}
+	mustExist(t, filepath.Join(ws, "node_modules", "pkg", "package.json"))
+}
+
 func TestMaterializeCircularDependenciesStayBounded(t *testing.T) {
 	ws := t.TempDir()
 	s, _ := store.Open(t.TempDir())
@@ -424,4 +556,15 @@ func putPkgWithPackageJSON(t *testing.T, s *store.Store, id, name, packageJSON s
 		t.Fatal(diags)
 	}
 	return ref.Hash
+}
+
+func assertFileContent(t *testing.T, path string, want string) {
+	t.Helper()
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != want {
+		t.Fatalf("unexpected file content for %s:\nwant: %q\ngot:  %q", path, want, string(got))
+	}
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -63,6 +64,8 @@ const markerFile = ".tspack-materialized"
 
 const maxMaterializeDependencyDepth = 64
 
+var materializeLink = os.Link
+
 type materializeFileLockError struct {
 	Op       string
 	Path     string
@@ -93,10 +96,10 @@ func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) R
 	}
 	mode := req.Options.LinkMode
 	if mode == "" || mode == LinkModeAuto {
-		mode = LinkModeCopy
+		mode = LinkModeHardlink
 	}
-	if mode != LinkModeCopy {
-		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_UNSUPPORTED_LINK_MODE", Severity: diag.SeverityError, Message: fmt.Sprintf("link mode %q is not implemented in M10", mode)})
+	if mode != LinkModeCopy && mode != LinkModeHardlink {
+		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_UNSUPPORTED_LINK_MODE", Severity: diag.SeverityError, Message: fmt.Sprintf("link mode %q is not supported by the node_modules materializer", mode)})
 		return finalize(out)
 	}
 	nmRoot := filepath.Join(req.WorkspaceRoot, "node_modules")
@@ -276,7 +279,7 @@ func materializePkg(req Request, out *Result, pkgs map[string]lockfile.Package, 
 		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_MISSING_STORE_ARTIFACT", Severity: diag.SeverityError, Message: "missing store artifact", Details: []string{pkg.ID, hash}})
 		return
 	}
-	if err := copyTree(ref.ExtractedPath, dest); err != nil {
+	if err := copyTree(ref.ExtractedPath, dest, req.Options.LinkMode); err != nil {
 		out.Diagnostics = append(out.Diagnostics, materializeDiagnosticFromError(err, pkg.ID, dest, pkg.Name))
 		return
 	}
@@ -385,7 +388,10 @@ func cleanNodeModules(nmRoot string) error {
 	return removeMaterializedPath(nmRoot)
 }
 
-func copyTree(src, dest string) error {
+func copyTree(src, dest string, linkMode LinkMode) error {
+	if linkMode == "" || linkMode == LinkModeAuto {
+		linkMode = LinkModeHardlink
+	}
 	return replaceMaterializedDirectory(dest, func(stage string) error {
 		return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
@@ -410,27 +416,45 @@ func copyTree(src, dest string) error {
 			}); err != nil {
 				return err
 			}
-			in, err := os.Open(path)
-			if err != nil {
-				return err
-			}
-			defer in.Close()
-			mode := info.Mode().Perm()
-			if mode == 0 {
-				mode = 0o644
-			}
-			f, err := openMaterializedFileForWrite(out, mode)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			if _, err := io.Copy(f, in); err != nil {
-				return err
-			}
-			return retryMaterializeFileOp("chmod", out, func() error {
-				return os.Chmod(out, mode)
-			})
+			return materializeFile(path, out, info, linkMode)
 		})
+	})
+}
+
+func materializeFile(src string, dest string, info fs.FileInfo, linkMode LinkMode) error {
+	if linkMode == "" || linkMode == LinkModeAuto {
+		linkMode = LinkModeHardlink
+	}
+	mode := info.Mode().Perm()
+	if mode == 0 {
+		mode = 0o644
+	}
+	if info.Mode().IsRegular() && linkMode == LinkModeHardlink {
+		if err := retryMaterializeFileOp("link", dest, func() error {
+			return materializeLink(src, dest)
+		}); err == nil {
+			return nil
+		}
+	}
+	return copyMaterializedFile(src, dest, mode)
+}
+
+func copyMaterializedFile(src string, dest string, mode os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	f, err := openMaterializedFileForWrite(dest, mode)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := io.Copy(f, in); err != nil {
+		return err
+	}
+	return retryMaterializeFileOp("chmod", dest, func() error {
+		return os.Chmod(dest, mode)
 	})
 }
 

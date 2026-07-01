@@ -73,7 +73,7 @@ func TestCheckHelpAliasMentionsDiagnostics(t *testing.T) {
 
 func TestSyncHelpMentionsHydrationBehavior(t *testing.T) {
 	text := runTSPackForHelpTest(t, "help", "sync")
-	assertContainsAll(t, text, "Materializes dependencies from ts-lock.toml.", "hydrates missing local store artifacts", "without changing versions or rewriting ts-lock.toml")
+	assertContainsAll(t, text, "Materializes dependencies from ts-lock.toml.", "hydrates missing local store artifacts", "without changing versions or rewriting ts-lock.toml", "hardlink-first writes", "immutable generated output")
 }
 
 func TestExhaustiveHelpStillIncludesFlags(t *testing.T) {

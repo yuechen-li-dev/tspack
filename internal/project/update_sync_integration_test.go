@@ -16,6 +16,7 @@ import (
 
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 	"github.com/yuechen-li-dev/tspack/internal/resolver"
+	"github.com/yuechen-li-dev/tspack/internal/store"
 )
 
 func TestUpdateThenSyncWithFakeRegistryPopulatesStore(t *testing.T) {
@@ -52,6 +53,18 @@ func TestUpdateThenSyncWithFakeRegistryPopulatesStore(t *testing.T) {
 		t.Fatalf("sync failed: %#v", s1.Diagnostics)
 	}
 	mustExist(t, filepath.Join(root, "node_modules", "dep-a", "package.json"))
+	storeRef := findPackageStoreRef(t, opts.StoreRoot, lf, "dep-a")
+	storeInfo, err := os.Stat(filepath.Join(storeRef.ExtractedPath, "package.json"))
+	if err != nil {
+		t.Fatalf("stat store package.json: %v", err)
+	}
+	materializedInfo, err := os.Stat(filepath.Join(root, "node_modules", "dep-a", "package.json"))
+	if err != nil {
+		t.Fatalf("stat materialized package.json: %v", err)
+	}
+	if !os.SameFile(storeInfo, materializedInfo) {
+		t.Log("hardlinks unavailable in this environment; sync fell back to copying package files")
+	}
 
 	before, _ := os.ReadFile(opts.LockfilePath)
 	s2 := Sync(opts, false)
@@ -179,6 +192,29 @@ func fakeRegistryTarball(t *testing.T, name, version string, deps map[string]str
 func fakeIntegrity(body []byte) string {
 	s := sha512.Sum512(body)
 	return "sha512-" + base64.StdEncoding.EncodeToString(s[:])
+}
+
+func findPackageStoreRef(t *testing.T, storeRoot string, lf *lockfile.Lockfile, packageName string) store.StoreRef {
+	t.Helper()
+	var hash string
+	for _, pkg := range lf.Packages {
+		if pkg.Name == packageName {
+			hash = pkg.Hash
+			break
+		}
+	}
+	if hash == "" {
+		t.Fatalf("missing package hash for %s in lockfile", packageName)
+	}
+	st, err := store.Open(storeRoot)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	ref, diags := st.Get(hash)
+	if len(diags) > 0 {
+		t.Fatalf("store get diags: %#v", diags)
+	}
+	return ref
 }
 
 func TestTargetedUpdatePreservesNonSelectedRootDep(t *testing.T) {
