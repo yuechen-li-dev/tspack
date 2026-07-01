@@ -163,7 +163,7 @@ func TestSyncProgressReportsHydrationAndColdMaterialization(t *testing.T) {
 
 	var progress bytes.Buffer
 	opts.Progress = Progress{Enabled: true, Writer: &progress}
-	syncResult := Sync(opts, false)
+	syncResult := Sync(opts, false, false)
 	if hasErrors(syncResult.Diagnostics) {
 		t.Fatalf("sync failed: %#v", syncResult.Diagnostics)
 	}
@@ -192,14 +192,14 @@ func TestSyncProgressStaysQuietWhenAlreadyMaterialized(t *testing.T) {
 	if hasErrors(updateResult.Diagnostics) {
 		t.Fatalf("update failed: %#v", updateResult.Diagnostics)
 	}
-	firstSync := Sync(opts, false)
+	firstSync := Sync(opts, false, false)
 	if hasErrors(firstSync.Diagnostics) {
 		t.Fatalf("first sync failed: %#v", firstSync.Diagnostics)
 	}
 
 	var progress bytes.Buffer
 	opts.Progress = Progress{Enabled: true, Writer: &progress}
-	secondSync := Sync(opts, false)
+	secondSync := Sync(opts, false, false)
 	if hasErrors(secondSync.Diagnostics) {
 		t.Fatalf("second sync failed: %#v", secondSync.Diagnostics)
 	}

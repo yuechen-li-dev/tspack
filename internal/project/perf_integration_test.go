@@ -140,7 +140,7 @@ func TestSyncPerfCapturesHydrationAndMaterializationCounters(t *testing.T) {
 		t.Fatalf("NewSession failed: %v", err)
 	}
 	opts.Perf = session
-	syncResult := Sync(opts, false)
+	syncResult := Sync(opts, false, false)
 	if hasErrors(syncResult.Diagnostics) {
 		t.Fatalf("sync failed: %#v", syncResult.Diagnostics)
 	}
@@ -158,6 +158,108 @@ func TestSyncPerfCapturesHydrationAndMaterializationCounters(t *testing.T) {
 		if !phasePresent(report, phase) {
 			t.Fatalf("missing phase %q in %#v", phase, report.Phases)
 		}
+	}
+}
+
+func TestSyncPerfCapturesNoopMarkerCounters(t *testing.T) {
+	root := t.TempDir()
+	irPath := writeIR(t, root, map[string]any{
+		"format":    1,
+		"workspace": map[string]any{"name": "ws"},
+		"packages": []map[string]any{{
+			"name":    "app",
+			"version": "1.0.0",
+			"kind":    "library",
+			"dependencies": []map[string]any{
+				{"key": "dep-a", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "dep-a", "range": "1.0.0"}},
+			},
+			"targets": []map[string]any{{
+				"name":    "core",
+				"export":  ".",
+				"entry":   "src/index.ts",
+				"runtime": "src/index.ts",
+				"types":   "dist/index.d.ts",
+				"deps":    []string{"dep-a"},
+				"peers":   []string{},
+			}},
+			"tools":      []string{},
+			"boundaries": []any{},
+			"publish":    map[string]any{"include": []string{"dist/**"}, "exclude": []string{}},
+			"policies":   map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}},
+		}},
+	})
+	registry := newFakeRegistryServer(t)
+	defer registry.Close()
+
+	opts := DefaultOptions(root)
+	opts.ManifestIRPath = irPath
+	opts.ResolverClient = resolver.NewHTTPRegistryClient(registry.URL)
+	up := Update(opts)
+	if hasErrors(up.Diagnostics) {
+		t.Fatalf("update failed: %#v", up.Diagnostics)
+	}
+	first := Sync(opts, false, false)
+	if hasErrors(first.Diagnostics) {
+		t.Fatalf("first sync failed: %#v", first.Diagnostics)
+	}
+
+	session, err := perf.NewSession("sync", root, false, perf.EnvConfig{Enabled: true}, nil)
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	opts.Perf = session
+	second := Sync(opts, false, false)
+	if hasErrors(second.Diagnostics) {
+		t.Fatalf("second sync failed: %#v", second.Diagnostics)
+	}
+
+	report := session.Snapshot(time.Now().UTC())
+	if !report.Counters.MaterializationNoop {
+		t.Fatalf("expected noop marker counter, got %#v", report.Counters)
+	}
+	if report.Counters.MaterializedFiles != 0 || report.Counters.HardlinkCount != 0 || report.Counters.CopyFallbackCount != 0 {
+		t.Fatalf("expected noop sync to avoid file relinking, got %#v", report.Counters)
+	}
+	if report.Counters.MaterializationMarkerHits == 0 {
+		t.Fatalf("expected marker hit accounting, got %#v", report.Counters)
+	}
+}
+
+func TestSyncPerfCapturesForcedRematerialization(t *testing.T) {
+	root := t.TempDir()
+	irPath := writeIR(t, root, progressNPMIR("dep-a", "dep-a", "1.0.0"))
+	opts := DefaultOptions(root)
+	opts.ManifestIRPath = irPath
+	opts.ResolverClient = buildRegistry()
+
+	up := Update(opts)
+	if hasErrors(up.Diagnostics) {
+		t.Fatalf("update failed: %#v", up.Diagnostics)
+	}
+	first := Sync(opts, false, false)
+	if hasErrors(first.Diagnostics) {
+		t.Fatalf("first sync failed: %#v", first.Diagnostics)
+	}
+
+	session, err := perf.NewSession("sync", root, false, perf.EnvConfig{Enabled: true}, nil)
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	opts.Perf = session
+	forced := Sync(opts, false, true)
+	if hasErrors(forced.Diagnostics) {
+		t.Fatalf("forced sync failed: %#v", forced.Diagnostics)
+	}
+
+	report := session.Snapshot(time.Now().UTC())
+	if !report.Counters.MaterializationForced {
+		t.Fatalf("expected forced materialization counter, got %#v", report.Counters)
+	}
+	if report.Counters.MaterializationNoop {
+		t.Fatalf("force should bypass noop marker path, got %#v", report.Counters)
+	}
+	if report.Counters.MaterializedFiles == 0 {
+		t.Fatalf("force should rematerialize files, got %#v", report.Counters)
 	}
 }
 

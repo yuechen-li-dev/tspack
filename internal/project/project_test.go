@@ -185,7 +185,7 @@ func TestSyncMutationGuardAndMaterialization(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dir, "ts-lock.toml"), lb, 0o644)
 	opts := DefaultOptions(dir)
 	opts.ManifestIRPath = irPath
-	res := Sync(opts, false)
+	res := Sync(opts, false, false)
 	if hasErrors(res.Diagnostics) {
 		t.Fatalf("sync failed: %#v", res.Diagnostics)
 	}
@@ -542,7 +542,7 @@ func TestSyncDoesNotExecuteLifecycleScripts(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dir, "ts-lock.toml"), b, 0o644)
 	opts := DefaultOptions(dir)
 	opts.ManifestIRPath = irPath
-	res := Sync(opts, false)
+	res := Sync(opts, false, false)
 	if hasErrors(res.Diagnostics) {
 		t.Fatalf("sync failed: %#v", res.Diagnostics)
 	}
@@ -555,12 +555,12 @@ func TestSyncMissingAndStaleLockfile(t *testing.T) {
 	dir := t.TempDir()
 	opts := DefaultOptions(dir)
 	opts.ManifestIRPath = writeIR(t, dir, simpleIR())
-	if !hasErrCode(Sync(opts, false).Diagnostics, "TSPACK_SYNC_LOCKFILE_MISSING") {
+	if !hasErrCode(Sync(opts, false, false).Diagnostics, "TSPACK_SYNC_LOCKFILE_MISSING") {
 		t.Fatalf("missing expected code")
 	}
 	_ = os.WriteFile(opts.LockfilePath, []byte("bad"), 0o644)
 	before, _ := os.ReadFile(opts.LockfilePath)
-	res := Sync(opts, false)
+	res := Sync(opts, false, false)
 	if !hasErrCode(res.Diagnostics, "TSPACK_SYNC_LOCKFILE_STALE") && !hasErrCode(res.Diagnostics, "TSPACK_LOCK_INVALID_TOML") {
 		t.Fatalf("expected stale lock diagnostics")
 	}
@@ -588,7 +588,7 @@ func TestSyncHydratesMissingStoreArtifactsFromLock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read lock before sync: %v", err)
 	}
-	res := Sync(opts, false)
+	res := Sync(opts, false, false)
 	if hasErrors(res.Diagnostics) {
 		t.Fatalf("sync failed: %#v", res.Diagnostics)
 	}
@@ -639,7 +639,7 @@ func TestSyncHydrateDoesNotRefetchExistingArtifact(t *testing.T) {
 	opts.ManifestIRPath = irPath
 	opts.ResolverClient = client
 
-	res := Sync(opts, false)
+	res := Sync(opts, false, false)
 	if hasErrors(res.Diagnostics) {
 		t.Fatalf("sync failed: %#v", res.Diagnostics)
 	}
@@ -677,7 +677,7 @@ func TestSyncHydrateUsesLockedVersionOnly(t *testing.T) {
 	opts.ManifestIRPath = irPath
 	opts.ResolverClient = client
 
-	res := Sync(opts, false)
+	res := Sync(opts, false, false)
 	if hasErrors(res.Diagnostics) {
 		t.Fatalf("sync failed: %#v", res.Diagnostics)
 	}
@@ -702,7 +702,7 @@ func TestSyncHydrateIntegrityMismatchFails(t *testing.T) {
 	opts.ManifestIRPath = irPath
 	opts.ResolverClient = client
 
-	res := Sync(opts, false)
+	res := Sync(opts, false, false)
 	if !hasErrCode(res.Diagnostics, "TSPACK_SYNC_ARTIFACT_INTEGRITY_FAILED") {
 		t.Fatalf("expected integrity diagnostic, got %#v", res.Diagnostics)
 	}
@@ -731,7 +731,7 @@ func TestSyncHydrateMissingTarballMetadataFails(t *testing.T) {
 	opts.ManifestIRPath = irPath
 	opts.ResolverClient = client
 
-	res := Sync(opts, false)
+	res := Sync(opts, false, false)
 	if !hasErrCode(res.Diagnostics, "TSPACK_SYNC_LOCK_ARTIFACT_INCOMPLETE") {
 		t.Fatalf("expected incomplete metadata diagnostic, got %#v", res.Diagnostics)
 	}
@@ -756,7 +756,7 @@ func TestSyncHydrateUnsupportedSourceFails(t *testing.T) {
 
 	opts := DefaultOptions(dir)
 	opts.ManifestIRPath = irPath
-	res := Sync(opts, false)
+	res := Sync(opts, false, false)
 	if !hasErrCode(res.Diagnostics, "TSPACK_SYNC_HYDRATE_FAILED") {
 		t.Fatalf("expected hydrate failure diagnostic, got %#v", res.Diagnostics)
 	}
@@ -824,7 +824,7 @@ func TestSyncHydratesReactViteToolingFromLock(t *testing.T) {
 	opts := DefaultOptions(dir)
 	opts.ManifestIRPath = irPath
 	opts.ResolverClient = client
-	res := Sync(opts, false)
+	res := Sync(opts, false, false)
 	if hasErrors(res.Diagnostics) {
 		t.Fatalf("sync failed: %#v", res.Diagnostics)
 	}
@@ -1466,7 +1466,7 @@ func TestV1GoldenPathCommandLoop(t *testing.T) {
 	}
 	lockAfterUpdate, _ := os.ReadFile(opts.LockfilePath)
 
-	syncRes := Sync(opts, false)
+	syncRes := Sync(opts, false, false)
 	if hasErrors(syncRes.Diagnostics) {
 		t.Fatalf("sync failed: %#v", syncRes.Diagnostics)
 	}

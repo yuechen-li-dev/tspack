@@ -515,7 +515,7 @@ func printLegacyHelp() {
 	fmt.Println("  tspack --version")
 	fmt.Println("  tspack check [--root .] [--json] [--format] [--explain <file>] [--show-conflicts] [--show-lifecycle]")
 	fmt.Println("  tspack update [query] [--root .] [--dry-run] [--json] [--quiet]")
-	fmt.Println("  tspack sync [--root .] [--clean]")
+	fmt.Println("  tspack sync [--root .] [--clean] [--force]")
 	fmt.Println("  tspack pack [--root .] [--out dir] [--package name] [--dry-run] [--verify]")
 	fmt.Println("  tspack why [--reverse] <query> [--root .] [--package name]")
 	fmt.Println("  tspack outdated [--root .] [--json]")
@@ -988,6 +988,7 @@ func runCommand(args []string) {
 	showConflicts := false
 	showLifecycle := false
 	clean := false
+	force := false
 	updateDryRun := false
 	updatePolicy := false
 	updateQuiet := false
@@ -1028,6 +1029,12 @@ func runCommand(args []string) {
 			storeExplicit = true
 		case "--clean":
 			clean = true
+		case "--force":
+			if cmd != "sync" {
+				fmt.Fprintf(os.Stderr, "unknown %s flag: --force\n", cmd)
+				os.Exit(1)
+			}
+			force = true
 		case "--out":
 			i++
 			packOpts.OutputDir = args[i]
@@ -1211,7 +1218,7 @@ func runCommand(args []string) {
 			result = project.UpdateWithOptions(opts, updateOptions)
 		}
 	case "sync":
-		result = project.Sync(opts, clean)
+		result = project.Sync(opts, clean, force)
 	case "pack":
 		result = project.Pack(opts, packOpts)
 	case "why":

@@ -48,7 +48,7 @@ func TestUpdateThenSyncWithFakeRegistryPopulatesStore(t *testing.T) {
 		t.Fatalf("expected populated store metadata tree: %v", err)
 	}
 
-	s1 := Sync(opts, false)
+	s1 := Sync(opts, false, false)
 	if hasErrors(s1.Diagnostics) {
 		t.Fatalf("sync failed: %#v", s1.Diagnostics)
 	}
@@ -67,7 +67,7 @@ func TestUpdateThenSyncWithFakeRegistryPopulatesStore(t *testing.T) {
 	}
 
 	before, _ := os.ReadFile(opts.LockfilePath)
-	s2 := Sync(opts, false)
+	s2 := Sync(opts, false, false)
 	if hasErrors(s2.Diagnostics) {
 		t.Fatalf("repeat sync failed: %#v", s2.Diagnostics)
 	}

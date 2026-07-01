@@ -105,6 +105,10 @@ The perf report includes:
 - artifacts needing store population
 - store population skip/fetch counts
 - sync hydration skip/fetch counts
+- materialization marker hit/miss/mismatch/corrupt counts
+- materialization noop / forced-rematerialization flags
+- skipped package/file/directory counts on noop sync
+- materialization marker write count
 - materialized package/file/directory counts
 - hardlink vs copy-fallback counts
 - logical materialized bytes
@@ -153,6 +157,8 @@ Hardlink effectiveness is primarily tracked through the materialization counters
 - `copyFallbackCount`
 - `logicalBytesMaterialized`
 - `bytesCopied`
+- `materializationNoop`
+- `materializationSkippedFiles`
 
 Cross-platform deduped physical-size accounting is still intentionally conservative.
 

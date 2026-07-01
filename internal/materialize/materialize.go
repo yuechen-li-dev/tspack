@@ -34,6 +34,7 @@ type Request struct {
 
 type Options struct {
 	Clean     bool
+	Force     bool
 	LinkMode  LinkMode
 	OnPackage func(index int, total int, pkg lockfile.Package)
 	Stats     StatsObserver
@@ -45,6 +46,13 @@ type StatsObserver interface {
 	RecordMaterializedFile(path string, size int64)
 	RecordHardlink(path string, size int64)
 	RecordCopy(path string, size int64)
+	RecordMaterializationMarkerHit()
+	RecordMaterializationMarkerMiss()
+	RecordMaterializationMarkerMismatch()
+	RecordMaterializationMarkerCorrupt()
+	RecordMaterializationNoop(packages int, files int, directories int)
+	RecordForcedMaterialization()
+	RecordMaterializationMarkerWrite()
 }
 
 type LinkMode string
@@ -112,6 +120,30 @@ func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) R
 		return finalize(out)
 	}
 	nmRoot := filepath.Join(req.WorkspaceRoot, "node_modules")
+	observer := newMaterializeObserver(req.Options.Stats)
+	plan := buildMaterializationPlan(req.Lock, nmRoot, mode)
+	if req.Options.Force {
+		observer.RecordForcedMaterialization()
+	}
+	if !req.Options.Clean && !req.Options.Force {
+		marker, status := loadMaterializationMarker(nmRoot, plan)
+		switch status {
+		case markerReadHit:
+			observer.RecordMaterializationMarkerHit()
+			if markerSanityCheck(nmRoot, plan) {
+				observer.RecordMaterializationNoop(marker.PackageCount, marker.FileCount, marker.DirectoryCount)
+				return finalize(out)
+			}
+			observer.RecordMaterializationMarkerMismatch()
+		case markerReadMiss:
+			observer.RecordMaterializationMarkerMiss()
+		case markerReadMismatch:
+			_ = marker
+			observer.RecordMaterializationMarkerMismatch()
+		case markerReadCorrupt:
+			observer.RecordMaterializationMarkerCorrupt()
+		}
+	}
 	if req.Options.Clean {
 		if err := cleanNodeModules(nmRoot); err != nil {
 			out.Diagnostics = append(out.Diagnostics, materializeDiagnosticFromError(err, "", nmRoot, ""))
@@ -124,9 +156,6 @@ func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) R
 		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_WRITE_FAILED", Severity: diag.SeverityError, File: nmRoot, Message: err.Error()})
 		return finalize(out)
 	}
-	_ = retryMaterializeFileOp("write", filepath.Join(nmRoot, markerFile), func() error {
-		return os.WriteFile(filepath.Join(nmRoot, markerFile), []byte("generated_by=tspack\nmaterializer=node_modules\nversion=1\n"), 0o644)
-	})
 
 	pkgs := map[string]lockfile.Package{}
 	for _, p := range req.Lock.Packages {
@@ -150,7 +179,7 @@ func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) R
 	state := newMaterializeState()
 	if req.Options.OnPackage != nil {
 		state.progress = req.Options.OnPackage
-		state.progressTotal = len(buildMaterializePlan(rootEdges, pkgs, edgesByFrom, nmRoot))
+		state.progressTotal = len(plan.entries)
 	}
 	for _, e := range rootEdges {
 		pkg, ok := pkgs[e.To]
@@ -163,9 +192,22 @@ func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) R
 			continue
 		}
 		rootVisible[pkg.ID] = pkg
-		materializePkg(req, &out, pkgs, edgesByFrom, pkg, nmRoot, state)
+		materializePkg(req, &out, pkgs, edgesByFrom, pkg, nmRoot, state, observer)
+	}
+	if len(out.Diagnostics) == 0 {
+		if err := pruneNodeModulesRoot(nmRoot, plan.rootVisible); err != nil {
+			out.Diagnostics = append(out.Diagnostics, materializeDiagnosticFromError(err, "", nmRoot, ""))
+		}
 	}
 	materializeRootBins(req, &out, nmRoot, rootVisible)
+	if len(out.Diagnostics) == 0 {
+		marker := expectedMaterializationMarker(plan, observer)
+		if err := writeMaterializationMarker(nmRoot, marker); err != nil {
+			out.Diagnostics = append(out.Diagnostics, materializeDiagnosticFromError(markerWriteError(materializationMarkerPath(nmRoot), err), "", materializationMarkerPath(nmRoot), ""))
+			return finalize(out)
+		}
+		observer.RecordMaterializationMarkerWrite()
+	}
 	return finalize(out)
 }
 
@@ -200,6 +242,92 @@ type materializeState struct {
 	progress      func(index int, total int, pkg lockfile.Package)
 	progressTotal int
 	progressIndex int
+}
+
+type materializeObserver struct {
+	inner          StatsObserver
+	packageCount   int
+	fileCount      int
+	directoryCount int
+}
+
+func newMaterializeObserver(inner StatsObserver) *materializeObserver {
+	return &materializeObserver{inner: inner}
+}
+
+func (o *materializeObserver) RecordMaterializedPackage(pkg lockfile.Package) {
+	o.packageCount++
+	if o.inner != nil {
+		o.inner.RecordMaterializedPackage(pkg)
+	}
+}
+
+func (o *materializeObserver) RecordMaterializedDirectory(path string) {
+	o.directoryCount++
+	if o.inner != nil {
+		o.inner.RecordMaterializedDirectory(path)
+	}
+}
+
+func (o *materializeObserver) RecordMaterializedFile(path string, size int64) {
+	o.fileCount++
+	if o.inner != nil {
+		o.inner.RecordMaterializedFile(path, size)
+	}
+}
+
+func (o *materializeObserver) RecordHardlink(path string, size int64) {
+	if o.inner != nil {
+		o.inner.RecordHardlink(path, size)
+	}
+}
+
+func (o *materializeObserver) RecordCopy(path string, size int64) {
+	if o.inner != nil {
+		o.inner.RecordCopy(path, size)
+	}
+}
+
+func (o *materializeObserver) RecordMaterializationMarkerHit() {
+	if o.inner != nil {
+		o.inner.RecordMaterializationMarkerHit()
+	}
+}
+
+func (o *materializeObserver) RecordMaterializationMarkerMiss() {
+	if o.inner != nil {
+		o.inner.RecordMaterializationMarkerMiss()
+	}
+}
+
+func (o *materializeObserver) RecordMaterializationMarkerMismatch() {
+	if o.inner != nil {
+		o.inner.RecordMaterializationMarkerMismatch()
+	}
+}
+
+func (o *materializeObserver) RecordMaterializationMarkerCorrupt() {
+	if o.inner != nil {
+		o.inner.RecordMaterializationMarkerCorrupt()
+	}
+}
+
+func (o *materializeObserver) RecordMaterializationNoop(packages int, files int, directories int) {
+	if o.inner != nil {
+		o.inner.RecordMaterializationNoop(packages, files, directories)
+	}
+}
+
+func (o *materializeObserver) RecordForcedMaterialization() {
+	if o.inner != nil {
+		o.inner.RecordForcedMaterialization()
+	}
+}
+
+func (o *materializeObserver) RecordMaterializationMarkerWrite() {
+	if o.inner != nil {
+		o.inner.RecordMaterializationMarkerWrite()
+	}
 }
 
 func newMaterializeState() *materializeState {
@@ -237,7 +365,7 @@ func (s *materializeState) pathWith(pkgID string) string {
 	return strings.Join(path, " -> ")
 }
 
-func materializePkg(req Request, out *Result, pkgs map[string]lockfile.Package, edgesByFrom map[string][]lockfile.Edge, pkg lockfile.Package, parentNodeModules string, state *materializeState) {
+func materializePkg(req Request, out *Result, pkgs map[string]lockfile.Package, edgesByFrom map[string][]lockfile.Edge, pkg lockfile.Package, parentNodeModules string, state *materializeState, observer *materializeObserver) {
 	dest, err := safePackagePath(parentNodeModules, pkg.Name)
 	if err != nil {
 		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_INVALID_DESTINATION", Severity: diag.SeverityError, Message: err.Error(), Details: []string{pkg.ID}})
@@ -288,14 +416,12 @@ func materializePkg(req Request, out *Result, pkgs map[string]lockfile.Package, 
 		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_MISSING_STORE_ARTIFACT", Severity: diag.SeverityError, Message: "missing store artifact", Details: []string{pkg.ID, hash}})
 		return
 	}
-	if err := copyTree(ref.ExtractedPath, dest, req.Options.LinkMode, req.Options.Stats); err != nil {
+	if err := copyTree(ref.ExtractedPath, dest, req.Options.LinkMode, observer); err != nil {
 		out.Diagnostics = append(out.Diagnostics, materializeDiagnosticFromError(err, pkg.ID, dest, pkg.Name))
 		return
 	}
 	out.Written = append(out.Written, WrittenPath{Path: dest, Kind: "package", PackageID: pkg.ID})
-	if req.Options.Stats != nil {
-		req.Options.Stats.RecordMaterializedPackage(pkg)
-	}
+	observer.RecordMaterializedPackage(pkg)
 
 	if cycleLeaf {
 		return
@@ -311,7 +437,7 @@ func materializePkg(req Request, out *Result, pkgs map[string]lockfile.Package, 
 			out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_EDGE_UNKNOWN_PACKAGE", Severity: diag.SeverityError, Message: "edge points to unknown package", Details: []string{edge.From, edge.To}})
 			continue
 		}
-		materializePkg(req, out, pkgs, edgesByFrom, dep, childNM, state)
+		materializePkg(req, out, pkgs, edgesByFrom, dep, childNM, state, observer)
 	}
 }
 

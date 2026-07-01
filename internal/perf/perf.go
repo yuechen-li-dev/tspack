@@ -40,29 +40,39 @@ type Session struct {
 }
 
 type Counters struct {
-	ResolveJobs                     int64 `json:"resolveJobs"`
-	ResolveFrontiers                int64 `json:"resolveFrontiers"`
-	ResolveMaxFrontierWidth         int64 `json:"resolveMaxFrontierWidth"`
-	ResolvePreparedPackages         int64 `json:"resolvePreparedPackages"`
-	ResolveCommittedPackages        int64 `json:"resolveCommittedPackages"`
-	ResolveWorkerErrors             int64 `json:"resolveWorkerErrors"`
-	MetadataRequests                int64 `json:"metadataRequests"`
-	MetadataCacheHits               int64 `json:"metadataCacheHits"`
-	TarballRequests                 int64 `json:"tarballRequests"`
-	ArtifactsCaptured               int64 `json:"artifactsCaptured"`
-	ArtifactsAlreadyInStore         int64 `json:"artifactsAlreadyInStore"`
-	ArtifactsNeedingStorePopulation int64 `json:"artifactsNeedingStorePopulation"`
-	StorePopulationSkipped          int64 `json:"storePopulationSkipped"`
-	StorePopulationFetched          int64 `json:"storePopulationFetched"`
-	SyncHydrationSkipped            int64 `json:"syncHydrationSkipped"`
-	SyncHydrationFetched            int64 `json:"syncHydrationFetched"`
-	MaterializedPackages            int64 `json:"materializedPackages"`
-	MaterializedFiles               int64 `json:"materializedFiles"`
-	MaterializedDirectories         int64 `json:"materializedDirectories"`
-	HardlinkCount                   int64 `json:"hardlinkCount"`
-	CopyFallbackCount               int64 `json:"copyFallbackCount"`
-	LogicalBytesMaterialized        int64 `json:"logicalBytesMaterialized"`
-	BytesCopied                     int64 `json:"bytesCopied"`
+	ResolveJobs                       int64 `json:"resolveJobs"`
+	ResolveFrontiers                  int64 `json:"resolveFrontiers"`
+	ResolveMaxFrontierWidth           int64 `json:"resolveMaxFrontierWidth"`
+	ResolvePreparedPackages           int64 `json:"resolvePreparedPackages"`
+	ResolveCommittedPackages          int64 `json:"resolveCommittedPackages"`
+	ResolveWorkerErrors               int64 `json:"resolveWorkerErrors"`
+	MetadataRequests                  int64 `json:"metadataRequests"`
+	MetadataCacheHits                 int64 `json:"metadataCacheHits"`
+	TarballRequests                   int64 `json:"tarballRequests"`
+	ArtifactsCaptured                 int64 `json:"artifactsCaptured"`
+	ArtifactsAlreadyInStore           int64 `json:"artifactsAlreadyInStore"`
+	ArtifactsNeedingStorePopulation   int64 `json:"artifactsNeedingStorePopulation"`
+	StorePopulationSkipped            int64 `json:"storePopulationSkipped"`
+	StorePopulationFetched            int64 `json:"storePopulationFetched"`
+	SyncHydrationSkipped              int64 `json:"syncHydrationSkipped"`
+	SyncHydrationFetched              int64 `json:"syncHydrationFetched"`
+	MaterializationNoop               bool  `json:"materializationNoop"`
+	MaterializationForced             bool  `json:"materializationForced"`
+	MaterializationSkippedPackages    int64 `json:"materializationSkippedPackages"`
+	MaterializationSkippedFiles       int64 `json:"materializationSkippedFiles"`
+	MaterializationSkippedDirectories int64 `json:"materializationSkippedDirectories"`
+	MaterializationMarkerHits         int64 `json:"materializationMarkerHits"`
+	MaterializationMarkerMisses       int64 `json:"materializationMarkerMisses"`
+	MaterializationMarkerMismatches   int64 `json:"materializationMarkerMismatches"`
+	MaterializationMarkerCorrupt      int64 `json:"materializationMarkerCorrupt"`
+	MaterializationMarkerWrites       int64 `json:"materializationMarkerWrites"`
+	MaterializedPackages              int64 `json:"materializedPackages"`
+	MaterializedFiles                 int64 `json:"materializedFiles"`
+	MaterializedDirectories           int64 `json:"materializedDirectories"`
+	HardlinkCount                     int64 `json:"hardlinkCount"`
+	CopyFallbackCount                 int64 `json:"copyFallbackCount"`
+	LogicalBytesMaterialized          int64 `json:"logicalBytesMaterialized"`
+	BytesCopied                       int64 `json:"bytesCopied"`
 }
 
 type Report struct {
@@ -299,6 +309,72 @@ func (s *Session) RecordMaterializedPackage() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.counters.MaterializedPackages++
+}
+
+func (s *Session) RecordMaterializationMarkerHit() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.counters.MaterializationMarkerHits++
+}
+
+func (s *Session) RecordMaterializationMarkerMiss() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.counters.MaterializationMarkerMisses++
+}
+
+func (s *Session) RecordMaterializationMarkerMismatch() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.counters.MaterializationMarkerMismatches++
+}
+
+func (s *Session) RecordMaterializationMarkerCorrupt() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.counters.MaterializationMarkerCorrupt++
+}
+
+func (s *Session) RecordMaterializationNoop(packages int, files int, directories int) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.counters.MaterializationNoop = true
+	s.counters.MaterializationSkippedPackages = int64(packages)
+	s.counters.MaterializationSkippedFiles = int64(files)
+	s.counters.MaterializationSkippedDirectories = int64(directories)
+}
+
+func (s *Session) RecordForcedMaterialization() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.counters.MaterializationForced = true
+}
+
+func (s *Session) RecordMaterializationMarkerWrite() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.counters.MaterializationMarkerWrites++
 }
 
 func (s *Session) RecordMaterializedDirectory() {

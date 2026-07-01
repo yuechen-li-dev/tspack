@@ -952,7 +952,7 @@ func Why(opts Options, whyOpts WhyOptions) Result {
 	diag.SortDiagnostics(out)
 	return Result{Diagnostics: out, WhyResult: &wr}
 }
-func Sync(opts Options, clean bool) Result {
+func Sync(opts Options, clean bool, force bool) Result {
 	perfSession, perfErr := ensurePerfSession(&opts, "sync", false)
 	if perfErr != nil {
 		return Result{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_PERF_PROFILE_INIT_FAILED", "failed to initialize performance profiling", perfErr.Error())}}
@@ -989,7 +989,7 @@ func Sync(opts Options, clean bool) Result {
 		return Result{Diagnostics: out}
 	}
 	mat := materialize.NodeModulesMaterializer{}
-	materializeOptions := materialize.Options{Clean: clean, Stats: materializeStatsObserver(perfSession)}
+	materializeOptions := materialize.Options{Clean: clean, Force: force, Stats: materializeStatsObserver(perfSession)}
 	if shouldReportMaterializeProgress(opts.RootDir, clean) {
 		materializeOptions.OnPackage = func(index int, total int, pkg lockfile.Package) {
 			opts.Progress.Step("materializing packages [%d/%d] %s", index, total, packageProgressLabel(pkg))

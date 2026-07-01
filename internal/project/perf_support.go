@@ -96,6 +96,34 @@ func (o materializePerfObserver) RecordCopy(path string, size int64) {
 	o.session.RecordCopy(size)
 }
 
+func (o materializePerfObserver) RecordMaterializationMarkerHit() {
+	o.session.RecordMaterializationMarkerHit()
+}
+
+func (o materializePerfObserver) RecordMaterializationMarkerMiss() {
+	o.session.RecordMaterializationMarkerMiss()
+}
+
+func (o materializePerfObserver) RecordMaterializationMarkerMismatch() {
+	o.session.RecordMaterializationMarkerMismatch()
+}
+
+func (o materializePerfObserver) RecordMaterializationMarkerCorrupt() {
+	o.session.RecordMaterializationMarkerCorrupt()
+}
+
+func (o materializePerfObserver) RecordMaterializationNoop(packages int, files int, directories int) {
+	o.session.RecordMaterializationNoop(packages, files, directories)
+}
+
+func (o materializePerfObserver) RecordForcedMaterialization() {
+	o.session.RecordForcedMaterialization()
+}
+
+func (o materializePerfObserver) RecordMaterializationMarkerWrite() {
+	o.session.RecordMaterializationMarkerWrite()
+}
+
 func materializeStatsObserver(session *perf.Session) materialize.StatsObserver {
 	if session == nil {
 		return nil

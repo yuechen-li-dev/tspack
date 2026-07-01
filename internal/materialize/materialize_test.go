@@ -2,6 +2,7 @@ package materialize
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -218,6 +219,9 @@ type statsCapture struct {
 	copyCount     int
 	logicalBytes  int64
 	copiedBytes   int64
+	noop          bool
+	noopPackages  int
+	noopFiles     int
 }
 
 func (s *statsCapture) RecordMaterializedPackage(pkg lockfile.Package) {
@@ -250,6 +254,21 @@ func (s *statsCapture) RecordCopy(path string, size int64) {
 	defer s.mu.Unlock()
 	s.copyCount++
 	s.copiedBytes += size
+}
+
+func (s *statsCapture) RecordMaterializationMarkerHit()      {}
+func (s *statsCapture) RecordMaterializationMarkerMiss()     {}
+func (s *statsCapture) RecordMaterializationMarkerMismatch() {}
+func (s *statsCapture) RecordMaterializationMarkerCorrupt()  {}
+func (s *statsCapture) RecordForcedMaterialization()         {}
+func (s *statsCapture) RecordMaterializationMarkerWrite()    {}
+
+func (s *statsCapture) RecordMaterializationNoop(packages int, files int, directories int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.noop = true
+	s.noopPackages = packages
+	s.noopFiles = files
 }
 
 func TestBinConflictDiagnostic(t *testing.T) {
@@ -437,6 +456,269 @@ func TestMaterializeCanReplaceExistingTreeWithoutClean(t *testing.T) {
 		t.Fatalf("second diags: %#v", second.Diagnostics)
 	}
 	mustExist(t, filepath.Join(ws, "node_modules", "pkg", "package.json"))
+}
+
+func TestMaterializeWritesMarkerWithCurrentPlanDigest(t *testing.T) {
+	ws := t.TempDir()
+	s, _ := store.Open(t.TempDir())
+	hash := putPkg(t, s, "npm:pkg@1.0.0", "pkg")
+	lf := &lockfile.Lockfile{
+		Packages: []lockfile.Package{{ID: "npm:pkg@1.0.0", Name: "pkg", Hash: hash}},
+		Edges:    []lockfile.Edge{{From: "app:target:core", To: "npm:pkg@1.0.0", Kind: "runtime"}},
+	}
+
+	res := NodeModulesMaterializer{}.Materialize(context.Background(), Request{
+		WorkspaceRoot: ws,
+		Lock:          lf,
+		Store:         s,
+		Options:       Options{LinkMode: LinkModeCopy},
+	})
+	if len(res.Diagnostics) > 0 {
+		t.Fatalf("diags: %#v", res.Diagnostics)
+	}
+
+	marker := readMarkerFile(t, ws)
+	plan := buildMaterializationPlan(lf, filepath.Join(ws, "node_modules"), LinkModeCopy)
+	if marker.PlanDigest != plan.digest {
+		t.Fatalf("marker digest=%q want %q", marker.PlanDigest, plan.digest)
+	}
+	if marker.PackageCount != 1 || marker.FileCount == 0 {
+		t.Fatalf("unexpected marker counts: %+v", marker)
+	}
+}
+
+func TestMaterializeSecondRunBecomesNoop(t *testing.T) {
+	ws := t.TempDir()
+	s, _ := store.Open(t.TempDir())
+	hash := putPkg(t, s, "npm:pkg@1.0.0", "pkg")
+	lf := &lockfile.Lockfile{
+		Packages: []lockfile.Package{{ID: "npm:pkg@1.0.0", Name: "pkg", Hash: hash}},
+		Edges:    []lockfile.Edge{{From: "app:target:core", To: "npm:pkg@1.0.0", Kind: "runtime"}},
+	}
+
+	first := NodeModulesMaterializer{}.Materialize(context.Background(), Request{
+		WorkspaceRoot: ws,
+		Lock:          lf,
+		Store:         s,
+		Options:       Options{LinkMode: LinkModeCopy},
+	})
+	if len(first.Diagnostics) > 0 {
+		t.Fatalf("first diags: %#v", first.Diagnostics)
+	}
+
+	observer := &statsCapture{}
+	second := NodeModulesMaterializer{}.Materialize(context.Background(), Request{
+		WorkspaceRoot: ws,
+		Lock:          lf,
+		Store:         s,
+		Options:       Options{LinkMode: LinkModeCopy, Stats: observer},
+	})
+	if len(second.Diagnostics) > 0 {
+		t.Fatalf("second diags: %#v", second.Diagnostics)
+	}
+	if !observer.noop {
+		t.Fatalf("expected noop marker fast path, got %+v", observer)
+	}
+	if observer.files != 0 || observer.copyCount != 0 || observer.hardlinkCount != 0 {
+		t.Fatalf("expected no file relinking on noop path, got %+v", observer)
+	}
+}
+
+func TestMaterializeMissingOrCorruptMarkerFallsBackToFullMaterialization(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(t *testing.T, ws string)
+	}{
+		{
+			name: "missing",
+			mutate: func(t *testing.T, ws string) {
+				if err := os.Remove(materializationMarkerForRoot(ws)); err != nil {
+					t.Fatalf("remove marker: %v", err)
+				}
+			},
+		},
+		{
+			name: "corrupt",
+			mutate: func(t *testing.T, ws string) {
+				if err := os.WriteFile(materializationMarkerForRoot(ws), []byte("{not-json"), 0o644); err != nil {
+					t.Fatalf("write corrupt marker: %v", err)
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := t.TempDir()
+			s, _ := store.Open(t.TempDir())
+			hash := putPkg(t, s, "npm:pkg@1.0.0", "pkg")
+			lf := &lockfile.Lockfile{
+				Packages: []lockfile.Package{{ID: "npm:pkg@1.0.0", Name: "pkg", Hash: hash}},
+				Edges:    []lockfile.Edge{{From: "app:target:core", To: "npm:pkg@1.0.0", Kind: "runtime"}},
+			}
+
+			first := NodeModulesMaterializer{}.Materialize(context.Background(), Request{
+				WorkspaceRoot: ws,
+				Lock:          lf,
+				Store:         s,
+				Options:       Options{LinkMode: LinkModeCopy},
+			})
+			if len(first.Diagnostics) > 0 {
+				t.Fatalf("first diags: %#v", first.Diagnostics)
+			}
+
+			tc.mutate(t, ws)
+
+			observer := &statsCapture{}
+			second := NodeModulesMaterializer{}.Materialize(context.Background(), Request{
+				WorkspaceRoot: ws,
+				Lock:          lf,
+				Store:         s,
+				Options:       Options{LinkMode: LinkModeCopy, Stats: observer},
+			})
+			if len(second.Diagnostics) > 0 {
+				t.Fatalf("second diags: %#v", second.Diagnostics)
+			}
+			if observer.noop {
+				t.Fatalf("expected full rematerialization when marker is %s", tc.name)
+			}
+			if observer.files == 0 {
+				t.Fatalf("expected package files to be materialized when marker is %s", tc.name)
+			}
+		})
+	}
+}
+
+func TestMaterializeForceBypassesMatchingMarker(t *testing.T) {
+	ws := t.TempDir()
+	s, _ := store.Open(t.TempDir())
+	hash := putPkg(t, s, "npm:pkg@1.0.0", "pkg")
+	lf := &lockfile.Lockfile{
+		Packages: []lockfile.Package{{ID: "npm:pkg@1.0.0", Name: "pkg", Hash: hash}},
+		Edges:    []lockfile.Edge{{From: "app:target:core", To: "npm:pkg@1.0.0", Kind: "runtime"}},
+	}
+
+	first := NodeModulesMaterializer{}.Materialize(context.Background(), Request{
+		WorkspaceRoot: ws,
+		Lock:          lf,
+		Store:         s,
+		Options:       Options{LinkMode: LinkModeCopy},
+	})
+	if len(first.Diagnostics) > 0 {
+		t.Fatalf("first diags: %#v", first.Diagnostics)
+	}
+
+	observer := &statsCapture{}
+	second := NodeModulesMaterializer{}.Materialize(context.Background(), Request{
+		WorkspaceRoot: ws,
+		Lock:          lf,
+		Store:         s,
+		Options:       Options{LinkMode: LinkModeCopy, Force: true, Stats: observer},
+	})
+	if len(second.Diagnostics) > 0 {
+		t.Fatalf("second diags: %#v", second.Diagnostics)
+	}
+	if observer.noop {
+		t.Fatalf("force should bypass noop marker path")
+	}
+	if observer.files == 0 {
+		t.Fatalf("force should rematerialize package files, got %+v", observer)
+	}
+}
+
+func TestMaterializePlanDigestDeterministicAndModeSensitive(t *testing.T) {
+	lfA := &lockfile.Lockfile{
+		Packages: []lockfile.Package{
+			{ID: "npm:b@1.0.0", Name: "b", Hash: "hash-b"},
+			{ID: "npm:a@1.0.0", Name: "a", Hash: "hash-a"},
+		},
+		Edges: []lockfile.Edge{
+			{From: "npm:a@1.0.0", To: "npm:b@1.0.0", Kind: "runtime"},
+			{From: "app:target:core", To: "npm:a@1.0.0", Kind: "runtime"},
+		},
+	}
+	lfB := &lockfile.Lockfile{
+		Packages: []lockfile.Package{
+			{ID: "npm:a@1.0.0", Name: "a", Hash: "hash-a"},
+			{ID: "npm:b@1.0.0", Name: "b", Hash: "hash-b"},
+		},
+		Edges: []lockfile.Edge{
+			{From: "app:target:core", To: "npm:a@1.0.0", Kind: "runtime"},
+			{From: "npm:a@1.0.0", To: "npm:b@1.0.0", Kind: "runtime"},
+		},
+	}
+
+	planA := buildMaterializationPlan(lfA, filepath.Join("workspace", "node_modules"), LinkModeCopy)
+	planB := buildMaterializationPlan(lfB, filepath.Join("workspace", "node_modules"), LinkModeCopy)
+	if planA.digest != planB.digest {
+		t.Fatalf("digest should be order-independent: %q != %q", planA.digest, planB.digest)
+	}
+
+	lfChanged := &lockfile.Lockfile{
+		Packages: []lockfile.Package{
+			{ID: "npm:a@1.0.0", Name: "a", Hash: "hash-a"},
+			{ID: "npm:b@1.0.0", Name: "b", Hash: "hash-b-changed"},
+		},
+		Edges: lfB.Edges,
+	}
+	planChanged := buildMaterializationPlan(lfChanged, filepath.Join("workspace", "node_modules"), LinkModeCopy)
+	if planA.digest == planChanged.digest {
+		t.Fatalf("digest should change when package hash changes")
+	}
+
+	planHardlink := buildMaterializationPlan(lfB, filepath.Join("workspace", "node_modules"), LinkModeHardlink)
+	if planA.digest == planHardlink.digest {
+		t.Fatalf("digest should change when materialization mode changes")
+	}
+}
+
+func TestMaterializeRemovesStaleRootPackageBeforeWritingMarker(t *testing.T) {
+	ws := t.TempDir()
+	s, _ := store.Open(t.TempDir())
+	hashA := putPkg(t, s, "npm:a@1.0.0", "a")
+	hashB := putPkg(t, s, "npm:b@1.0.0", "b")
+
+	firstLock := &lockfile.Lockfile{
+		Packages: []lockfile.Package{
+			{ID: "npm:a@1.0.0", Name: "a", Hash: hashA},
+			{ID: "npm:b@1.0.0", Name: "b", Hash: hashB},
+		},
+		Edges: []lockfile.Edge{
+			{From: "app:target:core", To: "npm:a@1.0.0", Kind: "runtime"},
+			{From: "app:target:core", To: "npm:b@1.0.0", Kind: "runtime"},
+		},
+	}
+	secondLock := &lockfile.Lockfile{
+		Packages: []lockfile.Package{{ID: "npm:a@1.0.0", Name: "a", Hash: hashA}},
+		Edges:    []lockfile.Edge{{From: "app:target:core", To: "npm:a@1.0.0", Kind: "runtime"}},
+	}
+
+	first := NodeModulesMaterializer{}.Materialize(context.Background(), Request{
+		WorkspaceRoot: ws,
+		Lock:          firstLock,
+		Store:         s,
+		Options:       Options{LinkMode: LinkModeCopy},
+	})
+	if len(first.Diagnostics) > 0 {
+		t.Fatalf("first diags: %#v", first.Diagnostics)
+	}
+
+	second := NodeModulesMaterializer{}.Materialize(context.Background(), Request{
+		WorkspaceRoot: ws,
+		Lock:          secondLock,
+		Store:         s,
+		Options:       Options{LinkMode: LinkModeCopy},
+	})
+	if len(second.Diagnostics) > 0 {
+		t.Fatalf("second diags: %#v", second.Diagnostics)
+	}
+
+	if _, err := os.Stat(filepath.Join(ws, "node_modules", "b")); !os.IsNotExist(err) {
+		t.Fatalf("stale root package should be pruned, got err=%v", err)
+	}
+	marker := readMarkerFile(t, ws)
+	plan := buildMaterializationPlan(secondLock, filepath.Join(ws, "node_modules"), LinkModeCopy)
+	if marker.PlanDigest != plan.digest {
+		t.Fatalf("marker digest=%q want %q after root prune", marker.PlanDigest, plan.digest)
+	}
 }
 
 func TestMaterializeCircularDependenciesStayBounded(t *testing.T) {
@@ -659,4 +941,17 @@ func assertFileContent(t *testing.T, path string, want string) {
 	if string(got) != want {
 		t.Fatalf("unexpected file content for %s:\nwant: %q\ngot:  %q", path, want, string(got))
 	}
+}
+
+func readMarkerFile(t *testing.T, ws string) materializationMarker {
+	t.Helper()
+	body, err := os.ReadFile(materializationMarkerForRoot(ws))
+	if err != nil {
+		t.Fatalf("read marker: %v", err)
+	}
+	var marker materializationMarker
+	if err := json.Unmarshal(body, &marker); err != nil {
+		t.Fatalf("parse marker: %v\n%s", err, string(body))
+	}
+	return marker
 }

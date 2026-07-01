@@ -40,7 +40,23 @@ Generated root includes marker:
 
 - `node_modules/.tspack-materialized`
 
+The marker now stores deterministic JSON metadata for the current materialization plan:
+
+- marker schema/version
+- materializer name
+- link mode
+- materialization plan digest
+- package/file/directory counts for the generated package projection
+
 When `Clean=true`, materializer only deletes `node_modules` if marker exists. Without marker it refuses clean to avoid deleting unmanaged user directories.
+
+Repeated `tspack sync` uses this marker as a fast-path contract. If the current lock/store/materialization plan still matches and a small root-level sanity check succeeds, TSPack skips relinking package files entirely.
+
+This is intentionally not a full integrity verifier:
+
+- `node_modules` is TSPack-owned generated output
+- do not edit dependency files in place
+- if you suspect drift or corruption, delete `node_modules` or run `tspack sync --force`
 
 On Windows, package and `.bin` materialization now stage into temporary sibling directories and then swap into place. Replace/remove/write operations use bounded retries for transient locked-file cases such as `ERROR_ACCESS_DENIED`, `ERROR_SHARING_VIOLATION`, and `ERROR_LOCK_VIOLATION`.
 
@@ -81,6 +97,8 @@ Regular package files now materialize from the content-addressed store with a ha
 - TSPack tries to hardlink each regular store file into `node_modules`.
 - If the filesystem, device, permissions, or platform do not allow hardlinks, TSPack falls back to byte-copying that file.
 - Directory staging and final replacement remain atomic at the package-directory level.
+
+M66c keeps that staged package-directory replacement model. Warm sync no longer needs to relink the full package tree when the materialized projection is already current, but TSPack still does not hash or restat every file on each run.
 
 This reduces disk amplification and speeds up `tspack sync`, but it also means a store file and a materialized `node_modules` file may be the same underlying file identity.
 
