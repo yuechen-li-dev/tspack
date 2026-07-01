@@ -3,20 +3,20 @@
 	"files": {
 		"includes": [
 			"**",
-			"!.tspack/**",
-			"!node_modules/**",
-			"!dist/**",
-			"!dist-packages/**",
-			"!tspack-artifacts/**",
-			"!coverage/**",
-			"!.git/**",
-			"!build/**",
-			"!.turbo/**",
-			"!.vite/**",
-			"!manifest-frontend/dist/**",
-			"!extensions/*/dist/**",
-			"!extensions/*/out/**",
-			"!internal/embeddedbridges/assets/**"
+			"!.tspack",
+			"!node_modules",
+			"!dist",
+			"!dist-packages",
+			"!tspack-artifacts",
+			"!coverage",
+			"!.git",
+			"!build",
+			"!.turbo",
+			"!.vite",
+			"!manifest-frontend/dist",
+			"!extensions/*/dist",
+			"!extensions/*/out",
+			"!internal/embeddedbridges/assets"
 		]
 	},
 	"formatter": {
