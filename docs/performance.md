@@ -2,6 +2,8 @@
 
 TSPack now has a developer-facing performance harness for `update` and `sync`.
 
+For the current-main v0.1.7 prep benchmark closeout, see [docs/dev/v0.1.7-performance-closeout.md](dev/v0.1.7-performance-closeout.md).
+
 The goal is repeatable local measurement for:
 
 - cold `update`
