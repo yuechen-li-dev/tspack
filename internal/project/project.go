@@ -252,12 +252,17 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 	client := opts.ResolverClient
 	client = instrumentRegistryClient(client, perfSession)
 	var (
-		st   *store.Store
-		jobs int
+		st          *store.Store
+		storeJobs   int
+		resolveJobs int
 	)
+	resolveJobs, jobsErr := resolveJobsFromEnv()
+	if jobsErr != nil {
+		out = append(out, errDiag("TSPACK_UPDATE_RESOLVE_JOBS_INVALID", "invalid TSPACK_RESOLVE_JOBS", jobsErr.Error()))
+		return Result{Diagnostics: out, UpdateTarget: targetResult}
+	}
 	if !dryRun {
-		var jobsErr error
-		jobs, jobsErr = storeJobsFromEnv()
+		storeJobs, jobsErr = storeJobsFromEnv()
 		if jobsErr != nil {
 			out = append(out, errDiag("TSPACK_UPDATE_STORE_JOBS_INVALID", "invalid TSPACK_STORE_JOBS", jobsErr.Error()))
 			return Result{Diagnostics: out, UpdateTarget: targetResult}
@@ -275,10 +280,16 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 		Mode:               resolver.ResolveModeUpdate,
 		Client:             client,
 		RootDir:            opts.RootDir,
+		ResolveJobs:        resolveJobs,
 		OnArtifactResolved: storeArtifactCapture(st, perfSession),
 		OnMetadataCacheHit: func(name string) {
 			perfSession.RecordMetadataCacheHit()
 		},
+		OnResolveJobs:         func(jobs int) { perfSession.SetResolveJobs(jobs) },
+		OnResolveFrontier:     func(width int) { perfSession.RecordResolveFrontier(width) },
+		OnPreparedPackage:     func(key string) { perfSession.RecordPreparedPackage() },
+		OnCommittedPackage:    func(id string) { perfSession.RecordCommittedPackage() },
+		OnResolverWorkerError: func(key string) { perfSession.RecordResolveWorkerError() },
 	}
 	if registryClient, ok := client.(*resolver.HTTPRegistryClient); ok {
 		resolveOpts.RegistryURL = registryClient.BaseURL
@@ -321,7 +332,7 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 	// store population runs with bounded parallelism, and results are applied back to
 	// the lockfile in package order before deterministic lockfile output is written.
 	stopStorePopulation := perfSession.StartPhase("update.store_population")
-	populateResult := populateStoreParallel(context.Background(), st, client, opts.RootDir, res.Lock.Packages, jobs, progress, perfSession)
+	populateResult := populateStoreParallel(context.Background(), st, client, opts.RootDir, res.Lock.Packages, storeJobs, progress, perfSession)
 	stopStorePopulation()
 	out = append(out, populateResult.Diagnostics...)
 	for _, populated := range populateResult.Packages {
@@ -383,6 +394,10 @@ func defaultStoreJobs() int {
 	return 24
 }
 
+func defaultResolveJobs() int {
+	return 24
+}
+
 func storeJobsFromEnv() (int, error) {
 	value := strings.TrimSpace(os.Getenv("TSPACK_STORE_JOBS"))
 	if value == "" {
@@ -391,6 +406,18 @@ func storeJobsFromEnv() (int, error) {
 	jobs, err := strconv.Atoi(value)
 	if err != nil || jobs <= 0 {
 		return 0, fmt.Errorf("TSPACK_STORE_JOBS must be a positive integer, got %q", value)
+	}
+	return jobs, nil
+}
+
+func resolveJobsFromEnv() (int, error) {
+	value := strings.TrimSpace(os.Getenv("TSPACK_RESOLVE_JOBS"))
+	if value == "" {
+		return defaultResolveJobs(), nil
+	}
+	jobs, err := strconv.Atoi(value)
+	if err != nil || jobs <= 0 {
+		return 0, fmt.Errorf("TSPACK_RESOLVE_JOBS must be a positive integer, got %q", value)
 	}
 	return jobs, nil
 }

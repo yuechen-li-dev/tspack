@@ -18,8 +18,8 @@ func TestUpdatePerfCapturesResolveAndStoreCounters(t *testing.T) {
 			"version": "1.0.0",
 			"kind":    "library",
 			"dependencies": []map[string]any{
-				{"key": "dep-a-a", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "dep-a", "range": "1.0.0"}},
-				{"key": "dep-a-b", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "dep-a", "range": "1.0.0"}},
+				{"key": "dep-a", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "dep-a", "range": "1.0.0"}},
+				{"key": "left-pad", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "left-pad", "range": "1.0.0"}},
 			},
 			"targets": []map[string]any{{
 				"name":    "core",
@@ -27,7 +27,7 @@ func TestUpdatePerfCapturesResolveAndStoreCounters(t *testing.T) {
 				"entry":   "src/index.ts",
 				"runtime": "src/index.ts",
 				"types":   "dist/index.d.ts",
-				"deps":    []string{"dep-a-a", "dep-a-b"},
+				"deps":    []string{"dep-a", "left-pad"},
 				"peers":   []string{},
 			}},
 			"tools":      []string{},
@@ -54,6 +54,24 @@ func TestUpdatePerfCapturesResolveAndStoreCounters(t *testing.T) {
 		t.Fatalf("update failed: %#v", result.Diagnostics)
 	}
 	report := session.Snapshot(time.Now().UTC())
+	if report.Counters.ResolveJobs != 24 {
+		t.Fatalf("resolve jobs=%d want 24", report.Counters.ResolveJobs)
+	}
+	if report.Counters.ResolveFrontiers == 0 {
+		t.Fatalf("expected resolve frontiers, got %#v", report.Counters)
+	}
+	if report.Counters.ResolveMaxFrontierWidth == 0 {
+		t.Fatalf("expected resolve max frontier width, got %#v", report.Counters)
+	}
+	if report.Counters.ResolvePreparedPackages != 2 {
+		t.Fatalf("prepared packages=%d want 2", report.Counters.ResolvePreparedPackages)
+	}
+	if report.Counters.ResolveCommittedPackages != 2 {
+		t.Fatalf("committed packages=%d want 2", report.Counters.ResolveCommittedPackages)
+	}
+	if report.Counters.ResolveWorkerErrors != 0 {
+		t.Fatalf("resolve worker errors=%d want 0", report.Counters.ResolveWorkerErrors)
+	}
 	if report.Counters.MetadataRequests != 2 {
 		t.Fatalf("metadata requests=%d want 2", report.Counters.MetadataRequests)
 	}

@@ -40,6 +40,12 @@ type Session struct {
 }
 
 type Counters struct {
+	ResolveJobs                     int64 `json:"resolveJobs"`
+	ResolveFrontiers                int64 `json:"resolveFrontiers"`
+	ResolveMaxFrontierWidth         int64 `json:"resolveMaxFrontierWidth"`
+	ResolvePreparedPackages         int64 `json:"resolvePreparedPackages"`
+	ResolveCommittedPackages        int64 `json:"resolveCommittedPackages"`
+	ResolveWorkerErrors             int64 `json:"resolveWorkerErrors"`
 	MetadataRequests                int64 `json:"metadataRequests"`
 	MetadataCacheHits               int64 `json:"metadataCacheHits"`
 	TarballRequests                 int64 `json:"tarballRequests"`
@@ -163,6 +169,54 @@ func (s *Session) RecordMetadataRequest() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.counters.MetadataRequests++
+}
+
+func (s *Session) SetResolveJobs(jobs int) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.counters.ResolveJobs = int64(jobs)
+}
+
+func (s *Session) RecordResolveFrontier(width int) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.counters.ResolveFrontiers++
+	if int64(width) > s.counters.ResolveMaxFrontierWidth {
+		s.counters.ResolveMaxFrontierWidth = int64(width)
+	}
+}
+
+func (s *Session) RecordPreparedPackage() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.counters.ResolvePreparedPackages++
+}
+
+func (s *Session) RecordCommittedPackage() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.counters.ResolveCommittedPackages++
+}
+
+func (s *Session) RecordResolveWorkerError() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.counters.ResolveWorkerErrors++
 }
 
 func (s *Session) RecordMetadataCacheHit() {

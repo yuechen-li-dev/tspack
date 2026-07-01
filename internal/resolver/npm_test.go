@@ -16,7 +16,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/graph"
@@ -25,31 +27,78 @@ import (
 )
 
 type fakeClient struct {
+	mu        sync.Mutex
 	meta      map[string]*PackageMetadata
 	tar       map[string][]byte
 	metaErr   map[string]error
 	metaCalls map[string]int
+	tarCalls  map[string]int
+	metaDelay map[string]time.Duration
+	tarDelay  map[string]time.Duration
+	metaStart func(name string)
+	metaDone  func(name string)
 }
 
-func (f *fakeClient) PackageMetadata(_ context.Context, name string) (*PackageMetadata, error) {
+func (f *fakeClient) PackageMetadata(ctx context.Context, name string) (*PackageMetadata, error) {
+	if f.metaStart != nil {
+		f.metaStart(name)
+	}
+	defer func() {
+		if f.metaDone != nil {
+			f.metaDone(name)
+		}
+	}()
+
+	f.mu.Lock()
 	if f.metaCalls != nil {
 		f.metaCalls[name]++
 	}
-	if e, ok := f.metaErr[name]; ok {
-		return nil, e
+	delay := f.metaDelay[name]
+	err := f.metaErr[name]
+	meta := f.meta[name]
+	f.mu.Unlock()
+
+	if delay > 0 {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
 	}
-	m, ok := f.meta[name]
-	if !ok {
+	if err != nil {
+		return nil, err
+	}
+	if meta == nil {
 		return nil, errors.New("not found")
 	}
-	return m, nil
+	return meta, nil
 }
-func (f *fakeClient) Tarball(_ context.Context, url string) ([]byte, error) {
-	b, ok := f.tar[url]
+func (f *fakeClient) Tarball(ctx context.Context, url string) ([]byte, error) {
+	f.mu.Lock()
+	if f.tarCalls != nil {
+		f.tarCalls[url]++
+	}
+	delay := f.tarDelay[url]
+	body, ok := f.tar[url]
+	f.mu.Unlock()
+
+	if delay > 0 {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
 	if !ok {
 		return nil, errors.New("not found")
 	}
-	return b, nil
+	return body, nil
+}
+
+func (f *fakeClient) metadataCallCount(name string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.metaCalls[name]
 }
 
 func TestResolveNPMM7Coverage(t *testing.T) {
@@ -237,6 +286,52 @@ func TestDeterministicOutput(t *testing.T) {
 	}
 }
 
+func TestResolveNPMDeterministicAcrossResolveJobs(t *testing.T) {
+	g := graphForDeps(
+		[]manifest.DependencyIntent{
+			{Key: "dep-a", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "dep-a", Range: "1.0.0"}},
+			{Key: "react", Kind: "peer", Source: manifest.Source{Kind: "npm", Package: "react", Range: ">=18 <20"}},
+			{Key: "typescript", Kind: "tool", Source: manifest.Source{Kind: "npm", Package: "typescript", Range: "5.6.0"}},
+		},
+		[]string{"react"},
+		[]string{"dep-a"},
+		"typescript",
+	)
+
+	serial := ResolveNPM(context.Background(), ResolverOptions{Client: buildFakeRegistry(), Mode: ResolveModeUpdate, ResolveJobs: 1}, ResolveRequest{Graph: g})
+	parallel := ResolveNPM(context.Background(), ResolverOptions{Client: buildFakeRegistry(), Mode: ResolveModeUpdate, ResolveJobs: 24}, ResolveRequest{Graph: g})
+	serialBytes, _ := lockfile.Marshal(serial.Lock)
+	parallelBytes, _ := lockfile.Marshal(parallel.Lock)
+	if !bytes.Equal(serialBytes, parallelBytes) {
+		t.Fatalf("lock bytes changed between resolve jobs=1 and jobs=24\n--- jobs=1 ---\n%s\n--- jobs=24 ---\n%s", serialBytes, parallelBytes)
+	}
+}
+
+func TestResolveNPMRepeatedParallelRunsStayDeterministic(t *testing.T) {
+	g := graphForDeps(
+		[]manifest.DependencyIntent{
+			{Key: "dep-a", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "dep-a", Range: "1.0.0"}},
+			{Key: "react-dom", Kind: "peer", Source: manifest.Source{Kind: "npm", Package: "react-dom", Range: ">=18 <20"}},
+			{Key: "optional-parent", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "optional-parent", Range: "1.0.0"}},
+		},
+		[]string{"react-dom"},
+		[]string{"dep-a", "optional-parent"},
+	)
+
+	var baseline []byte
+	for run := 0; run < 5; run++ {
+		res := ResolveNPM(context.Background(), ResolverOptions{Client: buildFakeRegistry(), Mode: ResolveModeUpdate, ResolveJobs: 24}, ResolveRequest{Graph: g})
+		body, _ := lockfile.Marshal(res.Lock)
+		if run == 0 {
+			baseline = body
+			continue
+		}
+		if !bytes.Equal(baseline, body) {
+			t.Fatalf("run %d changed lock output\n--- baseline ---\n%s\n--- run ---\n%s", run, baseline, body)
+		}
+	}
+}
+
 func TestResolveNPMMemoizesMetadataWithinResolvePass(t *testing.T) {
 	fc := buildFakeRegistry()
 	fc.metaCalls = map[string]int{}
@@ -253,11 +348,11 @@ func TestResolveNPMMemoizesMetadataWithinResolvePass(t *testing.T) {
 	if len(res.Diagnostics) != 0 {
 		t.Fatalf("unexpected diagnostics: %#v", res.Diagnostics)
 	}
-	if fc.metaCalls["dep-a"] != 1 {
-		t.Fatalf("dep-a metadata calls=%d want 1", fc.metaCalls["dep-a"])
+	if fc.metadataCallCount("dep-a") != 1 {
+		t.Fatalf("dep-a metadata calls=%d want 1", fc.metadataCallCount("dep-a"))
 	}
-	if fc.metaCalls["left-pad"] != 1 {
-		t.Fatalf("left-pad metadata calls=%d want 1", fc.metaCalls["left-pad"])
+	if fc.metadataCallCount("left-pad") != 1 {
+		t.Fatalf("left-pad metadata calls=%d want 1", fc.metadataCallCount("left-pad"))
 	}
 }
 
@@ -276,8 +371,8 @@ func TestResolveNPMMemoizesMetadataErrorsWithinResolvePass(t *testing.T) {
 		ResolveRequest{Graph: graphForDeps(deps, nil, []string{"broken-a", "broken-b"})},
 	)
 	mustCode(t, res, "TSPACK_RESOLVE_NPM_METADATA_ERROR")
-	if fc.metaCalls["broken-meta"] != 1 {
-		t.Fatalf("broken-meta metadata calls=%d want 1", fc.metaCalls["broken-meta"])
+	if fc.metadataCallCount("broken-meta") != 1 {
+		t.Fatalf("broken-meta metadata calls=%d want 1", fc.metadataCallCount("broken-meta"))
 	}
 }
 
@@ -288,8 +383,89 @@ func TestResolveNPMMemoizationIsPerResolvePass(t *testing.T) {
 	resolveOne(fc, "dep-a", "1.0.0")
 	resolveOne(fc, "dep-a", "1.0.0")
 
-	if fc.metaCalls["dep-a"] != 2 {
-		t.Fatalf("dep-a metadata calls=%d want 2 across two resolve passes", fc.metaCalls["dep-a"])
+	if fc.metadataCallCount("dep-a") != 2 {
+		t.Fatalf("dep-a metadata calls=%d want 2 across two resolve passes", fc.metadataCallCount("dep-a"))
+	}
+}
+
+func TestResolveNPMConcurrentMetadataRequestsShareOneFetch(t *testing.T) {
+	fc := buildFakeRegistry()
+	fc.metaDelay["dep-a"] = 25 * time.Millisecond
+
+	deps := []manifest.DependencyIntent{
+		{Key: "dep-a-a", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "dep-a", Range: "1.0.0"}},
+		{Key: "dep-a-b", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "dep-a", Range: "1.0.0"}},
+	}
+	res := ResolveNPM(
+		context.Background(),
+		ResolverOptions{Client: fc, Mode: ResolveModeUpdate, ResolveJobs: 24},
+		ResolveRequest{Graph: graphForDeps(deps, nil, []string{"dep-a-a", "dep-a-b"})},
+	)
+	if len(res.Diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", res.Diagnostics)
+	}
+	if fc.metadataCallCount("dep-a") != 1 {
+		t.Fatalf("dep-a metadata calls=%d want 1", fc.metadataCallCount("dep-a"))
+	}
+}
+
+func TestResolveNPMConcurrentDifferentMetadataRequestsRunInParallel(t *testing.T) {
+	fc := buildFakeRegistry()
+	fc.metaDelay["dep-a"] = 25 * time.Millisecond
+	fc.metaDelay["typescript"] = 25 * time.Millisecond
+
+	var mu sync.Mutex
+	inFlight := 0
+	maxInFlight := 0
+	fc.metaStart = func(name string) {
+		mu.Lock()
+		defer mu.Unlock()
+		inFlight++
+		if inFlight > maxInFlight {
+			maxInFlight = inFlight
+		}
+	}
+	fc.metaDone = func(name string) {
+		mu.Lock()
+		defer mu.Unlock()
+		inFlight--
+	}
+
+	deps := []manifest.DependencyIntent{
+		{Key: "dep-a", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "dep-a", Range: "1.0.0"}},
+		{Key: "typescript", Kind: "tool", Source: manifest.Source{Kind: "npm", Package: "typescript", Range: "5.6.0"}},
+	}
+	res := ResolveNPM(
+		context.Background(),
+		ResolverOptions{Client: fc, Mode: ResolveModeUpdate, ResolveJobs: 24},
+		ResolveRequest{Graph: graphForDeps(deps, nil, []string{"dep-a"}, "typescript")},
+	)
+	if len(res.Diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", res.Diagnostics)
+	}
+	if maxInFlight < 2 {
+		t.Fatalf("expected concurrent metadata fetches, maxInFlight=%d", maxInFlight)
+	}
+}
+
+func TestResolveNPMErrorOrderIsDeterministicAcrossParallelRuns(t *testing.T) {
+	deps := []manifest.DependencyIntent{
+		{Key: "z-missing", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "z-missing", Range: "1.0.0"}},
+		{Key: "a-missing", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "a-missing", Range: "1.0.0"}},
+	}
+	for run := 0; run < 3; run++ {
+		res := ResolveNPM(
+			context.Background(),
+			ResolverOptions{Client: buildFakeRegistry(), Mode: ResolveModeUpdate, ResolveJobs: 24},
+			ResolveRequest{Graph: graphForDeps(deps, nil, []string{"z-missing", "a-missing"})},
+		)
+		first := firstDiagnosticWithCode(res.Diagnostics, "TSPACK_RESOLVE_NPM_PACKAGE_NOT_FOUND")
+		if first == nil {
+			t.Fatalf("missing package not found diagnostic in %#v", res.Diagnostics)
+		}
+		if len(first.Details) == 0 || first.Details[0] != "a-missing" {
+			t.Fatalf("unexpected first diagnostic ordering: %#v", res.Diagnostics)
+		}
 	}
 }
 
@@ -398,7 +574,15 @@ func buildFakeRegistry() *fakeClient {
 	add("optional-parent", "1.0.0", nil, map[string]string{"optional-child": "^1.0.0"}, nil)
 	add("optional-child", "1.0.0", nil, nil, nil)
 	add("package-with-postinstall", "1.0.0", nil, nil, map[string]string{"postinstall": "node write-marker.js"})
-	return &fakeClient{meta: m, tar: tarballs, metaErr: map[string]error{}}
+	return &fakeClient{
+		meta:      m,
+		tar:       tarballs,
+		metaErr:   map[string]error{},
+		metaCalls: map[string]int{},
+		tarCalls:  map[string]int{},
+		metaDelay: map[string]time.Duration{},
+		tarDelay:  map[string]time.Duration{},
+	}
 }
 
 func tarFor(name, version string, deps, optional, scripts map[string]string) []byte {
@@ -467,6 +651,15 @@ func sortCheck(lf *lockfile.Lockfile) bool {
 		}
 	}
 	return true
+}
+
+func firstDiagnosticWithCode(diags []diag.Diagnostic, code string) *diag.Diagnostic {
+	for index := range diags {
+		if diags[index].Code == code {
+			return &diags[index]
+		}
+	}
+	return nil
 }
 
 var _ = diag.SeverityInfo

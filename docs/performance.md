@@ -32,6 +32,28 @@ That script:
 
 Use `-UseGoRun` if you want to execute through `go run` instead of building a binary.
 
+## Resolver concurrency
+
+Cold `update` now uses deterministic parallel resolver preparation:
+
+- workers fetch package facts concurrently
+- commit stays serial and deterministic
+- lockfile bytes should stay identical between `TSPACK_RESOLVE_JOBS=1` and the default
+
+The default resolver worker count is `24`. Override it with:
+
+```powershell
+$env:TSPACK_RESOLVE_JOBS = "1"
+.\tools\Bench-TSPack.ps1 -Template react -Runs 1
+
+$env:TSPACK_RESOLVE_JOBS = "24"
+.\tools\Bench-TSPack.ps1 -Template react -Runs 1
+
+Remove-Item Env:\TSPACK_RESOLVE_JOBS
+```
+
+Store population remains separately controlled by `TSPACK_STORE_JOBS`.
+
 ## Scenarios
 
 The default `suite` expands to:
@@ -69,6 +91,12 @@ The perf report includes:
 
 - total command time
 - named phase timings
+- resolve job count
+- resolve frontier count
+- max resolve frontier width
+- prepared package count
+- committed package count
+- resolver worker error count
 - metadata request count
 - metadata memoization cache hit count
 - tarball request count

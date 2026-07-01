@@ -32,18 +32,26 @@ const (
 	ResolveModeSync   ResolveMode = "sync"
 )
 
+const defaultResolveJobs = 24
+
 type NPMRegistryClient interface {
 	PackageMetadata(ctx context.Context, name string) (*PackageMetadata, error)
 	Tarball(ctx context.Context, url string) ([]byte, error)
 }
 
 type ResolverOptions struct {
-	RegistryURL        string
-	Client             NPMRegistryClient
-	Mode               ResolveMode
-	RootDir            string
-	OnArtifactResolved func(pkg lockfile.Package, artifact []byte) error
-	OnMetadataCacheHit func(name string)
+	RegistryURL           string
+	Client                NPMRegistryClient
+	Mode                  ResolveMode
+	RootDir               string
+	ResolveJobs           int
+	OnArtifactResolved    func(pkg lockfile.Package, artifact []byte) error
+	OnMetadataCacheHit    func(name string)
+	OnResolveJobs         func(jobs int)
+	OnResolveFrontier     func(width int)
+	OnPreparedPackage     func(key string)
+	OnCommittedPackage    func(id string)
+	OnResolverWorkerError func(key string)
 }
 
 type ResolveRequest struct {
@@ -77,6 +85,59 @@ type PackageDist struct {
 	Integrity string `json:"integrity"`
 }
 
+type resolverState struct {
+	opts    ResolverOptions
+	result  *ResolveResult
+	seenPkg map[string]bool
+	graph   *graph.WorkspaceGraph
+	metaMu  sync.Mutex
+	meta    map[string]*metadataMemoEntry
+	prepMu  sync.Mutex
+	prep    map[string]*preparedMemoEntry
+}
+
+type metadataMemoEntry struct {
+	ready chan struct{}
+	meta  *PackageMetadata
+	err   error
+}
+
+type preparedMemoEntry struct {
+	ready    chan struct{}
+	prepared preparedPackage
+}
+
+type resolveWorkItem struct {
+	name     string
+	rng      string
+	from     string
+	kind     string
+	optional bool
+}
+
+type resolveWorkGroup struct {
+	key         string
+	name        string
+	rng         string
+	requests    []resolveWorkItem
+	hasRequired bool
+}
+
+type preparedPackage struct {
+	groupKey   string
+	packageID  string
+	packageDef lockfile.Package
+	transitive []resolveWorkItem
+	failure    *preparedFailure
+	cancelled  bool
+}
+
+type preparedFailure struct {
+	code    string
+	message string
+	details []string
+}
+
 func ResolveNPM(ctx context.Context, opts ResolverOptions, req ResolveRequest) ResolveResult {
 	result := ResolveResult{Lock: &lockfile.Lockfile{Lock: lockfile.LockHeader{Format: lockfile.FormatVersion, Tool: lockfile.ToolName}}}
 	if opts.Mode == ResolveModeSync {
@@ -87,95 +148,414 @@ func ResolveNPM(ctx context.Context, opts ResolverOptions, req ResolveRequest) R
 		result.Diagnostics = append(result.Diagnostics, dErr("TSPACK_RESOLVE_INTERNAL_ERROR", "resolver requires graph and client"))
 		return result
 	}
-	for _, p := range req.Graph.AllPackages() {
-		for _, t := range p.AllTargets() {
-			result.Lock.Targets = append(result.Lock.Targets, lockfile.Target{Package: p.Name, Name: t.Name, Export: t.Export, Entry: t.Entry, Runtime: t.Runtime, Types: t.Types})
+
+	resolveJobs := opts.ResolveJobs
+	if resolveJobs <= 0 {
+		resolveJobs = defaultResolveJobs
+	}
+	if opts.OnResolveJobs != nil {
+		opts.OnResolveJobs(resolveJobs)
+	}
+
+	for _, pkg := range req.Graph.AllPackages() {
+		for _, target := range pkg.AllTargets() {
+			result.Lock.Targets = append(result.Lock.Targets, lockfile.Target{
+				Package: pkg.Name,
+				Name:    target.Name,
+				Export:  target.Export,
+				Entry:   target.Entry,
+				Runtime: target.Runtime,
+				Types:   target.Types,
+			})
 		}
 	}
-	state := &resolverState{opts: opts, result: &result, seenPkg: map[string]bool{}, graph: req.Graph}
-	for _, p := range req.Graph.AllPackages() {
-		for _, t := range p.AllTargets() {
-			from := fmt.Sprintf("%s:target:%s", p.Name, t.Name)
-			for _, dep := range t.AllowedRuntimeDependencies() {
-				state.resolveDirect(ctx, dep, from)
+
+	state := &resolverState{
+		opts:    opts,
+		result:  &result,
+		seenPkg: map[string]bool{},
+		graph:   req.Graph,
+	}
+
+	frontier := make([]resolveWorkItem, 0)
+	for _, pkg := range req.Graph.AllPackages() {
+		for _, target := range pkg.AllTargets() {
+			from := fmt.Sprintf("%s:target:%s", pkg.Name, target.Name)
+			for _, dep := range target.AllowedRuntimeDependencies() {
+				frontier = state.enqueueDirectRequest(ctx, frontier, dep, from, dependencyEdgeKind(dep))
 			}
-			for _, dep := range t.AllowedPeerDependencies() {
-				state.resolveDirectAsKind(ctx, dep, from, "peer")
+			for _, dep := range target.AllowedPeerDependencies() {
+				frontier = state.enqueueDirectRequest(ctx, frontier, dep, from, "peer")
 			}
 		}
-		for _, dep := range p.ToolDependencies() {
-			state.resolveDirectAsKind(ctx, dep, fmt.Sprintf("%s:tool", p.Name), "tool")
+		for _, dep := range pkg.ToolDependencies() {
+			frontier = state.enqueueDirectRequest(ctx, frontier, dep, fmt.Sprintf("%s:tool", pkg.Name), "tool")
 		}
 	}
+
+	for len(frontier) > 0 {
+		nextFrontier, fatal := state.resolveFrontier(ctx, frontier, resolveJobs)
+		if fatal {
+			break
+		}
+		frontier = nextFrontier
+	}
+
 	result.Lock = mustNormalizeLock(result.Lock)
 	diag.SortDiagnostics(result.Diagnostics)
 	return result
 }
 
-type resolverState struct {
-	opts    ResolverOptions
-	result  *ResolveResult
-	seenPkg map[string]bool
-	graph   *graph.WorkspaceGraph
-	metaMu  sync.Mutex
-	meta    map[string]*metadataMemoEntry
-}
-
-type metadataMemoEntry struct {
-	ready chan struct{}
-	meta  *PackageMetadata
-	err   error
-}
-
-func (r *resolverState) resolveDirect(ctx context.Context, dep *graph.DependencyNode, from string) {
-	kind := "runtime"
+func dependencyEdgeKind(dep *graph.DependencyNode) string {
 	if dep.Kind == graph.DependencyKindType {
-		kind = "type"
+		return "type"
 	}
-	r.resolveDirectAsKind(ctx, dep, from, kind)
+	return "runtime"
 }
 
-func (r *resolverState) resolveDirectAsKind(ctx context.Context, dep *graph.DependencyNode, from, kind string) {
+func (r *resolverState) enqueueDirectRequest(ctx context.Context, frontier []resolveWorkItem, dep *graph.DependencyNode, from, kind string) []resolveWorkItem {
 	if dep.Source.Kind != "npm" {
 		r.resolveNonNPMDependency(ctx, dep, from, kind)
-		return
+		return frontier
 	}
-	id, optional, ok := r.resolvePackage(ctx, dep.Source.Package, dep.Source.Range, dep.Optional, "")
-	if !ok {
-		return
-	}
-	r.result.Lock.Edges = append(r.result.Lock.Edges, lockfile.Edge{From: from, To: id, Kind: kind, Optional: optional})
+	frontier = append(frontier, resolveWorkItem{
+		name:     dep.Source.Package,
+		rng:      dep.Source.Range,
+		from:     from,
+		kind:     kind,
+		optional: dep.Optional,
+	})
+	return frontier
 }
 
-func (r *resolverState) resolvePackage(ctx context.Context, name, rng string, optional bool, parentID string) (string, bool, bool) {
-	meta, err := r.packageMetadata(ctx, name)
+func (r *resolverState) resolveFrontier(ctx context.Context, frontier []resolveWorkItem, resolveJobs int) ([]resolveWorkItem, bool) {
+	normalized := normalizeWorkItems(frontier)
+	if len(normalized) == 0 {
+		return nil, false
+	}
+	if r.opts.OnResolveFrontier != nil {
+		r.opts.OnResolveFrontier(len(normalized))
+	}
+
+	groups := groupWorkItems(normalized)
+	preparedByGroup := r.prepareGroups(ctx, groups, resolveJobs)
+
+	nextFrontier := make([]resolveWorkItem, 0)
+	fatal := false
+	for _, request := range normalized {
+		groupKey := packageWorkGroupKey(request.name, request.rng)
+		prepared, ok := preparedByGroup[groupKey]
+		if !ok || prepared.cancelled {
+			continue
+		}
+
+		if prepared.failure != nil {
+			r.result.Diagnostics = append(r.result.Diagnostics, buildResolveDiagnostic(request.optional, prepared.failure))
+			if !request.optional {
+				fatal = true
+			}
+			continue
+		}
+
+		r.result.Lock.Edges = append(r.result.Lock.Edges, lockfile.Edge{
+			From:     request.from,
+			To:       prepared.packageID,
+			Kind:     request.kind,
+			Optional: request.optional,
+		})
+
+		if r.seenPkg[prepared.packageID] {
+			continue
+		}
+
+		r.result.Lock.Packages = append(r.result.Lock.Packages, prepared.packageDef)
+		r.seenPkg[prepared.packageID] = true
+		if r.opts.OnCommittedPackage != nil {
+			r.opts.OnCommittedPackage(prepared.packageID)
+		}
+		nextFrontier = append(nextFrontier, prepared.transitive...)
+	}
+
+	return nextFrontier, fatal
+}
+
+func normalizeWorkItems(frontier []resolveWorkItem) []resolveWorkItem {
+	out := append([]resolveWorkItem(nil), frontier...)
+	sort.SliceStable(out, func(i, j int) bool {
+		return resolveWorkItemKey(out[i]) < resolveWorkItemKey(out[j])
+	})
+	return out
+}
+
+func groupWorkItems(frontier []resolveWorkItem) []resolveWorkGroup {
+	groupsByKey := make(map[string]*resolveWorkGroup, len(frontier))
+	order := make([]string, 0, len(frontier))
+	for _, request := range frontier {
+		groupKey := packageWorkGroupKey(request.name, request.rng)
+		group, ok := groupsByKey[groupKey]
+		if !ok {
+			group = &resolveWorkGroup{
+				key:  groupKey,
+				name: request.name,
+				rng:  request.rng,
+			}
+			groupsByKey[groupKey] = group
+			order = append(order, groupKey)
+		}
+		group.requests = append(group.requests, request)
+		if !request.optional {
+			group.hasRequired = true
+		}
+	}
+
+	out := make([]resolveWorkGroup, 0, len(order))
+	for _, groupKey := range order {
+		out = append(out, *groupsByKey[groupKey])
+	}
+	return out
+}
+
+func resolveWorkItemKey(request resolveWorkItem) string {
+	return request.name + "|" + request.rng + "|" + request.from + "|" + request.kind + "|" + boolKey(request.optional)
+}
+
+func packageWorkGroupKey(name, rng string) string {
+	return name + "|" + rng
+}
+
+func boolKey(value bool) string {
+	if value {
+		return "1"
+	}
+	return "0"
+}
+
+func (r *resolverState) prepareGroups(ctx context.Context, groups []resolveWorkGroup, resolveJobs int) map[string]preparedPackage {
+	preparedByGroup := make(map[string]preparedPackage, len(groups))
+	if len(groups) == 0 {
+		return preparedByGroup
+	}
+
+	workerCount := resolveJobs
+	if workerCount <= 0 {
+		workerCount = defaultResolveJobs
+	}
+	if workerCount > len(groups) {
+		workerCount = len(groups)
+	}
+	if workerCount == 1 {
+		for _, group := range groups {
+			preparedByGroup[group.key] = r.prepareGroup(ctx, group)
+		}
+		return preparedByGroup
+	}
+
+	jobCh := make(chan resolveWorkGroup)
+	resultCh := make(chan preparedPackage, len(groups))
+	var wg sync.WaitGroup
+	var stopMu sync.Mutex
+	stopSubmitting := false
+
+	for worker := 0; worker < workerCount; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for group := range jobCh {
+				if ctx.Err() != nil {
+					resultCh <- preparedPackage{groupKey: group.key, cancelled: true}
+					continue
+				}
+
+				prepared := r.prepareGroup(ctx, group)
+				if prepared.failure != nil && group.hasRequired {
+					stopMu.Lock()
+					stopSubmitting = true
+					stopMu.Unlock()
+				}
+				resultCh <- prepared
+			}
+		}()
+	}
+
+	go func() {
+		defer close(jobCh)
+		for _, group := range groups {
+			stopMu.Lock()
+			shouldStop := stopSubmitting
+			stopMu.Unlock()
+			if shouldStop || ctx.Err() != nil {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case jobCh <- group:
+			}
+		}
+	}()
+
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	for prepared := range resultCh {
+		preparedByGroup[prepared.groupKey] = prepared
+	}
+	return preparedByGroup
+}
+
+func (r *resolverState) prepareGroup(ctx context.Context, group resolveWorkGroup) preparedPackage {
+	prepared := preparedPackage{groupKey: group.key}
+
+	meta, err := r.packageMetadata(ctx, group.name)
 	if err != nil {
 		code := "TSPACK_RESOLVE_NPM_METADATA_ERROR"
 		if strings.Contains(strings.ToLower(err.Error()), "not found") {
 			code = "TSPACK_RESOLVE_NPM_PACKAGE_NOT_FOUND"
 		}
-		return "", optional, r.emitLookupError(optional, code, "failed to fetch npm metadata", name, err.Error())
+		if errorsFromCancellation(err) {
+			prepared.cancelled = true
+			return prepared
+		}
+		prepared.failure = prepareFailure(code, "failed to fetch npm metadata", group.name, err.Error())
+		r.recordResolverWorkerError(group.key)
+		return prepared
 	}
-	pv, version, selCode, ok := selectVersion(meta, rng)
+
+	pv, version, selCode, ok := selectVersion(meta, group.rng)
 	if !ok {
 		code := "TSPACK_RESOLVE_NPM_VERSION_NOT_FOUND"
 		if selCode != "" {
 			code = selCode
 		}
-		return "", optional, r.emitLookupError(optional, code, "failed to select npm version", name, rng)
+		prepared.failure = prepareFailure(code, "failed to select npm version", group.name, group.rng)
+		r.recordResolverWorkerError(group.key)
+		return prepared
 	}
-	id := fmt.Sprintf("npm:%s@%s", name, version)
-	if !r.seenPkg[id] {
-		if !r.addResolvedPackage(ctx, id, pv, optional) {
-			return "", optional, false
+
+	id := fmt.Sprintf("npm:%s@%s", group.name, version)
+	if r.seenPkg[id] {
+		prepared.packageID = id
+		return prepared
+	}
+
+	prepared = r.prepareSelectedPackage(ctx, group.key, id, pv)
+	prepared.groupKey = group.key
+	return prepared
+}
+
+func (r *resolverState) prepareSelectedPackage(ctx context.Context, groupKey string, id string, pv PackageVersion) preparedPackage {
+	r.prepMu.Lock()
+	if r.prep == nil {
+		r.prep = map[string]*preparedMemoEntry{}
+	}
+	if entry, ok := r.prep[id]; ok {
+		r.prepMu.Unlock()
+		select {
+		case <-entry.ready:
+			prepared := entry.prepared
+			prepared.groupKey = groupKey
+			return prepared
+		case <-ctx.Done():
+			return preparedPackage{groupKey: groupKey, cancelled: true}
 		}
-		r.seenPkg[id] = true
-		r.resolveTransitive(ctx, id, pv)
 	}
-	if parentID != "" {
-		r.result.Lock.Edges = append(r.result.Lock.Edges, lockfile.Edge{From: parentID, To: id, Kind: "runtime", Optional: optional})
+	entry := &preparedMemoEntry{ready: make(chan struct{})}
+	r.prep[id] = entry
+	r.prepMu.Unlock()
+
+	prepared := r.prepareSelectedPackageUncached(ctx, groupKey, id, pv)
+	entry.prepared = prepared
+	close(entry.ready)
+	return prepared
+}
+
+func (r *resolverState) prepareSelectedPackageUncached(ctx context.Context, groupKey string, id string, pv PackageVersion) preparedPackage {
+	prepared := preparedPackage{groupKey: groupKey}
+
+	body, err := r.opts.Client.Tarball(ctx, pv.Dist.Tarball)
+	if err != nil {
+		if errorsFromCancellation(err) {
+			prepared.cancelled = true
+			return prepared
+		}
+		prepared.failure = prepareFailure("TSPACK_RESOLVE_NPM_TARBALL_ERROR", "failed to fetch npm tarball", id, err.Error())
+		r.recordResolverWorkerError(groupKey)
+		return prepared
 	}
-	return id, optional, true
+
+	if pv.Dist.Integrity != "" {
+		ok, code := verifyIntegrity(body, pv.Dist.Integrity)
+		if code != "" {
+			prepared.failure = prepareFailure(code, "unsupported npm integrity algorithm", id, pv.Dist.Integrity)
+			r.recordResolverWorkerError(groupKey)
+			return prepared
+		}
+		if !ok {
+			prepared.failure = prepareFailure("TSPACK_RESOLVE_NPM_INTEGRITY_MISMATCH", "tarball integrity mismatch", id)
+			r.recordResolverWorkerError(groupKey)
+			return prepared
+		}
+	}
+
+	manifest, ok := parseTarballPackageJSON(body)
+	if !ok {
+		prepared.failure = prepareFailure("TSPACK_RESOLVE_NPM_TARBALL_PACKAGE_JSON_MISSING", "tarball package.json missing", id)
+		r.recordResolverWorkerError(groupKey)
+		return prepared
+	}
+	if manifest.Name != pv.Name || manifest.Version != pv.Version {
+		prepared.failure = prepareFailure("TSPACK_RESOLVE_NPM_TARBALL_METADATA_MISMATCH", "tarball package metadata mismatch", id)
+		r.recordResolverWorkerError(groupKey)
+		return prepared
+	}
+
+	hash := sha256.Sum256(body)
+	pkg := lockfile.Package{
+		ID:           id,
+		Name:         pv.Name,
+		Version:      pv.Version,
+		Source:       "npm",
+		Integrity:    pv.Dist.Integrity,
+		Hash:         "sha256:" + hex.EncodeToString(hash[:]),
+		Capabilities: capability.FromPackageJSONScripts(manifest.Scripts),
+	}
+
+	if r.opts.OnArtifactResolved != nil {
+		if err := r.opts.OnArtifactResolved(pkg, body); err != nil {
+			prepared.failure = prepareFailure("TSPACK_RESOLVE_ARTIFACT_CAPTURE_FAILED", "failed to capture resolved artifact", id, err.Error())
+			r.recordResolverWorkerError(groupKey)
+			return prepared
+		}
+	}
+
+	transitive := make([]resolveWorkItem, 0, len(pv.Dependencies)+len(pv.OptionalDependencies))
+	for _, dep := range sortedDeps(pv.Dependencies) {
+		transitive = append(transitive, resolveWorkItem{
+			name: dep.name,
+			rng:  dep.rng,
+			from: id,
+			kind: "runtime",
+		})
+	}
+	for _, dep := range sortedDeps(pv.OptionalDependencies) {
+		transitive = append(transitive, resolveWorkItem{
+			name:     dep.name,
+			rng:      dep.rng,
+			from:     id,
+			kind:     "runtime",
+			optional: true,
+		})
+	}
+
+	prepared.packageID = id
+	prepared.packageDef = pkg
+	prepared.transitive = transitive
+	if r.opts.OnPreparedPackage != nil {
+		r.opts.OnPreparedPackage(groupKey)
+	}
+	return prepared
 }
 
 func (r *resolverState) packageMetadata(ctx context.Context, name string) (*PackageMetadata, error) {
@@ -190,8 +570,12 @@ func (r *resolverState) packageMetadata(ctx context.Context, name string) (*Pack
 		if r.opts.OnMetadataCacheHit != nil {
 			r.opts.OnMetadataCacheHit(name)
 		}
-		<-entry.ready
-		return entry.meta, entry.err
+		select {
+		case <-entry.ready:
+			return entry.meta, entry.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 	entry := &metadataMemoEntry{ready: make(chan struct{})}
 	r.meta[key] = entry
@@ -212,13 +596,29 @@ func (r *resolverState) registryMetadataCacheKey(name string) string {
 	return "default|" + name
 }
 
-func (r *resolverState) emitLookupError(optional bool, code, msg string, details ...string) bool {
-	if optional {
-		r.result.Diagnostics = append(r.result.Diagnostics, dWarn(code, msg, details...))
-		return false
+func (r *resolverState) recordResolverWorkerError(groupKey string) {
+	if r.opts.OnResolverWorkerError != nil {
+		r.opts.OnResolverWorkerError(groupKey)
 	}
-	r.result.Diagnostics = append(r.result.Diagnostics, dErr(code, msg, details...))
-	return false
+}
+
+func errorsFromCancellation(err error) bool {
+	return err == context.Canceled || err == context.DeadlineExceeded
+}
+
+func prepareFailure(code, message string, details ...string) *preparedFailure {
+	return &preparedFailure{
+		code:    code,
+		message: message,
+		details: append([]string(nil), details...),
+	}
+}
+
+func buildResolveDiagnostic(optional bool, failure *preparedFailure) diag.Diagnostic {
+	if optional {
+		return dWarn(failure.code, failure.message, failure.details...)
+	}
+	return dErr(failure.code, failure.message, failure.details...)
 }
 
 func selectVersion(meta *PackageMetadata, rng string) (PackageVersion, string, string, bool) {
@@ -228,79 +628,38 @@ func selectVersion(meta *PackageMetadata, rng string) (PackageVersion, string, s
 	}
 	versions := make([]*semver.Version, 0, len(meta.Versions))
 	lookup := map[string]PackageVersion{}
-	for v, pv := range meta.Versions {
-		sv, err := semver.NewVersion(v)
+	for version, pkgVersion := range meta.Versions {
+		semVersion, err := semver.NewVersion(version)
 		if err != nil {
 			continue
 		}
-		versions = append(versions, sv)
-		lookup[sv.Original()] = pv
+		versions = append(versions, semVersion)
+		lookup[semVersion.Original()] = pkgVersion
 	}
-	sort.SliceStable(versions, func(i, j int) bool { return versions[i].GreaterThan(versions[j]) })
-	for _, v := range versions {
-		if c.Check(v) {
-			return lookup[v.Original()], v.Original(), "", true
+	sort.SliceStable(versions, func(i, j int) bool {
+		return versions[i].GreaterThan(versions[j])
+	})
+	for _, version := range versions {
+		if c.Check(version) {
+			return lookup[version.Original()], version.Original(), "", true
 		}
 	}
 	return PackageVersion{}, "", "", false
 }
 
-func (r *resolverState) addResolvedPackage(ctx context.Context, id string, pv PackageVersion, optional bool) bool {
-	body, err := r.opts.Client.Tarball(ctx, pv.Dist.Tarball)
-	if err != nil {
-		r.emitLookupError(optional, "TSPACK_RESOLVE_NPM_TARBALL_ERROR", "failed to fetch npm tarball", id, err.Error())
-		return false
-	}
-	if pv.Dist.Integrity != "" {
-		ok, code := verifyIntegrity(body, pv.Dist.Integrity)
-		if code != "" {
-			r.emitLookupError(optional, code, "unsupported npm integrity algorithm", id, pv.Dist.Integrity)
-			return false
-		}
-		if !ok {
-			r.emitLookupError(optional, "TSPACK_RESOLVE_NPM_INTEGRITY_MISMATCH", "tarball integrity mismatch", id)
-			return false
-		}
-	}
-	manifest, ok := parseTarballPackageJSON(body)
-	if !ok {
-		r.emitLookupError(optional, "TSPACK_RESOLVE_NPM_TARBALL_PACKAGE_JSON_MISSING", "tarball package.json missing", id)
-		return false
-	}
-	if manifest.Name != pv.Name || manifest.Version != pv.Version {
-		r.emitLookupError(optional, "TSPACK_RESOLVE_NPM_TARBALL_METADATA_MISMATCH", "tarball package metadata mismatch", id)
-		return false
-	}
-	h := sha256.Sum256(body)
-	pkg := lockfile.Package{ID: id, Name: pv.Name, Version: pv.Version, Source: "npm", Integrity: pv.Dist.Integrity, Hash: "sha256:" + hex.EncodeToString(h[:])}
-	pkg.Capabilities = capability.FromPackageJSONScripts(manifest.Scripts)
-	if r.opts.OnArtifactResolved != nil {
-		if err := r.opts.OnArtifactResolved(pkg, body); err != nil {
-			r.emitLookupError(optional, "TSPACK_RESOLVE_ARTIFACT_CAPTURE_FAILED", "failed to capture resolved artifact", id, err.Error())
-			return false
-		}
-	}
-	r.result.Lock.Packages = append(r.result.Lock.Packages, pkg)
-	return true
+type depEntry struct {
+	name string
+	rng  string
 }
 
-func (r *resolverState) resolveTransitive(ctx context.Context, parentID string, pv PackageVersion) {
-	for _, entry := range sortedDeps(pv.Dependencies) {
-		r.resolvePackage(ctx, entry.name, entry.rng, false, parentID)
+func sortedDeps(dependencies map[string]string) []depEntry {
+	out := make([]depEntry, 0, len(dependencies))
+	for name, rng := range dependencies {
+		out = append(out, depEntry{name: name, rng: rng})
 	}
-	for _, entry := range sortedDeps(pv.OptionalDependencies) {
-		r.resolvePackage(ctx, entry.name, entry.rng, true, parentID)
-	}
-}
-
-type depEntry struct{ name, rng string }
-
-func sortedDeps(m map[string]string) []depEntry {
-	out := make([]depEntry, 0, len(m))
-	for k, v := range m {
-		out = append(out, depEntry{name: k, rng: v})
-	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].name < out[j].name })
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].name < out[j].name
+	})
 	return out
 }
 
@@ -341,20 +700,20 @@ func parseTarballPackageJSON(body []byte) (packageJSON, bool) {
 			continue
 		}
 
-		b, err := io.ReadAll(tr)
+		content, err := io.ReadAll(tr)
 		if err != nil {
 			return packageJSON{}, false
 		}
 
 		if cleanName == "package.json" {
-			rootPackageJSON = b
+			rootPackageJSON = content
 			continue
 		}
 
 		if foundTopLevelPackageJSON {
 			return packageJSON{}, false
 		}
-		topLevelPackageJSON = b
+		topLevelPackageJSON = content
 		foundTopLevelPackageJSON = true
 	}
 
@@ -370,7 +729,11 @@ func parseTarballPackageJSON(body []byte) (packageJSON, bool) {
 	if err := json.Unmarshal(selected, &raw); err != nil {
 		return packageJSON{}, false
 	}
-	return packageJSON{Name: raw.Name, Version: raw.Version, Scripts: stringScripts(raw.Scripts)}, true
+	return packageJSON{
+		Name:    raw.Name,
+		Version: raw.Version,
+		Scripts: stringScripts(raw.Scripts),
+	}, true
 }
 
 func cleanTarballPackageJSONPath(name string) (string, bool) {
@@ -414,14 +777,15 @@ func verifyIntegrity(body []byte, integrity string) (bool, string) {
 	if err != nil {
 		return false, "TSPACK_RESOLVE_NPM_UNSUPPORTED_INTEGRITY"
 	}
+
 	var got []byte
 	switch parts[0] {
 	case "sha512":
-		h := sha512.Sum512(body)
-		got = h[:]
+		hash := sha512.Sum512(body)
+		got = hash[:]
 	case "sha256":
-		h := sha256.Sum256(body)
-		got = h[:]
+		hash := sha256.Sum256(body)
+		got = hash[:]
 	default:
 		return false, "TSPACK_RESOLVE_NPM_UNSUPPORTED_INTEGRITY"
 	}
@@ -429,14 +793,15 @@ func verifyIntegrity(body []byte, integrity string) (bool, string) {
 }
 
 func mustNormalizeLock(lf *lockfile.Lockfile) *lockfile.Lockfile {
-	b, _ := lockfile.Marshal(lf)
-	n, _ := lockfile.Parse("generated.ts-lock.toml", b)
-	return n
+	body, _ := lockfile.Marshal(lf)
+	normalized, _ := lockfile.Parse("generated.ts-lock.toml", body)
+	return normalized
 }
 
 func dErr(code, msg string, details ...string) diag.Diagnostic {
 	return diag.Diagnostic{Code: code, Severity: diag.SeverityError, Message: msg, Details: details}
 }
+
 func dWarn(code, msg string, details ...string) diag.Diagnostic {
 	return diag.Diagnostic{Code: code, Severity: diag.SeverityWarning, Message: msg, Details: details}
 }

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
@@ -190,6 +191,7 @@ func TestHTTPRegistryClientScopedPackageEncoding(t *testing.T) {
 
 func TestResolveNPMScopedPackageUsesEncodedMetadataPath(t *testing.T) {
 	metadataRequests := []string{}
+	var metadataMu sync.Mutex
 	typesTarball := makeClientTarball(t, "@types/react", "1.0.0")
 	biomeTarball := makeClientTarball(t, "@biomejs/biome", "2.0.0")
 	babelTarball := makeClientTarball(t, "@babel/core", "7.0.0")
@@ -203,7 +205,9 @@ func TestResolveNPMScopedPackageUsesEncodedMetadataPath(t *testing.T) {
 
 		switch r.RequestURI {
 		case "/@types%2Freact":
+			metadataMu.Lock()
 			metadataRequests = append(metadataRequests, r.RequestURI)
+			metadataMu.Unlock()
 			metadata := scopedPackageMetadata(
 				"@types/react",
 				"1.0.0",
@@ -211,7 +215,9 @@ func TestResolveNPMScopedPackageUsesEncodedMetadataPath(t *testing.T) {
 			)
 			_ = json.NewEncoder(w).Encode(metadata)
 		case "/@biomejs%2Fbiome":
+			metadataMu.Lock()
 			metadataRequests = append(metadataRequests, r.RequestURI)
+			metadataMu.Unlock()
 			metadata := scopedPackageMetadata(
 				"@biomejs/biome",
 				"2.0.0",
@@ -219,7 +225,9 @@ func TestResolveNPMScopedPackageUsesEncodedMetadataPath(t *testing.T) {
 			)
 			_ = json.NewEncoder(w).Encode(metadata)
 		case "/@babel%2Fcore":
+			metadataMu.Lock()
 			metadataRequests = append(metadataRequests, r.RequestURI)
+			metadataMu.Unlock()
 			metadata := scopedPackageMetadata(
 				"@babel/core",
 				"7.0.0",
@@ -278,6 +286,8 @@ func TestResolveNPMScopedPackageUsesEncodedMetadataPath(t *testing.T) {
 	assertHasPackage(t, res.Lock, "npm:@types/react@1.0.0")
 	assertHasPackage(t, res.Lock, "npm:@biomejs/biome@2.0.0")
 	assertHasPackage(t, res.Lock, "npm:@babel/core@7.0.0")
+	metadataMu.Lock()
+	defer metadataMu.Unlock()
 	if len(metadataRequests) != 3 {
 		t.Fatalf("expected three metadata requests, got %#v", metadataRequests)
 	}

@@ -21,10 +21,22 @@ JSON output from `tspack update --policy --dry-run --json` contains the normaliz
 
 `--policy` without `--dry-run` remains rejected. Targeted policy planning remains rejected. Normal `tspack update` behavior is unchanged.
 
-## Store population throughput
+## Cold update throughput
 
-Normal `tspack update` separates deterministic resolution from artifact population. Resolution decides the package graph and lockfile content first; missing store artifacts are then fetched, extracted, hashed, and committed with bounded parallel workers; final diagnostics and lockfile writes remain deterministic.
+Normal `tspack update` now follows a deterministic prepare/commit model:
+
+- resolver workers fetch metadata, select versions, fetch tarballs, inspect `package.json`, and capture artifacts
+- the resolver then commits package truth, lock entries, and next dependency frontier in a stable serial order
+- missing store artifacts are finally fetched, extracted, hashed, and committed with bounded parallel store workers
+
+This keeps dependency semantics and lockfile bytes deterministic while removing avoidable cold-update network latency.
 
 During resolution, TSPack may need to fetch npm tarballs to inspect `package.json` contents for dependency discovery. When that happens, update now writes the verified tarball into the local content-addressed store immediately so the later population phase can skip refetching it.
 
-Set `TSPACK_STORE_JOBS=1` to force sequential store population. Set `TSPACK_STORE_JOBS=N` with a positive integer to tune local cold-update throughput; the default is `24`. Invalid values fail clearly. `tspack update --dry-run` and `tspack update --policy --dry-run` remain read-only: they may resolve metadata, but they do not populate `.tspack/store`, write `ts-lock.toml`, materialize `node_modules`, or run lifecycle scripts.
+Set `TSPACK_RESOLVE_JOBS=1` to force serial resolver preparation. Set `TSPACK_RESOLVE_JOBS=N` with a positive integer to tune bounded resolver network I/O; the default is `24`.
+
+Set `TSPACK_STORE_JOBS=1` to force sequential store population. Set `TSPACK_STORE_JOBS=N` with a positive integer to tune local cold-update throughput; the default is `24`.
+
+Invalid values for either env var fail clearly before work starts.
+
+`tspack update --dry-run` and `tspack update --policy --dry-run` remain read-only: they may resolve metadata, but they do not populate `.tspack/store`, write `ts-lock.toml`, materialize `node_modules`, or run lifecycle scripts.
