@@ -39,6 +39,11 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, "index.html")); err != nil {
 			t.Fatalf("missing static index.html: %v", err)
 		}
+		assertGeneratedVSCodeSettings(t, root, "node_modules/typescript/lib")
+		manifestText := readFileString(t, filepath.Join(root, "manifest.tsx"))
+		if !strings.Contains(manifestText, `tool(npm("typescript", "^5.9.0"))`) {
+			t.Fatalf("static template should declare TypeScript as a managed tool dependency:\n%s", manifestText)
+		}
 	})
 
 	t.Run("list includes react template concepts", func(t *testing.T) {
@@ -68,12 +73,13 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 				t.Fatalf("init output missing concept %q:\n%s", want, string(b))
 			}
 		}
-		for _, rel := range []string{"manifest.tsx", "tsconfig.tspack.json", "tsconfig.json", "biome.json", "vite.config.ts", "package.json", "index.html", "src/main.tsx", "src/App.tsx", "src/style.css", "README.md"} {
+		for _, rel := range []string{"manifest.tsx", "tsconfig.tspack.json", ".vscode/settings.json", "tsconfig.json", "biome.json", "vite.config.ts", "package.json", "index.html", "src/main.tsx", "src/App.tsx", "src/style.css", "README.md"} {
 			if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
 				t.Fatalf("missing generated file %s: %v", rel, err)
 			}
 		}
 		assertGeneratedTSPackTSConfig(t, root)
+		assertGeneratedVSCodeSettings(t, root, "node_modules/typescript/lib")
 		assertGeneratedReactAppTSConfig(t, root)
 
 		manifestBytes, err := os.ReadFile(filepath.Join(root, "manifest.tsx"))
@@ -81,7 +87,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 			t.Fatalf("read manifest: %v", err)
 		}
 		manifestText := string(manifestBytes)
-		for _, want := range []string{`name="hello-react" runtime="bun"`, `name="@acme/hello-react"`, `runtime: "node"`, `command: ["vite", "build"]`, `strategy: "manual"`} {
+		for _, want := range []string{`name="hello-react" runtime="bun"`, `name="@acme/hello-react"`, `tool(npm("typescript", "^5.9.0"))`, `runtime: "node"`, `command: ["vite", "build"]`, `strategy: "manual"`} {
 			if !strings.Contains(manifestText, want) {
 				t.Fatalf("manifest missing %q:\n%s", want, manifestText)
 			}
@@ -109,12 +115,13 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 				t.Fatalf("init output missing concept %q:\n%s", want, string(b))
 			}
 		}
-		for _, rel := range []string{"manifest.tsx", "tsconfig.tspack.json", "tsconfig.json", "tsconfig.build.json", "biome.json", "vite.config.ts", "package.json", "src/index.ts", "src/Button.tsx", "src/style.css", "README.md"} {
+		for _, rel := range []string{"manifest.tsx", "tsconfig.tspack.json", ".vscode/settings.json", "tsconfig.json", "tsconfig.build.json", "biome.json", "vite.config.ts", "package.json", "src/index.ts", "src/Button.tsx", "src/style.css", "README.md"} {
 			if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
 				t.Fatalf("missing generated file %s: %v", rel, err)
 			}
 		}
 		assertGeneratedTSPackTSConfig(t, root)
+		assertGeneratedVSCodeSettings(t, root, "node_modules/typescript/lib")
 		assertGeneratedReactAppTSConfig(t, root)
 
 		manifestBytes, err := os.ReadFile(filepath.Join(root, "manifest.tsx"))
@@ -122,7 +129,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 			t.Fatalf("read manifest: %v", err)
 		}
 		manifestText := string(manifestBytes)
-		for _, want := range []string{`name="ui-kit" runtime="bun"`, `name="@local/ui-kit"`, `kind="library"`, `peer(npm("react"`, `peers: [deps.react, deps.reactDom]`, `<Publish include={["dist/**", "README.md", "package.json"]}`, `command: ["vite", "build"]`, `command: ["tsc", "-p", "tsconfig.build.json", "--listEmittedFiles"]`} {
+		for _, want := range []string{`name="ui-kit" runtime="bun"`, `name="@local/ui-kit"`, `kind="library"`, `tool(npm("typescript", "^5.9.0"))`, `peer(npm("react"`, `peers: [deps.react, deps.reactDom]`, `<Publish include={["dist/**", "README.md", "package.json"]}`, `command: ["vite", "build"]`, `command: ["tsc", "-p", "tsconfig.build.json", "--listEmittedFiles"]`} {
 			if !strings.Contains(manifestText, want) {
 				t.Fatalf("manifest missing %q:\n%s", want, manifestText)
 			}
@@ -831,6 +838,27 @@ func assertGeneratedTSPackTSConfig(t *testing.T, root string) {
 	}
 }
 
+func assertGeneratedVSCodeSettings(t *testing.T, root string, wantTSDK string) {
+	t.Helper()
+
+	settingsBytes, err := os.ReadFile(filepath.Join(root, ".vscode", "settings.json"))
+	if err != nil {
+		t.Fatalf("missing generated VS Code settings: %v", err)
+	}
+
+	var settings map[string]any
+	if err := json.Unmarshal(settingsBytes, &settings); err != nil {
+		t.Fatalf("generated VS Code settings should parse as JSON: %v", err)
+	}
+
+	if settings["typescript.tsdk"] != wantTSDK {
+		t.Fatalf("generated VS Code settings should point to %q, got %#v", wantTSDK, settings["typescript.tsdk"])
+	}
+	if settings["typescript.enablePromptUseWorkspaceTsdk"] != true {
+		t.Fatalf("generated VS Code settings should enable the workspace TypeScript prompt, got %#v", settings["typescript.enablePromptUseWorkspaceTsdk"])
+	}
+}
+
 func jsonStringArraySet(t *testing.T, value any) map[string]bool {
 	t.Helper()
 
@@ -1058,6 +1086,7 @@ func TestInitAlongsideManifestEditorTypecheck(t *testing.T) {
 	runCommandOutput(t, bin, "init", "--alongside", "--root", root)
 	runCommandOutput(t, bin, "compat", "write", "--root", root)
 
+	assertGeneratedVSCodeSettings(t, root, "node_modules/typescript/lib")
 	runManifestEditorTypecheck(t, repo, root, "tsconfig.tspack.json")
 }
 
@@ -1096,6 +1125,7 @@ func TestTemplateManifestEditorTypecheck(t *testing.T) {
 				t.Fatalf("init %s failed: %v\n%s", tc.name, err, string(out))
 			}
 
+			assertGeneratedVSCodeSettings(t, root, "node_modules/typescript/lib")
 			runManifestEditorTypecheck(t, repo, root, "tsconfig.tspack.json")
 		})
 	}

@@ -46,6 +46,7 @@ func TestCompatHelpersFixtureCommands(t *testing.T) {
 
 	assertJSONFileContainsKey(t, filepath.Join(root, "tsconfig.tspack.json"), "compilerOptions")
 	assertJSONFileContainsKey(t, filepath.Join(root, ".vscode", "settings.json"), "typescript.tsdk")
+	assertJSONFileContainsKey(t, filepath.Join(root, ".vscode", "settings.json"), "typescript.enablePromptUseWorkspaceTsdk")
 	assertJSONFileContainsKey(t, filepath.Join(root, ".vscode", "extensions.json"), "recommendations")
 	assertJSONFileContainsKey(t, filepath.Join(root, "compat.raw.json"), "raw")
 	gotTSConfig, err := os.ReadFile(filepath.Join(root, "tsconfig.tspack.json"))
@@ -126,6 +127,22 @@ func TestRepoRootManifestNarrowsManifestEditorTSConfig(t *testing.T) {
 		if !excludeSet[want] {
 			t.Fatalf("repo-root tsconfig exclude missing %q in %#v", want, excludeSet)
 		}
+	}
+
+	settingsBytes, err := os.ReadFile(filepath.Join(root, ".vscode", "settings.json"))
+	if err != nil {
+		t.Fatalf("read generated .vscode/settings.json: %v", err)
+	}
+
+	var settings map[string]any
+	if err := json.Unmarshal(settingsBytes, &settings); err != nil {
+		t.Fatalf("parse generated .vscode/settings.json: %v", err)
+	}
+	if settings["typescript.tsdk"] != "manifest-frontend/node_modules/typescript/lib" {
+		t.Fatalf("repo-root settings should point to nested TypeScript SDK, got %#v", settings["typescript.tsdk"])
+	}
+	if settings["typescript.enablePromptUseWorkspaceTsdk"] != true {
+		t.Fatalf("repo-root settings should enable the workspace TypeScript prompt, got %#v", settings["typescript.enablePromptUseWorkspaceTsdk"])
 	}
 }
 

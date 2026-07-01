@@ -18,11 +18,11 @@ import {
 } from "tspack/manifest";
 
 const deps = defineDeps({
-	manifestFrontendTypescript: tool(npm("typescript", "^5.6.3"), { key: "typescript" }),
+	manifestFrontendTypescript: tool(npm("typescript", "^5.9.0"), { key: "typescript" }),
 	manifestFrontendVitest: tool(npm("vitest", "^2.1.3"), { key: "vitest" }),
 	manifestFrontendPlaywright: tool(npm("playwright", "^1.54.0"), { key: "playwright" }),
 	biome: tool(npm("@biomejs/biome", "^2.5.1"), { key: "@biomejs/biome" }),
-	vscodeTypescript: tool(npm("typescript", "^5.6.3"), { key: "vscode-typescript" }),
+	vscodeTypescript: tool(npm("typescript", "^5.9.0"), { key: "vscode-typescript" }),
 	vscodeVitest: tool(npm("vitest", "^2.1.3"), { key: "vscode-vitest" }),
 	vscodeNodeTypes: tool(npm("@types/node", "^22.10.2"), { key: "@types/node" }),
 	vscodeApiTypes: tool(npm("@types/vscode", "^1.92.0"), { key: "@types/vscode" }),
@@ -59,7 +59,12 @@ export default define(
 					],
 				})}
 			/>
-			<JsonFile path=".vscode/settings.json" value={VSCode.settings()} />
+			<JsonFile
+				path=".vscode/settings.json"
+				value={VSCode.settings({
+					typescriptTsdk: "manifest-frontend/node_modules/typescript/lib",
+				})}
+			/>
 			<JsonFile path=".vscode/extensions.json" value={VSCode.extensions()} />
 		</CompatFiles>
 		<Security

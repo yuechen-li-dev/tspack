@@ -529,7 +529,10 @@ export default defineWorkspace(
           {
             format: 'json',
             path: '.vscode/settings.json',
-            value: { 'typescript.tsdk': 'node_modules/typescript/lib' },
+            value: {
+              'typescript.enablePromptUseWorkspaceTsdk': true,
+              'typescript.tsdk': 'node_modules/typescript/lib',
+            },
           },
           {
             format: 'json',
@@ -646,6 +649,87 @@ export default defineWorkspace(
   <Workspace name="compat-json-helpers">
     <CompatFiles>
       <JsonFile path="tsconfig.tspack.json" value={${helperCall}} />
+    </CompatFiles>
+  </Workspace>
+);`,
+      (manifestPath) => {
+        const result = parseManifestFile(manifestPath);
+        expect(result.ok).toBe(false);
+        expect(result.diagnostics.some((d) => d.code === 'TSPACK_MANIFEST_INVALID_HELPER_ARGUMENT')).toBe(true);
+      },
+    );
+  });
+
+  it('uses workspace TypeScript settings defaults and merges additional settings', () => {
+    withTemporaryManifest(
+      'tmp-vscode-settings-defaults-',
+      `import { VSCode, defineWorkspace } from "tspack/manifest";
+export default defineWorkspace(
+  <Workspace name="compat-json-helpers">
+    <CompatFiles>
+      <JsonFile
+        path=".vscode/settings.json"
+        value={VSCode.settings({
+          "editor.defaultFormatter": "biomejs.biome",
+        })}
+      />
+    </CompatFiles>
+  </Workspace>
+);`,
+      (manifestPath) => {
+        const result = parseManifestFile(manifestPath);
+        expect(result.ok).toBe(true);
+        expect(result.ir?.compatFiles?.[0]?.value).toEqual({
+          'editor.defaultFormatter': 'biomejs.biome',
+          'typescript.enablePromptUseWorkspaceTsdk': true,
+          'typescript.tsdk': 'node_modules/typescript/lib',
+        });
+      },
+    );
+  });
+
+  it('supports a custom relative workspace TypeScript SDK path', () => {
+    withTemporaryManifest(
+      'tmp-vscode-settings-custom-tsdk-',
+      `import { VSCode, defineWorkspace } from "tspack/manifest";
+export default defineWorkspace(
+  <Workspace name="compat-json-helpers">
+    <CompatFiles>
+      <JsonFile
+        path=".vscode/settings.json"
+        value={VSCode.settings({
+          typescriptTsdk: "manifest-frontend/node_modules/typescript/lib",
+        })}
+      />
+    </CompatFiles>
+  </Workspace>
+);`,
+      (manifestPath) => {
+        const result = parseManifestFile(manifestPath);
+        expect(result.ok).toBe(true);
+        expect(result.ir?.compatFiles?.[0]?.value).toEqual({
+          'typescript.enablePromptUseWorkspaceTsdk': true,
+          'typescript.tsdk': 'manifest-frontend/node_modules/typescript/lib',
+        });
+      },
+    );
+  });
+
+  it.each([
+    ['empty string', `VSCode.settings({ typescriptTsdk: "" })`],
+    ['absolute path', `VSCode.settings({ typescriptTsdk: "/tmp/typescript/lib" })`],
+    ['traversal', `VSCode.settings({ typescriptTsdk: "../node_modules/typescript/lib" })`],
+    ['backslashes', `VSCode.settings({ typescriptTsdk: "node_modules\\\\typescript\\\\lib" })`],
+    ['url', `VSCode.settings({ typescriptTsdk: "https://example.com/typescript/lib" })`],
+    ['drive letter', `VSCode.settings({ typescriptTsdk: "C:/typescript/lib" })`],
+  ])('rejects invalid VS Code TypeScript SDK paths: %s', (_name, helperCall) => {
+    withTemporaryManifest(
+      'tmp-vscode-settings-invalid-tsdk-',
+      `import { VSCode, defineWorkspace } from "tspack/manifest";
+export default defineWorkspace(
+  <Workspace name="compat-json-helpers">
+    <CompatFiles>
+      <JsonFile path=".vscode/settings.json" value={${helperCall}} />
     </CompatFiles>
   </Workspace>
 );`,

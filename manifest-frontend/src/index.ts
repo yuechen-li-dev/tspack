@@ -268,7 +268,7 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
     if (name === 'Service') return { kind: 'service', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'json') return args[0];
     if (name === 'TsConfig.manifestEditor') return manifestEditorTsConfig(args[0], diags, file);
-    if (name === 'VSCode.settings') return args.length > 0 ? args[0] : defaultVSCodeSettings();
+    if (name === 'VSCode.settings') return buildVSCodeSettings(args[0], diags, file);
     if (name === 'VSCode.extensions') return args.length > 0 ? args[0] : defaultVSCodeExtensions();
   }
   if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) return jsxEval(node, sf, diags, file, env);
@@ -396,9 +396,47 @@ function validateManifestEditorPatternList(
   return out;
 }
 
+function buildVSCodeSettings(input: unknown, diags: Diagnostic[], file: string): Record<string, unknown> | undefined {
+  if (input === undefined) {
+    return defaultVSCodeSettings();
+  }
+
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    diags.push({
+      code: 'TSPACK_MANIFEST_INVALID_HELPER_ARGUMENT',
+      severity: 'error',
+      message: 'VSCode.settings options must be a JSON-compatible object',
+      file,
+    });
+    return undefined;
+  }
+
+  const record = { ...(input as Record<string, unknown>) };
+  if (record.typescriptTsdk !== undefined) {
+    if (typeof record.typescriptTsdk !== 'string' || !isSafeRelativeVSCodePath(record.typescriptTsdk)) {
+      diags.push({
+        code: 'TSPACK_MANIFEST_INVALID_HELPER_ARGUMENT',
+        severity: 'error',
+        message: 'VSCode.settings typescriptTsdk must be a safe non-empty relative path',
+        file,
+      });
+      return undefined;
+    }
+
+    record['typescript.tsdk'] = record.typescriptTsdk;
+    delete record.typescriptTsdk;
+  }
+
+  return {
+    ...defaultVSCodeSettings(),
+    ...record,
+  };
+}
+
 function defaultVSCodeSettings(): Record<string, unknown> {
   return {
     'typescript.tsdk': 'node_modules/typescript/lib',
+    'typescript.enablePromptUseWorkspaceTsdk': true,
   };
 }
 
@@ -626,6 +664,10 @@ function isSafeRel(p: string): boolean {
 }
 
 function isSafeRelativeGlob(value: string): boolean {
+  return !!value && !path.isAbsolute(value) && !value.includes('..') && !value.includes('\\') && !value.includes('://') && !value.includes(':');
+}
+
+function isSafeRelativeVSCodePath(value: string): boolean {
   return !!value && !path.isAbsolute(value) && !value.includes('..') && !value.includes('\\') && !value.includes('://') && !value.includes(':');
 }
 

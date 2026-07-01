@@ -19,7 +19,6 @@ export default defineWorkspace(
         path=".vscode/settings.json"
         value={VSCode.settings({
           "editor.defaultFormatter": "biomejs.biome",
-          "typescript.tsdk": "node_modules/typescript/lib",
         })}
       />
       <JsonFile

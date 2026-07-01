@@ -16,6 +16,7 @@ Generated manifests import from `tspack/manifest`, so TS-aware editors provide a
 - `.tspack/types/tspack-manifest.d.ts` (local manifest authoring declaration surface)
 - `.tspack/types/tspack-xtest.d.ts` (local native xTest global declaration surface)
 - `tsconfig.tspack.json` (editor/type support for TSPack-owned manifest and xTest TSX files)
+- `.vscode/settings.json` (workspace TypeScript SDK selection for VS Code)
 - `tspack-env.d.ts` (project-level TypeScript reference for `tspack/manifest`)
 
 ## Flags
@@ -86,6 +87,13 @@ materialize `tsconfig.tspack.json`, `.vscode/settings.json`,
 .vscode/extensions.json`, `.tspack/types/tspack-manifest.d.ts`, and
 `.tspack/types/tspack-xtest.d.ts`. If VS Code
 was already open, run `TypeScript: Restart TS Server` after the compat write.
+
+If VS Code complains about `ignoreDeprecations` while `tspack check` or the
+project `tsc` path succeeds, VS Code is probably still using its bundled
+TypeScript instead of the workspace SDK. TSPack-owned templates now generate
+`.vscode/settings.json` with `node_modules/typescript/lib`, and root/alongside
+compat files do the same. Use `TypeScript: Select TypeScript Version` and pick
+the workspace version if the editor has not switched yet.
 
 ## Template engine (M54a)
 

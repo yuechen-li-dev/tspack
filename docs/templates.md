@@ -97,7 +97,7 @@ Variables:
 - `packageName` from `--package`, defaulting to `projectName`
 - `runtime` from `--runtime`, allowed values `nodejs`, `bun`, and `deno`
 
-Generated files include `manifest.tsx`, `tsconfig.tspack.json`, `tsconfig.json`, `biome.json`, `vite.config.ts`, `package.json`, `index.html`, `src/main.tsx`, `src/App.tsx`, `src/style.css`, and `README.md`. The manifest/editor project should be discoverable from the root, either directly or through a solution-style root config. `tsconfig.tspack.json` preserves JSX for manifest/xTest editing, isolates ambient `@types/*` packages with `"types": []`, includes `src/*.xtest.tsx`, and picks up generated local declarations from `.tspack/types/**/*.d.ts`.
+Generated files include `manifest.tsx`, `tsconfig.tspack.json`, `.vscode/settings.json`, `tsconfig.json`, `biome.json`, `vite.config.ts`, `package.json`, `index.html`, `src/main.tsx`, `src/App.tsx`, `src/style.css`, and `README.md`. The manifest/editor project should be discoverable from the root, either directly or through a solution-style root config. `tsconfig.tspack.json` preserves JSX for manifest/xTest editing, isolates ambient `@types/*` packages with `"types": []`, includes `src/*.xtest.tsx`, and picks up generated local declarations from `.tspack/types/**/*.d.ts`. `.vscode/settings.json` points VS Code at the project-managed `node_modules/typescript/lib` SDK and enables the workspace TypeScript prompt so editor and CLI typechecking stay on the same compiler.
 
 The manifest declares `react` and `react-dom` as runtime dependencies, Vite/TypeScript/plugin/type/Biome packages as tools, Node-backed Vite run targets (`dev`, `build`, and `preview`), manual React runtime update policy, rolling minor tooling update policy, and consumer-install plus maintainer-publish lifecycle category acknowledgments. Acknowledgments keep known tool-closure lifecycle scripts auditable and do not allow execution; TSPack still blocks lifecycle execution by default. `package.json` is compatibility glue only and contains no lifecycle scripts. Run `tspack update` and `tspack sync` before `tspack check --format`, `tspack run dev`, or `tspack run build`; sync materializes the project `node_modules/.bin` shims that let TSPack launch Vite without a global install.
 
@@ -112,7 +112,7 @@ tspack init --template react-library --name ui-kit --package @local/ui-kit
 
 Concepts: `tspack.workspace`, `tspack.manifestBoundary`, `tspack.securityPolicy`, `tspack.updatePolicy`, `tspack.pack`, `typescript.library`, `vite.library`, `react.library`, `package.exports`, `package.peerDependencies`, and `browser.components`.
 
-Generated files include `manifest.tsx`, `tsconfig.tspack.json`, `tsconfig.json`, `tsconfig.build.json`, `biome.json`, `package.json`, `vite.config.ts`, `src/index.ts`, `src/Button.tsx`, `src/style.css`, and `README.md`. The template deliberately does not create an app `index.html`; it is a reusable component library shape rather than a SPA.
+Generated files include `manifest.tsx`, `tsconfig.tspack.json`, `.vscode/settings.json`, `tsconfig.json`, `tsconfig.build.json`, `biome.json`, `package.json`, `vite.config.ts`, `src/index.ts`, `src/Button.tsx`, `src/style.css`, and `README.md`. The template deliberately does not create an app `index.html`; it is a reusable component library shape rather than a SPA.
 
 React and React DOM are modeled as peer dependencies in the manifest and compatibility `package.json`. Tooling dependencies, including `@biomejs/biome`, remain tools. The compatibility `package.json` includes module/type export metadata and is marked `private` to avoid accidental npm publication. TSPack pack flows remain the intended publication path. Run `tspack update` and `tspack sync` before `tspack check --format`, `tspack run typecheck`, `tspack run build`, or `tspack run build-types` so the project tool shims for Biome, Vite, and `tsc` are materialized.
 
@@ -141,7 +141,6 @@ export default defineWorkspace(
       <JsonFile
         path=".vscode/settings.json"
         value={VSCode.settings({
-          "typescript.tsdk": "node_modules/typescript/lib",
           "editor.defaultFormatter": "biomejs.biome",
         })}
       />

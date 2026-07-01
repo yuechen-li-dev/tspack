@@ -466,7 +466,7 @@ func TestStaticConceptManifestRendererUsesMergedConceptIR(t *testing.T) {
 		"// - vite.app",
 		"// - browser.static",
 		`const vite = tool(npm("vite", "^5.0.0"));`,
-		`const typescript = tool(npm("typescript", "^5.0.0"));`,
+		`const typescript = tool(npm("typescript", "^5.9.0"));`,
 		`const biome = tool(npm("@biomejs/biome", "^1.9.4"), { key: "@biomejs/biome" });`,
 		`name: "dev"`,
 		`name: "build"`,

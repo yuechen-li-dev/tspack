@@ -48,6 +48,13 @@ If `manifest.tsx` shows `Cannot find module 'tspack/manifest'` or asks for
 reports an inferred project or opens the wrong config, add a solution-style
 root config instead of installing React just to satisfy manifest TSX.
 
+TSPack also expects VS Code to use the workspace TypeScript SDK instead of the
+bundled editor compiler. TSPack-owned templates and compat helpers point VS
+Code at `node_modules/typescript/lib` by default, or another manifest-declared
+relative SDK path when the repo layout needs one. If VS Code complains about
+`ignoreDeprecations` while CLI typechecking succeeds, switch to `TypeScript:
+Select TypeScript Version` and choose the workspace SDK.
+
 ## Troubleshooting manifest editor errors
 
 - `Cannot find module "tspack/manifest"` usually means the local editor support files have not been materialized yet. Run `tspack compat write` in alongside projects, or rerun `tspack init --force` in init-owned projects.
@@ -154,7 +161,7 @@ generation, or new templates.
 
 ```tsx
 const deps = defineDeps({
-  typescript: tool(npm("typescript", "^5.0.0")),
+  typescript: tool(npm("typescript", "^5.9.0")),
 });
 ```
 

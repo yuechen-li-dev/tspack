@@ -62,7 +62,6 @@ export default defineWorkspace(
       <JsonFile
         path=".vscode/settings.json"
         value={VSCode.settings({
-          "typescript.tsdk": "node_modules/typescript/lib",
           "editor.defaultFormatter": "biomejs.biome",
         })}
       />
@@ -121,9 +120,17 @@ include the generated declaration path explicitly when they still want local
 manifest and xTest types in the editor project. Override values must be arrays
 of safe, non-empty, project-relative glob strings.
 
-`VSCode.settings(value?)` returns the provided full settings object when one is
-supplied. Without an argument it returns a minimal project-local TypeScript SDK
-setting for editor support.
+`VSCode.settings(value?)` always includes TSPack's workspace TypeScript SDK
+settings:
+
+- `"typescript.tsdk": "node_modules/typescript/lib"`
+- `"typescript.enablePromptUseWorkspaceTsdk": true`
+
+Additional settings are merged on top. Repositories that need a nonstandard
+relative SDK path may use `typescriptTsdk`, for example
+`VSCode.settings({ typescriptTsdk: "manifest-frontend/node_modules/typescript/lib" })`.
+The helper rejects empty, absolute, traversing, backslash, URL, and drive-letter
+paths.
 
 `VSCode.extensions(value?)` accepts the VS Code `recommendations` and
 `unwantedRecommendations` arrays. Without an argument it returns a small Biome

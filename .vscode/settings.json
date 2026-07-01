@@ -1,3 +1,4 @@
 {
-  "typescript.tsdk": "node_modules/typescript/lib"
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "typescript.tsdk": "manifest-frontend/node_modules/typescript/lib"
 }

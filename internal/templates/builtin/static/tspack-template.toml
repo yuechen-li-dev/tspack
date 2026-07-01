@@ -38,6 +38,10 @@ from = "files/tsconfig.tspack.json"
 to = "tsconfig.tspack.json"
 
 [[files]]
+from = "files/vscode-settings.json"
+to = ".vscode/settings.json"
+
+[[files]]
 from = "files/tspack-types/tspack-manifest.d.ts"
 to = ".tspack/types/tspack-manifest.d.ts"
 

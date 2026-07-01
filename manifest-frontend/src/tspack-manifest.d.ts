@@ -21,6 +21,9 @@ declare module 'tspack/manifest' {
   };
 
   export type VSCodeSettings = JSONObject;
+  export type VSCodeSettingsInput = JSONObject & {
+    typescriptTsdk?: string;
+  };
 
   export type VSCodeExtensions = {
     recommendations?: string[];
@@ -341,7 +344,7 @@ declare module 'tspack/manifest' {
   };
 
   export const VSCode: {
-    settings<T extends VSCodeSettings = VSCodeSettings>(value?: T): T;
+    settings<T extends VSCodeSettingsInput = VSCodeSettingsInput>(value?: T): VSCodeSettings;
     extensions<T extends VSCodeExtensions = VSCodeExtensions>(value?: T): T;
   };
 
