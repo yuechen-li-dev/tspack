@@ -63,3 +63,4 @@ Thumbs.db
 
 .tmp/
 extensions/tspack-vscode/package-lock.json
+docs/dev/prometheus-occupancy-audit.md
