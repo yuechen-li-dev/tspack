@@ -57,6 +57,11 @@ This pipeline is internal and behavior-preserving for existing templates. It kee
 
 The built-in `static` template is stored in the repo and loaded through the public template engine. It creates a minimal TypeScript browser app with `manifest.tsx`, `package.json`, `tsconfig.tspack.json`, `biome.json`, `index.html`, `src/main.ts`, `src/style.css`, local manifest/xTest types, and a concise README. Because it emits `biome.json`, its manifest declares `@biomejs/biome` as a tool dependency so `tspack check --format` can use the project-materialized backend after `tspack update` and `tspack sync`.
 
+For editor discovery, projects that only have `tsconfig.tspack.json` should
+also carry a root solution-style `tsconfig.json` that references it. That keeps
+VS Code from opening `manifest.tsx` as an inferred project and avoids
+`tspack/manifest` or `react/jsx-runtime` false errors.
+
 ## Local templates
 
 Run a local template with:
@@ -92,7 +97,7 @@ Variables:
 - `packageName` from `--package`, defaulting to `projectName`
 - `runtime` from `--runtime`, allowed values `nodejs`, `bun`, and `deno`
 
-Generated files include `manifest.tsx`, `tsconfig.tspack.json`, `tsconfig.json`, `biome.json`, `vite.config.ts`, `package.json`, `index.html`, `src/main.tsx`, `src/App.tsx`, `src/style.css`, and `README.md`. The app tsconfig uses React JSX and excludes TSPack manifest/xTest files, while `tsconfig.tspack.json` preserves JSX for manifest/xTest editing, isolates ambient `@types/*` packages with `"types": []`, includes `src/*.xtest.tsx`, and picks up generated local declarations from `.tspack/types/**/*.d.ts`.
+Generated files include `manifest.tsx`, `tsconfig.tspack.json`, `tsconfig.json`, `biome.json`, `vite.config.ts`, `package.json`, `index.html`, `src/main.tsx`, `src/App.tsx`, `src/style.css`, and `README.md`. The manifest/editor project should be discoverable from the root, either directly or through a solution-style root config. `tsconfig.tspack.json` preserves JSX for manifest/xTest editing, isolates ambient `@types/*` packages with `"types": []`, includes `src/*.xtest.tsx`, and picks up generated local declarations from `.tspack/types/**/*.d.ts`.
 
 The manifest declares `react` and `react-dom` as runtime dependencies, Vite/TypeScript/plugin/type/Biome packages as tools, Node-backed Vite run targets (`dev`, `build`, and `preview`), manual React runtime update policy, rolling minor tooling update policy, and consumer-install plus maintainer-publish lifecycle category acknowledgments. Acknowledgments keep known tool-closure lifecycle scripts auditable and do not allow execution; TSPack still blocks lifecycle execution by default. `package.json` is compatibility glue only and contains no lifecycle scripts. Run `tspack update` and `tspack sync` before `tspack check --format`, `tspack run dev`, or `tspack run build`; sync materializes the project `node_modules/.bin` shims that let TSPack launch Vite without a global install.
 

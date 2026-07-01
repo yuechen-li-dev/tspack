@@ -1,3 +1,4 @@
+// biome-ignore assist/source/organizeImports: Manifest imports are organized by TSPack and should not be auto-organized by IDEs or formatters.
 import {
 	CompatFiles,
 	JsonFile,

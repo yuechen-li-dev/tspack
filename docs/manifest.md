@@ -37,11 +37,23 @@ need it. Override lists must be arrays of safe non-empty relative glob strings,
 and an override `include` list is exact, so add `.tspack/types/**/*.d.ts`
 explicitly when you still want local manifest and xTest declaration support.
 
+VS Code also needs to discover the manifest editor project. In practice that
+means either:
+
+- a root `tsconfig.json` solution file that references `tsconfig.tspack.json`, or
+- an existing root app config that already routes manifest files correctly.
+
+If `manifest.tsx` shows `Cannot find module 'tspack/manifest'` or asks for
+`react/jsx-runtime`, use `TypeScript: Go to Project Configuration`. If VS Code
+reports an inferred project or opens the wrong config, add a solution-style
+root config instead of installing React just to satisfy manifest TSX.
+
 ## Troubleshooting manifest editor errors
 
 - `Cannot find module "tspack/manifest"` usually means the local editor support files have not been materialized yet. Run `tspack compat write` in alongside projects, or rerun `tspack init --force` in init-owned projects.
 - `Cannot find name 'Workspace'` and similar JSX symbol errors usually mean the manifest did not import every JSX component it uses from `tspack/manifest`.
 - `Cannot find module 'react/jsx-runtime'` means the manifest is being checked under the wrong tsconfig. Use `tsconfig.tspack.json`, which keeps `jsx: preserve`, and restart the TypeScript server if VS Code had the project open before the file was created or before `tspack compat write` materialized the editor files.
+- `Cannot find module 'tspack/manifest'` alongside JSX runtime errors usually means VS Code did not discover the manifest editor project at all. Confirm `tspack compat write` has created `.tspack/types/*`, then run `TypeScript: Go to Project Configuration`. A solution-style root `tsconfig.json` that references `tsconfig.tspack.json` fixes that discovery gap for repos that do not otherwise have a discoverable root TS project for manifests.
 
 ## M1 constraints
 

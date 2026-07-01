@@ -68,6 +68,15 @@ that keep template or testdata trees beside real manifests may opt into
 without hand-authoring raw JSON. When you override `include`, add
 `.tspack/types/**/*.d.ts` yourself if you still want local manifest and xTest
 declarations loaded.
+
+In repos that do not already have a solution-style root TypeScript config,
+editor support also needs a discoverable root `tsconfig.json` that references
+`tsconfig.tspack.json`. That lets VS Code route `manifest.tsx` and included
+`*.xtest.tsx` files into the manifest editor project instead of an inferred
+React/app project. TSPack-owned example repos in this monorepo now follow that
+pattern. For `init --alongside`, TSPack still does not overwrite an existing
+user `tsconfig.json`; run `tspack compat write`, restart the TS server, and use
+`TypeScript: Go to Project Configuration` if manifest files still look inferred.
 If an existing `tsconfig.json` is present, init leaves it unchanged and prints guidance to exclude TSPack-owned files if the app config includes root TSX broadly.
 If removed, regenerate these files by rerunning `tspack init --force` in the project root.
 
