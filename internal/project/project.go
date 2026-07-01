@@ -252,13 +252,19 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 	client := opts.ResolverClient
 	client = instrumentRegistryClient(client, perfSession)
 	var (
-		st          *store.Store
-		storeJobs   int
-		resolveJobs int
+		st                    *store.Store
+		storeJobs             int
+		resolveJobs           int
+		resolveControllerMode resolver.ResolveControllerMode
 	)
 	resolveJobs, jobsErr := resolveJobsFromEnv()
 	if jobsErr != nil {
 		out = append(out, errDiag("TSPACK_UPDATE_RESOLVE_JOBS_INVALID", "invalid TSPACK_RESOLVE_JOBS", jobsErr.Error()))
+		return Result{Diagnostics: out, UpdateTarget: targetResult}
+	}
+	resolveControllerMode, jobsErr = resolveControllerModeFromEnv()
+	if jobsErr != nil {
+		out = append(out, errDiag("TSPACK_UPDATE_RESOLVE_CONTROLLER_INVALID", "invalid TSPACK_RESOLVE_CONTROLLER", jobsErr.Error()))
 		return Result{Diagnostics: out, UpdateTarget: targetResult}
 	}
 	if !dryRun {
@@ -277,20 +283,36 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 	progress.Step("resolving packages...")
 	progress.Step("fetching metadata...")
 	resolveOpts := resolver.ResolverOptions{
-		Mode:               resolver.ResolveModeUpdate,
-		Client:             client,
-		RootDir:            opts.RootDir,
-		ResolveJobs:        resolveJobs,
-		OnArtifactResolved: storeArtifactCapture(st, perfSession),
+		Mode:                  resolver.ResolveModeUpdate,
+		Client:                client,
+		RootDir:               opts.RootDir,
+		ResolveJobs:           resolveJobs,
+		ResolveControllerMode: resolveControllerMode,
+		ResolveHostBudget:     defaultResolveControllerHostBudget(),
+		OnArtifactResolved:    storeArtifactCapture(st, perfSession),
 		OnMetadataCacheHit: func(name string) {
 			perfSession.RecordMetadataCacheHit()
 		},
-		OnResolveJobs:         func(jobs int) { perfSession.SetResolveJobs(jobs) },
-		OnResolveFrontier:     func(width int) { perfSession.RecordResolveFrontier(width) },
+		OnResolveJobs:     func(jobs int) { perfSession.SetResolveJobs(jobs) },
+		OnResolveFrontier: func(width int) { perfSession.RecordResolveFrontier(width) },
+		OnResolveController: func(decision resolver.FrontierDecision) {
+			perfSession.RecordResolveControllerDecision(
+				decision.FrontierIndex,
+				decision.FrontierWidth,
+				decision.WorkItems,
+				decision.MetadataItems,
+				decision.TarballItems,
+				decision.TargetJobs,
+				decision.MaxJobs,
+				decision.Hosts,
+				decision.ClampReasons,
+			)
+		},
 		OnPreparedPackage:     func(key string) { perfSession.RecordPreparedPackage() },
 		OnCommittedPackage:    func(id string) { perfSession.RecordCommittedPackage() },
 		OnResolverWorkerError: func(key string) { perfSession.RecordResolveWorkerError() },
 	}
+	perfSession.SetResolveController(string(resolveControllerMode), resolveJobs, defaultResolveControllerHostBudget())
 	if registryClient, ok := client.(*resolver.HTTPRegistryClient); ok {
 		resolveOpts.RegistryURL = registryClient.BaseURL
 	}
@@ -420,6 +442,19 @@ func resolveJobsFromEnv() (int, error) {
 		return 0, fmt.Errorf("TSPACK_RESOLVE_JOBS must be a positive integer, got %q", value)
 	}
 	return jobs, nil
+}
+
+func defaultResolveControllerHostBudget() int {
+	return 16
+}
+
+func resolveControllerModeFromEnv() (resolver.ResolveControllerMode, error) {
+	value := strings.TrimSpace(os.Getenv("TSPACK_RESOLVE_CONTROLLER"))
+	mode, ok := resolver.ParseResolveControllerMode(value)
+	if !ok {
+		return "", fmt.Errorf("TSPACK_RESOLVE_CONTROLLER must be fixed or feedforward, got %q", value)
+	}
+	return mode, nil
 }
 
 func populateStoreParallel(ctx context.Context, st *store.Store, client resolver.NPMRegistryClient, rootDir string, packages []lockfile.Package, jobs int, progress Progress, perfSession *perf.Session) storePopulateResult {

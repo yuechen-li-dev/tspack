@@ -448,6 +448,95 @@ func TestResolveNPMConcurrentDifferentMetadataRequestsRunInParallel(t *testing.T
 	}
 }
 
+func TestResolveNPMControllerDecisionReportedPerFrontier(t *testing.T) {
+	fc := buildFakeRegistry()
+	g := graphForDeps(
+		[]manifest.DependencyIntent{
+			{Key: "dep-a", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "dep-a", Range: "1.0.0"}},
+			{Key: "left-pad", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "left-pad", Range: "1.0.0"}},
+		},
+		nil,
+		[]string{"dep-a", "left-pad"},
+	)
+
+	var decisions []FrontierDecision
+	res := ResolveNPM(
+		context.Background(),
+		ResolverOptions{
+			Client:                fc,
+			Mode:                  ResolveModeUpdate,
+			ResolveJobs:           24,
+			ResolveControllerMode: ResolveControllerModeFeedforward,
+			ResolveHostBudget:     16,
+			RegistryURL:           "https://registry.example.test",
+			OnResolveController: func(decision FrontierDecision) {
+				decisions = append(decisions, decision)
+			},
+		},
+		ResolveRequest{Graph: g},
+	)
+	if len(res.Diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", res.Diagnostics)
+	}
+	if len(decisions) == 0 {
+		t.Fatalf("expected controller decisions")
+	}
+	if decisions[0].TargetJobs != 2 {
+		t.Fatalf("first target jobs=%d want 2", decisions[0].TargetJobs)
+	}
+	if decisions[0].FrontierWidth != 2 || decisions[0].WorkItems != 2 {
+		t.Fatalf("unexpected first decision: %#v", decisions[0])
+	}
+}
+
+func TestResolveNPMFeedforwardControllerClampsWorkerConcurrency(t *testing.T) {
+	fc := buildFakeRegistry()
+	fc.metaDelay["dep-a"] = 25 * time.Millisecond
+	fc.metaDelay["left-pad"] = 25 * time.Millisecond
+	fc.metaDelay["typescript"] = 25 * time.Millisecond
+
+	var mu sync.Mutex
+	inFlight := 0
+	maxInFlight := 0
+	fc.metaStart = func(name string) {
+		mu.Lock()
+		defer mu.Unlock()
+		inFlight++
+		if inFlight > maxInFlight {
+			maxInFlight = inFlight
+		}
+	}
+	fc.metaDone = func(name string) {
+		mu.Lock()
+		defer mu.Unlock()
+		inFlight--
+	}
+
+	deps := []manifest.DependencyIntent{
+		{Key: "dep-a", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "dep-a", Range: "1.0.0"}},
+		{Key: "left-pad", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "left-pad", Range: "1.0.0"}},
+		{Key: "typescript", Kind: "tool", Source: manifest.Source{Kind: "npm", Package: "typescript", Range: "5.6.0"}},
+	}
+	res := ResolveNPM(
+		context.Background(),
+		ResolverOptions{
+			Client:                fc,
+			Mode:                  ResolveModeUpdate,
+			ResolveJobs:           24,
+			ResolveControllerMode: ResolveControllerModeFeedforward,
+			ResolveHostBudget:     1,
+			RegistryURL:           "https://registry.example.test",
+		},
+		ResolveRequest{Graph: graphForDeps(deps, nil, []string{"dep-a", "left-pad"}, "typescript")},
+	)
+	if len(res.Diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", res.Diagnostics)
+	}
+	if maxInFlight != 1 {
+		t.Fatalf("max in flight=%d want 1", maxInFlight)
+	}
+}
+
 func TestResolveNPMErrorOrderIsDeterministicAcrossParallelRuns(t *testing.T) {
 	deps := []manifest.DependencyIntent{
 		{Key: "z-missing", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "z-missing", Range: "1.0.0"}},

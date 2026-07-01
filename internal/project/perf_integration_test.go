@@ -57,6 +57,18 @@ func TestUpdatePerfCapturesResolveAndStoreCounters(t *testing.T) {
 	if report.Counters.ResolveJobs != 24 {
 		t.Fatalf("resolve jobs=%d want 24", report.Counters.ResolveJobs)
 	}
+	if !report.Controller.Enabled {
+		t.Fatalf("expected controller enabled, got %#v", report.Controller)
+	}
+	if report.Controller.Mode != "fixed" {
+		t.Fatalf("controller mode=%q want fixed", report.Controller.Mode)
+	}
+	if len(report.Controller.Decisions) == 0 {
+		t.Fatalf("expected controller decisions, got %#v", report.Controller)
+	}
+	if report.Controller.ClampReasons["frontier_width"] == 0 {
+		t.Fatalf("expected clamp reasons, got %#v", report.Controller.ClampReasons)
+	}
 	if report.Counters.ResolveFrontiers == 0 {
 		t.Fatalf("expected resolve frontiers, got %#v", report.Counters)
 	}

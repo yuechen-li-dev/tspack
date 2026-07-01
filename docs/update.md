@@ -33,7 +33,11 @@ This keeps dependency semantics and lockfile bytes deterministic while removing 
 
 During resolution, TSPack may need to fetch npm tarballs to inspect `package.json` contents for dependency discovery. When that happens, update now writes the verified tarball into the local content-addressed store immediately so the later population phase can skip refetching it.
 
-Set `TSPACK_RESOLVE_JOBS=1` to force serial resolver preparation. Set `TSPACK_RESOLVE_JOBS=N` with a positive integer to tune bounded resolver network I/O; the default is `24`.
+Set `TSPACK_RESOLVE_JOBS=1` to force serial resolver preparation. Set `TSPACK_RESOLVE_JOBS=N` with a positive integer to set the resolver's maximum concurrency cap; the default cap is `24`.
+
+TSPack now has an explicit deterministic resolver occupancy controller. The v0.1.7 stabilization default remains `fixed`, while `feedforward` is available for benchmark and validation passes. Both modes preserve semantic resolution and stable serial lockfile commit order.
+
+Set `TSPACK_RESOLVE_CONTROLLER=fixed` to force the previous fixed-cap scheduling behavior for testing and benchmarking. Set `TSPACK_RESOLVE_CONTROLLER=feedforward` to force the M67b controller explicitly.
 
 Set `TSPACK_STORE_JOBS=1` to force sequential store population. Set `TSPACK_STORE_JOBS=N` with a positive integer to tune local cold-update throughput; the default is `24`.
 

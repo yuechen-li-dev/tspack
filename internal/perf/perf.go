@@ -34,6 +34,7 @@ type Session struct {
 	cpuFile    *os.File
 	phases     map[string]time.Duration
 	counters   Counters
+	controller ResolveControllerReport
 	httpKinds  map[string]int64
 	httpHosts  map[string]int64
 	httpStatus map[string]int64
@@ -76,16 +77,43 @@ type Counters struct {
 }
 
 type Report struct {
-	Command    string        `json:"command"`
-	RootDir    string        `json:"rootDir"`
-	DryRun     bool          `json:"dryRun,omitempty"`
-	StartedAt  string        `json:"startedAt"`
-	FinishedAt string        `json:"finishedAt"`
-	TotalMs    int64         `json:"totalMs"`
-	Phases     []PhaseReport `json:"phases,omitempty"`
-	Counters   Counters      `json:"counters"`
-	HTTP       HTTPReport    `json:"http,omitempty"`
-	Profiles   ProfileReport `json:"profiles,omitempty"`
+	Command    string                  `json:"command"`
+	RootDir    string                  `json:"rootDir"`
+	DryRun     bool                    `json:"dryRun,omitempty"`
+	StartedAt  string                  `json:"startedAt"`
+	FinishedAt string                  `json:"finishedAt"`
+	TotalMs    int64                   `json:"totalMs"`
+	Phases     []PhaseReport           `json:"phases,omitempty"`
+	Counters   Counters                `json:"counters"`
+	Controller ResolveControllerReport `json:"controller,omitempty"`
+	HTTP       HTTPReport              `json:"http,omitempty"`
+	Profiles   ProfileReport           `json:"profiles,omitempty"`
+}
+
+type ResolveControllerReport struct {
+	Enabled               bool                              `json:"enabled"`
+	Mode                  string                            `json:"mode,omitempty"`
+	MaxJobs               int64                             `json:"maxJobs,omitempty"`
+	HostBudget            int64                             `json:"hostBudget,omitempty"`
+	MinTarget             int64                             `json:"minTarget,omitempty"`
+	MaxTarget             int64                             `json:"maxTarget,omitempty"`
+	AvgTarget             float64                           `json:"avgTarget,omitempty"`
+	FrontiersBelowMaxJobs int64                             `json:"frontiersBelowMaxJobs,omitempty"`
+	FrontiersAtWorkCount  int64                             `json:"frontiersAtWorkCount,omitempty"`
+	ClampReasons          map[string]int64                  `json:"clampReasons,omitempty"`
+	Decisions             []ResolveControllerDecisionReport `json:"decisions,omitempty"`
+}
+
+type ResolveControllerDecisionReport struct {
+	FrontierIndex int      `json:"frontierIndex"`
+	FrontierWidth int      `json:"frontierWidth"`
+	WorkItems     int      `json:"workItems"`
+	MetadataItems int      `json:"metadataItems"`
+	TarballItems  int      `json:"tarballItems"`
+	TargetJobs    int      `json:"targetJobs"`
+	MaxJobs       int      `json:"maxJobs"`
+	Hosts         []string `json:"hosts,omitempty"`
+	ClampReasons  []string `json:"clampReasons,omitempty"`
 }
 
 type PhaseReport struct {
@@ -190,6 +218,21 @@ func (s *Session) SetResolveJobs(jobs int) {
 	s.counters.ResolveJobs = int64(jobs)
 }
 
+func (s *Session) SetResolveController(mode string, maxJobs int, hostBudget int) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.controller.Enabled = mode != ""
+	s.controller.Mode = mode
+	s.controller.MaxJobs = int64(maxJobs)
+	s.controller.HostBudget = int64(hostBudget)
+	if s.controller.ClampReasons == nil {
+		s.controller.ClampReasons = map[string]int64{}
+	}
+}
+
 func (s *Session) RecordResolveFrontier(width int) {
 	if s == nil {
 		return
@@ -199,6 +242,55 @@ func (s *Session) RecordResolveFrontier(width int) {
 	s.counters.ResolveFrontiers++
 	if int64(width) > s.counters.ResolveMaxFrontierWidth {
 		s.counters.ResolveMaxFrontierWidth = int64(width)
+	}
+}
+
+func (s *Session) RecordResolveControllerDecision(
+	frontierIndex int,
+	frontierWidth int,
+	workItems int,
+	metadataItems int,
+	tarballItems int,
+	targetJobs int,
+	maxJobs int,
+	hosts []string,
+	clampReasons []string,
+) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.controller.Enabled = true
+	decision := ResolveControllerDecisionReport{
+		FrontierIndex: frontierIndex,
+		FrontierWidth: frontierWidth,
+		WorkItems:     workItems,
+		MetadataItems: metadataItems,
+		TarballItems:  tarballItems,
+		TargetJobs:    targetJobs,
+		MaxJobs:       maxJobs,
+		Hosts:         append([]string(nil), hosts...),
+		ClampReasons:  append([]string(nil), clampReasons...),
+	}
+	s.controller.Decisions = append(s.controller.Decisions, decision)
+	if targetJobs > 0 && (s.controller.MinTarget == 0 || int64(targetJobs) < s.controller.MinTarget) {
+		s.controller.MinTarget = int64(targetJobs)
+	}
+	if int64(targetJobs) > s.controller.MaxTarget {
+		s.controller.MaxTarget = int64(targetJobs)
+	}
+	if targetJobs < maxJobs {
+		s.controller.FrontiersBelowMaxJobs++
+	}
+	if targetJobs == workItems {
+		s.controller.FrontiersAtWorkCount++
+	}
+	if s.controller.ClampReasons == nil {
+		s.controller.ClampReasons = map[string]int64{}
+	}
+	for _, reason := range clampReasons {
+		s.controller.ClampReasons[reason]++
 	}
 }
 
@@ -458,6 +550,17 @@ func (s *Session) snapshotLocked(finishedAt time.Time) Report {
 		TotalMs:    finishedAt.Sub(s.startedAt).Milliseconds(),
 		Phases:     phases,
 		Counters:   s.counters,
+		Controller: s.controller,
+	}
+	if len(report.Controller.Decisions) > 0 {
+		var total int64
+		for _, decision := range report.Controller.Decisions {
+			total += int64(decision.TargetJobs)
+		}
+		report.Controller.AvgTarget = float64(total) / float64(len(report.Controller.Decisions))
+	}
+	if len(report.Controller.ClampReasons) == 0 {
+		report.Controller.ClampReasons = nil
 	}
 	if len(s.httpKinds) > 0 || len(s.httpHosts) > 0 || len(s.httpStatus) > 0 {
 		report.HTTP = HTTPReport{

@@ -38,17 +38,25 @@ Cold `update` now uses deterministic parallel resolver preparation:
 
 - workers fetch package facts concurrently
 - commit stays serial and deterministic
-- lockfile bytes should stay identical between `TSPACK_RESOLVE_JOBS=1` and the default
+- lockfile bytes should stay identical between `TSPACK_RESOLVE_JOBS=1`, `TSPACK_RESOLVE_CONTROLLER=fixed`, and the default feedforward controller
 
-The default resolver worker count is `24`. Override it with:
+`TSPACK_RESOLVE_JOBS` is now the resolver's maximum cap, not a promise that every frontier will spawn that many workers. TSPack now has an explicit deterministic resolver occupancy controller, but the default mode remains `fixed` for v0.1.7 stabilization while the new `feedforward` mode is benchmarked.
+
+Override it with:
 
 ```powershell
 $env:TSPACK_RESOLVE_JOBS = "1"
 .\tools\Bench-TSPack.ps1 -Template react -Runs 1
 
+$env:TSPACK_RESOLVE_CONTROLLER = "fixed"
 $env:TSPACK_RESOLVE_JOBS = "24"
 .\tools\Bench-TSPack.ps1 -Template react -Runs 1
 
+$env:TSPACK_RESOLVE_CONTROLLER = "feedforward"
+$env:TSPACK_RESOLVE_JOBS = "24"
+.\tools\Bench-TSPack.ps1 -Template react -Runs 1
+
+Remove-Item Env:\TSPACK_RESOLVE_CONTROLLER
 Remove-Item Env:\TSPACK_RESOLVE_JOBS
 ```
 
@@ -67,6 +75,8 @@ Examples:
 
 ```powershell
 .\tools\Bench-TSPack.ps1 -Scenario cold-update -Runs 2
+.\tools\Bench-TSPack.ps1 -Scenario cold-update -Runs 3 -ResolveJobs 24 -ResolveController fixed
+.\tools\Bench-TSPack.ps1 -Scenario cold-update -Runs 3 -ResolveJobs 24 -ResolveController feedforward
 .\tools\Bench-TSPack.ps1 -Scenario warm-sync -Runs 5 -StoreJobs 24
 ```
 
@@ -94,6 +104,10 @@ The perf report includes:
 - resolve job count
 - resolve frontier count
 - max resolve frontier width
+- controller mode and max jobs
+- per-frontier controller decisions
+- controller target min/max/average
+- controller clamp reason counts
 - prepared package count
 - committed package count
 - resolver worker error count
@@ -114,6 +128,8 @@ The perf report includes:
 - logical materialized bytes
 - bytes actually copied
 - optional HTTP request-kind, host, and status-code counts
+
+For M67b, the new feedforward mode is intentionally conservative and still opt-in by env because the first local real-registry measurements did not yet prove it should replace the stabilized fixed default. Future work may add per-kind budgets, 429-aware host backpressure, and bounded adaptive feedback after the current counters prove where oversubscription happens.
 
 ## pprof
 

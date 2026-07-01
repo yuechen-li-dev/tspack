@@ -55,6 +55,23 @@ func TestResolveJobsFromEnv(t *testing.T) {
 	}
 }
 
+func TestResolveControllerModeFromEnv(t *testing.T) {
+	t.Setenv("TSPACK_RESOLVE_CONTROLLER", "")
+	if mode, err := resolveControllerModeFromEnv(); err != nil || mode != resolver.ResolveControllerModeFixed {
+		t.Fatalf("default mode = %q, %v; want fixed", mode, err)
+	}
+
+	t.Setenv("TSPACK_RESOLVE_CONTROLLER", "fixed")
+	if mode, err := resolveControllerModeFromEnv(); err != nil || mode != resolver.ResolveControllerModeFixed {
+		t.Fatalf("mode=fixed parsed as %q, %v", mode, err)
+	}
+
+	t.Setenv("TSPACK_RESOLVE_CONTROLLER", "invalid")
+	if _, err := resolveControllerModeFromEnv(); err == nil {
+		t.Fatalf("expected invalid controller mode error")
+	}
+}
+
 func TestUpdateFailsClearlyForInvalidStoreJobs(t *testing.T) {
 	root := t.TempDir()
 	irPath := writeIR(t, root, map[string]any{"format": 1, "workspace": map[string]any{"name": "ws"}, "packages": []map[string]any{{"name": "app", "version": "1.0.0", "kind": "library", "dependencies": []map[string]any{{"key": "dep-a", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "dep-a", "range": "1.0.0"}}}, "targets": []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "src/index.ts", "types": "dist/index.d.ts", "deps": []string{"dep-a"}, "peers": []string{}}}, "tools": []string{}, "boundaries": []any{}, "publish": map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}}}}})
@@ -107,6 +124,16 @@ func TestUpdateLockfileDeterministicAcrossResolveJobs(t *testing.T) {
 	}
 }
 
+func TestUpdateLockfileDeterministicAcrossResolveControllerModes(t *testing.T) {
+	firstRoot := t.TempDir()
+	firstLock := runFakeRegistryUpdateWithResolveController(t, firstRoot, "fixed")
+	secondRoot := t.TempDir()
+	secondLock := runFakeRegistryUpdateWithResolveController(t, secondRoot, "feedforward")
+	if !bytes.Equal(firstLock, secondLock) {
+		t.Fatalf("lockfile changed between controller modes\n--- fixed ---\n%s\n--- feedforward ---\n%s", firstLock, secondLock)
+	}
+}
+
 func runFakeRegistryUpdateWithJobs(t *testing.T, root string, jobs string) []byte {
 	t.Helper()
 	irPath := writeIR(t, root, map[string]any{"format": 1, "workspace": map[string]any{"name": "ws"}, "packages": []map[string]any{{"name": "app", "version": "1.0.0", "kind": "library", "dependencies": []map[string]any{{"key": "dep-a", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "dep-a", "range": "1.0.0"}}}, "targets": []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "src/index.ts", "types": "dist/index.d.ts", "deps": []string{"dep-a"}, "peers": []string{}}}, "tools": []string{}, "boundaries": []any{}, "publish": map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}}}}})
@@ -144,6 +171,28 @@ func runFakeRegistryUpdateWithResolveJobs(t *testing.T, root string, jobs string
 	registry := newFakeRegistryServer(t)
 	defer registry.Close()
 	t.Setenv("TSPACK_RESOLVE_JOBS", jobs)
+
+	opts := DefaultOptions(root)
+	opts.ManifestIRPath = irPath
+	opts.ResolverClient = resolver.NewHTTPRegistryClient(registry.URL)
+	res := Update(opts)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("update failed: %#v", res.Diagnostics)
+	}
+	body, err := os.ReadFile(opts.LockfilePath)
+	if err != nil {
+		t.Fatalf("read lock: %v", err)
+	}
+	return body
+}
+
+func runFakeRegistryUpdateWithResolveController(t *testing.T, root string, mode string) []byte {
+	t.Helper()
+	irPath := writeIR(t, root, map[string]any{"format": 1, "workspace": map[string]any{"name": "ws"}, "packages": []map[string]any{{"name": "app", "version": "1.0.0", "kind": "library", "dependencies": []map[string]any{{"key": "dep-a", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "dep-a", "range": "1.0.0"}}, {"key": "left-pad", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "left-pad", "range": "1.0.0"}}}, "targets": []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "src/index.ts", "types": "dist/index.d.ts", "deps": []string{"dep-a", "left-pad"}, "peers": []string{}}}, "tools": []string{}, "boundaries": []any{}, "publish": map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}}}}})
+	registry := newFakeRegistryServer(t)
+	defer registry.Close()
+	t.Setenv("TSPACK_RESOLVE_JOBS", "24")
+	t.Setenv("TSPACK_RESOLVE_CONTROLLER", mode)
 
 	opts := DefaultOptions(root)
 	opts.ManifestIRPath = irPath

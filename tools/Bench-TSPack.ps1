@@ -7,6 +7,9 @@ param(
     [int]$Runs = 1,
     [switch]$Profile,
     [switch]$UseGoRun,
+    [int]$ResolveJobs = 0,
+    [ValidateSet("", "fixed", "feedforward")]
+    [string]$ResolveController = "",
     [int]$StoreJobs = 0,
     [string]$OutputDir = ""
 )
@@ -123,6 +126,24 @@ function Read-PerfJson {
     return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
 }
 
+function Get-PerfPropertyValue {
+    param(
+        [object]$Object,
+        [string]$PropertyName
+    )
+
+    if ($null -eq $Object) {
+        return $null
+    }
+
+    $property = $Object.PSObject.Properties[$PropertyName]
+    if ($null -eq $property) {
+        return $null
+    }
+
+    return $property.Value
+}
+
 function New-TemplateProject {
     param(
         [hashtable]$Invocation,
@@ -157,6 +178,8 @@ function Invoke-BenchStep {
         [string[]]$StepArgs,
         [string]$OutputRoot,
         [switch]$EnableProfile,
+        [int]$ResolveJobsValue,
+        [string]$ResolveControllerMode,
         [int]$StoreJobsValue
     )
 
@@ -174,6 +197,12 @@ function Invoke-BenchStep {
     if ($StoreJobsValue -gt 0) {
         $envOverrides["TSPACK_STORE_JOBS"] = $StoreJobsValue.ToString()
     }
+    if ($ResolveJobsValue -gt 0) {
+        $envOverrides["TSPACK_RESOLVE_JOBS"] = $ResolveJobsValue.ToString()
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ResolveControllerMode)) {
+        $envOverrides["TSPACK_RESOLVE_CONTROLLER"] = $ResolveControllerMode
+    }
     if ($EnableProfile) {
         $profileDir = Join-Path $scenarioDir "profiles"
         Ensure-Directory -Path $profileDir
@@ -188,6 +217,7 @@ function Invoke-BenchStep {
     }
 
     $perf = Read-PerfJson -Path $perfJson
+    $controller = Get-PerfPropertyValue -Object $perf -PropertyName "controller"
     $nodeModulesBytes = Get-DirectoryFileBytes -Path (Join-Path $ProjectRoot "node_modules")
 
     return [pscustomobject]@{
@@ -197,6 +227,9 @@ function Invoke-BenchStep {
         PerfJson           = $perfJson
         StdoutLog          = $stdoutLog
         StderrLog          = $stderrLog
+        ResolveJobs        = if ($null -ne $perf) { [int64]$perf.counters.resolveJobs } else { 0 }
+        ControllerMode     = if ($null -ne $controller) { [string](Get-PerfPropertyValue -Object $controller -PropertyName "mode") } else { "" }
+        ControllerAvgTarget = if ($null -ne $controller) { [double](Get-PerfPropertyValue -Object $controller -PropertyName "avgTarget") } else { 0 }
         NodeModulesBytes   = $nodeModulesBytes
         MetadataRequests   = if ($null -ne $perf) { [int64]$perf.counters.metadataRequests } else { 0 }
         MetadataCacheHits  = if ($null -ne $perf) { [int64]$perf.counters.metadataCacheHits } else { 0 }
@@ -265,19 +298,19 @@ try {
             New-TemplateProject -Invocation $invocation -RepoRoot $repoRoot -ProjectRoot $projectRoot -TemplateName $Template -ProjectName ("bench-" + $runLabel)
 
             if ($scenarioNames -contains "cold-update") {
-                $results.Add((Invoke-BenchStep -Invocation $invocation -RepoRoot $repoRoot -ScenarioName "cold-update" -RunLabel $runLabel -ProjectRoot $projectRoot -StoreRoot $storeRoot -StepArgs @("update") -OutputRoot $OutputDir -EnableProfile:$Profile -StoreJobsValue $StoreJobs))
+                $results.Add((Invoke-BenchStep -Invocation $invocation -RepoRoot $repoRoot -ScenarioName "cold-update" -RunLabel $runLabel -ProjectRoot $projectRoot -StoreRoot $storeRoot -StepArgs @("update") -OutputRoot $OutputDir -EnableProfile:$Profile -ResolveJobsValue $ResolveJobs -ResolveControllerMode $ResolveController -StoreJobsValue $StoreJobs))
             } else {
-                $null = Invoke-BenchStep -Invocation $invocation -RepoRoot $repoRoot -ScenarioName "bootstrap-update" -RunLabel $runLabel -ProjectRoot $projectRoot -StoreRoot $storeRoot -StepArgs @("update") -OutputRoot $OutputDir -EnableProfile:$false -StoreJobsValue $StoreJobs
+                $null = Invoke-BenchStep -Invocation $invocation -RepoRoot $repoRoot -ScenarioName "bootstrap-update" -RunLabel $runLabel -ProjectRoot $projectRoot -StoreRoot $storeRoot -StepArgs @("update") -OutputRoot $OutputDir -EnableProfile:$false -ResolveJobsValue $ResolveJobs -ResolveControllerMode $ResolveController -StoreJobsValue $StoreJobs
             }
 
             if ($scenarioNames -contains "first-sync") {
-                $results.Add((Invoke-BenchStep -Invocation $invocation -RepoRoot $repoRoot -ScenarioName "first-sync" -RunLabel $runLabel -ProjectRoot $projectRoot -StoreRoot $storeRoot -StepArgs @("sync") -OutputRoot $OutputDir -EnableProfile:$Profile -StoreJobsValue $StoreJobs))
+                $results.Add((Invoke-BenchStep -Invocation $invocation -RepoRoot $repoRoot -ScenarioName "first-sync" -RunLabel $runLabel -ProjectRoot $projectRoot -StoreRoot $storeRoot -StepArgs @("sync") -OutputRoot $OutputDir -EnableProfile:$Profile -ResolveJobsValue $ResolveJobs -ResolveControllerMode $ResolveController -StoreJobsValue $StoreJobs))
             } else {
-                $null = Invoke-BenchStep -Invocation $invocation -RepoRoot $repoRoot -ScenarioName "bootstrap-sync" -RunLabel $runLabel -ProjectRoot $projectRoot -StoreRoot $storeRoot -StepArgs @("sync") -OutputRoot $OutputDir -EnableProfile:$false -StoreJobsValue $StoreJobs
+                $null = Invoke-BenchStep -Invocation $invocation -RepoRoot $repoRoot -ScenarioName "bootstrap-sync" -RunLabel $runLabel -ProjectRoot $projectRoot -StoreRoot $storeRoot -StepArgs @("sync") -OutputRoot $OutputDir -EnableProfile:$false -ResolveJobsValue $ResolveJobs -ResolveControllerMode $ResolveController -StoreJobsValue $StoreJobs
             }
 
             if ($scenarioNames -contains "warm-sync") {
-                $results.Add((Invoke-BenchStep -Invocation $invocation -RepoRoot $repoRoot -ScenarioName "warm-sync" -RunLabel $runLabel -ProjectRoot $projectRoot -StoreRoot $storeRoot -StepArgs @("sync") -OutputRoot $OutputDir -EnableProfile:$Profile -StoreJobsValue $StoreJobs))
+                $results.Add((Invoke-BenchStep -Invocation $invocation -RepoRoot $repoRoot -ScenarioName "warm-sync" -RunLabel $runLabel -ProjectRoot $projectRoot -StoreRoot $storeRoot -StepArgs @("sync") -OutputRoot $OutputDir -EnableProfile:$Profile -ResolveJobsValue $ResolveJobs -ResolveControllerMode $ResolveController -StoreJobsValue $StoreJobs))
             }
         }
 
@@ -285,7 +318,7 @@ try {
             $dryProjectRoot = Join-Path $runDir "dry-run-project"
             $dryStoreRoot = Join-Path $runDir "dry-run-store"
             New-TemplateProject -Invocation $invocation -RepoRoot $repoRoot -ProjectRoot $dryProjectRoot -TemplateName $Template -ProjectName ("dry-" + $runLabel)
-            $results.Add((Invoke-BenchStep -Invocation $invocation -RepoRoot $repoRoot -ScenarioName "dry-run-update" -RunLabel $runLabel -ProjectRoot $dryProjectRoot -StoreRoot $dryStoreRoot -StepArgs @("update", "--dry-run") -OutputRoot $OutputDir -EnableProfile:$Profile -StoreJobsValue $StoreJobs))
+            $results.Add((Invoke-BenchStep -Invocation $invocation -RepoRoot $repoRoot -ScenarioName "dry-run-update" -RunLabel $runLabel -ProjectRoot $dryProjectRoot -StoreRoot $dryStoreRoot -StepArgs @("update", "--dry-run") -OutputRoot $OutputDir -EnableProfile:$Profile -ResolveJobsValue $ResolveJobs -ResolveControllerMode $ResolveController -StoreJobsValue $StoreJobs))
         }
     }
 
@@ -294,7 +327,7 @@ try {
 
     Write-Host ""
     $results |
-        Select-Object Run, Scenario, Seconds, MetadataRequests, MetadataCacheHits, TarballRequests, CapturedArtifacts, StoreNeed, StoreSkipped, StoreFetched, SyncHydrateSkipped, SyncHydrateFetched, Hardlinks, Copies, NodeModulesBytes |
+        Select-Object Run, Scenario, Seconds, ResolveJobs, ControllerMode, ControllerAvgTarget, MetadataRequests, MetadataCacheHits, TarballRequests, CapturedArtifacts, StoreNeed, StoreSkipped, StoreFetched, SyncHydrateSkipped, SyncHydrateFetched, Hardlinks, Copies, NodeModulesBytes |
         Format-Table -AutoSize
     Write-Host ""
     Write-Host ("Summary written to " + $summaryPath)

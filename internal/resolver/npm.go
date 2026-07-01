@@ -45,10 +45,13 @@ type ResolverOptions struct {
 	Mode                  ResolveMode
 	RootDir               string
 	ResolveJobs           int
+	ResolveControllerMode ResolveControllerMode
+	ResolveHostBudget     int
 	OnArtifactResolved    func(pkg lockfile.Package, artifact []byte) error
 	OnMetadataCacheHit    func(name string)
 	OnResolveJobs         func(jobs int)
 	OnResolveFrontier     func(width int)
+	OnResolveController   func(decision FrontierDecision)
 	OnPreparedPackage     func(key string)
 	OnCommittedPackage    func(id string)
 	OnResolverWorkerError func(key string)
@@ -86,14 +89,17 @@ type PackageDist struct {
 }
 
 type resolverState struct {
-	opts    ResolverOptions
-	result  *ResolveResult
-	seenPkg map[string]bool
-	graph   *graph.WorkspaceGraph
-	metaMu  sync.Mutex
-	meta    map[string]*metadataMemoEntry
-	prepMu  sync.Mutex
-	prep    map[string]*preparedMemoEntry
+	opts        ResolverOptions
+	result      *ResolveResult
+	seenPkg     map[string]bool
+	graph       *graph.WorkspaceGraph
+	controller  ResolveOccupancyController
+	hostMap     map[string]int
+	frontierSeq int
+	metaMu      sync.Mutex
+	meta        map[string]*metadataMemoEntry
+	prepMu      sync.Mutex
+	prep        map[string]*preparedMemoEntry
 }
 
 type metadataMemoEntry struct {
@@ -171,10 +177,12 @@ func ResolveNPM(ctx context.Context, opts ResolverOptions, req ResolveRequest) R
 	}
 
 	state := &resolverState{
-		opts:    opts,
-		result:  &result,
-		seenPkg: map[string]bool{},
-		graph:   req.Graph,
+		opts:       opts,
+		result:     &result,
+		seenPkg:    map[string]bool{},
+		graph:      req.Graph,
+		controller: NewResolveOccupancyController(opts.ResolveControllerMode, resolveJobs, opts.ResolveHostBudget),
+		hostMap:    ResolveControllerHostMap(opts.RegistryURL),
 	}
 
 	frontier := make([]resolveWorkItem, 0)
@@ -238,7 +246,7 @@ func (r *resolverState) resolveFrontier(ctx context.Context, frontier []resolveW
 	}
 
 	groups := groupWorkItems(normalized)
-	preparedByGroup := r.prepareGroups(ctx, groups, resolveJobs)
+	preparedByGroup := r.prepareGroups(ctx, normalized, groups, resolveJobs)
 
 	nextFrontier := make([]resolveWorkItem, 0)
 	fatal := false
@@ -330,19 +338,26 @@ func boolKey(value bool) string {
 	return "0"
 }
 
-func (r *resolverState) prepareGroups(ctx context.Context, groups []resolveWorkGroup, resolveJobs int) map[string]preparedPackage {
+func (r *resolverState) prepareGroups(ctx context.Context, normalized []resolveWorkItem, groups []resolveWorkGroup, resolveJobs int) map[string]preparedPackage {
 	preparedByGroup := make(map[string]preparedPackage, len(groups))
 	if len(groups) == 0 {
 		return preparedByGroup
 	}
 
-	workerCount := resolveJobs
-	if workerCount <= 0 {
-		workerCount = defaultResolveJobs
+	decision := r.controller.Decide(FrontierInput{
+		FrontierIndex: r.frontierSeq,
+		FrontierWidth: len(normalized),
+		WorkItems:     len(groups),
+		MetadataItems: len(groups),
+		TarballItems:  0,
+		Hosts:         r.hostMap,
+	})
+	r.frontierSeq++
+	if r.opts.OnResolveController != nil {
+		r.opts.OnResolveController(decision)
 	}
-	if workerCount > len(groups) {
-		workerCount = len(groups)
-	}
+
+	workerCount := decision.TargetJobs
 	if workerCount == 1 {
 		for _, group := range groups {
 			preparedByGroup[group.key] = r.prepareGroup(ctx, group)
