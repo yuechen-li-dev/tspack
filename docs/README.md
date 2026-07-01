@@ -2,6 +2,8 @@
 
 ## Release and status
 
+- [v0.1.7 release notes](releases/v0.1.7.md)
+- [v0.1.7 performance closeout](dev/v0.1.7-performance-closeout.md)
 - [v0.1.5 release notes](releases/v0.1.5.md)
 - [v0.1.3 release notes](releases/v0.1.3.md)
 - [0.1.0 release notes](releases/v0.1.0.md)

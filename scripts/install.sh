@@ -17,7 +17,7 @@ Downloads a TSPack release artifact from GitHub Releases, verifies its SHA256
 checksum, and installs the tspack binary.
 
 Environment overrides:
-  TSPACK_VERSION       Release tag to install, for example v0.1.5.
+  TSPACK_VERSION       Release tag to install, for example v0.1.7.
   TSPACK_INSTALL_DIR   Install directory. Defaults to $HOME/.local/bin.
   TSPACK_REPO          GitHub repo in owner/name form. Defaults to yuechen-li-dev/tspack.
   TSPACK_GITHUB_BASE   GitHub web base URL. Defaults to https://github.com.

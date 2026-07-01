@@ -4,7 +4,9 @@ TSPack is an early TypeScript project lifecycle manager built around explicit ma
 
 ## Status
 
-The repository is prepared for the `v0.1.5` release cut. Until the tag is created, `v0.1.4` remains the latest public release. TSPack is useful for early dogfooding and release-candidate validation, but it is not production-stable and the CLI, manifest API, and generated artifacts may still change.
+The repository is prepared for the `v0.1.7` release cut. Until the tag is created, `v0.1.6` remains the latest public release. TSPack is useful for early dogfooding and release-candidate validation, but it is not production-stable and the CLI, manifest API, and generated artifacts may still change.
+
+The v0.1.7 release-prep focus is faster cold update, near no-op warm sync, cleaner manifest and xTest editor support, managed workspace TypeScript SDK consistency for VS Code, and hardlink-backed materialization.
 
 The repository is self-hosted after bootstrap: a trusted source checkout or binary is required first, then TSPack can manage, check, audit, and describe its own project contract. See [self-hosting](docs/self-hosting.md) and the [release gate](docs/release-gate.md).
 
@@ -22,7 +24,7 @@ Download release artifacts from GitHub Releases. Release archives are expected t
 From a trusted checkout, Unix users can run:
 
 ```bash
-TSPACK_VERSION=v0.1.5 sh scripts/install.sh
+TSPACK_VERSION=v0.1.7 sh scripts/install.sh
 ```
 
 The installer downloads GitHub Release artifacts, verifies the checksum entry, and installs `tspack` to `$HOME/.local/bin` unless `TSPACK_INSTALL_DIR` is set. Review installer scripts before running them from raw URLs. `get.tspack.dev` is not live.
@@ -74,12 +76,12 @@ TSPack is self-hosted after bootstrap. The root `manifest.tsx` and `ts-lock.toml
 - Early patch release; not production-stable.
 - Browser-required inspect tests may skip when Playwright Chromium is unavailable.
 - Policy-driven update mutation is not implemented; `update --policy --dry-run` is read-only planning.
-- The `setup-tspack` action implementation exists, but hosted smoke waits until the first release exists.
+- The `setup-tspack` action is release-backed and should still be validated against real published artifacts as part of release prep.
 - Homebrew, mise, npm bootstrapper, and `get.tspack.dev` distribution channels are future work.
 
 ## Docs
 
-Start with [docs/README.md](docs/README.md), especially the [v0.1.5 release notes](docs/releases/v0.1.5.md), [v0.1.3 release notes](docs/releases/v0.1.3.md), [roadmap](docs/roadmap.md), [distribution](docs/distribution.md), [security](docs/security.md), and [release gate](docs/release-gate.md).
+Start with [docs/README.md](docs/README.md), especially the [v0.1.7 release notes](docs/releases/v0.1.7.md), [performance closeout](docs/dev/v0.1.7-performance-closeout.md), [roadmap](docs/roadmap.md), [distribution](docs/distribution.md), [security](docs/security.md), and [release gate](docs/release-gate.md).
 
 ### Quickstart template
 

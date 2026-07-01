@@ -55,7 +55,7 @@ assert_expected_inspect_diagnostic() {
 go run ./tools/generate-embedded-bridges
 mkdir -p dist
 build_date="${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
-version="${TSPACK_VERSION:-v0.1.5}"
+version="${TSPACK_VERSION:-v0.1.7}"
 commit="${GITHUB_SHA:-$(git rev-parse --short=12 HEAD 2>/dev/null || printf unknown)}"
 
 go build \

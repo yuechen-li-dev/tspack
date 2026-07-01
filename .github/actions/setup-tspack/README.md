@@ -22,7 +22,7 @@ GitHub Actions cannot normally resolve `uses: yuechen-li-dev/tspack/setup-tspack
 
 | Input | Default | Description |
 | --- | --- | --- |
-| `version` | `latest` | TSPack version to install. Use `latest` or a release tag such as `v0.1.5`. |
+| `version` | `latest` | TSPack version to install. Use `latest` or a release tag such as `v0.1.7`. |
 | `repo` | `yuechen-li-dev/tspack` | Repository to download TSPack releases from. |
 | `github-token` | unset | Optional GitHub token for API requests, useful for rate limits or private forks. The action also reads `GITHUB_TOKEN` when this input is not provided. |
 | `install-dir` | runner temp `tspack-bin` directory | Directory where the `tspack` binary is installed. |
@@ -41,7 +41,7 @@ GitHub Actions cannot normally resolve `uses: yuechen-li-dev/tspack/setup-tspack
 steps:
   - uses: yuechen-li-dev/tspack/.github/actions/setup-tspack@v1
     with:
-      version: v0.1.5
+      version: v0.1.7
 ```
 
 ## Supported runners
@@ -62,9 +62,9 @@ The action downloads `checksums.txt` from the same GitHub Release as the archive
 
 The action does not build TSPack from source, does not install npm packages, does not commit or require `node_modules`, does not use `get.tspack.dev`, and does not implement package-manager distribution channels.
 
-## First-release smoke
+## Release smoke
 
-A live GitHub Actions smoke that uses `version: latest` requires at least one real GitHub Release with the expected artifacts and `checksums.txt`. Before each release is published, keep this action covered by the local Node tests and run a manual workflow smoke after the release exists.
+The action is covered by local Node tests in this repository. Before each release is published, keep the action covered by those tests and verify the released artifacts and `checksums.txt` through the release workflow and release-prep smoke path.
 
 ## Recommended CI shape
 
