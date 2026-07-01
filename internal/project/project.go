@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,6 +23,7 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/materialize"
 	"github.com/yuechen-li-dev/tspack/internal/nodecmd"
 	"github.com/yuechen-li-dev/tspack/internal/pack"
+	"github.com/yuechen-li-dev/tspack/internal/perf"
 	"github.com/yuechen-li-dev/tspack/internal/resolver"
 	"github.com/yuechen-li-dev/tspack/internal/securityevidence"
 	"github.com/yuechen-li-dev/tspack/internal/store"
@@ -34,6 +36,8 @@ type Options struct {
 	FrontendCLIPath                                string
 	ResolverClient                                 resolver.NPMRegistryClient
 	Progress                                       Progress
+	Perf                                           *perf.Session
+	PerfWriter                                     io.Writer
 }
 type Result struct {
 	Diagnostics  []diag.Diagnostic
@@ -197,6 +201,15 @@ func UpdateDryRunWithOptions(opts Options, updateOpts UpdateOptions) Result {
 }
 
 func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result {
+	perfSession, perfErr := ensurePerfSession(&opts, "update", dryRun)
+	if perfErr != nil {
+		return Result{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_PERF_PROFILE_INIT_FAILED", "failed to initialize performance profiling", perfErr.Error())}}
+	}
+	if perfSession != nil {
+		defer func() {
+			_ = perfSession.Close()
+		}()
+	}
 	progress := opts.Progress
 	if updateOpts.Query != "" {
 		if dryRun {
@@ -237,9 +250,7 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 		}
 	}
 	client := opts.ResolverClient
-	if client == nil {
-		client = resolver.NewHTTPRegistryClient("")
-	}
+	client = instrumentRegistryClient(client, perfSession)
 	var (
 		st   *store.Store
 		jobs int
@@ -264,12 +275,17 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 		Mode:               resolver.ResolveModeUpdate,
 		Client:             client,
 		RootDir:            opts.RootDir,
-		OnArtifactResolved: storeArtifactCapture(st),
+		OnArtifactResolved: storeArtifactCapture(st, perfSession),
+		OnMetadataCacheHit: func(name string) {
+			perfSession.RecordMetadataCacheHit()
+		},
 	}
 	if registryClient, ok := client.(*resolver.HTTPRegistryClient); ok {
 		resolveOpts.RegistryURL = registryClient.BaseURL
 	}
+	stopResolve := perfSession.StartPhase("update.resolve")
 	res := resolver.Resolve(context.Background(), resolveOpts, resolver.ResolveRequest{Graph: g, ExistingLock: old})
+	stopResolve()
 	out = append(out, res.Diagnostics...)
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
@@ -304,7 +320,9 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 	// Resolution above remains deterministic and serial. Only artifact fetch/copy/extract
 	// store population runs with bounded parallelism, and results are applied back to
 	// the lockfile in package order before deterministic lockfile output is written.
-	populateResult := populateStoreParallel(context.Background(), st, client, opts.RootDir, res.Lock.Packages, jobs, progress)
+	stopStorePopulation := perfSession.StartPhase("update.store_population")
+	populateResult := populateStoreParallel(context.Background(), st, client, opts.RootDir, res.Lock.Packages, jobs, progress, perfSession)
+	stopStorePopulation()
 	out = append(out, populateResult.Diagnostics...)
 	for _, populated := range populateResult.Packages {
 		res.Lock.Packages[populated.Index].Hash = populated.Hash
@@ -313,18 +331,22 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 		return Result{Diagnostics: out, UpdateTarget: targetResult}
 	}
 	progress.Step("writing lockfile...")
+	stopLockfileWrite := perfSession.StartPhase("update.lockfile_write")
 	b, e := lockfile.Marshal(res.Lock)
 	if e != nil {
+		stopLockfileWrite()
 		out = append(out, errDiag("TSPACK_UPDATE_WRITE_FAILED", "failed to encode lockfile", e.Error()))
 		return Result{Diagnostics: out, UpdateTarget: targetResult}
 	}
 	if e = os.MkdirAll(filepath.Dir(opts.LockfilePath), 0o755); e != nil {
+		stopLockfileWrite()
 		out = append(out, errDiag("TSPACK_UPDATE_WRITE_FAILED", "failed to create lockfile dir", e.Error()))
 		return Result{Diagnostics: out, UpdateTarget: targetResult}
 	}
 	if e = os.WriteFile(opts.LockfilePath, b, 0o644); e != nil {
 		out = append(out, errDiag("TSPACK_UPDATE_WRITE_FAILED", "failed to write lockfile", e.Error()))
 	}
+	stopLockfileWrite()
 	if !hasErrors(out) {
 		progress.Step("update complete")
 	}
@@ -373,8 +395,9 @@ func storeJobsFromEnv() (int, error) {
 	return jobs, nil
 }
 
-func populateStoreParallel(ctx context.Context, st *store.Store, client resolver.NPMRegistryClient, rootDir string, packages []lockfile.Package, jobs int, progress Progress) storePopulateResult {
+func populateStoreParallel(ctx context.Context, st *store.Store, client resolver.NPMRegistryClient, rootDir string, packages []lockfile.Package, jobs int, progress Progress, perfSession *perf.Session) storePopulateResult {
 	packagesToPopulate := packagesNeedingStorePopulation(st, packages)
+	perfSession.SetStorePopulationCounts(len(packagesToPopulate), len(packages)-len(packagesToPopulate))
 	if len(packagesToPopulate) == 0 {
 		return storePopulateResult{}
 	}
@@ -400,7 +423,7 @@ func populateStoreParallel(ctx context.Context, st *store.Store, client resolver
 					continue
 				default:
 				}
-				result := populateOneStorePackage(ctx, st, client, rootDir, job)
+				result := populateOneStorePackage(ctx, st, client, rootDir, job, perfSession)
 				if hasErrors(result.Diagnostics) {
 					cancel()
 				}
@@ -444,13 +467,14 @@ func populateStoreParallel(ctx context.Context, st *store.Store, client resolver
 	return out
 }
 
-func populateOneStorePackage(ctx context.Context, st *store.Store, client resolver.NPMRegistryClient, rootDir string, job storePopulateJob) storePopulateWorkerResult {
+func populateOneStorePackage(ctx context.Context, st *store.Store, client resolver.NPMRegistryClient, rootDir string, job storePopulateJob, perfSession *perf.Session) storePopulateWorkerResult {
 	pkg := job.Pkg
 	result := storePopulateWorkerResult{Index: job.Index, PackageKey: pkg.ID}
 	if pkg.Hash != "" && st.Has(pkg.Hash) {
 		result.Hash = pkg.Hash
 		return result
 	}
+	perfSession.RecordStorePopulationFetch()
 	switch pkg.Source {
 	case "npm":
 		body, fetchErr := client.Tarball(ctx, findTarballURL(&pkg, client))
@@ -470,12 +494,13 @@ func populateOneStorePackage(ctx context.Context, st *store.Store, client resolv
 	return result
 }
 
-func storeArtifactCapture(st *store.Store) func(pkg lockfile.Package, artifact []byte) error {
+func storeArtifactCapture(st *store.Store, perfSession *perf.Session) func(pkg lockfile.Package, artifact []byte) error {
 	if st == nil {
 		return nil
 	}
 	return func(pkg lockfile.Package, artifact []byte) error {
 		if pkg.Hash != "" && st.Has(pkg.Hash) {
+			perfSession.RecordArtifactAlreadyInStore()
 			return nil
 		}
 		_, diags := st.PutArtifact(store.Artifact{
@@ -499,6 +524,7 @@ func storeArtifactCapture(st *store.Store) func(pkg lockfile.Package, artifact [
 		if len(diags) > 0 {
 			return fmt.Errorf("%s", diags[0].Message)
 		}
+		perfSession.RecordArtifactCaptured()
 		return nil
 	}
 }
@@ -900,6 +926,15 @@ func Why(opts Options, whyOpts WhyOptions) Result {
 	return Result{Diagnostics: out, WhyResult: &wr}
 }
 func Sync(opts Options, clean bool) Result {
+	perfSession, perfErr := ensurePerfSession(&opts, "sync", false)
+	if perfErr != nil {
+		return Result{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_PERF_PROFILE_INIT_FAILED", "failed to initialize performance profiling", perfErr.Error())}}
+	}
+	if perfSession != nil {
+		defer func() {
+			_ = perfSession.Close()
+		}()
+	}
 	_, g, out := loadManifestAndGraph(opts)
 	_ = g
 	lf, d, e := lockfile.LoadFile(opts.LockfilePath)
@@ -914,23 +949,28 @@ func Sync(opts Options, clean bool) Result {
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
 	}
+	opts.ResolverClient = instrumentRegistryClient(opts.ResolverClient, perfSession)
 	st, err := store.Open(opts.StoreRoot)
 	if err != nil {
 		return Result{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_SYNC_STORE_ARTIFACT_MISSING", "failed to open store", err.Error())}}
 	}
+	stopHydrate := perfSession.StartPhase("sync.hydrate_store")
 	out = append(out, ensureStoreArtifactsForLock(context.Background(), opts, st, lf)...)
+	stopHydrate()
 	if hasErrors(out) {
 		diag.SortDiagnostics(out)
 		return Result{Diagnostics: out}
 	}
 	mat := materialize.NodeModulesMaterializer{}
-	materializeOptions := materialize.Options{Clean: clean}
+	materializeOptions := materialize.Options{Clean: clean, Stats: materializeStatsObserver(perfSession)}
 	if shouldReportMaterializeProgress(opts.RootDir, clean) {
 		materializeOptions.OnPackage = func(index int, total int, pkg lockfile.Package) {
 			opts.Progress.Step("materializing packages [%d/%d] %s", index, total, packageProgressLabel(pkg))
 		}
 	}
+	stopMaterialize := perfSession.StartPhase("sync.materialize")
 	mr := mat.Materialize(context.Background(), materialize.Request{WorkspaceRoot: opts.RootDir, Graph: g, Lock: lf, Store: st, Options: materializeOptions})
+	stopMaterialize()
 	out = append(out, mr.Diagnostics...)
 	diag.SortDiagnostics(out)
 	return Result{Diagnostics: out}

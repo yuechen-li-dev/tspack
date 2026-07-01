@@ -976,6 +976,7 @@ func runTestCommand(args []string) {
 func runCommand(args []string) {
 	cmd := args[0]
 	opts := project.DefaultOptions(".")
+	opts.PerfWriter = os.Stderr
 	manifestExplicit := false
 	lockfileExplicit := false
 	storeExplicit := false

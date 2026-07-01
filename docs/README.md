@@ -18,6 +18,7 @@
 - [Commands](commands.md)
 - [Security](security.md)
 - [Update, outdated, and UpdatePolicy](update.md)
+- [Performance harness and profiling](performance.md)
 - [Run targets](run.md)
 - [Check and format](check.md)
 - [Format and lint backend](format-lint.md)

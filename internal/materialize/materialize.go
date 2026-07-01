@@ -36,6 +36,15 @@ type Options struct {
 	Clean     bool
 	LinkMode  LinkMode
 	OnPackage func(index int, total int, pkg lockfile.Package)
+	Stats     StatsObserver
+}
+
+type StatsObserver interface {
+	RecordMaterializedPackage(pkg lockfile.Package)
+	RecordMaterializedDirectory(path string)
+	RecordMaterializedFile(path string, size int64)
+	RecordHardlink(path string, size int64)
+	RecordCopy(path string, size int64)
 }
 
 type LinkMode string
@@ -279,11 +288,14 @@ func materializePkg(req Request, out *Result, pkgs map[string]lockfile.Package, 
 		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_MISSING_STORE_ARTIFACT", Severity: diag.SeverityError, Message: "missing store artifact", Details: []string{pkg.ID, hash}})
 		return
 	}
-	if err := copyTree(ref.ExtractedPath, dest, req.Options.LinkMode); err != nil {
+	if err := copyTree(ref.ExtractedPath, dest, req.Options.LinkMode, req.Options.Stats); err != nil {
 		out.Diagnostics = append(out.Diagnostics, materializeDiagnosticFromError(err, pkg.ID, dest, pkg.Name))
 		return
 	}
 	out.Written = append(out.Written, WrittenPath{Path: dest, Kind: "package", PackageID: pkg.ID})
+	if req.Options.Stats != nil {
+		req.Options.Stats.RecordMaterializedPackage(pkg)
+	}
 
 	if cycleLeaf {
 		return
@@ -388,7 +400,7 @@ func cleanNodeModules(nmRoot string) error {
 	return removeMaterializedPath(nmRoot)
 }
 
-func copyTree(src, dest string, linkMode LinkMode) error {
+func copyTree(src, dest string, linkMode LinkMode, stats StatsObserver) error {
 	if linkMode == "" || linkMode == LinkModeAuto {
 		linkMode = LinkModeHardlink
 	}
@@ -407,6 +419,9 @@ func copyTree(src, dest string, linkMode LinkMode) error {
 				if mode == 0 {
 					mode = 0o755
 				}
+				if stats != nil {
+					stats.RecordMaterializedDirectory(out)
+				}
 				return retryMaterializeFileOp("mkdir", out, func() error {
 					return os.MkdirAll(out, mode)
 				})
@@ -416,12 +431,15 @@ func copyTree(src, dest string, linkMode LinkMode) error {
 			}); err != nil {
 				return err
 			}
-			return materializeFile(path, out, info, linkMode)
+			if stats != nil {
+				stats.RecordMaterializedFile(out, info.Size())
+			}
+			return materializeFile(path, out, info, linkMode, stats)
 		})
 	})
 }
 
-func materializeFile(src string, dest string, info fs.FileInfo, linkMode LinkMode) error {
+func materializeFile(src string, dest string, info fs.FileInfo, linkMode LinkMode, stats StatsObserver) error {
 	if linkMode == "" || linkMode == LinkModeAuto {
 		linkMode = LinkModeHardlink
 	}
@@ -433,8 +451,14 @@ func materializeFile(src string, dest string, info fs.FileInfo, linkMode LinkMod
 		if err := retryMaterializeFileOp("link", dest, func() error {
 			return materializeLink(src, dest)
 		}); err == nil {
+			if stats != nil {
+				stats.RecordHardlink(dest, info.Size())
+			}
 			return nil
 		}
+	}
+	if stats != nil {
+		stats.RecordCopy(dest, info.Size())
 	}
 	return copyMaterializedFile(src, dest, mode)
 }

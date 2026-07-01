@@ -15,6 +15,7 @@ import (
 type HTTPRegistryClient struct {
 	BaseURL string
 	Client  *http.Client
+	Observe func(kind string, requestURL string, status int, err error)
 }
 
 var (
@@ -124,12 +125,32 @@ func (c *HTTPRegistryClient) get(ctx context.Context, u string) ([]byte, int, er
 	}
 	resp, err := client.Do(req)
 	if err != nil {
+		if c.Observe != nil {
+			c.Observe(httpKind(u), u, 0, err)
+		}
 		return nil, 0, err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		if c.Observe != nil {
+			c.Observe(httpKind(u), u, resp.StatusCode, err)
+		}
 		return nil, resp.StatusCode, err
 	}
+	if c.Observe != nil {
+		c.Observe(httpKind(u), u, resp.StatusCode, nil)
+	}
 	return body, resp.StatusCode, nil
+}
+
+func httpKind(u string) string {
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return "unknown"
+	}
+	if strings.HasSuffix(parsed.Path, ".tgz") || strings.HasSuffix(parsed.Path, ".tar.gz") {
+		return "tarball"
+	}
+	return "metadata"
 }

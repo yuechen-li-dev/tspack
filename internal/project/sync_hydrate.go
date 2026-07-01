@@ -36,11 +36,13 @@ func ensureStoreArtifactsForLock(ctx context.Context, opts Options, st *store.St
 			continue
 		}
 		if len(st.Verify(hash)) == 0 {
+			opts.Perf.RecordSyncHydrationSkip()
 			continue
 		}
 		missing = append(missing, pkg)
 	}
 	for index, pkg := range missing {
+		opts.Perf.RecordSyncHydrationFetch()
 		opts.Progress.Step("%s [%d/%d] %s", storeFetchProgressLabel(pkg), index+1, len(missing), packageProgressLabel(pkg))
 		out = append(out, hydrateMissingStoreArtifact(ctx, opts.RootDir, st, client, pkg)...)
 	}

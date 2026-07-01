@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
@@ -160,6 +161,97 @@ func TestBiomeStyleBinMaterializationAndStrictness(t *testing.T) {
 	}
 }
 
+func TestMaterializeStatsObserverTracksHardlinksAndCopyFallbacks(t *testing.T) {
+	ws := t.TempDir()
+	s, _ := store.Open(t.TempDir())
+	pkgHash := putPkg(t, s, "npm:left-pad@1.2.0", "left-pad")
+	lf := &lockfile.Lockfile{
+		Packages: []lockfile.Package{
+			{ID: "npm:left-pad@1.2.0", Name: "left-pad", Source: "npm", Hash: pkgHash},
+		},
+		Edges: []lockfile.Edge{
+			{From: "app:target:core", To: "npm:left-pad@1.2.0", Kind: "runtime"},
+		},
+	}
+
+	var observer statsCapture
+	originalLink := materializeLink
+	materializeLink = func(oldname string, newname string) error {
+		return errors.New("hardlinks disabled for stats test")
+	}
+	t.Cleanup(func() {
+		materializeLink = originalLink
+	})
+
+	res := NodeModulesMaterializer{}.Materialize(context.Background(), Request{
+		WorkspaceRoot: ws,
+		Lock:          lf,
+		Store:         s,
+		Options: Options{
+			LinkMode: LinkModeHardlink,
+			Stats:    &observer,
+		},
+	})
+	if len(res.Diagnostics) > 0 {
+		t.Fatalf("diags: %#v", res.Diagnostics)
+	}
+	if observer.packages == 0 || observer.files == 0 || observer.directories == 0 {
+		t.Fatalf("expected package/file/directory counts, got %+v", observer)
+	}
+	if observer.copyCount == 0 {
+		t.Fatalf("expected copy fallback count, got %+v", observer)
+	}
+	if observer.hardlinkCount != 0 {
+		t.Fatalf("expected no successful hardlinks when link fails, got %+v", observer)
+	}
+	if observer.logicalBytes == 0 || observer.copiedBytes == 0 {
+		t.Fatalf("expected byte accounting, got %+v", observer)
+	}
+}
+
+type statsCapture struct {
+	mu            sync.Mutex
+	packages      int
+	files         int
+	directories   int
+	hardlinkCount int
+	copyCount     int
+	logicalBytes  int64
+	copiedBytes   int64
+}
+
+func (s *statsCapture) RecordMaterializedPackage(pkg lockfile.Package) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.packages++
+}
+
+func (s *statsCapture) RecordMaterializedDirectory(path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.directories++
+}
+
+func (s *statsCapture) RecordMaterializedFile(path string, size int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.files++
+	s.logicalBytes += size
+}
+
+func (s *statsCapture) RecordHardlink(path string, size int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hardlinkCount++
+}
+
+func (s *statsCapture) RecordCopy(path string, size int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.copyCount++
+	s.copiedBytes += size
+}
+
 func TestBinConflictDiagnostic(t *testing.T) {
 	ws := t.TempDir()
 	s, _ := store.Open(t.TempDir())
@@ -228,7 +320,7 @@ func TestMaterializeFileHardlinksWhenAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := materializeFile(src, dest, info, LinkModeHardlink); err != nil {
+	if err := materializeFile(src, dest, info, LinkModeHardlink, nil); err != nil {
 		t.Fatal(err)
 	}
 	assertFileContent(t, dest, "#!/usr/bin/env node\nconsole.log('hi')\n")
@@ -267,7 +359,7 @@ func TestMaterializeFileFallsBackToCopyWhenHardlinkFails(t *testing.T) {
 	t.Cleanup(func() {
 		materializeLink = originalLink
 	})
-	if err := materializeFile(src, dest, info, LinkModeHardlink); err != nil {
+	if err := materializeFile(src, dest, info, LinkModeHardlink, nil); err != nil {
 		t.Fatal(err)
 	}
 	assertFileContent(t, dest, "{\"name\":\"pkg\"}\n")

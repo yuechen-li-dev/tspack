@@ -43,6 +43,7 @@ type ResolverOptions struct {
 	Mode               ResolveMode
 	RootDir            string
 	OnArtifactResolved func(pkg lockfile.Package, artifact []byte) error
+	OnMetadataCacheHit func(name string)
 }
 
 type ResolveRequest struct {
@@ -186,6 +187,9 @@ func (r *resolverState) packageMetadata(ctx context.Context, name string) (*Pack
 	}
 	if entry, ok := r.meta[key]; ok {
 		r.metaMu.Unlock()
+		if r.opts.OnMetadataCacheHit != nil {
+			r.opts.OnMetadataCacheHit(name)
+		}
 		<-entry.ready
 		return entry.meta, entry.err
 	}

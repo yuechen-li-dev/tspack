@@ -21,7 +21,7 @@ func BenchmarkStorePopulation(b *testing.B) {
 				if err != nil {
 					b.Fatalf("open store: %v", err)
 				}
-				result := populateStoreParallel(context.Background(), st, nil, root, packages, jobs, Progress{})
+				result := populateStoreParallel(context.Background(), st, nil, root, packages, jobs, Progress{}, nil)
 				if hasErrors(result.Diagnostics) {
 					b.Fatalf("populate store failed: %#v", result.Diagnostics)
 				}
