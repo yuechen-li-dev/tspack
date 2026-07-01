@@ -16,6 +16,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
 
 	semver "github.com/Masterminds/semver/v3"
 	"github.com/yuechen-li-dev/tspack/internal/capability"
@@ -37,10 +38,11 @@ type NPMRegistryClient interface {
 }
 
 type ResolverOptions struct {
-	RegistryURL string
-	Client      NPMRegistryClient
-	Mode        ResolveMode
-	RootDir     string
+	RegistryURL        string
+	Client             NPMRegistryClient
+	Mode               ResolveMode
+	RootDir            string
+	OnArtifactResolved func(pkg lockfile.Package, artifact []byte) error
 }
 
 type ResolveRequest struct {
@@ -114,6 +116,14 @@ type resolverState struct {
 	result  *ResolveResult
 	seenPkg map[string]bool
 	graph   *graph.WorkspaceGraph
+	metaMu  sync.Mutex
+	meta    map[string]*metadataMemoEntry
+}
+
+type metadataMemoEntry struct {
+	ready chan struct{}
+	meta  *PackageMetadata
+	err   error
 }
 
 func (r *resolverState) resolveDirect(ctx context.Context, dep *graph.DependencyNode, from string) {
@@ -137,7 +147,7 @@ func (r *resolverState) resolveDirectAsKind(ctx context.Context, dep *graph.Depe
 }
 
 func (r *resolverState) resolvePackage(ctx context.Context, name, rng string, optional bool, parentID string) (string, bool, bool) {
-	meta, err := r.opts.Client.PackageMetadata(ctx, name)
+	meta, err := r.packageMetadata(ctx, name)
 	if err != nil {
 		code := "TSPACK_RESOLVE_NPM_METADATA_ERROR"
 		if strings.Contains(strings.ToLower(err.Error()), "not found") {
@@ -165,6 +175,37 @@ func (r *resolverState) resolvePackage(ctx context.Context, name, rng string, op
 		r.result.Lock.Edges = append(r.result.Lock.Edges, lockfile.Edge{From: parentID, To: id, Kind: "runtime", Optional: optional})
 	}
 	return id, optional, true
+}
+
+func (r *resolverState) packageMetadata(ctx context.Context, name string) (*PackageMetadata, error) {
+	key := r.registryMetadataCacheKey(name)
+
+	r.metaMu.Lock()
+	if r.meta == nil {
+		r.meta = map[string]*metadataMemoEntry{}
+	}
+	if entry, ok := r.meta[key]; ok {
+		r.metaMu.Unlock()
+		<-entry.ready
+		return entry.meta, entry.err
+	}
+	entry := &metadataMemoEntry{ready: make(chan struct{})}
+	r.meta[key] = entry
+	r.metaMu.Unlock()
+
+	entry.meta, entry.err = r.opts.Client.PackageMetadata(ctx, name)
+	close(entry.ready)
+	return entry.meta, entry.err
+}
+
+func (r *resolverState) registryMetadataCacheKey(name string) string {
+	if client, ok := r.opts.Client.(*HTTPRegistryClient); ok && client.BaseURL != "" {
+		return client.BaseURL + "|" + name
+	}
+	if r.opts.RegistryURL != "" {
+		return r.opts.RegistryURL + "|" + name
+	}
+	return "default|" + name
 }
 
 func (r *resolverState) emitLookupError(optional bool, code, msg string, details ...string) bool {
@@ -229,6 +270,12 @@ func (r *resolverState) addResolvedPackage(ctx context.Context, id string, pv Pa
 	h := sha256.Sum256(body)
 	pkg := lockfile.Package{ID: id, Name: pv.Name, Version: pv.Version, Source: "npm", Integrity: pv.Dist.Integrity, Hash: "sha256:" + hex.EncodeToString(h[:])}
 	pkg.Capabilities = capability.FromPackageJSONScripts(manifest.Scripts)
+	if r.opts.OnArtifactResolved != nil {
+		if err := r.opts.OnArtifactResolved(pkg, body); err != nil {
+			r.emitLookupError(optional, "TSPACK_RESOLVE_ARTIFACT_CAPTURE_FAILED", "failed to capture resolved artifact", id, err.Error())
+			return false
+		}
+	}
 	r.result.Lock.Packages = append(r.result.Lock.Packages, pkg)
 	return true
 }

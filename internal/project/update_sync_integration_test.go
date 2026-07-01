@@ -155,6 +155,50 @@ func TestUpdateDryRunNoLockfileReportsAddAndDoesNotMutate(t *testing.T) {
 	}
 }
 
+func TestUpdateHTTPPathAvoidsDoubleTarballFetchAndExtraMetadataFetch(t *testing.T) {
+	root := t.TempDir()
+	irPath := writeIR(t, root, map[string]any{"format": 1, "workspace": map[string]any{"name": "ws"}, "packages": []map[string]any{{"name": "app", "version": "1.0.0", "kind": "library", "dependencies": []map[string]any{{"key": "dep-a-a", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "dep-a", "range": "1.0.0"}}, {"key": "dep-a-b", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "dep-a", "range": "1.0.0"}}}, "targets": []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "src/index.ts", "types": "dist/index.d.ts", "deps": []string{"dep-a-a", "dep-a-b"}, "peers": []string{}}}, "tools": []string{}, "boundaries": []any{}, "publish": map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}}}}})
+
+	depTar := fakeRegistryTarball(t, "dep-a", "1.0.0", map[string]string{"left-pad": "1.0.0"})
+	leftPadTar := fakeRegistryTarball(t, "left-pad", "1.0.0", nil)
+	metadataHits := map[string]int{}
+	tarballHits := map[string]int{}
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	mux.HandleFunc("/dep-a", func(w http.ResponseWriter, r *http.Request) {
+		metadataHits["dep-a"]++
+		_ = json.NewEncoder(w).Encode(resolver.PackageMetadata{Name: "dep-a", Versions: map[string]resolver.PackageVersion{"1.0.0": {Name: "dep-a", Version: "1.0.0", Dependencies: map[string]string{"left-pad": "1.0.0"}, Dist: resolver.PackageDist{Tarball: server.URL + "/dep-a-1.0.0.tgz", Integrity: fakeIntegrity(depTar)}}}})
+	})
+	mux.HandleFunc("/left-pad", func(w http.ResponseWriter, r *http.Request) {
+		metadataHits["left-pad"]++
+		_ = json.NewEncoder(w).Encode(resolver.PackageMetadata{Name: "left-pad", Versions: map[string]resolver.PackageVersion{"1.0.0": {Name: "left-pad", Version: "1.0.0", Dist: resolver.PackageDist{Tarball: server.URL + "/left-pad-1.0.0.tgz", Integrity: fakeIntegrity(leftPadTar)}}}})
+	})
+	mux.HandleFunc("/dep-a-1.0.0.tgz", func(w http.ResponseWriter, r *http.Request) {
+		tarballHits["dep-a"]++
+		_, _ = w.Write(depTar)
+	})
+	mux.HandleFunc("/left-pad-1.0.0.tgz", func(w http.ResponseWriter, r *http.Request) {
+		tarballHits["left-pad"]++
+		_, _ = w.Write(leftPadTar)
+	})
+
+	opts := DefaultOptions(root)
+	opts.ManifestIRPath = irPath
+	opts.ResolverClient = resolver.NewHTTPRegistryClient(server.URL)
+	res := Update(opts)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("update failed: %#v", res.Diagnostics)
+	}
+
+	if metadataHits["dep-a"] != 1 || metadataHits["left-pad"] != 1 {
+		t.Fatalf("unexpected metadata hits: %#v", metadataHits)
+	}
+	if tarballHits["dep-a"] != 1 || tarballHits["left-pad"] != 1 {
+		t.Fatalf("unexpected tarball hits: %#v", tarballHits)
+	}
+}
+
 func newFakeRegistryServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	depTar := fakeRegistryTarball(t, "dep-a", "1.0.0", map[string]string{"left-pad": "1.0.0"})

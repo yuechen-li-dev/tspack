@@ -25,12 +25,16 @@ import (
 )
 
 type fakeClient struct {
-	meta    map[string]*PackageMetadata
-	tar     map[string][]byte
-	metaErr map[string]error
+	meta      map[string]*PackageMetadata
+	tar       map[string][]byte
+	metaErr   map[string]error
+	metaCalls map[string]int
 }
 
 func (f *fakeClient) PackageMetadata(_ context.Context, name string) (*PackageMetadata, error) {
+	if f.metaCalls != nil {
+		f.metaCalls[name]++
+	}
 	if e, ok := f.metaErr[name]; ok {
 		return nil, e
 	}
@@ -230,6 +234,108 @@ func TestDeterministicOutput(t *testing.T) {
 	}
 	if !sortCheck(a.Lock) {
 		t.Fatalf("lock entries not deterministically ordered")
+	}
+}
+
+func TestResolveNPMMemoizesMetadataWithinResolvePass(t *testing.T) {
+	fc := buildFakeRegistry()
+	fc.metaCalls = map[string]int{}
+
+	deps := []manifest.DependencyIntent{
+		{Key: "dep-a-a", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "dep-a", Range: "1.0.0"}},
+		{Key: "dep-a-b", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "dep-a", Range: "1.0.0"}},
+	}
+	res := ResolveNPM(
+		context.Background(),
+		ResolverOptions{Client: fc, Mode: ResolveModeUpdate},
+		ResolveRequest{Graph: graphForDeps(deps, nil, []string{"dep-a-a", "dep-a-b"})},
+	)
+	if len(res.Diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", res.Diagnostics)
+	}
+	if fc.metaCalls["dep-a"] != 1 {
+		t.Fatalf("dep-a metadata calls=%d want 1", fc.metaCalls["dep-a"])
+	}
+	if fc.metaCalls["left-pad"] != 1 {
+		t.Fatalf("left-pad metadata calls=%d want 1", fc.metaCalls["left-pad"])
+	}
+}
+
+func TestResolveNPMMemoizesMetadataErrorsWithinResolvePass(t *testing.T) {
+	fc := buildFakeRegistry()
+	fc.metaCalls = map[string]int{}
+	fc.metaErr = map[string]error{"broken-meta": errors.New("timeout")}
+
+	deps := []manifest.DependencyIntent{
+		{Key: "broken-a", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "broken-meta", Range: "1.0.0"}},
+		{Key: "broken-b", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "broken-meta", Range: "1.0.0"}},
+	}
+	res := ResolveNPM(
+		context.Background(),
+		ResolverOptions{Client: fc, Mode: ResolveModeUpdate},
+		ResolveRequest{Graph: graphForDeps(deps, nil, []string{"broken-a", "broken-b"})},
+	)
+	mustCode(t, res, "TSPACK_RESOLVE_NPM_METADATA_ERROR")
+	if fc.metaCalls["broken-meta"] != 1 {
+		t.Fatalf("broken-meta metadata calls=%d want 1", fc.metaCalls["broken-meta"])
+	}
+}
+
+func TestResolveNPMMemoizationIsPerResolvePass(t *testing.T) {
+	fc := buildFakeRegistry()
+	fc.metaCalls = map[string]int{}
+
+	resolveOne(fc, "dep-a", "1.0.0")
+	resolveOne(fc, "dep-a", "1.0.0")
+
+	if fc.metaCalls["dep-a"] != 2 {
+		t.Fatalf("dep-a metadata calls=%d want 2 across two resolve passes", fc.metaCalls["dep-a"])
+	}
+}
+
+func TestResolveNPMArtifactCallbackErrorAbortsResolution(t *testing.T) {
+	fc := buildFakeRegistry()
+
+	res := ResolveNPM(
+		context.Background(),
+		ResolverOptions{
+			Client: fc,
+			Mode:   ResolveModeUpdate,
+			OnArtifactResolved: func(pkg lockfile.Package, artifact []byte) error {
+				return errors.New("capture failed")
+			},
+		},
+		ResolveRequest{Graph: graphForDeps([]manifest.DependencyIntent{{Key: "dep-a", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "dep-a", Range: "1.0.0"}}}, nil, []string{"dep-a"})},
+	)
+	mustCode(t, res, "TSPACK_RESOLVE_ARTIFACT_CAPTURE_FAILED")
+	mustContainDetail(t, res, "capture failed")
+}
+
+func TestResolveNPMArtifactCallbackPreservesDeterministicLockOutput(t *testing.T) {
+	fc := buildFakeRegistry()
+
+	withoutCallback := ResolveNPM(
+		context.Background(),
+		ResolverOptions{Client: fc, Mode: ResolveModeUpdate},
+		ResolveRequest{Graph: graphForDeps([]manifest.DependencyIntent{{Key: "dep-a", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "dep-a", Range: "1.0.0"}}}, nil, []string{"dep-a"})},
+	)
+	withCallback := ResolveNPM(
+		context.Background(),
+		ResolverOptions{
+			Client: fc,
+			Mode:   ResolveModeUpdate,
+			OnArtifactResolved: func(pkg lockfile.Package, artifact []byte) error {
+				return nil
+			},
+		},
+		ResolveRequest{Graph: graphForDeps([]manifest.DependencyIntent{{Key: "dep-a", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "dep-a", Range: "1.0.0"}}}, nil, []string{"dep-a"})},
+	)
+
+	if len(withoutCallback.Diagnostics) != 0 || len(withCallback.Diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics without=%#v with=%#v", withoutCallback.Diagnostics, withCallback.Diagnostics)
+	}
+	if !reflect.DeepEqual(withoutCallback.Lock, withCallback.Lock) {
+		t.Fatalf("callback changed lock model")
 	}
 }
 

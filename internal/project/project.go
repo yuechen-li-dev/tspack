@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -241,9 +240,36 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 	if client == nil {
 		client = resolver.NewHTTPRegistryClient("")
 	}
+	var (
+		st   *store.Store
+		jobs int
+	)
+	if !dryRun {
+		var jobsErr error
+		jobs, jobsErr = storeJobsFromEnv()
+		if jobsErr != nil {
+			out = append(out, errDiag("TSPACK_UPDATE_STORE_JOBS_INVALID", "invalid TSPACK_STORE_JOBS", jobsErr.Error()))
+			return Result{Diagnostics: out, UpdateTarget: targetResult}
+		}
+		var err error
+		st, err = store.Open(opts.StoreRoot)
+		if err != nil {
+			out = append(out, errDiag("TSPACK_UPDATE_STORE_OPEN_FAILED", "failed to open store", err.Error()))
+			return Result{Diagnostics: out, UpdateTarget: targetResult}
+		}
+	}
 	progress.Step("resolving packages...")
 	progress.Step("fetching metadata...")
-	res := resolver.Resolve(context.Background(), resolver.ResolverOptions{Mode: resolver.ResolveModeUpdate, Client: client, RootDir: opts.RootDir}, resolver.ResolveRequest{Graph: g, ExistingLock: old})
+	resolveOpts := resolver.ResolverOptions{
+		Mode:               resolver.ResolveModeUpdate,
+		Client:             client,
+		RootDir:            opts.RootDir,
+		OnArtifactResolved: storeArtifactCapture(st),
+	}
+	if registryClient, ok := client.(*resolver.HTTPRegistryClient); ok {
+		resolveOpts.RegistryURL = registryClient.BaseURL
+	}
+	res := resolver.Resolve(context.Background(), resolveOpts, resolver.ResolveRequest{Graph: g, ExistingLock: old})
 	out = append(out, res.Diagnostics...)
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
@@ -275,16 +301,6 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 		return Result{Diagnostics: out, LockDiff: &d, UpdateTarget: targetResult}
 	}
 	progress.Step("populating store...")
-	st, err := store.Open(opts.StoreRoot)
-	if err != nil {
-		out = append(out, errDiag("TSPACK_UPDATE_STORE_OPEN_FAILED", "failed to open store", err.Error()))
-		return Result{Diagnostics: out, UpdateTarget: targetResult}
-	}
-	jobs, jobsErr := storeJobsFromEnv()
-	if jobsErr != nil {
-		out = append(out, errDiag("TSPACK_UPDATE_STORE_JOBS_INVALID", "invalid TSPACK_STORE_JOBS", jobsErr.Error()))
-		return Result{Diagnostics: out, UpdateTarget: targetResult}
-	}
 	// Resolution above remains deterministic and serial. Only artifact fetch/copy/extract
 	// store population runs with bounded parallelism, and results are applied back to
 	// the lockfile in package order before deterministic lockfile output is written.
@@ -342,14 +358,7 @@ type storePopulateWorkerResult struct {
 }
 
 func defaultStoreJobs() int {
-	jobs := runtime.NumCPU() * 2
-	if jobs < 2 {
-		jobs = 2
-	}
-	if jobs > 8 {
-		jobs = 8
-	}
-	return jobs
+	return 24
 }
 
 func storeJobsFromEnv() (int, error) {
@@ -459,6 +468,39 @@ func populateOneStorePackage(ctx context.Context, st *store.Store, client resolv
 		result.Hash = ref.Hash
 	}
 	return result
+}
+
+func storeArtifactCapture(st *store.Store) func(pkg lockfile.Package, artifact []byte) error {
+	if st == nil {
+		return nil
+	}
+	return func(pkg lockfile.Package, artifact []byte) error {
+		if pkg.Hash != "" && st.Has(pkg.Hash) {
+			return nil
+		}
+		_, diags := st.PutArtifact(store.Artifact{
+			ID:        pkg.ID,
+			Name:      pkg.Name,
+			Version:   pkg.Version,
+			Source:    pkg.Source,
+			Hash:      pkg.Hash,
+			Integrity: pkg.Integrity,
+			Kind:      store.ArtifactNPMTarball,
+			Bytes:     artifact,
+			Metadata: store.PackageMetadata{
+				Name:         pkg.Name,
+				Version:      pkg.Version,
+				Source:       pkg.Source,
+				PackageID:    pkg.ID,
+				Integrity:    pkg.Integrity,
+				Capabilities: append([]lockfile.Capability(nil), pkg.Capabilities...),
+			},
+		})
+		if len(diags) > 0 {
+			return fmt.Errorf("%s", diags[0].Message)
+		}
+		return nil
+	}
 }
 
 func packageIndex(packages []lockfile.Package, target lockfile.Package) int {

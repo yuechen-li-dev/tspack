@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -114,6 +115,54 @@ func TestHTTPRegistryClientFetchesMetadataAndTarball(t *testing.T) {
 	b, err := c.Tarball(context.Background(), server.URL+"/tarballs/pkg-a-1.0.0.tgz")
 	if err != nil || len(b) == 0 {
 		t.Fatalf("tarball err=%v bytes=%d", err, len(b))
+	}
+}
+
+func TestHTTPRegistryClientUsesSharedTunedTransport(t *testing.T) {
+	first := NewHTTPRegistryClient("")
+	second := NewHTTPRegistryClient("")
+
+	if first.Client != second.Client {
+		t.Fatalf("expected shared registry http client")
+	}
+
+	transport, ok := first.Client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected *http.Transport, got %T", first.Client.Transport)
+	}
+	if transport.MaxIdleConns != 128 {
+		t.Fatalf("MaxIdleConns=%d want 128", transport.MaxIdleConns)
+	}
+	if transport.MaxIdleConnsPerHost != 64 {
+		t.Fatalf("MaxIdleConnsPerHost=%d want 64", transport.MaxIdleConnsPerHost)
+	}
+	if !transport.ForceAttemptHTTP2 {
+		t.Fatalf("ForceAttemptHTTP2=false want true")
+	}
+	if transport.Proxy == nil {
+		t.Fatalf("expected proxy function to be configured")
+	}
+}
+
+func TestHTTPRegistryClientNilClientFallsBackToSharedTransport(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(PackageMetadata{Name: "pkg-a", Versions: map[string]PackageVersion{}})
+	}))
+	server.Listener = listener
+	server.Start()
+	defer server.Close()
+
+	client := &HTTPRegistryClient{BaseURL: server.URL}
+	meta, err := client.PackageMetadata(context.Background(), "pkg-a")
+	if err != nil {
+		t.Fatalf("PackageMetadata returned error: %v", err)
+	}
+	if meta.Name != "pkg-a" {
+		t.Fatalf("unexpected metadata: %#v", meta)
 	}
 }
 

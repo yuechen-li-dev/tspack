@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -16,11 +17,38 @@ type HTTPRegistryClient struct {
 	Client  *http.Client
 }
 
+var (
+	defaultRegistryHTTPClientOnce sync.Once
+	defaultRegistryHTTPClient     *http.Client
+)
+
 func NewHTTPRegistryClient(baseURL string) *HTTPRegistryClient {
 	if baseURL == "" {
 		baseURL = "https://registry.npmjs.org"
 	}
-	return &HTTPRegistryClient{BaseURL: strings.TrimRight(baseURL, "/"), Client: &http.Client{Timeout: 30 * time.Second}}
+	return &HTTPRegistryClient{
+		BaseURL: strings.TrimRight(baseURL, "/"),
+		Client:  sharedRegistryHTTPClient(),
+	}
+}
+
+func sharedRegistryHTTPClient() *http.Client {
+	defaultRegistryHTTPClientOnce.Do(func() {
+		defaultRegistryHTTPClient = &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				Proxy:                 http.ProxyFromEnvironment,
+				MaxIdleConns:          128,
+				MaxIdleConnsPerHost:   64,
+				MaxConnsPerHost:       0,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+				ForceAttemptHTTP2:     true,
+			},
+		}
+	})
+	return defaultRegistryHTTPClient
 }
 
 func (c *HTTPRegistryClient) PackageMetadata(ctx context.Context, name string) (*PackageMetadata, error) {
@@ -88,7 +116,7 @@ func appendEscapedPathSegment(basePath, escapedSegment string) string {
 func (c *HTTPRegistryClient) get(ctx context.Context, u string) ([]byte, int, error) {
 	client := c.Client
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		client = sharedRegistryHTTPClient()
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {

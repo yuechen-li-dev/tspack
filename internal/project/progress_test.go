@@ -2,8 +2,6 @@ package project
 
 import (
 	"bytes"
-	"context"
-	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -27,15 +25,15 @@ func TestUpdateProgressReportsPhasesAndPackageFetches(t *testing.T) {
 	for _, want := range []string{
 		"resolving packages...",
 		"populating store...",
-		"populating store: 2 packages with 2 workers",
-		"fetching npm artifacts [1/2] dep-a@1.0.0",
-		"fetching npm artifacts [2/2] left-pad@1.2.0",
 		"writing lockfile...",
 		"update complete",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("progress missing %q:\n%s", want, text)
 		}
+	}
+	if strings.Contains(text, "fetching npm artifacts [") {
+		t.Fatalf("update should not refetch tarballs during store population:\n%s", text)
 	}
 }
 
@@ -129,23 +127,22 @@ func TestProgressDisabledByDefault(t *testing.T) {
 	}
 }
 
-func TestUpdateProgressReportsStoreTarballFailure(t *testing.T) {
+func TestUpdateProgressSkipsIndexedStoreFetchWhenArtifactsCapturedDuringResolve(t *testing.T) {
 	root := t.TempDir()
 	irPath := writeIR(t, root, progressNPMIR("dep-a", "dep-a", "1.0.0"))
 	client := buildRegistry()
-	clientWithStoreFailure := &storeFailureClient{fakeClient: client, failAfterResolve: true}
 	var progress bytes.Buffer
 	opts := DefaultOptions(root)
 	opts.ManifestIRPath = irPath
-	opts.ResolverClient = clientWithStoreFailure
+	opts.ResolverClient = client
 	opts.Progress = Progress{Enabled: true, Writer: &progress}
 
 	res := Update(opts)
-	if !hasErrCode(res.Diagnostics, "TSPACK_RESOLVE_NPM_TARBALL_FETCH_FAILED") {
-		t.Fatalf("expected store tarball fetch diagnostic, got %#v", res.Diagnostics)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("update failed: %#v", res.Diagnostics)
 	}
-	if !strings.Contains(progress.String(), "populating store: 2 packages with 2 workers") {
-		t.Fatalf("expected deterministic store population progress before store failure, got %q", progress.String())
+	if strings.Contains(progress.String(), "populating store: ") || strings.Contains(progress.String(), "fetching npm artifacts [") {
+		t.Fatalf("expected captured artifacts to skip indexed store population, got %q", progress.String())
 	}
 }
 
@@ -261,19 +258,4 @@ func progressIR(dependencies []map[string]any, targetDeps []string) map[string]a
 			},
 		},
 	}
-}
-
-type storeFailureClient struct {
-	*fakeClient
-	failAfterResolve bool
-}
-
-func (c *storeFailureClient) Tarball(ctx context.Context, url string) ([]byte, error) {
-	c.fakeClient.mu.Lock()
-	shouldFail := c.failAfterResolve && strings.Contains(url, "dep-a-1.0.0.tgz") && len(c.tarCalls) >= 2
-	c.fakeClient.mu.Unlock()
-	if shouldFail {
-		return nil, errors.New("store fetch failed")
-	}
-	return c.fakeClient.Tarball(ctx, url)
 }

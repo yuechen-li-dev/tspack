@@ -13,8 +13,8 @@ import (
 
 func TestStoreJobsFromEnv(t *testing.T) {
 	t.Setenv("TSPACK_STORE_JOBS", "")
-	if jobs, err := storeJobsFromEnv(); err != nil || jobs < 2 || jobs > 8 {
-		t.Fatalf("default jobs = %d, %v; want bounded value greater than one", jobs, err)
+	if jobs, err := storeJobsFromEnv(); err != nil || jobs != 24 {
+		t.Fatalf("default jobs = %d, %v; want 24", jobs, err)
 	}
 
 	t.Setenv("TSPACK_STORE_JOBS", "1")

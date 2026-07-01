@@ -127,6 +127,26 @@ func TestUpdateDeterministicAndNoNodeModules(t *testing.T) {
 	}
 }
 
+func TestUpdateCapturesResolvedTarballsWithoutRefetchingStoreArtifacts(t *testing.T) {
+	dir := t.TempDir()
+	opts := DefaultOptions(dir)
+	opts.ManifestIRPath = writeIR(t, dir, progressNPMIR("dep-a", "dep-a", "1.0.0"))
+	client := buildRegistry()
+	opts.ResolverClient = client
+
+	res := Update(opts)
+	if hasErrors(res.Diagnostics) {
+		t.Fatalf("update failed: %#v", res.Diagnostics)
+	}
+
+	if got := len(client.tarCalls); got != 2 {
+		t.Fatalf("tarball fetches=%d want 2; calls=%#v", got, client.tarCalls)
+	}
+	if got := client.packageMetaCalls; got != 2 {
+		t.Fatalf("metadata fetches=%d want 2; calls=%#v", got, client.metaCalls)
+	}
+}
+
 func TestUpdateDryRunExistingLockNoChangesLeavesBytesUntouched(t *testing.T) {
 	dir := t.TempDir()
 	opts := DefaultOptions(dir)

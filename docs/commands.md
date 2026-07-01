@@ -179,7 +179,9 @@ The JSON output identifies the command and mode, echoes the CDP endpoint, and in
 
 ### Store population parallelism
 
-`tspack update` keeps resolution and lockfile output deterministic, then populates missing `.tspack/store` artifacts with a bounded worker pool. The default worker count is conservative and bounded by CPU count; set `TSPACK_STORE_JOBS=1` to force sequential store population for debugging or regression comparisons, or set a positive integer such as `TSPACK_STORE_JOBS=4` for local tuning. Invalid non-positive or non-integer values fail the update with a clear diagnostic before store work starts. Dry-run and policy dry-run paths remain read-only and do not populate the store.
+`tspack update` keeps resolution and lockfile output deterministic, then populates missing `.tspack/store` artifacts with a bounded worker pool. The default worker count is `24`, which better fits registry I/O than CPU-count-based defaults; set `TSPACK_STORE_JOBS=1` to force sequential store population for debugging or regression comparisons, or set another positive integer such as `TSPACK_STORE_JOBS=32` for local tuning. Invalid non-positive or non-integer values fail the update with a clear diagnostic before store work starts. Dry-run and policy dry-run paths remain read-only and do not populate the store.
+
+When resolution already had to fetch an npm tarball to inspect it, `tspack update` now writes that artifact into the content-addressed store immediately. The later store-population phase verifies what is already present and skips refetching those tarballs.
 
 ### RunTarget environment contracts
 
