@@ -63,6 +63,72 @@ func TestCompatHelpersFixtureCommands(t *testing.T) {
 	}
 }
 
+func TestRepoRootManifestNarrowsManifestEditorTSConfig(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	ensureManifestFrontendCLI(t, repo)
+	bin := buildTspackBinary(t, repo)
+	root := t.TempDir()
+	copyFile(t, filepath.Join(repo, "manifest.tsx"), filepath.Join(root, "manifest.tsx"))
+
+	writeOut, err := runCompatHelperCommand(bin, root, "write")
+	if err != nil {
+		t.Fatalf("compat write failed: %v\n%s", err, writeOut)
+	}
+
+	diffOut, err := runCompatHelperCommand(bin, root, "diff")
+	if err != nil {
+		t.Fatalf("compat diff after write failed: %v\n%s", err, diffOut)
+	}
+
+	configBytes, err := os.ReadFile(filepath.Join(root, "tsconfig.tspack.json"))
+	if err != nil {
+		t.Fatalf("read generated tsconfig.tspack.json: %v", err)
+	}
+
+	var config map[string]any
+	if err := json.Unmarshal(configBytes, &config); err != nil {
+		t.Fatalf("parse generated tsconfig.tspack.json: %v", err)
+	}
+
+	includeSet := jsonStringArraySet(t, config["include"])
+	for _, want := range []string{
+		"manifest.tsx",
+		"examples/compat-json-basic/manifest.tsx",
+		"examples/incremental-existing-react/manifest.tsx",
+		"examples/incremental-existing-monorepo/manifest.tsx",
+		"examples/incremental-existing-monorepo/packages/ui/package.manifest.tsx",
+		"examples/nestjs-service/manifest.tsx",
+		"examples/runtime-switch-notes/manifest.tsx",
+		"examples/runtime-switch-notes/tests/inspect.xtest.tsx",
+		"examples/runtime-switch-notes/tests/runtime-switch.xtest.tsx",
+		"examples/update-policy-notes/manifest.tsx",
+		".tspack/types/**/*.d.ts",
+	} {
+		if !includeSet[want] {
+			t.Fatalf("repo-root tsconfig include missing %q in %#v", want, includeSet)
+		}
+	}
+	if includeSet["**/*.manifest.tsx"] || includeSet["**/*.xtest.tsx"] {
+		t.Fatalf("repo-root tsconfig should use narrowed includes, got %#v", includeSet)
+	}
+
+	excludeSet := jsonStringArraySet(t, config["exclude"])
+	for _, want := range []string{
+		"node_modules/**",
+		"dist/**",
+		".tspack/store/**",
+		"tspack-artifacts/**",
+		"fixtures/**",
+		"testdata/**",
+		"manifest-frontend/**/fixtures/**",
+		"manifest-frontend/**/testdata/**",
+	} {
+		if !excludeSet[want] {
+			t.Fatalf("repo-root tsconfig exclude missing %q in %#v", want, excludeSet)
+		}
+	}
+}
+
 func ensureManifestFrontendCLI(t *testing.T, repo string) {
 	t.Helper()
 	cmd := exec.Command("npm", "--prefix", "manifest-frontend", "run", "build")

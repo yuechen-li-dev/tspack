@@ -12,7 +12,6 @@ import {
 	define,
 	defineDeps,
 	dep,
-	json,
 	npm,
 	tool,
 } from "tspack/manifest";
@@ -33,33 +32,29 @@ export default define(
 		<CompatFiles>
 			<JsonFile
 				path="tsconfig.tspack.json"
-				value={json({
-					compilerOptions: {
-						target: "ES2022",
-						module: "ESNext",
-						moduleResolution: "Bundler",
-						jsx: "preserve",
-						strict: true,
-						noEmit: true,
-						types: [],
-						baseUrl: ".",
-						ignoreDeprecations: "5.0",
-						paths: {
-							"tspack/manifest": [".tspack/types/tspack-manifest.d.ts"],
-						},
-					},
+				value={TsConfig.manifestEditor({
 					include: [
 						"manifest.tsx",
-						"package.manifest.tsx",
-						"examples/**/*.manifest.tsx",
-						"examples/**/*.xtest.tsx",
+						"examples/compat-json-basic/manifest.tsx",
+						"examples/incremental-existing-react/manifest.tsx",
+						"examples/incremental-existing-monorepo/manifest.tsx",
+						"examples/incremental-existing-monorepo/packages/ui/package.manifest.tsx",
+						"examples/nestjs-service/manifest.tsx",
+						"examples/runtime-switch-notes/manifest.tsx",
+						"examples/runtime-switch-notes/tests/inspect.xtest.tsx",
+						"examples/runtime-switch-notes/tests/runtime-switch.xtest.tsx",
+						"examples/update-policy-notes/manifest.tsx",
 						".tspack/types/**/*.d.ts",
 					],
 					exclude: [
-						"dist/**",
 						"node_modules/**",
+						"dist/**",
 						".tspack/store/**",
 						"tspack-artifacts/**",
+						"fixtures/**",
+						"testdata/**",
+						"manifest-frontend/**/fixtures/**",
+						"manifest-frontend/**/testdata/**",
 					],
 				})}
 			/>

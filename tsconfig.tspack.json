@@ -16,16 +16,26 @@
     "types": []
   },
   "exclude": [
-    "dist/**",
     "node_modules/**",
+    "dist/**",
     ".tspack/store/**",
-    "tspack-artifacts/**"
+    "tspack-artifacts/**",
+    "fixtures/**",
+    "testdata/**",
+    "manifest-frontend/**/fixtures/**",
+    "manifest-frontend/**/testdata/**"
   ],
   "include": [
     "manifest.tsx",
-    "package.manifest.tsx",
-    "examples/**/*.manifest.tsx",
-    "examples/**/*.xtest.tsx",
+    "examples/compat-json-basic/manifest.tsx",
+    "examples/incremental-existing-react/manifest.tsx",
+    "examples/incremental-existing-monorepo/manifest.tsx",
+    "examples/incremental-existing-monorepo/packages/ui/package.manifest.tsx",
+    "examples/nestjs-service/manifest.tsx",
+    "examples/runtime-switch-notes/manifest.tsx",
+    "examples/runtime-switch-notes/tests/inspect.xtest.tsx",
+    "examples/runtime-switch-notes/tests/runtime-switch.xtest.tsx",
+    "examples/update-policy-notes/manifest.tsx",
     ".tspack/types/**/*.d.ts"
   ]
 }

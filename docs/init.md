@@ -60,6 +60,14 @@ By default, `tspack init` refuses to overwrite existing generated files and emit
 The generated declaration files and `tsconfig.tspack.json` exist only for local editor/autocomplete/typechecking support.
 They are not runtime helpers and are not the manifest parser or validator source of truth.
 `tsconfig.tspack.json` maps `tspack/manifest` to `.tspack/types/tspack-manifest.d.ts`, isolates ambient packages with `"types": []`, includes TSPack-owned manifest files plus `src/*.xtest.tsx`, and uses `jsx: preserve` so React and `react/jsx-runtime` are not required for manifest or xTest editing. Ordinary app files such as `src/App.tsx` stay out because the config relies on a narrow include allowlist instead of a broad app-source glob.
+
+Most projects should keep the generated helper as `TsConfig.manifestEditor()`.
+Large compiler repos, monorepos with intentionally invalid fixtures, and repos
+that keep template or testdata trees beside real manifests may opt into
+`TsConfig.manifestEditor({ include, exclude })` to narrow the editor project
+without hand-authoring raw JSON. When you override `include`, add
+`.tspack/types/**/*.d.ts` yourself if you still want local manifest and xTest
+declarations loaded.
 If an existing `tsconfig.json` is present, init leaves it unchanged and prints guidance to exclude TSPack-owned files if the app config includes root TSX broadly.
 If removed, regenerate these files by rerunning `tspack init --force` in the project root.
 

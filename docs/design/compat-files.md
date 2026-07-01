@@ -87,6 +87,40 @@ by generated templates: `jsx: "preserve"`, `moduleResolution: "Bundler"`, a
 local `tspack/manifest` path mapping, manifest and xTest include patterns, and
 app-source exclusions.
 
+Most projects should keep the zero-argument default:
+
+```tsx
+<JsonFile path="tsconfig.tspack.json" value={TsConfig.manifestEditor()} />
+```
+
+Complex repositories may narrow the manifest editor project with exact
+`include` and `exclude` overrides:
+
+```tsx
+<JsonFile
+  path="tsconfig.tspack.json"
+  value={TsConfig.manifestEditor({
+    include: [
+      "manifest.tsx",
+      "examples/demo/manifest.tsx",
+      ".tspack/types/**/*.d.ts",
+    ],
+    exclude: [
+      "node_modules/**",
+      "dist/**",
+      "fixtures/**",
+      "testdata/**",
+    ],
+  })}
+/>
+```
+
+When overrides are supplied, TSPack uses them exactly. It does not silently add
+default manifest globs or `.tspack/types/**/*.d.ts`, so advanced callers should
+include the generated declaration path explicitly when they still want local
+manifest and xTest types in the editor project. Override values must be arrays
+of safe, non-empty, project-relative glob strings.
+
 `VSCode.settings(value?)` returns the provided full settings object when one is
 supplied. Without an argument it returns a minimal project-local TypeScript SDK
 setting for editor support.

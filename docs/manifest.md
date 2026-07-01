@@ -28,6 +28,15 @@ TSPack owns these TSX/type contexts:
 
 App and framework tooling owns normal app source such as `src/**/*.ts`, `src/**/*.tsx`, app test files, and framework configs. `tsconfig.tspack.json` intentionally allowlists only manifest files, `*.xtest.tsx`, and `.tspack/types/**/*.d.ts`, so ordinary app files such as `src/App.tsx` do not join the manifest editor project. If an app `tsconfig.json` includes root TSX broadly, exclude TSPack-owned files there and use `tsconfig.tspack.json` when editing manifests. TSPack parses only manifest entrypoints as manifest DSL.
 
+`TsConfig.manifestEditor()` emits that default allowlist unchanged for normal
+projects. `TsConfig.manifestEditor({ include, exclude })` is available for
+advanced repositories that need a narrower editor project, such as compiler
+repos, monorepos with intentionally invalid fixtures, or repositories that keep
+`testdata` and template inputs beside real manifests. Most users should not
+need it. Override lists must be arrays of safe non-empty relative glob strings,
+and an override `include` list is exact, so add `.tspack/types/**/*.d.ts`
+explicitly when you still want local manifest and xTest declaration support.
+
 ## Troubleshooting manifest editor errors
 
 - `Cannot find module "tspack/manifest"` usually means the local editor support files have not been materialized yet. Run `tspack compat write` in alongside projects, or rerun `tspack init --force` in init-owned projects.

@@ -15,6 +15,11 @@ declare module 'tspack/manifest' {
     exclude: string[];
   };
 
+  export type ManifestEditorTsConfigOptions = {
+    include?: string[];
+    exclude?: string[];
+  };
+
   export type VSCodeSettings = JSONObject;
 
   export type VSCodeExtensions = {
@@ -332,7 +337,7 @@ declare module 'tspack/manifest' {
   export function json<T extends JSONValue>(value: T): T;
 
   export const TsConfig: {
-    manifestEditor(): TsConfigManifestEditor;
+    manifestEditor(options?: ManifestEditorTsConfigOptions): TsConfigManifestEditor;
   };
 
   export const VSCode: {

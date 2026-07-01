@@ -37,6 +37,19 @@ const ALLOWED_IMPORT = 'tspack/manifest';
 const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'annotatePackage', 'defineDeps', 'npm', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service', 'json']);
 const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'PackageAnnotations', 'Policies', 'Targets', 'RunTargets', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy', 'CompatFiles', 'JsonFile']);
 const APPROVED_PROPERTY_HELPERS = new Set(['TsConfig.manifestEditor', 'VSCode.settings', 'VSCode.extensions']);
+const DEFAULT_MANIFEST_EDITOR_INCLUDE = [
+  'manifest.tsx',
+  'package.manifest.tsx',
+  '**/*.manifest.tsx',
+  '**/*.xtest.tsx',
+  '.tspack/types/**/*.d.ts',
+] as const;
+const DEFAULT_MANIFEST_EDITOR_EXCLUDE = [
+  'dist/**',
+  'node_modules/**',
+  '.tspack/store/**',
+  'tspack-artifacts/**',
+] as const;
 
 export function parseManifestFile(filePath: string): ManifestParseResult {
   const parsed = parseManifestDocument(filePath, 'root');
@@ -254,7 +267,7 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
     if (name === 'Env') return { name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'Service') return { kind: 'service', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'json') return args[0];
-    if (name === 'TsConfig.manifestEditor') return manifestEditorTsConfig();
+    if (name === 'TsConfig.manifestEditor') return manifestEditorTsConfig(args[0], diags, file);
     if (name === 'VSCode.settings') return args.length > 0 ? args[0] : defaultVSCodeSettings();
     if (name === 'VSCode.extensions') return args.length > 0 ? args[0] : defaultVSCodeExtensions();
   }
@@ -264,7 +277,12 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
 }
 
 
-function manifestEditorTsConfig(): Record<string, unknown> {
+function manifestEditorTsConfig(options: unknown, diags: Diagnostic[], file: string): Record<string, unknown> | undefined {
+  const validated = validateManifestEditorTsConfigOptions(options, diags, file);
+  if (!validated) {
+    return undefined;
+  }
+
   return {
     compilerOptions: {
       target: 'ES2022',
@@ -280,20 +298,102 @@ function manifestEditorTsConfig(): Record<string, unknown> {
         'tspack/manifest': ['.tspack/types/tspack-manifest.d.ts'],
       },
     },
-    include: [
-      'manifest.tsx',
-      'package.manifest.tsx',
-      '**/*.manifest.tsx',
-      '**/*.xtest.tsx',
-      '.tspack/types/**/*.d.ts',
-    ],
-    exclude: [
-      'dist/**',
-      'node_modules/**',
-      '.tspack/store/**',
-      'tspack-artifacts/**',
-    ],
+    include: validated.include,
+    exclude: validated.exclude,
   };
+}
+
+function validateManifestEditorTsConfigOptions(
+  options: unknown,
+  diags: Diagnostic[],
+  file: string,
+): { include: string[]; exclude: string[] } | undefined {
+  if (options === undefined) {
+    return {
+      include: [...DEFAULT_MANIFEST_EDITOR_INCLUDE],
+      exclude: [...DEFAULT_MANIFEST_EDITOR_EXCLUDE],
+    };
+  }
+
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    diags.push({
+      code: 'TSPACK_MANIFEST_INVALID_HELPER_ARGUMENT',
+      severity: 'error',
+      message: 'TsConfig.manifestEditor options must be an object with optional include/exclude string arrays',
+      file,
+    });
+    return undefined;
+  }
+
+  const record = options as Record<string, unknown>;
+  const include = validateManifestEditorPatternList(
+    'include',
+    record.include,
+    DEFAULT_MANIFEST_EDITOR_INCLUDE,
+    diags,
+    file,
+  );
+  const exclude = validateManifestEditorPatternList(
+    'exclude',
+    record.exclude,
+    DEFAULT_MANIFEST_EDITOR_EXCLUDE,
+    diags,
+    file,
+  );
+
+  if (!include || !exclude) {
+    return undefined;
+  }
+
+  return { include, exclude };
+}
+
+function validateManifestEditorPatternList(
+  key: 'include' | 'exclude',
+  value: unknown,
+  defaults: readonly string[],
+  diags: Diagnostic[],
+  file: string,
+): string[] | undefined {
+  if (value === undefined) {
+    return [...defaults];
+  }
+  if (!Array.isArray(value)) {
+    diags.push({
+      code: 'TSPACK_MANIFEST_INVALID_HELPER_ARGUMENT',
+      severity: 'error',
+      message: `TsConfig.manifestEditor ${key} must be an array of safe non-empty relative path globs`,
+      file,
+    });
+    return undefined;
+  }
+
+  const out: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      diags.push({
+        code: 'TSPACK_MANIFEST_INVALID_HELPER_ARGUMENT',
+        severity: 'error',
+        message: `TsConfig.manifestEditor ${key} entries must be strings`,
+        file,
+      });
+      return undefined;
+    }
+
+    if (!isSafeRelativeGlob(entry)) {
+      diags.push({
+        code: 'TSPACK_MANIFEST_INVALID_HELPER_ARGUMENT',
+        severity: 'error',
+        message: `TsConfig.manifestEditor ${key} entries must be safe non-empty relative path globs`,
+        file,
+      });
+      return undefined;
+    }
+
+    out.push(entry);
+  }
+
+  return out;
 }
 
 function defaultVSCodeSettings(): Record<string, unknown> {
@@ -523,6 +623,10 @@ function jsxEval(node: ts.JsxElement | ts.JsxSelfClosingElement, sf: ts.SourceFi
 
 function isSafeRel(p: string): boolean {
   return !!p && !path.isAbsolute(p) && !p.includes('..') && !p.includes('\\');
+}
+
+function isSafeRelativeGlob(value: string): boolean {
+  return !!value && !path.isAbsolute(value) && !value.includes('..') && !value.includes('\\') && !value.includes('://') && !value.includes(':');
 }
 
 function slashPath(p: string): string { return p.replaceAll('\\', '/'); }

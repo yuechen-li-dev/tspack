@@ -541,6 +541,122 @@ export default defineWorkspace(
     );
   });
 
+  it('uses canonical manifest editor defaults when no overrides are supplied', () => {
+    withTemporaryManifest(
+      'tmp-compat-json-helper-defaults-',
+      `import { TsConfig, defineWorkspace } from "tspack/manifest";
+export default defineWorkspace(
+  <Workspace name="compat-json-helpers">
+    <CompatFiles>
+      <JsonFile path="tsconfig.tspack.json" value={TsConfig.manifestEditor()} />
+    </CompatFiles>
+  </Workspace>
+);`,
+      (manifestPath) => {
+        const result = parseManifestFile(manifestPath);
+        expect(result.ok).toBe(true);
+        const tsconfig = result.ir?.compatFiles?.[0]?.value as Record<string, unknown>;
+        expect(tsconfig).toEqual({
+          compilerOptions: {
+            target: 'ES2022',
+            module: 'ESNext',
+            moduleResolution: 'Bundler',
+            jsx: 'preserve',
+            strict: true,
+            noEmit: true,
+            types: [],
+            baseUrl: '.',
+            ignoreDeprecations: '5.0',
+            paths: {
+              'tspack/manifest': ['.tspack/types/tspack-manifest.d.ts'],
+            },
+          },
+          include: [
+            'manifest.tsx',
+            'package.manifest.tsx',
+            '**/*.manifest.tsx',
+            '**/*.xtest.tsx',
+            '.tspack/types/**/*.d.ts',
+          ],
+          exclude: [
+            'dist/**',
+            'node_modules/**',
+            '.tspack/store/**',
+            'tspack-artifacts/**',
+          ],
+        });
+      },
+    );
+  });
+
+  it('uses exact manifest editor include and exclude overrides when provided', () => {
+    withTemporaryManifest(
+      'tmp-compat-json-helper-overrides-',
+      `import { TsConfig, defineWorkspace } from "tspack/manifest";
+export default defineWorkspace(
+  <Workspace name="compat-json-helpers">
+    <CompatFiles>
+      <JsonFile
+        path="tsconfig.tspack.json"
+        value={TsConfig.manifestEditor({
+          include: ["manifest.tsx", "examples/demo/manifest.tsx"],
+          exclude: ["dist/**", "fixtures/**"],
+        })}
+      />
+    </CompatFiles>
+  </Workspace>
+);`,
+      (manifestPath) => {
+        const result = parseManifestFile(manifestPath);
+        expect(result.ok).toBe(true);
+        const tsconfig = result.ir?.compatFiles?.[0]?.value as Record<string, unknown>;
+        expect(tsconfig).toMatchObject({
+          compilerOptions: {
+            target: 'ES2022',
+            moduleResolution: 'Bundler',
+            jsx: 'preserve',
+            types: [],
+            baseUrl: '.',
+            ignoreDeprecations: '5.0',
+            paths: {
+              'tspack/manifest': ['.tspack/types/tspack-manifest.d.ts'],
+            },
+          },
+          include: ['manifest.tsx', 'examples/demo/manifest.tsx'],
+          exclude: ['dist/**', 'fixtures/**'],
+        });
+        expect(tsconfig.include).not.toContain('.tspack/types/**/*.d.ts');
+      },
+    );
+  });
+
+  it.each([
+    ['include must be an array', `TsConfig.manifestEditor({ include: 123 })`],
+    ['exclude must be an array', `TsConfig.manifestEditor({ exclude: "fixtures/**" })`],
+    ['include entries must be strings', `TsConfig.manifestEditor({ include: ["manifest.tsx", 123] })`],
+    ['exclude entries reject empty strings', `TsConfig.manifestEditor({ exclude: [""] })`],
+    ['include entries reject absolute paths', `TsConfig.manifestEditor({ include: ["C:/repo/manifest.tsx"] })`],
+    ['include entries reject traversal', `TsConfig.manifestEditor({ include: ["../manifest.tsx"] })`],
+    ['exclude entries reject backslashes', `TsConfig.manifestEditor({ exclude: ["fixtures\\\\**"] })`],
+  ])('rejects invalid manifest editor options: %s', (_name, helperCall) => {
+    withTemporaryManifest(
+      'tmp-compat-json-helper-invalid-',
+      `import { TsConfig, defineWorkspace } from "tspack/manifest";
+export default defineWorkspace(
+  <Workspace name="compat-json-helpers">
+    <CompatFiles>
+      <JsonFile path="tsconfig.tspack.json" value={${helperCall}} />
+    </CompatFiles>
+  </Workspace>
+);`,
+      (manifestPath) => {
+        const result = parseManifestFile(manifestPath);
+        expect(result.ok).toBe(false);
+        expect(result.diagnostics.some((d) => d.code === 'TSPACK_MANIFEST_INVALID_HELPER_ARGUMENT')).toBe(true);
+      },
+    );
+  });
+
 });
 
   it('parses UpdatePolicy in root manifests', () => {
