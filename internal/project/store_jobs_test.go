@@ -55,6 +55,18 @@ func TestResolveJobsFromEnv(t *testing.T) {
 	}
 }
 
+func TestDefaultResolveControllerHostBudgetFollowsResolveJobs(t *testing.T) {
+	if budget := defaultResolveControllerHostBudget(24); budget != 24 {
+		t.Fatalf("host budget=%d want 24", budget)
+	}
+	if budget := defaultResolveControllerHostBudget(1); budget != 1 {
+		t.Fatalf("serial host budget=%d want 1", budget)
+	}
+	if budget := defaultResolveControllerHostBudget(0); budget != 24 {
+		t.Fatalf("fallback host budget=%d want 24", budget)
+	}
+}
+
 func TestResolveControllerModeFromEnv(t *testing.T) {
 	t.Setenv("TSPACK_RESOLVE_CONTROLLER", "")
 	if mode, err := resolveControllerModeFromEnv(); err != nil || mode != resolver.ResolveControllerModeFixed {

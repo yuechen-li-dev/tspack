@@ -37,7 +37,7 @@ Set `TSPACK_RESOLVE_JOBS=1` to force serial resolver preparation. Set `TSPACK_RE
 
 TSPack now has an explicit deterministic resolver occupancy controller. The v0.1.7 stabilization default remains `fixed`, while `feedforward` is available for benchmark and validation passes. Both modes preserve semantic resolution and stable serial lockfile commit order.
 
-Set `TSPACK_RESOLVE_CONTROLLER=fixed` to force the previous fixed-cap scheduling behavior for testing and benchmarking. Set `TSPACK_RESOLVE_CONTROLLER=feedforward` to force the M67b controller explicitly.
+Set `TSPACK_RESOLVE_CONTROLLER=fixed` to force the previous fixed-cap scheduling behavior for testing and benchmarking. Set `TSPACK_RESOLVE_CONTROLLER=feedforward` to force the M67b controller explicitly. Feedforward is still experimental and non-default. By default, its per-host budget follows `TSPACK_RESOLVE_JOBS`, so the common single-registry case does not reduce concurrency below fixed mode. Current host detection is based on the configured registry host, not actual selected `dist.tarball` hosts; real per-tarball host budgeting is future work.
 
 Set `TSPACK_STORE_JOBS=1` to force sequential store population. Set `TSPACK_STORE_JOBS=N` with a positive integer to tune local cold-update throughput; the default is `24`.
 
