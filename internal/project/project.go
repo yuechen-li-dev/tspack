@@ -288,7 +288,7 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 		RootDir:               opts.RootDir,
 		ResolveJobs:           resolveJobs,
 		ResolveControllerMode: resolveControllerMode,
-		ResolveHostBudget:     defaultResolveControllerHostBudget(),
+		ResolveHostBudget:     defaultResolveControllerHostBudget(resolveJobs),
 		OnArtifactResolved:    storeArtifactCapture(st, perfSession),
 		OnMetadataCacheHit: func(name string) {
 			perfSession.RecordMetadataCacheHit()
@@ -312,7 +312,7 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 		OnCommittedPackage:    func(id string) { perfSession.RecordCommittedPackage() },
 		OnResolverWorkerError: func(key string) { perfSession.RecordResolveWorkerError() },
 	}
-	perfSession.SetResolveController(string(resolveControllerMode), resolveJobs, defaultResolveControllerHostBudget())
+	perfSession.SetResolveController(string(resolveControllerMode), resolveJobs, defaultResolveControllerHostBudget(resolveJobs))
 	if registryClient, ok := client.(*resolver.HTTPRegistryClient); ok {
 		resolveOpts.RegistryURL = registryClient.BaseURL
 	}
@@ -444,8 +444,11 @@ func resolveJobsFromEnv() (int, error) {
 	return jobs, nil
 }
 
-func defaultResolveControllerHostBudget() int {
-	return 16
+func defaultResolveControllerHostBudget(resolveJobs int) int {
+	if resolveJobs <= 0 {
+		return defaultResolveJobs()
+	}
+	return resolveJobs
 }
 
 func resolveControllerModeFromEnv() (resolver.ResolveControllerMode, error) {

@@ -13,8 +13,6 @@ const (
 	ResolveControllerModeFeedforward ResolveControllerMode = "feedforward"
 )
 
-const defaultResolveControllerHostBudget = 16
-
 type ResolveOccupancyController struct {
 	Mode        ResolveControllerMode
 	MaxJobs     int
@@ -52,7 +50,7 @@ func NewResolveOccupancyController(mode ResolveControllerMode, maxJobs int, perH
 		maxJobs = defaultResolveJobs
 	}
 	if perHostJobs <= 0 {
-		perHostJobs = defaultResolveControllerHostBudget
+		perHostJobs = maxJobs
 	}
 	return ResolveOccupancyController{
 		Mode:        mode,
@@ -115,6 +113,17 @@ func (c ResolveOccupancyController) Decide(input FrontierInput) FrontierDecision
 	return decision
 }
 
+// ResolveControllerHostMap returns the currently known resolver host set.
+//
+// The M67b feedforward controller only knows the configured registry host at
+// resolver-state construction time. It does not inspect selected
+// dist.tarball URLs and therefore does not represent real per-tarball host
+// diversity in mixed registry, git, or private-registry projects yet. Keep the
+// default per-host budget at the max-job cap so this conservative static host
+// map does not reduce concurrency for the common single-registry case.
+//
+// M67c/M69: split resolver prepare scheduling into metadata and tarball stages
+// so tarball host budgets can be computed from selected dist.tarball URLs.
 func ResolveControllerHostMap(registryURL string) map[string]int {
 	registryURL = strings.TrimSpace(registryURL)
 	if registryURL == "" {

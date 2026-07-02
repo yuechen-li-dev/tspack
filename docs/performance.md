@@ -42,7 +42,7 @@ Cold `update` now uses deterministic parallel resolver preparation:
 - commit stays serial and deterministic
 - lockfile bytes should stay identical between `TSPACK_RESOLVE_JOBS=1`, `TSPACK_RESOLVE_CONTROLLER=fixed`, and the default feedforward controller
 
-`TSPACK_RESOLVE_JOBS` is now the resolver's maximum cap, not a promise that every frontier will spawn that many workers. TSPack now has an explicit deterministic resolver occupancy controller, but the default mode remains `fixed` for v0.1.7 stabilization while the new `feedforward` mode is benchmarked.
+`TSPACK_RESOLVE_JOBS` is now the resolver's maximum cap, not a promise that every frontier will spawn that many workers. TSPack now has an explicit deterministic resolver occupancy controller, but the default mode remains `fixed` for v0.1.7 stabilization while the new `feedforward` mode is benchmarked. Feedforward remains experimental and non-default; with default settings it uses the resolve-job cap as its per-host budget so the common single-registry case is not clamped below fixed mode. Its current host map is based on the configured registry host rather than selected `dist.tarball` URLs, so real per-tarball host budgeting is future M67c/M69 work.
 
 Override it with:
 
