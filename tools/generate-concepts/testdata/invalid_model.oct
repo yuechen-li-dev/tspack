@@ -1,0 +1,9 @@
+package InvalidTSPackOctGen
+
+record WrongResult {
+    Value: Int
+}
+
+fn Generate() -> WrongResult {
+    return WrongResult { Value: 1 }
+}

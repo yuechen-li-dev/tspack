@@ -472,9 +472,10 @@ func commandAvailable(name string) bool {
 
 func platformWebviewCheck() DoctorCheck {
 	candidate := "webkitgtk"
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		candidate = "webview2"
-	} else if runtime.GOOS == "darwin" {
+	case "darwin":
 		candidate = "wkwebview"
 	}
 

@@ -28,6 +28,7 @@ export type ManifestIr = {
 };
 
 type RuntimeProfile = 'nodejs' | 'bun' | 'deno';
+type Compiler = 'tsc' | 'tscl';
 type ParseMode = 'root' | 'package';
 type DocMode = 'single' | 'split' | 'package' | 'annotation';
 type PackageRow = { name: string; root: string; manifest: string };
@@ -565,6 +566,8 @@ function mapPackage(p: any, includeRoot: boolean): Record<string, unknown> {
     ...(includeRoot ? { root: '.' } : {}),
     license: p.license,
     kind: p.kind,
+    ...(p.compiler !== undefined ? { compiler: compilerIdentity(p.compiler) } : {}),
+    ...(p.compilerPath !== undefined ? { compilerPath: p.compilerPath } : {}),
     dependencies: mapDependencies(p.dependencies?.values ?? []),
     targets: mapTargets(p.__children?.find((x: any) => x.__tag === 'Targets')?.rows ?? []),
     ...(p.__children?.find((x: any) => x.__tag === 'RunTargets') ? { runTargets: p.__children?.find((x: any) => x.__tag === 'RunTargets')?.rows ?? [] } : {}),
@@ -661,6 +664,12 @@ function jsxEval(node: ts.JsxElement | ts.JsxSelfClosingElement, sf: ts.SourceFi
 
 function isSafeRel(p: string): boolean {
   return !!p && !path.isAbsolute(p) && !p.includes('..') && !p.includes('\\');
+}
+
+function compilerIdentity(value: unknown): Compiler {
+  if (value === undefined) return 'tsc';
+  if (value === 'tsc' || value === 'tscl') return value;
+  return value as Compiler;
 }
 
 function isSafeRelativeGlob(value: string): boolean {

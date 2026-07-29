@@ -1,0 +1,281 @@
+package TSPackConceptOctGen
+
+record DependencySpec {
+    Name: String
+    Range: String
+}
+
+record Dependency {
+    Name: String
+    Range: String
+    Source: String
+}
+
+record Target {
+    Name: String
+    Export: String
+    Entry: String
+    Runtime: String
+    Types: String
+}
+
+record RunTarget {
+    Name: String
+    Command: String
+}
+
+record Policy {
+    Subject: String
+    Action: String
+    Range: String
+}
+
+record Projection {
+    Object: String
+    Key: String
+    Value: String
+}
+
+record ConceptSpec {
+    Name: String
+    Description: String
+    Requires: String[]
+    Conflicts: String[]
+    CompatibleKinds: String[]
+    Dependencies: DependencySpec[]
+    Tools: DependencySpec[]
+    Peers: DependencySpec[]
+    Targets: Target[]
+    RunTargets: RunTarget[]
+    UpdatePolicy: Policy[]
+    SecurityPolicy: Policy[]
+    WorkspaceName: String
+    PackFormat: String
+    PackArtifact: String
+    Projections: Projection[]
+}
+
+record Concept {
+    Name: String
+    Description: String
+    Provides: String[]
+    Requires: String[]
+    Conflicts: String[]
+    CompatibleKinds: String[]
+    Dependencies: Dependency[]
+    Tools: Dependency[]
+    Peers: Dependency[]
+    Targets: Target[]
+    RunTargets: RunTarget[]
+    UpdatePolicy: Policy[]
+    SecurityPolicy: Policy[]
+    WorkspaceName: String
+    PackFormat: String
+    PackArtifact: String
+    ManifestConcepts: String[]
+    Projections: Projection[]
+}
+
+record CompositionSpec {
+    Name: String
+    Kind: String
+    Concepts: String[]
+}
+
+record CompositionCase {
+    Name: String
+    Kind: String
+    Concepts: String[]
+    Dependencies: String[]
+    Tools: String[]
+    Peers: String[]
+    Targets: String[]
+    RunTargets: String[]
+    Projections: String[]
+    HasPack: Bool
+}
+
+record GeneratedTSPackConceptRegistry {
+    Package: String
+    Concepts: Concept[]
+    Cases: CompositionCase[]
+}
+
+enum ContributionKind {
+    Dependencies
+    Tools
+    Peers
+}
+
+fn AddUnique(values: String[], candidate: String) -> String[] {
+    if candidate == "" {
+        return values
+    }
+    for i in 0..Len(values) {
+        if values[i] == candidate {
+            return values
+        }
+    }
+    return Append(values, candidate)
+}
+
+fn Normalize(values: String[]) -> String[] {
+    var result: String[] = []
+    for i in 0..Len(values) {
+        result = AddUnique(result, values[i])
+    }
+    return result
+}
+
+fn WithDefaultSource(values: DependencySpec[]) -> Dependency[] {
+    var result: Dependency[] = []
+    for i in 0..Len(values) {
+        if values[i].Name != "" {
+            result = Append(result, Dependency { Name: values[i].Name Range: values[i].Range Source: "npm" })
+        }
+    }
+    return result
+}
+
+fn BuildConcept(spec: ConceptSpec) -> Concept {
+    return Concept {
+        Name: spec.Name
+        Description: spec.Description
+        Provides: Normalize([spec.Name])
+        Requires: Normalize(spec.Requires)
+        Conflicts: Normalize(spec.Conflicts)
+        CompatibleKinds: Normalize(spec.CompatibleKinds)
+        Dependencies: WithDefaultSource(spec.Dependencies)
+        Tools: WithDefaultSource(spec.Tools)
+        Peers: WithDefaultSource(spec.Peers)
+        Targets: spec.Targets
+        RunTargets: spec.RunTargets
+        UpdatePolicy: spec.UpdatePolicy
+        SecurityPolicy: spec.SecurityPolicy
+        WorkspaceName: spec.WorkspaceName
+        PackFormat: spec.PackFormat
+        PackArtifact: spec.PackArtifact
+        ManifestConcepts: Normalize([spec.Name])
+        Projections: spec.Projections
+    }
+}
+
+fn BuildConcepts(specs: ConceptSpec[]) -> Concept[] {
+    var result: Concept[] = []
+    for i in 0..Len(specs) {
+        result = Append(result, BuildConcept(specs[i]))
+    }
+    return result
+}
+
+fn FindConcept(values: Concept[], name: String) -> Concept {
+    for i in 0..Len(values) {
+        if values[i].Name == name {
+            return values[i]
+        }
+    }
+    return values[0]
+}
+
+fn CollectDependencies(values: Concept[], names: String[], kind: ContributionKind) -> String[] {
+    var result: String[] = []
+    for i in 0..Len(names) {
+        let concept = FindConcept(values, names[i])
+        let contributions = match kind {
+            case ContributionKind.Dependencies => concept.Dependencies
+            case ContributionKind.Tools => concept.Tools
+            case ContributionKind.Peers => concept.Peers
+        }
+        for j in 0..Len(contributions) {
+            result = AddUnique(result, contributions[j].Name)
+        }
+    }
+    return result
+}
+
+fn CollectTargets(values: Concept[], names: String[], run: Bool) -> String[] {
+    var result: String[] = []
+    for i in 0..Len(names) {
+        let concept = FindConcept(values, names[i])
+        if run {
+            for j in 0..Len(concept.RunTargets) {
+                result = AddUnique(result, concept.RunTargets[j].Name)
+            }
+        } else {
+            for j in 0..Len(concept.Targets) {
+                result = AddUnique(result, concept.Targets[j].Name)
+            }
+        }
+    }
+    return result
+}
+
+fn CollectProjections(values: Concept[], names: String[]) -> String[] {
+    var result: String[] = []
+    for i in 0..Len(names) {
+        let concept = FindConcept(values, names[i])
+        for j in 0..Len(concept.Projections) {
+            result = AddUnique(result, concept.Projections[j].Object + ":" + concept.Projections[j].Key)
+        }
+    }
+    return result
+}
+
+fn HasPack(values: Concept[], names: String[]) -> Bool {
+    for i in 0..Len(names) {
+        if FindConcept(values, names[i]).PackFormat != "" {
+            return true
+        }
+    }
+    return false
+}
+
+fn BuildCase(values: Concept[], spec: CompositionSpec) -> CompositionCase {
+    return CompositionCase {
+        Name: spec.Name
+        Kind: spec.Kind
+        Concepts: spec.Concepts
+        Dependencies: CollectDependencies(values, spec.Concepts, ContributionKind.Dependencies)
+        Tools: CollectDependencies(values, spec.Concepts, ContributionKind.Tools)
+        Peers: CollectDependencies(values, spec.Concepts, ContributionKind.Peers)
+        Targets: CollectTargets(values, spec.Concepts, false)
+        RunTargets: CollectTargets(values, spec.Concepts, true)
+        Projections: CollectProjections(values, spec.Concepts)
+        HasPack: HasPack(values, spec.Concepts)
+    }
+}
+
+fn BuildCases(values: Concept[], specs: CompositionSpec[]) -> CompositionCase[] {
+    var result: CompositionCase[] = []
+    for i in 0..Len(specs) {
+        result = Append(result, BuildCase(values, specs[i]))
+    }
+    return result
+}
+
+fn Generate() -> GeneratedTSPackConceptRegistry {
+    let specs = [
+        ConceptSpec { Name: "tspack.workspace" Description: "TSPack workspace shell" Requires: [] Conflicts: [] CompatibleKinds: [] Dependencies: [] Tools: [] Peers: [] Targets: [] RunTargets: [] UpdatePolicy: [] SecurityPolicy: [] WorkspaceName: "workspace" PackFormat: "" PackArtifact: "" Projections: [] },
+        ConceptSpec { Name: "tspack.manifestBoundary" Description: "" Requires: ["tspack.workspace"] Conflicts: [] CompatibleKinds: [] Dependencies: [] Tools: [DependencySpec { Name: "@biomejs/biome" Range: "^1.9.4" }] Peers: [] Targets: [] RunTargets: [] UpdatePolicy: [] SecurityPolicy: [] WorkspaceName: "" PackFormat: "" PackArtifact: "" Projections: [] },
+        ConceptSpec { Name: "tspack.securityPolicy" Description: "" Requires: [] Conflicts: [] CompatibleKinds: [] Dependencies: [] Tools: [] Peers: [] Targets: [] RunTargets: [] UpdatePolicy: [] SecurityPolicy: [Policy { Subject: "npm" Action: "acknowledge" Range: "baseline" }] WorkspaceName: "" PackFormat: "" PackArtifact: "" Projections: [] },
+        ConceptSpec { Name: "tspack.updatePolicy" Description: "" Requires: [] Conflicts: [] CompatibleKinds: [] Dependencies: [] Tools: [] Peers: [] Targets: [] RunTargets: [] UpdatePolicy: [Policy { Subject: "dependencies" Action: "pin" Range: "minor" }] SecurityPolicy: [] WorkspaceName: "" PackFormat: "" PackArtifact: "" Projections: [] },
+        ConceptSpec { Name: "typescript.app" Description: "" Requires: [] Conflicts: [] CompatibleKinds: ["app"] Dependencies: [] Tools: [DependencySpec { Name: "typescript" Range: "^5.0.0" }] Peers: [] Targets: [] RunTargets: [] UpdatePolicy: [] SecurityPolicy: [] WorkspaceName: "" PackFormat: "" PackArtifact: "" Projections: [] },
+        ConceptSpec { Name: "vite.app" Description: "" Requires: ["typescript.app"] Conflicts: [] CompatibleKinds: ["app"] Dependencies: [] Tools: [DependencySpec { Name: "vite" Range: "^5.0.0" }] Peers: [] Targets: [] RunTargets: [RunTarget { Name: "dev" Command: "vite" }, RunTarget { Name: "build" Command: "vite build" }, RunTarget { Name: "preview" Command: "vite preview" }] UpdatePolicy: [] SecurityPolicy: [] WorkspaceName: "" PackFormat: "" PackArtifact: "" Projections: [] },
+        ConceptSpec { Name: "react.app" Description: "" Requires: ["typescript.app", "browser.spa"] Conflicts: ["react.library"] CompatibleKinds: ["app"] Dependencies: [DependencySpec { Name: "react" Range: "^19.0.0" }, DependencySpec { Name: "react-dom" Range: "^19.0.0" }] Tools: [DependencySpec { Name: "@vitejs/plugin-react" Range: "^4.0.0" }, DependencySpec { Name: "@types/react" Range: "^19.0.0" }, DependencySpec { Name: "@types/react-dom" Range: "^19.0.0" }] Peers: [] Targets: [] RunTargets: [] UpdatePolicy: [] SecurityPolicy: [] WorkspaceName: "" PackFormat: "" PackArtifact: "" Projections: [] },
+        ConceptSpec { Name: "browser.spa" Description: "" Requires: [] Conflicts: ["react.library"] CompatibleKinds: ["app"] Dependencies: [] Tools: [] Peers: [] Targets: [Target { Name: "app" Export: "." Entry: "src/main.tsx" Runtime: "dist/main.js" Types: "dist/main.d.ts" }] RunTargets: [] UpdatePolicy: [] SecurityPolicy: [] WorkspaceName: "" PackFormat: "" PackArtifact: "" Projections: [] },
+        ConceptSpec { Name: "browser.static" Description: "" Requires: ["vite.app"] Conflicts: [] CompatibleKinds: ["app"] Dependencies: [] Tools: [] Peers: [] Targets: [Target { Name: "app" Export: "." Entry: "src/main.ts" Runtime: "dist/main.js" Types: "dist/main.d.ts" }] RunTargets: [] UpdatePolicy: [] SecurityPolicy: [] WorkspaceName: "" PackFormat: "" PackArtifact: "" Projections: [] },
+        ConceptSpec { Name: "typescript.library" Description: "" Requires: [] Conflicts: [] CompatibleKinds: ["library"] Dependencies: [] Tools: [DependencySpec { Name: "typescript" Range: "^5.0.0" }] Peers: [] Targets: [] RunTargets: [RunTarget { Name: "build-types" Command: "tsc -p tsconfig.build.json --listEmittedFiles" }, RunTarget { Name: "typecheck" Command: "tsc -p tsconfig.json --noEmit --pretty false --diagnostics" }] UpdatePolicy: [] SecurityPolicy: [] WorkspaceName: "" PackFormat: "" PackArtifact: "" Projections: [] },
+        ConceptSpec { Name: "vite.library" Description: "" Requires: ["typescript.library"] Conflicts: [] CompatibleKinds: ["library"] Dependencies: [] Tools: [DependencySpec { Name: "vite" Range: "^5.0.0" }] Peers: [] Targets: [] RunTargets: [RunTarget { Name: "build" Command: "vite build" }] UpdatePolicy: [] SecurityPolicy: [] WorkspaceName: "" PackFormat: "" PackArtifact: "" Projections: [] },
+        ConceptSpec { Name: "package.peerDependencies" Description: "" Requires: [] Conflicts: [] CompatibleKinds: ["library"] Dependencies: [] Tools: [] Peers: [] Targets: [] RunTargets: [] UpdatePolicy: [] SecurityPolicy: [] WorkspaceName: "" PackFormat: "" PackArtifact: "" Projections: [] },
+        ConceptSpec { Name: "react.library" Description: "" Requires: ["package.peerDependencies", "package.exports", "tspack.pack", "vite.library", "typescript.library"] Conflicts: ["browser.spa", "react.app"] CompatibleKinds: ["library"] Dependencies: [] Tools: [DependencySpec { Name: "@vitejs/plugin-react" Range: "^4.0.0" }, DependencySpec { Name: "@types/react" Range: "^19.0.0" }, DependencySpec { Name: "@types/react-dom" Range: "^19.0.0" }] Peers: [DependencySpec { Name: "react" Range: "^19.0.0" }, DependencySpec { Name: "react-dom" Range: "^19.0.0" }] Targets: [Target { Name: "library" Export: "." Entry: "src/index.ts" Runtime: "dist/index.js" Types: "dist/index.d.ts" }] RunTargets: [] UpdatePolicy: [] SecurityPolicy: [] WorkspaceName: "" PackFormat: "" PackArtifact: "" Projections: [] },
+        ConceptSpec { Name: "package.exports" Description: "" Requires: [] Conflicts: [] CompatibleKinds: ["library"] Dependencies: [] Tools: [] Peers: [] Targets: [] RunTargets: [] UpdatePolicy: [] SecurityPolicy: [] WorkspaceName: "" PackFormat: "" PackArtifact: "" Projections: [Projection { Object: "package.exports" Key: "." Value: "./dist/index.js" }] },
+        ConceptSpec { Name: "tspack.pack" Description: "" Requires: [] Conflicts: [] CompatibleKinds: ["library"] Dependencies: [] Tools: [] Peers: [] Targets: [] RunTargets: [] UpdatePolicy: [] SecurityPolicy: [] WorkspaceName: "" PackFormat: "npm" PackArtifact: "dist" Projections: [] }
+    ]
+    let concepts = BuildConcepts(specs)
+    let compositions = [
+        CompositionSpec { Name: "static-app" Kind: "app" Concepts: ["browser.static", "vite.app", "typescript.app", "tspack.workspace", "tspack.manifestBoundary", "tspack.updatePolicy", "tspack.securityPolicy"] },
+        CompositionSpec { Name: "react-app" Kind: "app" Concepts: ["react.app", "browser.spa", "vite.app", "typescript.app", "tspack.workspace", "tspack.manifestBoundary", "tspack.updatePolicy", "tspack.securityPolicy"] },
+        CompositionSpec { Name: "react-library" Kind: "library" Concepts: ["react.library", "package.peerDependencies", "package.exports", "tspack.pack", "vite.library", "typescript.library", "tspack.workspace", "tspack.manifestBoundary", "tspack.updatePolicy", "tspack.securityPolicy"] }
+    ]
+    return GeneratedTSPackConceptRegistry { Package: "concepts" Concepts: concepts Cases: BuildCases(concepts, compositions) }
+}

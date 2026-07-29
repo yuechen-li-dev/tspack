@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -92,6 +93,28 @@ func TestInvalidCases(t *testing.T) {
 				t.Fatalf("expected code %s got %#v", tc.code, diags)
 			}
 		})
+	}
+}
+
+func TestCompilerSelectionDefaultsToTscAndRestrictsTscl(t *testing.T) {
+	base := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"app","version":"1.0.0","kind":"app","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":[],"exclude":[]}%s}]}`
+
+	ir, diagnostics := LoadBytes("default.json", []byte(fmt.Sprintf(base, "")))
+	if len(diagnostics) != 0 {
+		t.Fatalf("unexpected default compiler diagnostics: %#v", diagnostics)
+	}
+	if ir.Packages[0].Compiler != "tsc" {
+		t.Fatalf("compiler=%q, want tsc", ir.Packages[0].Compiler)
+	}
+
+	_, diagnostics = LoadBytes("invalid.json", []byte(fmt.Sprintf(base, `,"compiler":"bun"`)))
+	if !hasDiagnosticCode(diagnostics, "TSPACK_MANIFEST_INVALID_COMPILER") {
+		t.Fatalf("missing invalid compiler diagnostic: %#v", diagnostics)
+	}
+
+	_, diagnostics = LoadBytes("missing-path.json", []byte(fmt.Sprintf(base, `,"compiler":"tscl"`)))
+	if !hasDiagnosticCode(diagnostics, "TSPACK_TSCL_PATH_REQUIRED") {
+		t.Fatalf("missing tscl path diagnostic: %#v", diagnostics)
 	}
 }
 

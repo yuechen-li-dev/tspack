@@ -42,7 +42,7 @@ describe('manifest API type surface', () => {
   it('invalid fixtures fail typecheck with expected errors', () => {
     const result = runTypecheck('tsconfig.invalid.json');
     expect(result.status).toBe(2);
-    expect(result.output).toContain(`Type '"npm"' is not assignable to type '"bun" | "deno" | "system" | "node" | undefined'`);
+    expect(result.output).toContain(`Type '"npm"' is not assignable to type '"bun" | "deno" | "node" | "system" | undefined'`);
     expect(result.output).toContain("missing the following properties from type 'PackageProps': name, version");
     expect(result.output).toContain("missing the following properties from type 'TargetRow': entry, runtime");
     expect(result.output).toContain("Type 'number' is not assignable to type 'string'");

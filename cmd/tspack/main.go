@@ -306,6 +306,10 @@ func main() {
 		runCommand(args)
 		return
 	}
+	if args[0] == "build" {
+		runBuildCommand(args)
+		return
+	}
 	if args[0] == "npm" {
 		runNpmCommand(args)
 		return
@@ -326,6 +330,10 @@ func main() {
 		runArtifactCommand(args)
 		return
 	}
+	if args[0] == "materialize-tree" {
+		runMaterializeTreeCommand(args)
+		return
+	}
 	if args[0] == "bench" {
 		runBenchCommand(args)
 		return
@@ -336,6 +344,10 @@ func main() {
 	}
 	if args[0] == "run" {
 		runRunCommand(args)
+		return
+	}
+	if args[0] == "scenario" {
+		runScenarioCommand(args)
 		return
 	}
 
@@ -526,6 +538,7 @@ func printLegacyHelp() {
 	fmt.Println("  tspack bench [--root .] [--list] [--filter text] [--json]")
 	fmt.Println("  tspack doom [--root .] [--list] [--filter text] [--json] [--out path]")
 	fmt.Println("  tspack run [target] [--root .] [--manifest path] [--ready-timeout seconds] [--env KEY=VALUE] [--once] [--preflight-only]")
+	fmt.Println("  tspack scenario <scenario.json> --run <RunTarget> [--root .] [--ready-timeout seconds]")
 	fmt.Println("  tspack npm <npm-args...> [--root .]")
 	fmt.Println("  tspack format [paths...] [--root .] [--check]")
 	fmt.Println("  tspack lint [paths...] [--root .] [--fix] [--unsafe]")

@@ -2,18 +2,57 @@ package concepts
 
 import (
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
 
 func TestBuiltinRegistry(t *testing.T) {
 	names := BuiltinNames()
-	expected := []string{"browser.spa", "browser.static", "package.exports", "package.peerDependencies", "react.app", "react.library", "tspack.manifestBoundary", "tspack.pack", "tspack.securityPolicy", "tspack.updatePolicy", "tspack.workspace", "typescript.app", "typescript.library", "vite.app", "vite.library"}
+	expected := append([]string(nil), generatedBuiltinNames...)
+	if !sort.StringsAreSorted(expected) {
+		sort.Strings(expected)
+	}
 	if !reflect.DeepEqual(names, expected) {
 		t.Fatalf("names mismatch\nwant %#v\ngot  %#v", expected, names)
 	}
 	if _, ok := Lookup("vite.app"); !ok {
 		t.Fatal("expected vite.app lookup to work")
+	}
+}
+
+func TestGeneratedBuiltinCompositionContracts(t *testing.T) {
+	for _, expected := range generatedBuiltinCompositionCases {
+		t.Run(expected.Name, func(t *testing.T) {
+			ir, err := BuildConceptIR(expected.Concepts, expected.Kind, Builtins)
+			if err != nil {
+				t.Fatalf("BuildConceptIR: %v", err)
+			}
+			for _, name := range expected.Dependencies {
+				assertDep(t, ir.Manifest.Dependencies, name)
+			}
+			for _, name := range expected.Tools {
+				assertDep(t, ir.Manifest.Tools, name)
+			}
+			for _, name := range expected.Peers {
+				assertDep(t, ir.Manifest.Peers, name)
+			}
+			for _, name := range expected.Targets {
+				assertTarget(t, ir.Manifest.Targets, name)
+			}
+			for _, name := range expected.RunTargets {
+				assertRunTarget(t, ir.Manifest.RunTargets, name)
+			}
+			if (ir.Manifest.Pack != nil) != expected.HasPack {
+				t.Fatalf("pack contribution = %t, want %t", ir.Manifest.Pack != nil, expected.HasPack)
+			}
+			for _, projection := range expected.Projections {
+				parts := strings.SplitN(projection, ":", 2)
+				if len(parts) != 2 || ir.Projections.Objects[parts[0]][parts[1]] == "" {
+					t.Fatalf("missing projection %q in %#v", projection, ir.Projections.Objects)
+				}
+			}
+		})
 	}
 }
 
@@ -117,24 +156,6 @@ func TestAppendSlotOrderingAndProjectionConflict(t *testing.T) {
 	}
 }
 
-func TestCurrentTemplateConceptCompositionsResolve(t *testing.T) {
-	static := mustBuild(t, []string{"browser.static", "vite.app", "typescript.app", "tspack.workspace", "tspack.manifestBoundary", "tspack.updatePolicy", "tspack.securityPolicy"}, "app")
-	assertDep(t, static.Manifest.Tools, "typescript")
-	assertDep(t, static.Manifest.Tools, "vite")
-	assertDep(t, static.Manifest.Tools, "@biomejs/biome")
-	assertTarget(t, static.Manifest.Targets, "app")
-	react := mustBuild(t, []string{"react.app", "browser.spa", "vite.app", "typescript.app", "tspack.workspace", "tspack.manifestBoundary", "tspack.updatePolicy", "tspack.securityPolicy"}, "app")
-	assertDep(t, react.Manifest.Dependencies, "react")
-	library := mustBuild(t, []string{"react.library", "package.peerDependencies", "package.exports", "tspack.pack", "vite.library", "typescript.library", "tspack.workspace", "tspack.manifestBoundary", "tspack.updatePolicy", "tspack.securityPolicy"}, "library")
-	assertDep(t, library.Manifest.Peers, "react")
-	if library.Manifest.Pack == nil {
-		t.Fatal("expected pack contribution")
-	}
-	if _, ok := library.Projections.Objects["package.exports"]; !ok {
-		t.Fatal("expected package exports projection")
-	}
-}
-
 func mustBuild(t *testing.T, names []string, kind string) *MergedConceptIR {
 	t.Helper()
 	ir, err := BuildConceptIR(names, kind, Builtins)
@@ -177,39 +198,6 @@ func assertTarget(t *testing.T, targets []TargetContribution, name string) {
 		}
 	}
 	t.Fatalf("missing target %s in %#v", name, targets)
-}
-
-func TestReactLibraryExplicitStackComposition(t *testing.T) {
-	stack := []string{
-		"react.library",
-		"package.peerDependencies",
-		"package.exports",
-		"tspack.pack",
-		"vite.library",
-		"typescript.library",
-		"tspack.workspace",
-		"tspack.manifestBoundary",
-		"tspack.updatePolicy",
-		"tspack.securityPolicy",
-	}
-	ir := mustBuild(t, stack, "library")
-	if !reflect.DeepEqual(ir.Concepts[:len(stack)], stack) {
-		t.Fatalf("expected explicit stack order to be preserved, got %#v", ir.Concepts)
-	}
-	assertDep(t, ir.Manifest.Peers, "react")
-	assertDep(t, ir.Manifest.Peers, "react-dom")
-	assertDep(t, ir.Manifest.Tools, "typescript")
-	assertDep(t, ir.Manifest.Tools, "vite")
-	assertRunTarget(t, ir.Manifest.RunTargets, "build")
-	assertRunTarget(t, ir.Manifest.RunTargets, "build-types")
-	assertRunTarget(t, ir.Manifest.RunTargets, "typecheck")
-	assertTarget(t, ir.Manifest.Targets, "library")
-	if ir.Manifest.Pack == nil {
-		t.Fatal("expected pack contribution")
-	}
-	if _, ok := ir.Projections.Objects["package.exports"]; !ok {
-		t.Fatal("expected package exports contribution")
-	}
 }
 
 func TestReactLibraryMissingCompanionConceptsFail(t *testing.T) {

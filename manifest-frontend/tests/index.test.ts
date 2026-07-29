@@ -544,6 +544,13 @@ export default defineWorkspace(
     );
   });
 
+  it('preserves an explicit tscl compiler selection without changing the Node runtime', () => {
+    const result = parseManifestFile(path.join(root, 'fixtures', 'tscl-m1', 'manifest.tsx'));
+    expect(result.ok).toBe(true);
+    expect(result.ir?.workspace.runtime).toBe('nodejs');
+    expect(result.ir?.packages[0]?.compiler).toBe('tscl');
+  });
+
   it('uses canonical manifest editor defaults when no overrides are supplied', () => {
     withTemporaryManifest(
       'tmp-compat-json-helper-defaults-',

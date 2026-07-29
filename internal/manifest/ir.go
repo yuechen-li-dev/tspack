@@ -102,6 +102,8 @@ func (a AcknowledgedLifecycleCategory) Key() string {
 type Package struct {
 	Name         string             `json:"name"`
 	Version      string             `json:"version"`
+	Compiler     string             `json:"compiler,omitempty"`
+	CompilerPath string             `json:"compilerPath,omitempty"`
 	Root         string             `json:"root,omitempty"`
 	License      string             `json:"license,omitempty"`
 	Kind         string             `json:"kind"`
@@ -180,14 +182,51 @@ type Source struct {
 }
 
 type Target struct {
-	Name     string   `json:"name"`
-	Export   string   `json:"export"`
-	Entry    string   `json:"entry"`
-	Runtime  string   `json:"runtime"`
-	Types    string   `json:"types"`
-	Peers    []string `json:"peers"`
-	Deps     []string `json:"deps"`
-	Optional bool     `json:"optional,omitempty"`
+	Name              string                `json:"name"`
+	Export            string                `json:"export"`
+	Entry             string                `json:"entry"`
+	Runtime           string                `json:"runtime"`
+	Types             string                `json:"types"`
+	JavaScriptRuntime string                `json:"javascriptRuntime,omitempty"`
+	TsXmlProfile      string                `json:"tsXmlProfile,omitempty"`
+	NpmContracts      []CopelandNpmContract `json:"npmContracts,omitempty"`
+	Peers             []string              `json:"peers"`
+	Deps              []string              `json:"deps"`
+	Optional          bool                  `json:"optional,omitempty"`
+}
+
+// CopelandNpmContract is static package metadata selected by TSPack after the
+// lock graph has resolved a package. It is intentionally not a declaration
+// parser and does not teach TSPack Copeland source semantics.
+type CopelandNpmContract struct {
+	Package    string                         `json:"package"`
+	Exports    []CopelandNpmExportContract    `json:"exports"`
+	Components []CopelandNpmComponentContract `json:"components,omitempty"`
+}
+
+type CopelandNpmExportContract struct {
+	Name        string   `json:"name"`
+	Parameters  []string `json:"parameters"`
+	Result      string   `json:"result"`
+	RemoteError string   `json:"remoteError,omitempty"`
+	Promise     bool     `json:"promise,omitempty"`
+}
+
+type CopelandNpmComponentContract struct {
+	Name       string                         `json:"name"`
+	Properties []CopelandNpmComponentProperty `json:"properties,omitempty"`
+	Members    []CopelandNpmComponentMember   `json:"members,omitempty"`
+}
+
+type CopelandNpmComponentMember struct {
+	Name       string                         `json:"name"`
+	Properties []CopelandNpmComponentProperty `json:"properties,omitempty"`
+}
+
+type CopelandNpmComponentProperty struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Required bool   `json:"required,omitempty"`
 }
 
 type BoundaryRule struct {
@@ -493,7 +532,8 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 	}
 
 	seenPkg := map[string]struct{}{}
-	for pi, p := range ir.Packages {
+	for pi := range ir.Packages {
+		p := &ir.Packages[pi]
 		pp := fmt.Sprintf("packages[%d]", pi)
 		if !pkgNameRe.MatchString(p.Name) {
 			add("TSPACK_IR_INVALID_PACKAGE_NAME", pp+".name is invalid")
@@ -503,6 +543,15 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 		}
 		if !isValidPackageKind(p.Kind) {
 			add("TSPACK_IR_INVALID_PACKAGE_KIND", pp+".kind is invalid")
+		}
+		if p.Compiler == "" {
+			p.Compiler = "tsc"
+		}
+		if p.Compiler != "tsc" && p.Compiler != "tscl" {
+			add("TSPACK_MANIFEST_INVALID_COMPILER", pp+".compiler must be tsc or tscl")
+		}
+		if p.Compiler == "tscl" && strings.TrimSpace(p.CompilerPath) == "" {
+			add("TSPACK_TSCL_PATH_REQUIRED", pp+".compilerPath is required when compiler is tscl")
 		}
 		if p.Root != "" && !pathutil.IsSafePackageRoot(p.Root) {
 			add("TSPACK_IR_INVALID_PACKAGE_ROOT", pp+".root must be a safe relative path")
@@ -542,6 +591,9 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 				add("TSPACK_IR_DUPLICATE_EXPORT", "duplicate export path: "+t.Export)
 			}
 			seenExport[t.Export] = struct{}{}
+			if t.JavaScriptRuntime != "" && t.JavaScriptRuntime != "node" && t.JavaScriptRuntime != "browser" {
+				add("TSPACK_IR_INVALID_JAVASCRIPT_RUNTIME", tp+".javascriptRuntime must be node or browser")
+			}
 			for _, f := range []struct{ name, v string }{{"entry", t.Entry}, {"runtime", t.Runtime}, {"types", t.Types}} {
 				if p.Kind == "app" && f.name == "types" && f.v == "" {
 					continue

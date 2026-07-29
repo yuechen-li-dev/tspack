@@ -1,0 +1,105 @@
+[lock]
+format = 1
+
+[[package]]
+ID = 'npm:nanoid@5.1.16'
+Name = 'nanoid'
+Version = '5.1.16'
+Source = 'npm'
+Integrity = 'sha512-kVrnsrJqMR8+oLJnGEmSWw9BivK5mt7H3FZatVRjrc5wGqFYuBxX1yG7+A7Gi5AefkX6t/oCkizcQgpu0cY1dQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:d3fd9cbdc9e6c8f9617a92e6b06a308c56a62c744f748e393d10203866c1b3f8'
+
+[[package]]
+ID = 'npm:react-dom@19.2.7'
+Name = 'react-dom'
+Version = '19.2.7'
+Source = 'npm'
+Integrity = 'sha512-t0BRVXvbiE/o20Hfw669rLbMCDWtYZLvmJigy2f0MxsXF+71pxhR3xOkspmsO8h3ZlNzyibAmtCa3l4lYKk6gQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:e47bae602149b38b90b452c89e53d2d60639fee09361d90374983a6aac62739e'
+
+[[package]]
+ID = 'npm:react@19.2.7'
+Name = 'react'
+Version = '19.2.7'
+Source = 'npm'
+Integrity = 'sha512-HNe9WslTbXmFK8o8cmwgAeJFSBvt1bPdHCVKtaaV+WlAN36mpT4hcRpwbf3fY56ar2oIXzsBpOAiIRHAdY0OlQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:d0065884db7670ffb89046826995cf0d7754a31653d23908532e52671bf83d7d'
+
+[[package]]
+ID = 'npm:scheduler@0.27.0'
+Name = 'scheduler'
+Version = '0.27.0'
+Source = 'npm'
+Integrity = 'sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:ab26ce35ce4032f04b78cfc5bbb4cfe13358e9fe7a5433a8aa6315c3debc5095'
+
+[[package]]
+ID = 'path:runtime#ccb2990264b1f1a9d4ae59f70e25567fe5e69547502508313604c5d0820dc9aa'
+Name = '@copeland/browser-v1'
+Version = ''
+Source = 'path'
+Integrity = ''
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = 'runtime'
+Workspace = ''
+Hash = 'sha256:ccb2990264b1f1a9d4ae59f70e25567fe5e69547502508313604c5d0820dc9aa'
+
+[[edge]]
+From = 'npm:react-dom@19.2.7'
+To = 'npm:scheduler@0.27.0'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'tscl-browser-m1:target:browser'
+To = 'npm:nanoid@5.1.16'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'tscl-browser-m1:target:browser'
+To = 'npm:react-dom@19.2.7'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'tscl-browser-m1:target:browser'
+To = 'npm:react@19.2.7'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'tscl-browser-m1:target:browser'
+To = 'path:runtime#ccb2990264b1f1a9d4ae59f70e25567fe5e69547502508313604c5d0820dc9aa'
+Kind = 'runtime'
+Optional = false
+
+[[target]]
+Package = 'tscl-browser-m1'
+Name = 'browser'
+Export = '.'
+Entry = 'src/Main.ts'
+Runtime = 'dist/browser/main.js'
+Types = 'dist/browser/main.d.ts'
