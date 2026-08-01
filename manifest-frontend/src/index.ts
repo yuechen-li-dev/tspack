@@ -568,6 +568,7 @@ function mapPackage(p: any, includeRoot: boolean): Record<string, unknown> {
     kind: p.kind,
     ...(p.compiler !== undefined ? { compiler: compilerIdentity(p.compiler) } : {}),
     ...(p.compilerPath !== undefined ? { compilerPath: p.compilerPath } : {}),
+	...(p.devBackend !== undefined ? { devBackend: p.devBackend } : {}),
     dependencies: mapDependencies(p.dependencies?.values ?? []),
     targets: mapTargets(p.__children?.find((x: any) => x.__tag === 'Targets')?.rows ?? []),
     ...(p.__children?.find((x: any) => x.__tag === 'RunTargets') ? { runTargets: p.__children?.find((x: any) => x.__tag === 'RunTargets')?.rows ?? [] } : {}),

@@ -78,6 +78,22 @@ func TestTsclProjectRequestSelectsBrowserRuntimeAndDistinctFingerprint(t *testin
 	}
 }
 
+func TestCollectTsclNpmContractsDoesNotTreatViteToolAsCopelandDependency(t *testing.T) {
+	pkg := &manifest.Package{
+		Tools: []string{"vite"},
+		Dependencies: []manifest.DependencyIntent{
+			{Key: "nanoid", Source: manifest.Source{Kind: "npm", Package: "nanoid"}},
+			{Key: "vite", Source: manifest.Source{Kind: "npm", Package: "vite"}},
+		},
+	}
+	if isPackageTool(pkg, pkg.Dependencies[0]) {
+		t.Fatal("runtime package was incorrectly classified as a tool")
+	}
+	if !isPackageTool(pkg, pkg.Dependencies[1]) {
+		t.Fatal("Vite tool was incorrectly passed to the Copeland package contract")
+	}
+}
+
 func TestMaterializeBrowserGraphSelectsBrowserExportAndWritesDeterministicImport(t *testing.T) {
 	root := t.TempDir()
 	packageDirectory := filepath.Join(root, "node_modules", "fixture-browser-package")
@@ -133,6 +149,35 @@ func TestMaterializeBrowserGraphSelectsBrowserExportAndWritesDeterministicImport
 	}
 	if !strings.Contains(string(hostBytes), "export function subscribeViewport") {
 		t.Fatalf("generated browser host does not expose the viewport subscription contract: %s", hostBytes)
+	}
+	for _, api := range []string{
+		"export function scheduleRendererAttachment",
+		"export function attachRenderer",
+		"export function updateRenderer",
+		"export function detachRenderer",
+		"const rendererAdapters",
+		"\"CustomElement\"",
+	} {
+		if !strings.Contains(string(hostBytes), api) {
+			t.Fatalf("generated browser host does not expose renderer attachment API %q: %s", api, hostBytes)
+		}
+	}
+	secondOutputDirectory := filepath.Join(root, "dist", "browser-second")
+	if _, err := materializeBrowserGraph(secondOutputDirectory, []tsclNpmContract{
+		{
+			PackageName:         "fixture-browser-package",
+			MaterializationPath: packageDirectory,
+			Materialized:        true,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	secondHostBytes, err := os.ReadFile(filepath.Join(secondOutputDirectory, "packages", "copeland-browser-v1", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(hostBytes) != string(secondHostBytes) {
+		t.Fatal("generated browser host changed across identical materializations")
 	}
 }
 

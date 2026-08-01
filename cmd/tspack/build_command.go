@@ -18,10 +18,11 @@ import (
 // build is intentionally a narrow compiler-selection seam. Runtime process
 // launching remains in run_command.go; this command only creates artifacts.
 type buildCommandOptions struct {
-	Root        string
-	Manifest    string
-	PackageName string
-	TargetName  string
+	Root                   string
+	Manifest               string
+	PackageName            string
+	TargetName             string
+	PreserveLastSuccessful bool
 }
 
 type tsclProjectRequest struct {
@@ -98,6 +99,7 @@ type tsclBuildResult struct {
 	} `json:"outputs"`
 	EntryOutputPath  string `json:"entryOutputPath"`
 	BuildFingerprint string `json:"buildFingerprint"`
+	GraphFingerprint string `json:"graphFingerprint"`
 }
 
 func runBuildCommand(args []string) {
@@ -119,7 +121,7 @@ func runBuildCommand(args []string) {
 		if pkg.Compiler != "tscl" {
 			failBuild("TSPACK_BUILD_UNSUPPORTED_COMPILER", "unsupported compiler for package "+pkg.Name+": "+pkg.Compiler)
 		}
-		buildTsclPackage(root, manifestPath, ir, pkg, opts.TargetName)
+		buildTsclPackage(root, manifestPath, ir, pkg, opts.TargetName, opts.PreserveLastSuccessful)
 	}
 }
 
@@ -145,6 +147,8 @@ func parseBuildCommandOptions(args []string) buildCommandOptions {
 			}
 			index++
 			opts.PackageName = args[index]
+		case "--preserve-last-successful":
+			opts.PreserveLastSuccessful = true
 		default:
 			if strings.HasPrefix(args[index], "-") || opts.TargetName != "" {
 				failBuild("TSPACK_BUILD_INVALID_ARGS", "expected at most one target name")
@@ -166,7 +170,7 @@ func selectBuildPackages(ir *manifest.ManifestIR, packageName string) []*manifes
 	return packages
 }
 
-func buildTsclPackage(root string, manifestPath string, ir *manifest.ManifestIR, pkg *manifest.Package, requestedTarget string) {
+func buildTsclPackage(root string, manifestPath string, ir *manifest.ManifestIR, pkg *manifest.Package, requestedTarget string, preserveLastSuccessful bool) {
 	packageRoot := resolvePackageRoot(root, manifestPath, ir, pkg)
 	compilerPath := pkg.CompilerPath
 	if !filepath.IsAbs(compilerPath) {
@@ -208,7 +212,9 @@ func buildTsclPackage(root string, manifestPath string, ir *manifest.ManifestIR,
 		output, runErr := cmd.CombinedOutput()
 		result, readErr := readTsclBuildResult(resultPath)
 		if runErr != nil || readErr != nil || !result.Success {
-			removeStaleTsclEntry(packageRoot, target.Runtime)
+			if !preserveLastSuccessful {
+				removeStaleTsclEntry(packageRoot, target.Runtime)
+			}
 			if readErr == nil {
 				printTsclDiagnostics(result)
 			}
@@ -221,21 +227,29 @@ func buildTsclPackage(root string, manifestPath string, ir *manifest.ManifestIR,
 			failBuild("TSPACK_TSCL_BUILD_FAILED", "tscl build failed for "+pkg.Name+":"+target.Name)
 		}
 		if result.EntryOutputPath != request.EntryOutputPath || !resultContainsOutput(result, request.EntryOutputPath) {
-			removeStaleTsclEntry(packageRoot, target.Runtime)
+			if !preserveLastSuccessful {
+				removeStaleTsclEntry(packageRoot, target.Runtime)
+			}
 			failBuild("TSPACK_TSCL_OUTPUT_MANIFEST_INVALID", "tscl result did not declare the requested entry artifact")
 		}
 		if _, err := os.Stat(filepath.Join(request.OutputDirectory, request.EntryOutputPath)); err != nil {
-			removeStaleTsclEntry(packageRoot, target.Runtime)
+			if !preserveLastSuccessful {
+				removeStaleTsclEntry(packageRoot, target.Runtime)
+			}
 			failBuild("TSPACK_TSCL_OUTPUT_MISSING", "tscl result declared an entry artifact that was not materialized")
 		}
 		if request.JavaScriptRuntime == "browser" {
 			materialization, materializationErr := materializeBrowserGraph(request.OutputDirectory, contracts)
 			if materializationErr != nil {
-				removeStaleTsclEntry(packageRoot, target.Runtime)
+				if !preserveLastSuccessful {
+					removeStaleTsclEntry(packageRoot, target.Runtime)
+				}
 				failBuild("TSPACK_BROWSER_MATERIALIZATION_FAILED", materializationErr.Error())
 			}
 			if hostErr := writeBrowserHost(packageRoot, request.OutputDirectory, request.EntryOutputPath, materialization); hostErr != nil {
-				removeStaleTsclEntry(packageRoot, target.Runtime)
+				if !preserveLastSuccessful {
+					removeStaleTsclEntry(packageRoot, target.Runtime)
+				}
 				failBuild("TSPACK_BROWSER_HOST_WRITE_FAILED", hostErr.Error())
 			}
 		}
@@ -313,6 +327,9 @@ func collectTsclNpmContracts(root string, pkg *manifest.Package, target manifest
 	}
 	requestedPackages := map[string]struct{}{}
 	for _, dependency := range pkg.Dependencies {
+		if isPackageTool(pkg, dependency) {
+			continue
+		}
 		if dependency.Source.Kind != "npm" {
 			continue
 		}
@@ -344,6 +361,15 @@ func collectTsclNpmContracts(root string, pkg *manifest.Package, target manifest
 	}
 	sort.Slice(contracts, func(i, j int) bool { return contracts[i].PackageName < contracts[j].PackageName })
 	return contracts
+}
+
+func isPackageTool(pkg *manifest.Package, dependency manifest.DependencyIntent) bool {
+	for _, tool := range pkg.Tools {
+		if tool == dependency.Key || tool == dependency.Source.Package {
+			return true
+		}
+	}
+	return false
 }
 
 func componentsForPackage(contracts []manifest.CopelandNpmContract, packageName string) []tsclNpmComponent {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -18,10 +19,53 @@ import (
 	"strings"
 )
 
+// browserRuntimeSource is the canonical authored browser runtime. Go embeds it
+// only so materialization is independent of the process working directory.
+// Browser lifecycle semantics belong in runtime/browser-v1/index.js.
+//
+//go:embed runtime/browser-v1/index.js
+var browserRuntimeSource []byte
+
 type browserMaterialization struct {
-	SchemaVersion int                      `json:"schemaVersion"`
-	Imports       []browserImport          `json:"imports"`
-	Packages      []browserPackageArtifact `json:"packages"`
+	SchemaVersion   int                      `json:"schemaVersion"`
+	Imports         []browserImport          `json:"imports"`
+	Packages        []browserPackageArtifact `json:"packages"`
+	AttachmentPlans *browserAttachmentPlans  `json:"attachmentPlans,omitempty"`
+	ComponentFrames *browserComponentFrames  `json:"componentFrames,omitempty"`
+}
+
+// browserAttachmentPlans is transport metadata only. TSPack validates and
+// delivers Copeland's plan; it never infers adapters, capabilities, or hosts.
+type browserAttachmentPlans struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	Path          string `json:"path"`
+	SHA256        string `json:"sha256"`
+	PlanCount     int    `json:"planCount"`
+}
+
+// browserComponentFrames identifies compiler-emitted transition code. The
+// module is materialized unchanged; TSPack does not parse or infer it.
+type browserComponentFrames struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	Path          string `json:"path"`
+	SHA256        string `json:"sha256"`
+}
+
+type copelandAttachmentArtifact struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	ProjectID     string `json:"projectId"`
+	Plans         []struct {
+		AttachmentID string `json:"attachmentId"`
+		ComponentID  string `json:"componentInstanceId"`
+		HostBoxID    string `json:"hostBoxId"`
+		HostSelector string `json:"hostSelector"`
+		AdapterID    string `json:"adapterId"`
+		Lifecycle    struct {
+			Mount   bool `json:"mount"`
+			Update  bool `json:"update"`
+			Unmount bool `json:"unmount"`
+		} `json:"lifecycle"`
+	} `json:"plans"`
 }
 
 type browserImport struct {
@@ -102,7 +146,7 @@ func materializeBrowserGraph(outputDirectory string, contracts []tsclNpmContract
 	if err := os.MkdirAll(hostDirectory, 0o755); err != nil {
 		return browserMaterialization{}, err
 	}
-	if err := os.WriteFile(filepath.Join(hostDirectory, "index.js"), []byte(browserHostModule), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(hostDirectory, "index.js"), browserRuntimeSource, 0o644); err != nil {
 		return browserMaterialization{}, err
 	}
 	result.Imports = append(result.Imports, browserImport{
@@ -125,7 +169,80 @@ func materializeBrowserGraph(outputDirectory string, contracts []tsclNpmContract
 	sort.Slice(result.Packages, func(left int, right int) bool {
 		return result.Packages[left].Specifier < result.Packages[right].Specifier
 	})
+	attachmentPlans, err := validateAttachmentPlanArtifact(filepath.Join(outputDirectory, "attachments.json"))
+	if err != nil {
+		return browserMaterialization{}, err
+	}
+	result.AttachmentPlans = attachmentPlans
+	componentFrames, err := validateComponentFrameArtifact(filepath.Join(outputDirectory, "component-frames.js"))
+	if err != nil {
+		return browserMaterialization{}, err
+	}
+	result.ComponentFrames = componentFrames
 	return result, nil
+}
+
+func validateComponentFrameArtifact(path string) (*browserComponentFrames, error) {
+	contents, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read component frame artifact: %w", err)
+	}
+	isV1Envelope := strings.Contains(string(contents), "export default") && strings.Contains(string(contents), "schemaVersion: 1")
+	isLegacyRegistration := strings.Contains(string(contents), "registerComponentFrames")
+	if !isV1Envelope && !isLegacyRegistration {
+		return nil, fmt.Errorf("COPE-COMPONENT-STATE-BROWSER-1001: component frame artifact is neither a V1 envelope nor a legacy registration module")
+	}
+	hash := sha256.Sum256(contents)
+	return &browserComponentFrames{
+		SchemaVersion: 1,
+		Path:          "component-frames.js",
+		SHA256:        hex.EncodeToString(hash[:]),
+	}, nil
+}
+
+func validateAttachmentPlanArtifact(path string) (*browserAttachmentPlans, error) {
+	contents, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		// Older tscl outputs have no attachment artifact. The browser host stays
+		// backward compatible, but normal current compiler builds always emit one.
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read attachment plan artifact: %w", err)
+	}
+	var artifact copelandAttachmentArtifact
+	if err := json.Unmarshal(contents, &artifact); err != nil {
+		return nil, fmt.Errorf("COPE-ATTACHMENT-PLAN-1004: malformed attachment plan artifact: %w", err)
+	}
+	if artifact.SchemaVersion != 1 {
+		return nil, fmt.Errorf("COPE-ATTACHMENT-PLAN-1001: unsupported attachment plan schema version %d", artifact.SchemaVersion)
+	}
+	if artifact.ProjectID == "" {
+		return nil, fmt.Errorf("COPE-ATTACHMENT-PLAN-1004: attachment plan projectId is required")
+	}
+	seen := map[string]bool{}
+	for _, plan := range artifact.Plans {
+		if plan.AttachmentID == "" || plan.ComponentID == "" || plan.HostBoxID == "" || plan.HostSelector == "" || plan.AdapterID == "" {
+			return nil, fmt.Errorf("COPE-ATTACHMENT-PLAN-1004: attachment plan has a missing required field")
+		}
+		if seen[plan.AttachmentID] {
+			return nil, fmt.Errorf("COPE-ATTACHMENT-PLAN-1002: duplicate attachment ID %q", plan.AttachmentID)
+		}
+		seen[plan.AttachmentID] = true
+		if !plan.Lifecycle.Mount || !plan.Lifecycle.Update || !plan.Lifecycle.Unmount {
+			return nil, fmt.Errorf("COPE-ATTACHMENT-PLAN-1004: attachment %q has an invalid lifecycle contract", plan.AttachmentID)
+		}
+	}
+	hash := sha256.Sum256(contents)
+	return &browserAttachmentPlans{
+		SchemaVersion: artifact.SchemaVersion,
+		Path:          "attachments.json",
+		SHA256:        hex.EncodeToString(hash[:]),
+		PlanCount:     len(artifact.Plans),
+	}, nil
 }
 
 func shouldBundleBrowserPackage(specifier string) bool {
@@ -509,6 +626,22 @@ func writeBrowserHost(packageRoot string, outputDirectory string, entryOutputPat
 		}
 		preflightScript = "<script type=\"module\" src=\"./react-preflight.js\"></script>\n"
 	}
+	attachmentPlanLoader := ""
+	if materialization.AttachmentPlans != nil {
+		loaderPath := filepath.Join(outputDirectory, "attachment-plan-loader.js")
+		if err := os.WriteFile(loaderPath, []byte(attachmentPlanLoaderModule), 0o644); err != nil {
+			return err
+		}
+		attachmentPlanLoader = "<script type=\"module\" src=\"./attachment-plan-loader.js\"></script>\n"
+	}
+	componentFrameLoader := ""
+	if materialization.ComponentFrames != nil {
+		loaderPath := filepath.Join(outputDirectory, "component-frame-loader.js")
+		if err := os.WriteFile(loaderPath, []byte(componentFrameLoaderModule), 0o644); err != nil {
+			return err
+		}
+		componentFrameLoader = "<script type=\"module\" src=\"./component-frame-loader.js\"></script>\n"
+	}
 
 	template, readErr := os.ReadFile(filepath.Join(packageRoot, "index.html"))
 	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
@@ -519,7 +652,9 @@ func writeBrowserHost(packageRoot string, outputDirectory string, entryOutputPat
 	}
 	bootstrap := "<script type=\"importmap\">" + string(importMap) + "</script>\n" +
 		preflightScript +
-		"<script type=\"module\" src=\"./" + entryOutputPath + "\"></script>\n"
+		"<script type=\"module\" src=\"./" + entryOutputPath + "\"></script>\n" +
+		componentFrameLoader +
+		attachmentPlanLoader
 	html := strings.Replace(string(template), "</body>", bootstrap+"</body>", 1)
 	if html == string(template) {
 		html += bootstrap
@@ -595,85 +730,6 @@ func browserMaterializationFingerprint(materialization browserMaterialization) s
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-const browserHostModule = `export function setText(id, text) {
-  const element = document.getElementById(id);
-  if (element === null) throw new Error("Copeland browser host could not find text element '" + id + "'.");
-  element.textContent = text;
-}
-
-export function onClick(id, callback) {
-  const button = document.getElementById(id);
-  if (!(button instanceof HTMLButtonElement)) throw new Error("Copeland browser host expected button '" + id + "'.");
-  button.addEventListener("click", callback);
-}
-
-export function dispatch(initialState, reduce, render) {
-  let currentState = initialState;
-  render(currentState);
-  return event => {
-    const nextState = reduce(currentState, event);
-    if (nextState !== currentState) {
-      currentState = nextState;
-      render(currentState);
-    }
-  };
-}
-
-export function getMountElement(id) {
-  const element = document.getElementById(id);
-  if (element === null) throw new Error("Copeland React host could not find mount element '" + id + "'.");
-  return element;
-}
-
-export function dispatchReact(initialState, reduce, render) {
-  let currentState = initialState;
-  const send = event => {
-    currentState = reduce(currentState, event);
-    render(currentState, send);
-  };
-  render(currentState, send);
-  return send;
-}
-
-export function copyText(text, onSuccess, onFailure) {
-  if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-    navigator.clipboard.writeText(text).then(onSuccess, () => copyTextWithDocument(text, onSuccess, onFailure));
-    return;
-  }
-
-  copyTextWithDocument(text, onSuccess, onFailure);
-}
-
-function copyTextWithDocument(text, onSuccess, onFailure) {
-  const element = document.createElement("textarea");
-  element.value = text;
-  element.setAttribute("readonly", "");
-  element.style.position = "fixed";
-  element.style.opacity = "0";
-  document.body.appendChild(element);
-  element.select();
-
-  const copied = document.execCommand("copy");
-  element.remove();
-  if (copied) onSuccess();
-  else onFailure();
-}
-
-export function getViewportWidth() {
-  return window.innerWidth;
-}
-
-export function subscribeViewport(onChange) {
-  window.addEventListener("resize", onChange, { passive: true });
-  window.addEventListener("orientationchange", onChange, { passive: true });
-
-  return () => {
-    window.removeEventListener("resize", onChange);
-    window.removeEventListener("orientationchange", onChange);
-  };
-}
-`
-
 const reactPreflightModule = `import * as React from "react";
 import { createRoot } from "react-dom/client";
 
@@ -686,4 +742,35 @@ const preflightRoot = createRoot(preflightContainer);
 preflightRoot.unmount();
 window.__copelandReactPreflight = { createElement: React.createElement, createRoot };
 document.documentElement.dataset.copelandReactPreflight = "ready";
+`
+
+const attachmentPlanLoaderModule = `import { registerAttachmentPlans } from "@copeland/browser-v1";
+
+const response = await fetch("./attachments.json", { cache: "no-store" });
+if (!response.ok) {
+  throw new Error("COPE-ATTACHMENT-PLAN-1004 failed to load attachment artifact: " + response.status);
+}
+
+registerAttachmentPlans(await response.json());
+`
+
+const componentFrameLoaderModule = `import { recordLegacyComponentFrameContract, registerComponentFrameEnvelope } from "@copeland/browser-v1";
+
+const artifact = { path: "component-frames.js", legacyRegistrations: 0 };
+globalThis.__copelandFrameArtifactLoading = artifact;
+try {
+  const frameModule = await import("./component-frames.js");
+  if (frameModule.default !== undefined) {
+    if (artifact.legacyRegistrations !== 0) {
+      throw new Error("COPE-COMPONENT-STATE-V1-1020 component frame artifact mixed V1 envelope and legacy registration path=" + artifact.path);
+    }
+    registerComponentFrameEnvelope(frameModule.default);
+  } else if (artifact.legacyRegistrations !== 0) {
+    recordLegacyComponentFrameContract(artifact);
+  } else {
+    throw new Error("COPE-COMPONENT-STATE-V1-1021 component frame artifact did not export a V1 envelope or register legacy frames path=" + artifact.path);
+  }
+} finally {
+  delete globalThis.__copelandFrameArtifactLoading;
+}
 `

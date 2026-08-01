@@ -1,9 +1,10 @@
-import { define, dep, npm, path, Policies } from "tspack/manifest";
+import { define, dep, npm, path, Policies, tool, Tools } from "tspack/manifest";
 
 const deps = {
   nanoid: dep(npm("nanoid", "^5.1.6")),
   react: dep(npm("react", "19.2.7")),
   reactDom: dep(npm("react-dom", "19.2.7")),
+  vite: tool(npm("vite", "5.4.19")),
   browserHost: dep(path("runtime"), { key: "@copeland/browser-v1" }),
 };
 
@@ -15,9 +16,25 @@ export default define(
       kind="app"
       compiler="tscl"
       compilerPath="../../../Copeland/src/Copeland/Copeland.Cli/bin/Debug/net10.0/Copeland.Cli.exe"
-      dependencies={{ values: [deps.nanoid, deps.react, deps.reactDom, deps.browserHost] }}
+      dependencies={{ values: [deps.nanoid, deps.react, deps.reactDom, deps.browserHost, deps.vite] }}
+      devBackend={{
+        kind: "aspnet",
+        command: ["dotnet", "run", "--project", "Host/Host.csproj", "--no-launch-profile"],
+        url: "http://127.0.0.1:5187",
+        cwd: "package",
+        ready: { kind: "http", path: "/api/status" },
+        env: [
+          { name: "ASPNETCORE_URLS", default: "http://127.0.0.1:5187" },
+        ],
+        ownsProcess: true,
+        proxyRoutes: [
+          { path: "/api" },
+          { path: "/hub", webSocket: true },
+        ],
+      }}
     >
       <Policies types={{ missingTypes: "ignore" }} />
+      <Tools values={[deps.vite]} />
       <Targets rows={[{
         name: "browser",
         export: ".",

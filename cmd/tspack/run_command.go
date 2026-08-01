@@ -273,6 +273,9 @@ func runRunCommand(args []string) {
 		renderRunTargetList(workspaceRoot, opts.ManifestPath, ir, opts.PackageName, opts.JSON)
 		return
 	}
+	if tryRunCopelandViteDev(opts, workspaceRoot, opts.ManifestPath, ir) {
+		return
+	}
 	selected := selectRunTarget(workspaceRoot, opts.ManifestPath, ir, opts.PackageName, opts.TargetArg)
 	rt := selected.Target
 	cwdPolicy := effectiveRunTargetCwd(rt)

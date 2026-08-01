@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { fail, runChecks, validateDeclaration } from "./browser-scenario-assertions.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
@@ -32,23 +33,35 @@ try {
     });
     page.on("pageerror", error => localDiagnostics.page.push(error.message));
     page.on("requestfailed", request => localDiagnostics.request.push({ url: request.url(), error: request.failure()?.errorText ?? "unknown" }));
-
-    await page.goto(new URL(item.path ?? "/", baseUrl).toString(), { waitUntil: "networkidle" });
-    await runChecks(page, item.assertions ?? []);
-    for (const step of item.steps ?? []) await runStep(page, step);
-    await runChecks(page, item.after ?? []);
+    page.on("response", response => {
+      if (response.status() >= 400) localDiagnostics.request.push({ url: response.url(), status: response.status() });
+    });
 
     let screenshot = null;
-    if (item.screenshot) {
-      screenshot = resolve(artifactDirectory, item.screenshot);
-      await mkdir(dirname(screenshot), { recursive: true });
-      await page.screenshot({ path: screenshot, fullPage: item.fullPage ?? false });
+    try {
+      await page.goto(new URL(item.path ?? "/", baseUrl).toString(), { waitUntil: "networkidle" });
+      const assertions = await runChecks(page, item.assertions ?? []);
+      for (const step of item.steps ?? []) await runStep(page, step);
+      const after = await runChecks(page, item.after ?? []);
+
+      if (item.screenshot) {
+        screenshot = resolve(artifactDirectory, item.screenshot);
+        await mkdir(dirname(screenshot), { recursive: true });
+        await page.screenshot({ path: screenshot, fullPage: item.fullPage ?? false });
+      }
+      if (localDiagnostics.console.length || localDiagnostics.page.length || localDiagnostics.request.length) {
+        fail("TSPACK_SCENARIO_BROWSER_DIAGNOSTICS", `${item.name} observed browser diagnostics.`);
+      }
+      report.scenarios.push({ name: item.name, viewport: item.viewport, screenshot, assertions: [...assertions, ...after], diagnostics: localDiagnostics });
+    } catch (error) {
+      const failureScreenshot = resolve(artifactDirectory, `${safeArtifactName(item.name)}-failure.png`);
+      await page.screenshot({ path: failureScreenshot, fullPage: item.fullPage ?? false }).catch(() => {});
+      const message = error instanceof Error ? error.message : String(error);
+      const diagnosticSummary = formatDiagnostics(localDiagnostics);
+      fail("TSPACK_SCENARIO_ASSERTION_FAILED", `${item.name}: ${message}${diagnosticSummary} Screenshot: ${failureScreenshot}`);
+    } finally {
+      await context.close();
     }
-    if (localDiagnostics.console.length || localDiagnostics.page.length || localDiagnostics.request.length) {
-      fail("TSPACK_SCENARIO_BROWSER_DIAGNOSTICS", `${item.name} observed browser diagnostics.`);
-    }
-    report.scenarios.push({ name: item.name, viewport: item.viewport, screenshot, diagnostics: localDiagnostics });
-    await context.close();
   }
 
   const reportPath = resolve(artifactDirectory, "scenario-report.json");
@@ -69,47 +82,20 @@ async function runStep(page, step) {
   fail("TSPACK_SCENARIO_STEP_INVALID", `Unknown step kind ${JSON.stringify(step.kind)}.`);
 }
 
-async function runChecks(page, checks) {
-  for (const check of checks) {
-    if (check.kind === "visible") await page.locator(check.selector).waitFor({ state: "visible" });
-    else if (check.kind === "hidden") await page.locator(check.selector).waitFor({ state: "hidden" });
-    else if (check.kind === "count") {
-      const count = await page.locator(check.selector).count();
-      if (count !== check.value) fail("TSPACK_SCENARIO_ASSERTION_FAILED", `${check.selector} count was ${count}, expected ${check.value}.`);
-    } else if (check.kind === "text") {
-      await page.locator(check.selector).filter({ hasText: check.value }).waitFor({ state: "visible" });
-    } else if (check.kind === "no-horizontal-overflow") {
-      const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
-      if (overflow) fail("TSPACK_SCENARIO_ASSERTION_FAILED", "Page has horizontal overflow.");
-    } else if (check.kind === "class") {
-      const classes = await page.locator(check.selector).getAttribute("class");
-      if (!classes?.split(/\s+/).includes(check.value)) fail("TSPACK_SCENARIO_ASSERTION_FAILED", `${check.selector} did not have class ${check.value}.`);
-    } else if (check.kind === "focused") {
-      const focused = await page.locator(check.selector).evaluate(element => document.activeElement === element);
-      if (!focused) fail("TSPACK_SCENARIO_ASSERTION_FAILED", `${check.selector} was not focused.`);
-    } else if (check.kind === "reduced-motion") {
-      const reduced = await page.evaluate(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-      if (!reduced) fail("TSPACK_SCENARIO_ASSERTION_FAILED", "Reduced-motion media preference was not applied.");
-    } else fail("TSPACK_SCENARIO_ASSERTION_INVALID", `Unknown assertion kind ${JSON.stringify(check.kind)}.`);
-  }
+function safeArtifactName(name) {
+  return String(name).replace(/[^A-Za-z0-9._-]+/g, "-");
 }
 
-function validateDeclaration(value) {
-  if (!value || typeof value !== "object" || typeof value.artifactDirectory !== "string" || !Array.isArray(value.scenarios)) {
-    fail("TSPACK_SCENARIO_DECLARATION_INVALID", "Expected artifactDirectory and scenarios[].");
-  }
-  for (const item of value.scenarios) {
-    if (!item.name || !item.viewport || !Number.isInteger(item.viewport.width) || !Number.isInteger(item.viewport.height)) {
-      fail("TSPACK_SCENARIO_DECLARATION_INVALID", "Every scenario requires name and integer viewport width/height.");
-    }
-  }
+function formatDiagnostics(diagnostics) {
+  const values = [
+    ...diagnostics.console.map(message => `console=${message}`),
+    ...diagnostics.page.map(message => `page=${message}`),
+    ...diagnostics.request.map(item => `request=${item.url}${item.status ? ` status=${item.status}` : ` error=${item.error}`}`),
+  ];
+  return values.length === 0 ? "" : ` Diagnostics: ${values.join("; ")}.`;
 }
 
 function readOption(name) {
   const index = process.argv.indexOf(name);
   return index >= 0 ? process.argv[index + 1] : undefined;
-}
-
-function fail(code, message) {
-  throw new Error(`${code}: ${message}`);
 }

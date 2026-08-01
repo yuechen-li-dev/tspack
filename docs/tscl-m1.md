@@ -38,3 +38,12 @@ RunTarget commands remain unchanged.
 Deferred: Vite/browser integration, Bun/Deno proof, CLR build/test
 orchestration, sidecars, npm/native publication, watch/HMR, source maps,
 remote caching, custom npm resolution, and a generalized compiler plugin model.
+
+## Copeland attachment-plan materialization
+
+Browser `tscl` outputs include `attachments.json`, the versioned transport form
+of Copeland attachment MIR. TSPack validates schema v1, required identity and
+lifecycle fields, and duplicate IDs; it records the artifact SHA-256 in
+`browser-materialization.json` and emits `attachment-plan-loader.js`. The
+loader registers plans automatically after the browser entry starts. TSPack
+never selects an adapter, infers a host, or reconstructs payload facts.

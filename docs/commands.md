@@ -20,6 +20,7 @@
 | `tspack bench` | Run native benchmark units (`*.benchmark.tsx`). | No / No | Not a general profiling framework. | `docs/benchmarks.md` |
 | `tspack doom` | Run quarantined prophecy/doom units (`*.prophecy.tsx`). | No / No | Not a generic chaos platform. | `docs/doom.md` |
 | `tspack inspect <url\|target>` | Structural UI inspection and run-target inspection (experimental backends: platform-webview scaffold, CDP, host-path, Playwright Chromium/WebKit). | No / No | Not screenshot diffing/visual testing; not auto-attach. | `docs/inspect.md` (**experimental**) |
+| `tspack scenario <scenario.json> --run <target>` | Start a declared target, run bounded browser assertions, capture declared screenshots, then close the browser and target. | No / No | Not an unrestricted browser-script runner or a second test harness. | `docs/scenario.md` |
 | `tspack doctor runtime` | Report the selected workspace runtime profile (`nodejs`, `bun`, or `deno`), selected executable availability, TSPack lifecycle ownership, and `packageManagerDelegated: false`. | No / No | Does not install runtimes, switch package managers, or rewrite RunTargets. | `docs/doctor.md`, `docs/runtime-profiles.md` |
 
 ## `tspack update`

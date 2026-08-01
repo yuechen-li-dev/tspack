@@ -257,6 +257,24 @@ declare module 'tspack/manifest' {
     requires?: RunTargetServiceRequirementRow[];
   };
 
+  export type DevProxyRoute = {
+    path: string;
+    target?: string;
+    webSocket?: boolean;
+    secure?: boolean;
+  };
+
+  export type DevBackend = {
+    kind: 'process' | 'aspnet';
+    command?: string[];
+    url: string;
+    cwd?: 'workspace' | 'package';
+    ready?: RunTargetReady;
+    env?: RunTargetEnvRow[];
+    ownsProcess?: boolean;
+    proxyRoutes: DevProxyRoute[];
+  };
+
   export type PackageRow = {
     name: string;
     root: string;
@@ -281,6 +299,7 @@ declare module 'tspack/manifest' {
     dependencies?: {
       values: DependencyIntent[];
     };
+    devBackend?: DevBackend;
     children?: ManifestNode;
   };
 

@@ -31,6 +31,7 @@ declare module 'tspack/manifest' {
   };
 
   export type RuntimeProfile = 'nodejs' | 'bun' | 'deno';
+  export type Compiler = 'tsc' | 'tscl';
 
   export type NpmSource = {
     kind: 'npm';
@@ -162,16 +163,50 @@ declare module 'tspack/manifest' {
 
   export type TargetDependencyRefLike = string | DependencyIntent;
 
+  export type CopelandNpmExportContract = {
+    name: string;
+    parameters: string[];
+    result: string;
+    remoteError?: string;
+    promise?: boolean;
+  };
+
+  export type CopelandNpmContract = {
+    package: string;
+    exports: CopelandNpmExportContract[];
+    components?: CopelandNpmComponentContract[];
+  };
+
+  export type CopelandNpmComponentProperty = {
+    name: string;
+    type: string;
+    required?: boolean;
+  };
+
+  export type CopelandNpmComponentMember = {
+    name: string;
+    properties?: CopelandNpmComponentProperty[];
+  };
+
+  export type CopelandNpmComponentContract = {
+    name: string;
+    properties?: CopelandNpmComponentProperty[];
+    members?: CopelandNpmComponentMember[];
+  };
+
   export type TargetRow = {
     name: string;
     export?: string;
     entry: string;
     runtime: string;
     types?: string;
+    javascriptRuntime?: 'node' | 'browser';
+    tsXmlProfile?: 'react-m0';
+    npmContracts?: CopelandNpmContract[];
     deps?: TargetDependencyRefLike[];
     peers?: TargetDependencyRefLike[];
     optional?: boolean;
-    [key: string]: Primitive | Primitive[] | TargetDependencyRefLike[] | undefined;
+    [key: string]: Primitive | Primitive[] | TargetDependencyRefLike[] | CopelandNpmContract[] | undefined;
   };
 
   export type RunTargetReady =
@@ -222,6 +257,24 @@ declare module 'tspack/manifest' {
     requires?: RunTargetServiceRequirementRow[];
   };
 
+  export type DevProxyRoute = {
+    path: string;
+    target?: string;
+    webSocket?: boolean;
+    secure?: boolean;
+  };
+
+  export type DevBackend = {
+    kind: 'process' | 'aspnet';
+    command?: string[];
+    url: string;
+    cwd?: 'workspace' | 'package';
+    ready?: RunTargetReady;
+    env?: RunTargetEnvRow[];
+    ownsProcess?: boolean;
+    proxyRoutes: DevProxyRoute[];
+  };
+
   export type PackageRow = {
     name: string;
     root: string;
@@ -240,10 +293,13 @@ declare module 'tspack/manifest' {
     name: string;
     version: string;
     kind: 'library' | 'app' | 'service';
+    compiler?: Compiler;
+    compilerPath?: string;
     license?: string;
     dependencies?: {
       values: DependencyIntent[];
     };
+    devBackend?: DevBackend;
     children?: ManifestNode;
   };
 

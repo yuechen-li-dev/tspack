@@ -103,7 +103,7 @@ func runScenarioCommand(args []string) {
 		}
 	}()
 
-	runnerPath, pathErr := filepath.Abs(filepath.Join("tools", "run-browser-scenarios.mjs"))
+	runnerPath, pathErr := resolveScenarioRunnerPath()
 	if pathErr != nil {
 		fmt.Fprintf(os.Stderr, "TSPACK_SCENARIO_RUNNER_UNAVAILABLE: %v\n", pathErr)
 		os.Exit(1)
@@ -127,6 +127,46 @@ func runScenarioCommand(args []string) {
 	}
 }
 
+func resolveScenarioRunnerPath() (string, error) {
+	executablePath, executableErr := os.Executable()
+	workingDirectory, workingDirectoryErr := os.Getwd()
+
+	return resolveScenarioRunnerPathFrom(firstNonEmptyScenarioPath(executablePath, executableErr), firstNonEmptyScenarioPath(workingDirectory, workingDirectoryErr))
+}
+
+func resolveScenarioRunnerPathFrom(executablePath string, workingDirectory string) (string, error) {
+	candidates := make([]string, 0, 3)
+	if executablePath != "" {
+		executableDirectory := filepath.Dir(executablePath)
+		candidates = append(candidates,
+			filepath.Join(executableDirectory, "tools", "run-browser-scenarios.mjs"),
+			filepath.Join(executableDirectory, "..", "tools", "run-browser-scenarios.mjs"),
+		)
+	}
+	if workingDirectory != "" {
+		candidates = append(candidates, filepath.Join(workingDirectory, "tools", "run-browser-scenarios.mjs"))
+	}
+
+	for _, candidate := range candidates {
+		absoluteCandidate, err := filepath.Abs(candidate)
+		if err != nil {
+			continue
+		}
+		if info, err := os.Stat(absoluteCandidate); err == nil && !info.IsDir() {
+			return absoluteCandidate, nil
+		}
+	}
+
+	return "", fmt.Errorf("could not find tools/run-browser-scenarios.mjs; searched %s", strings.Join(candidates, ", "))
+}
+
+func firstNonEmptyScenarioPath(value string, err error) string {
+	if err != nil {
+		return ""
+	}
+	return value
+}
+
 func failScenarioArgument(message string) {
 	fmt.Fprintf(os.Stderr, "TSPACK_SCENARIO_INVALID_ARGS: %s\n", message)
 	os.Exit(1)
@@ -134,5 +174,6 @@ func failScenarioArgument(message string) {
 
 func printScenarioHelp() {
 	fmt.Println("Usage: tspack scenario <scenario.json> --run <RunTarget> [--root .] [--ready-timeout seconds]")
-	fmt.Println("The JSON declaration names viewports, navigation steps, assertions, screenshots, and an artifact directory.")
+	fmt.Println("The JSON declaration names viewports, navigation steps, bounded assertions, screenshots, and an artifact directory.")
+	fmt.Println("topmost-at-point requires integer x/y and one expected CSS selector; it uses browser hit testing without arbitrary script execution.")
 }

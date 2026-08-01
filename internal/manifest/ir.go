@@ -114,6 +114,28 @@ type Package struct {
 	Boundaries   []BoundaryRule     `json:"boundaries"`
 	Publish      PublishPolicy      `json:"publish"`
 	RunTargets   []RunTarget        `json:"runTargets,omitempty"`
+	DevBackend   *DevBackend        `json:"devBackend,omitempty"`
+}
+
+// DevBackend is an optional development-only process and proxy contract. It
+// describes generic process facts; aspnet is its first dogfood kind, not a
+// requirement for browser-only projects.
+type DevBackend struct {
+	Kind        string          `json:"kind"`
+	Command     []string        `json:"command,omitempty"`
+	URL         string          `json:"url"`
+	Cwd         string          `json:"cwd,omitempty"`
+	Ready       *RunReadyCheck  `json:"ready,omitempty"`
+	Env         []RunTargetEnv  `json:"env,omitempty"`
+	OwnsProcess bool            `json:"ownsProcess"`
+	ProxyRoutes []DevProxyRoute `json:"proxyRoutes,omitempty"`
+}
+
+type DevProxyRoute struct {
+	Path      string `json:"path"`
+	Target    string `json:"target,omitempty"`
+	WebSocket bool   `json:"webSocket,omitempty"`
+	Secure    bool   `json:"secure,omitempty"`
 }
 
 type RunTarget struct {
@@ -621,6 +643,7 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 				add("TSPACK_IR_INVALID_DEPENDENCY_KIND", pp+".tools must reference tool dependencies")
 			}
 		}
+		validateDevBackend(add, pp, p.DevBackend)
 		seenRunTargets := map[string]struct{}{}
 		for ri, rt := range p.RunTargets {
 			rp := fmt.Sprintf("%s.runTargets[%d]", pp, ri)
@@ -719,6 +742,58 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 	}
 	diag.SortDiagnostics(out)
 	return out
+}
+
+func validateDevBackend(add func(string, string, ...string), packagePath string, backend *DevBackend) {
+	if backend == nil {
+		return
+	}
+	backendPath := packagePath + ".devBackend"
+	if backend.Kind != "process" && backend.Kind != "aspnet" {
+		add("TSPACK_VITE_BACKEND_KIND_INVALID", backendPath+".kind must be process or aspnet")
+	}
+	if backend.Cwd != "" && backend.Cwd != "workspace" && backend.Cwd != "package" {
+		add("TSPACK_VITE_BACKEND_CWD_INVALID", backendPath+".cwd must be workspace or package")
+	}
+	if backend.OwnsProcess && len(backend.Command) == 0 {
+		add("TSPACK_VITE_BACKEND_COMMAND_MISSING", backendPath+".command is required when ownsProcess is true")
+	}
+	for _, part := range backend.Command {
+		if strings.TrimSpace(part) == "" {
+			add("TSPACK_VITE_BACKEND_COMMAND_INVALID", backendPath+".command entries must be non-empty")
+		}
+	}
+	if strings.TrimSpace(backend.URL) == "" {
+		add("TSPACK_VITE_BACKEND_URL_INVALID", backendPath+".url is required")
+	} else {
+		u, err := url.Parse(runTargetURLForValidation(backend.URL))
+		if err != nil || !validRunReadyURLPlaceholders(backend.URL) || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			add("TSPACK_VITE_BACKEND_URL_INVALID", backendPath+".url must be a valid http/https URL")
+		}
+	}
+	if backend.OwnsProcess && backend.Ready == nil {
+		add("TSPACK_VITE_BACKEND_READY_MISSING", backendPath+".ready is required when ownsProcess is true")
+	} else if backend.Ready != nil && !validRunReadyCheck(backend.Ready) {
+		add("TSPACK_VITE_BACKEND_READY_INVALID", backendPath+".ready is invalid")
+	}
+	seenPaths := map[string]struct{}{}
+	for routeIndex, route := range backend.ProxyRoutes {
+		routePath := fmt.Sprintf("%s.proxyRoutes[%d]", backendPath, routeIndex)
+		if !strings.HasPrefix(route.Path, "/") || strings.Contains(route.Path, " ") {
+			add("TSPACK_VITE_PROXY_ROUTE_INVALID", routePath+".path must start with /")
+		}
+		if _, found := seenPaths[route.Path]; found {
+			add("TSPACK_VITE_PROXY_ROUTE_DUPLICATE", "duplicate proxy route: "+route.Path)
+		}
+		seenPaths[route.Path] = struct{}{}
+		if route.Target == "" {
+			continue
+		}
+		u, err := url.Parse(runTargetURLForValidation(route.Target))
+		if err != nil || !validRunReadyURLPlaceholders(route.Target) || (u.Scheme != "http" && u.Scheme != "https" && u.Scheme != "ws" && u.Scheme != "wss") || u.Host == "" {
+			add("TSPACK_VITE_PROXY_TARGET_INVALID", routePath+".target must be a valid http/https/ws/wss URL")
+		}
+	}
 }
 
 func isValidPackageKind(kind string) bool {
