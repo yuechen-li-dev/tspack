@@ -161,6 +161,52 @@
               },
               "additionalProperties": true
             }
+          },
+          "skyrim": {
+            "type": "object",
+            "description": "Explicitly opted-in Skyrim build, materialization, and launch target.",
+            "required": [
+              "name",
+              "host",
+              "runtimeVersion",
+              "bridge",
+              "nativeConfigure",
+              "nativeBuild",
+              "nativeTests",
+              "nativeDll",
+              "assetCompilerProject",
+              "assetTestsProject",
+              "assetPacks",
+              "assetOutput",
+              "runtimeConfig",
+              "dllDestination",
+              "configDestination",
+              "expectedRecords",
+              "runtimeEvidencePattern",
+              "readyMarker"
+            ],
+            "properties": {
+              "name": { "type": "string" },
+              "host": { "type": "string" },
+              "runtimeVersion": { "type": "string" },
+              "bridge": { "const": "MarionetteSSE.esp" },
+              "nativeConfigure": { "type": "object" },
+              "nativeBuild": { "type": "object" },
+              "nativeTests": { "type": "object" },
+              "nativeDll": { "type": "string" },
+              "assetCompilerProject": { "type": "string" },
+              "assetTestsProject": { "type": "string" },
+              "assetPacks": { "type": "array", "items": { "type": "object" } },
+              "assetOutput": { "const": "build/assets/MarionetteSSE.esp" },
+              "runtimeConfig": { "type": "string" },
+              "dllDestination": { "type": "string" },
+              "configDestination": { "type": "string" },
+              "expectedRecords": { "type": "array", "items": { "type": "object" } },
+              "stalePlugins": { "type": "array", "items": { "type": "string" } },
+              "runtimeEvidencePattern": { "type": "string" },
+              "readyMarker": { "type": "string" }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": true

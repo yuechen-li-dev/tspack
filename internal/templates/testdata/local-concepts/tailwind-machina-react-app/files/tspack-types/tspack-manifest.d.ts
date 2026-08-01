@@ -326,6 +326,43 @@ declare module 'tspack/manifest' {
     rows: RunTargetRow[];
   };
 
+  export type SkyrimAssetPack = {
+    name: string;
+    source: string;
+  };
+
+  export type SkyrimExpectedRecord = {
+    editorId: string;
+    localFormId: string;
+  };
+
+  export type SkyrimCommand = {
+    command: string[];
+    cwd?: "workspace" | "package";
+  };
+
+  export type SkyrimTargetProps = {
+    name: string;
+    host: string;
+    runtimeVersion: string;
+    bridge: "MarionetteSSE.esp";
+    nativeConfigure: SkyrimCommand;
+    nativeBuild: SkyrimCommand;
+    nativeTests: SkyrimCommand;
+    nativeDll: string;
+    assetCompilerProject: string;
+    assetTestsProject: string;
+    assetPacks: SkyrimAssetPack[];
+    assetOutput: "build/assets/MarionetteSSE.esp";
+    runtimeConfig: string;
+    dllDestination: "SKSE/Plugins/MarionetteSSE.dll";
+    configDestination: "SKSE/Plugins/MarionetteSSE.toml";
+    expectedRecords: SkyrimExpectedRecord[];
+    stalePlugins?: string[];
+    runtimeEvidencePattern: string;
+    readyMarker: string;
+  };
+
   export type SecurityProps = {
     acknowledgedCapabilities?: AcknowledgedCapability[];
     acknowledgedLifecycleCategories?: AcknowledgedLifecycleCategory[];
@@ -411,6 +448,7 @@ declare module 'tspack/manifest' {
   export const Policies: ManifestComponent<PoliciesProps>;
   export const Targets: ManifestComponent<TargetsProps>;
   export const RunTargets: ManifestComponent<RunTargetsProps>;
+  export const SkyrimTarget: ManifestComponent<SkyrimTargetProps>;
   export const Tools: ManifestComponent<ToolsProps>;
   export const Boundaries: ManifestComponent<BoundariesProps>;
   export const Publish: ManifestComponent<PublishProps>;

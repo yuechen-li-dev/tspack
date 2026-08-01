@@ -31,6 +31,34 @@ function withTemporaryManifest(
 }
 
 describe('manifest frontend parser', () => {
+  it('parses an additive static Skyrim target without changing ordinary manifests', () => {
+    withTemporaryManifest('tmp-skyrim-valid-', `import { define } from "tspack/manifest";
+export default define(<Workspace name="ws"><Package name="mod" version="1.0.0" kind="tool"><SkyrimTarget
+name="skyrim" host="skyrim-dev" runtimeVersion="1.6.1170.0" bridge="MarionetteSSE.esp"
+nativeConfigure={{command:["cmake","--preset","x"]}} nativeBuild={{command:["cmake","--build","x"]}}
+nativeTests={{command:["build/tests.exe"]}} nativeDll="build/MarionetteSSE.dll"
+assetCompilerProject="tools/assets.csproj" assetTestsProject="tools/assets.tests.csproj"
+assetPacks={[{name:"core",source:"assets/core.toml"}]} assetOutput="build/assets/MarionetteSSE.esp"
+runtimeConfig="MarionetteSSE.toml" dllDestination="SKSE/Plugins/MarionetteSSE.dll"
+configDestination="SKSE/Plugins/MarionetteSSE.toml" expectedRecords={[{editorId:"Record",localFormId:"0x000800"}]}
+runtimeEvidencePattern="marionette-*.log" readyMarker="M3A_ASSET_BRIDGE_READY" /></Package></Workspace>);`, (manifestPath) => {
+      const result = parseManifestFile(manifestPath);
+      expect(result.ok).toBe(true);
+      expect((result.ir?.packages[0].skyrim as { bridge: string }).bridge).toBe('MarionetteSSE.esp');
+      expect(parseManifestFile(fixture('valid', 'minimal-library')).ir).not.toHaveProperty('packages.0.skyrim');
+    });
+  });
+
+  it('reports source-mapped Skyrim fields and bridge identity errors', () => {
+    withTemporaryManifest('tmp-skyrim-invalid-', `import { define } from "tspack/manifest";
+export default define(<Workspace name="ws"><Package name="mod" version="1.0.0" kind="tool"><SkyrimTarget bridge="Other.esp" /></Package></Workspace>);`, (manifestPath) => {
+      const result = parseManifestFile(manifestPath);
+      expect(result.ok).toBe(false);
+      expect(result.diagnostics.some((diagnostic) => diagnostic.code === 'TSPACK_SKYRIM_REQUIRED_FIELD' && diagnostic.line === 2)).toBe(true);
+      expect(result.diagnostics.some((diagnostic) => diagnostic.code === 'TSPACK_SKYRIM_BRIDGE_INVALID' && diagnostic.line === 2)).toBe(true);
+    });
+  });
+
   it('parses minimal-library', () => {
     const result = parseManifestFile(fixture('valid', 'minimal-library'));
     expect(result.ok).toBe(true);

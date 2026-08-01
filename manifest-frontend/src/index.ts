@@ -36,7 +36,7 @@ type InternalDoc = { mode: DocMode; ir: ManifestIr; rows?: PackageRow[] };
 
 const ALLOWED_IMPORT = 'tspack/manifest';
 const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'annotatePackage', 'defineDeps', 'npm', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service', 'json']);
-const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'PackageAnnotations', 'Policies', 'Targets', 'RunTargets', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy', 'CompatFiles', 'JsonFile']);
+const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'PackageAnnotations', 'Policies', 'Targets', 'RunTargets', 'SkyrimTarget', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy', 'CompatFiles', 'JsonFile']);
 const APPROVED_PROPERTY_HELPERS = new Set(['TsConfig.manifestEditor', 'VSCode.settings', 'VSCode.extensions']);
 const DEFAULT_MANIFEST_EDITOR_INCLUDE = [
   'manifest.tsx',
@@ -202,6 +202,9 @@ function parseManifestDocument(filePath: string, modeHint: ParseMode): { doc?: I
     if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
       const tag = node.tagName.getText(sf);
       if (!APPROVED_ELEMENTS.has(tag)) addDiag(node, 'TSPACK_MANIFEST_UNKNOWN_ELEMENT', `Unknown JSX element: ${tag}`);
+      if (tag === 'SkyrimTarget') {
+        validateSkyrimTargetSyntax(node, sf, addDiag);
+      }
     }
     ts.forEachChild(node, walk);
   };
@@ -302,6 +305,46 @@ function manifestEditorTsConfig(options: unknown, diags: Diagnostic[], file: str
     include: validated.include,
     exclude: validated.exclude,
   };
+}
+
+function validateSkyrimTargetSyntax(
+  node: ts.JsxSelfClosingElement | ts.JsxOpeningElement,
+  sf: ts.SourceFile,
+  addDiag: (node: ts.Node, code: string, message: string) => void,
+): void {
+  const attributes = new Map<string, ts.JsxAttribute>();
+  for (const property of node.attributes.properties) {
+    if (ts.isJsxAttribute(property)) {
+      attributes.set(property.name.getText(sf), property);
+    }
+  }
+  const required = [
+    'name', 'host', 'runtimeVersion', 'bridge', 'nativeConfigure', 'nativeBuild',
+    'nativeTests', 'nativeDll', 'assetCompilerProject', 'assetTestsProject',
+    'assetPacks', 'assetOutput', 'runtimeConfig', 'dllDestination',
+    'configDestination', 'expectedRecords', 'runtimeEvidencePattern', 'readyMarker',
+  ];
+  for (const name of required) {
+    if (!attributes.has(name)) {
+      addDiag(node, 'TSPACK_SKYRIM_REQUIRED_FIELD', `SkyrimTarget ${name} is required.`);
+    }
+  }
+  const stringValue = (name: string): string | undefined => {
+    const initializer = attributes.get(name)?.initializer;
+    return initializer && ts.isStringLiteral(initializer) ? initializer.text : undefined;
+  };
+  if (stringValue('bridge') !== undefined && stringValue('bridge') !== 'MarionetteSSE.esp') {
+    addDiag(attributes.get('bridge')!, 'TSPACK_SKYRIM_BRIDGE_INVALID', 'SkyrimTarget bridge must be MarionetteSSE.esp.');
+  }
+  if (stringValue('assetOutput') !== undefined && stringValue('assetOutput') !== 'build/assets/MarionetteSSE.esp') {
+    addDiag(attributes.get('assetOutput')!, 'TSPACK_SKYRIM_BRIDGE_INVALID', 'SkyrimTarget assetOutput must be build/assets/MarionetteSSE.esp.');
+  }
+  for (const name of ['nativeDll', 'assetCompilerProject', 'assetTestsProject', 'assetOutput', 'runtimeConfig', 'runtimeEvidencePattern']) {
+    const value = stringValue(name);
+    if (value !== undefined && (path.isAbsolute(value) || /^[A-Za-z]:[\\/]/.test(value))) {
+      addDiag(attributes.get(name)!, 'TSPACK_SKYRIM_PATH_INVALID', `SkyrimTarget ${name} must be project-relative.`);
+    }
+  }
 }
 
 function validateManifestEditorTsConfigOptions(
@@ -572,6 +615,7 @@ function mapPackage(p: any, includeRoot: boolean): Record<string, unknown> {
     dependencies: mapDependencies(p.dependencies?.values ?? []),
     targets: mapTargets(p.__children?.find((x: any) => x.__tag === 'Targets')?.rows ?? []),
     ...(p.__children?.find((x: any) => x.__tag === 'RunTargets') ? { runTargets: p.__children?.find((x: any) => x.__tag === 'RunTargets')?.rows ?? [] } : {}),
+    ...(p.__children?.find((x: any) => x.__tag === 'SkyrimTarget') ? { skyrim: mapSkyrimTarget(p.__children?.find((x: any) => x.__tag === 'SkyrimTarget')) } : {}),
     tools: mapDependencyRefs(p.__children?.find((x: any) => x.__tag === 'Tools')?.values ?? []),
     boundaries: p.__children?.find((x: any) => x.__tag === 'Boundaries')?.rows ?? [],
     publish: { include: p.__children?.find((x: any) => x.__tag === 'Publish')?.include ?? [], exclude: p.__children?.find((x: any) => x.__tag === 'Publish')?.exclude ?? [] },
@@ -665,6 +709,11 @@ function jsxEval(node: ts.JsxElement | ts.JsxSelfClosingElement, sf: ts.SourceFi
 
 function isSafeRel(p: string): boolean {
   return !!p && !path.isAbsolute(p) && !p.includes('..') && !p.includes('\\');
+}
+
+function mapSkyrimTarget(target: any): Record<string, unknown> {
+  const { __tag: _tag, __children: _children, ...value } = target;
+  return value;
 }
 
 function compilerIdentity(value: unknown): Compiler {

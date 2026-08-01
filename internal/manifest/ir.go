@@ -115,6 +115,44 @@ type Package struct {
 	Publish      PublishPolicy      `json:"publish"`
 	RunTargets   []RunTarget        `json:"runTargets,omitempty"`
 	DevBackend   *DevBackend        `json:"devBackend,omitempty"`
+	Skyrim       *SkyrimTarget      `json:"skyrim,omitempty"`
+}
+
+type SkyrimTarget struct {
+	Name                   string                 `json:"name"`
+	Host                   string                 `json:"host"`
+	RuntimeVersion         string                 `json:"runtimeVersion"`
+	Bridge                 string                 `json:"bridge"`
+	NativeConfigure        SkyrimCommand          `json:"nativeConfigure"`
+	NativeBuild            SkyrimCommand          `json:"nativeBuild"`
+	NativeTests            SkyrimCommand          `json:"nativeTests"`
+	NativeDLL              string                 `json:"nativeDll"`
+	AssetCompilerProject   string                 `json:"assetCompilerProject"`
+	AssetTestsProject      string                 `json:"assetTestsProject"`
+	AssetPacks             []SkyrimAssetPack      `json:"assetPacks"`
+	AssetOutput            string                 `json:"assetOutput"`
+	RuntimeConfig          string                 `json:"runtimeConfig"`
+	DLLDestination         string                 `json:"dllDestination"`
+	ConfigDestination      string                 `json:"configDestination"`
+	ExpectedRecords        []SkyrimExpectedRecord `json:"expectedRecords"`
+	StalePlugins           []string               `json:"stalePlugins,omitempty"`
+	RuntimeEvidencePattern string                 `json:"runtimeEvidencePattern"`
+	ReadyMarker            string                 `json:"readyMarker"`
+}
+
+type SkyrimCommand struct {
+	Command []string `json:"command"`
+	Cwd     string   `json:"cwd,omitempty"`
+}
+
+type SkyrimAssetPack struct {
+	Name   string `json:"name"`
+	Source string `json:"source"`
+}
+
+type SkyrimExpectedRecord struct {
+	EditorID    string `json:"editorId"`
+	LocalFormID string `json:"localFormId"`
 }
 
 // DevBackend is an optional development-only process and proxy contract. It
@@ -554,6 +592,7 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 	}
 
 	seenPkg := map[string]struct{}{}
+	skyrimTargetCount := 0
 	for pi := range ir.Packages {
 		p := &ir.Packages[pi]
 		pp := fmt.Sprintf("packages[%d]", pi)
@@ -644,6 +683,13 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 			}
 		}
 		validateDevBackend(add, pp, p.DevBackend)
+		validateSkyrimTarget(add, pp, p.Skyrim)
+		if p.Skyrim != nil {
+			skyrimTargetCount++
+			if skyrimTargetCount > 1 {
+				add("TSPACK_SKYRIM_BRIDGE_DUPLICATE", "only one Skyrim bridge target may be declared per workspace")
+			}
+		}
 		seenRunTargets := map[string]struct{}{}
 		for ri, rt := range p.RunTargets {
 			rp := fmt.Sprintf("%s.runTargets[%d]", pp, ri)
@@ -742,6 +788,86 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 	}
 	diag.SortDiagnostics(out)
 	return out
+}
+
+func validateSkyrimTarget(add func(string, string, ...string), packagePath string, target *SkyrimTarget) {
+	if target == nil {
+		return
+	}
+	prefix := packagePath + ".skyrim"
+	if strings.TrimSpace(target.Name) == "" || !targetNameRe.MatchString(target.Name) {
+		add("TSPACK_SKYRIM_TARGET_INVALID", prefix+".name is invalid")
+	}
+	if strings.TrimSpace(target.Host) == "" || !targetNameRe.MatchString(target.Host) {
+		add("TSPACK_SKYRIM_HOST_INVALID", prefix+".host is invalid")
+	}
+	if strings.TrimSpace(target.RuntimeVersion) == "" {
+		add("TSPACK_SKYRIM_RUNTIME_INVALID", prefix+".runtimeVersion is required")
+	}
+	if target.Bridge != "MarionetteSSE.esp" {
+		add("TSPACK_SKYRIM_BRIDGE_INVALID", prefix+".bridge must be MarionetteSSE.esp")
+	}
+	if target.AssetOutput != "build/assets/MarionetteSSE.esp" {
+		add("TSPACK_SKYRIM_BRIDGE_INVALID", prefix+".assetOutput must be build/assets/MarionetteSSE.esp")
+	}
+	validateSkyrimCommand(add, prefix+".nativeConfigure", target.NativeConfigure)
+	validateSkyrimCommand(add, prefix+".nativeBuild", target.NativeBuild)
+	validateSkyrimCommand(add, prefix+".nativeTests", target.NativeTests)
+	for field, value := range map[string]string{
+		"nativeDll":              target.NativeDLL,
+		"assetCompilerProject":   target.AssetCompilerProject,
+		"assetTestsProject":      target.AssetTestsProject,
+		"assetOutput":            target.AssetOutput,
+		"runtimeConfig":          target.RuntimeConfig,
+		"runtimeEvidencePattern": target.RuntimeEvidencePattern,
+	} {
+		if !pathutil.IsSafePackageFilePath(value) && !pathutil.IsSafeRelativeGlob(value) {
+			add("TSPACK_SKYRIM_PATH_INVALID", prefix+"."+field+" must be a safe project-relative path")
+		}
+	}
+	if target.DLLDestination != "SKSE/Plugins/MarionetteSSE.dll" {
+		add("TSPACK_SKYRIM_DESTINATION_INVALID", prefix+".dllDestination must be SKSE/Plugins/MarionetteSSE.dll")
+	}
+	if target.ConfigDestination != "SKSE/Plugins/MarionetteSSE.toml" {
+		add("TSPACK_SKYRIM_DESTINATION_INVALID", prefix+".configDestination must be SKSE/Plugins/MarionetteSSE.toml")
+	}
+	seenPacks := map[string]struct{}{}
+	for index, pack := range target.AssetPacks {
+		packPath := fmt.Sprintf("%s.assetPacks[%d]", prefix, index)
+		if strings.TrimSpace(pack.Name) == "" {
+			add("TSPACK_SKYRIM_ASSET_PACK_INVALID", packPath+".name is required")
+		}
+		if _, ok := seenPacks[pack.Name]; ok {
+			add("TSPACK_SKYRIM_ASSET_PACK_DUPLICATE", "duplicate Skyrim asset pack: "+pack.Name)
+		}
+		seenPacks[pack.Name] = struct{}{}
+		if !pathutil.IsSafePackageFilePath(pack.Source) {
+			add("TSPACK_SKYRIM_PATH_INVALID", packPath+".source must be a safe project-relative path")
+		}
+	}
+	if len(target.AssetPacks) == 0 {
+		add("TSPACK_SKYRIM_ASSET_PACK_INVALID", prefix+".assetPacks must be non-empty")
+	}
+	if len(target.ExpectedRecords) == 0 {
+		add("TSPACK_SKYRIM_RECORDS_INVALID", prefix+".expectedRecords must be non-empty")
+	}
+	if strings.TrimSpace(target.ReadyMarker) == "" {
+		add("TSPACK_SKYRIM_EVIDENCE_INVALID", prefix+".readyMarker is required")
+	}
+}
+
+func validateSkyrimCommand(add func(string, string, ...string), prefix string, command SkyrimCommand) {
+	if len(command.Command) == 0 {
+		add("TSPACK_SKYRIM_COMMAND_INVALID", prefix+".command must be non-empty")
+	}
+	for _, part := range command.Command {
+		if strings.TrimSpace(part) == "" {
+			add("TSPACK_SKYRIM_COMMAND_INVALID", prefix+".command entries must be non-empty")
+		}
+	}
+	if command.Cwd != "" && command.Cwd != "workspace" && command.Cwd != "package" {
+		add("TSPACK_SKYRIM_COMMAND_INVALID", prefix+".cwd must be workspace or package")
+	}
 }
 
 func validateDevBackend(add func(string, string, ...string), packagePath string, backend *DevBackend) {

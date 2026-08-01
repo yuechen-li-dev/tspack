@@ -263,6 +263,10 @@ func launchRunTargetInDir(root string, cwdPath string, target manifest.RunTarget
 }
 
 func runRunCommand(args []string) {
+	if isSkyrimRunInvocation(args) {
+		runSkyrimCommand(args)
+		return
+	}
 	opts := parseRunCommandOptions(args)
 	if opts.ManifestPath == "" {
 		opts.ManifestPath = filepath.Join(opts.Root, "manifest.tsx")

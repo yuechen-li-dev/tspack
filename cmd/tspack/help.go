@@ -52,7 +52,7 @@ func printDefaultHelp() {
 	fmt.Println("  tspack inspect <url> [experimental]")
 	fmt.Println("  tspack format [paths...] [--root .] [--check]")
 	fmt.Println("  tspack lint [paths...] [--root .] [--fix]")
-	fmt.Println("  tspack doctor [format|run|runtime|inspect|security]")
+	fmt.Println("  tspack doctor [format|run|runtime|inspect|security|skyrim]")
 	fmt.Println("  tspack test [--root .]")
 	fmt.Println("  tspack artifact [--root .]")
 	fmt.Println("  tspack bench [--root .]")

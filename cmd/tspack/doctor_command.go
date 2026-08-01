@@ -29,6 +29,7 @@ const (
 	doctorScopeRuntime  doctorScope = "runtime"
 	doctorScopeInspect  doctorScope = "inspect"
 	doctorScopeSecurity doctorScope = "security"
+	doctorScopeSkyrim   doctorScope = "skyrim"
 )
 
 type DoctorReport struct {
@@ -60,7 +61,7 @@ func runDoctorCommand(args []string) {
 	for i := 1; i < len(args); i++ {
 		a := args[i]
 		switch a {
-		case "format", "run", "runtime", "inspect", "security":
+		case "format", "run", "runtime", "inspect", "security", "skyrim":
 			scope = doctorScope(a)
 		case "--root":
 			if i+1 >= len(args) {
@@ -109,6 +110,9 @@ func runDoctorCommand(args []string) {
 	if scope == doctorScopeAll || scope == doctorScopeSecurity {
 		report.Sections = append(report.Sections, doctorSecurity(abs).toSection("Security"))
 	}
+	if scope == doctorScopeSkyrim {
+		report.Sections = append(report.Sections, doctorSkyrim(abs).toSection("Skyrim"))
+	}
 	for _, s := range report.Sections {
 		for _, c := range s.Checks {
 			if c.Status == "ok" {
@@ -128,9 +132,47 @@ func runDoctorCommand(args []string) {
 	} else {
 		printDoctorText(report)
 	}
-	if (scope == doctorScopeFormat || scope == doctorScopeRun || scope == doctorScopeSecurity) && report.Summary.Errors > 0 {
+	if (scope == doctorScopeFormat || scope == doctorScopeRun || scope == doctorScopeSecurity || scope == doctorScopeSkyrim) && report.Summary.Errors > 0 {
 		os.Exit(1)
 	}
+}
+
+func doctorSkyrim(root string) doctorBuilder {
+	d := doctorBuilder{}
+	manifestPath := filepath.Join(root, "manifest.tsx")
+	if _, err := os.Stat(manifestPath); err != nil {
+		d.checks = append(d.checks, DoctorCheck{Name: "manifest", Status: "error", Message: "manifest.tsx missing"})
+		return d
+	}
+	ir := loadManifestPathForRun(root, manifestPath)
+	target := selectSkyrimTarget(ir, root, "skyrim")
+	profile, err := loadSkyrimProfile(root, target.Target.Host)
+	if err != nil {
+		d.checks = append(d.checks, DoctorCheck{Name: "host profile", Status: "error", Message: err.Error()})
+		return d
+	}
+	d.checks = append(d.checks, DoctorCheck{Name: "host profile", Status: "ok", Message: target.Target.Host + " resolved", Details: map[string]any{"profilePath": filepath.Join(root, filepath.FromSlash(skyrimProfileRelativePath))}})
+	for name, path := range map[string]string{
+		"game root":             profile.GameRoot,
+		"data directory":        profile.DataDirectory,
+		"SKSE launcher":         profile.SKSELauncher,
+		"plugin state":          profile.PluginState,
+		"runtime log directory": profile.RuntimeLogDirectory,
+	} {
+		status := "ok"
+		message := path
+		if _, statErr := os.Stat(path); statErr != nil {
+			status = "error"
+			message = statErr.Error()
+		}
+		d.checks = append(d.checks, DoctorCheck{Name: name, Status: status, Message: message})
+	}
+	if profile.RuntimeVersion == target.Target.RuntimeVersion {
+		d.checks = append(d.checks, DoctorCheck{Name: "runtime version", Status: "ok", Message: profile.RuntimeVersion})
+	} else {
+		d.checks = append(d.checks, DoctorCheck{Name: "runtime version", Status: "error", Message: fmt.Sprintf("manifest=%s host=%s", target.Target.RuntimeVersion, profile.RuntimeVersion)})
+	}
+	return d
 }
 
 type doctorBuilder struct{ checks []DoctorCheck }

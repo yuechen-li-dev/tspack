@@ -693,13 +693,15 @@ func TestCLIHelpAndUnsupportedCommands(t *testing.T) {
 	if !strings.Contains(text, "run [target]") {
 		t.Fatalf("help missing run usage: %s", text)
 	}
-	for _, unsupported := range []string{"build", "dev", "publish", "add", "remove", "install"} {
+	for _, unsupported := range []string{"dev", "publish", "add", "remove", "install"} {
 		if strings.Contains(text, "tspack "+unsupported) {
 			t.Fatalf("help unexpectedly advertises unsupported command %s", unsupported)
 		}
 	}
 
-	for _, c := range []string{"build", "publish"} {
+	// build has a real, deliberately bounded tscl implementation. Keep this
+	// assertion focused on commands that are actually unsupported.
+	for _, c := range []string{"publish"} {
 		cmd := exec.Command("go", "run", "./cmd/tspack", c)
 		cmd.Dir = repo
 		ob, e := cmd.CombinedOutput()
