@@ -141,7 +141,7 @@ func TestMaterializeSkyrimPlanRollsBackAppliedFilesAfterFailure(t *testing.T) {
 func TestSkyrimRuntimeConfigAppliesDeclaredTypedOverridesDeterministically(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "MarionetteSSE.toml")
-	source := "[eternal_dragonborn.development.presenter]\nenabled = false\nallow_semantic_actuation = false\nprofile = \"safe\"\n"
+	source := "[eternal_dragonborn.development.presenter]\nenabled = false\nallow_semantic_actuation = false\nallow_host_request_evaluation = false\nprofile = \"safe\"\n"
 	if err := os.WriteFile(configPath, []byte(source), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -151,6 +151,7 @@ func TestSkyrimRuntimeConfigAppliesDeclaredTypedOverridesDeterministically(t *te
 			"host": "skyrim-dev",
 			"eternal_dragonborn.development.presenter.enabled":                  true,
 			"eternal_dragonborn.development.presenter.allow_semantic_actuation": false,
+			"eternal_dragonborn.development.presenter.allow_host_request_evaluation": true,
 			"eternal_dragonborn.development.presenter.profile":                  "skyrim-dev",
 			"eternal_dragonborn.development.presenter.token":                    "test-token-012345",
 		},
@@ -163,14 +164,14 @@ func TestSkyrimRuntimeConfigAppliesDeclaredTypedOverridesDeterministically(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.EffectiveSHA256 != second.EffectiveSHA256 || len(first.AppliedOverrides) != 4 {
+	if first.EffectiveSHA256 != second.EffectiveSHA256 || len(first.AppliedOverrides) != 5 {
 		t.Fatalf("runtime config was not deterministic: %#v %#v", first, second)
 	}
 	if _, err := os.Stat(first.StagedPath); !os.IsNotExist(err) {
 		t.Fatal("dry-run runtime config planning wrote a staged file")
 	}
-	if first.AppliedOverrides[3].EffectiveValue != "<redacted>" {
-		t.Fatalf("secret runtime override was not redacted: %#v", first.AppliedOverrides[3])
+	if first.AppliedOverrides[4].EffectiveValue != "<redacted>" {
+		t.Fatalf("secret runtime override was not redacted: %#v", first.AppliedOverrides[4])
 	}
 	staged, err := buildSkyrimRuntimeConfig(root, target, profile, true)
 	if err != nil {
@@ -268,6 +269,7 @@ func manifestSkyrimTargetForOverrideTests() manifest.SkyrimTarget {
 		RuntimeOverrideFields: []manifest.SkyrimRuntimeOverride{
 			{Path: "eternal_dragonborn.development.presenter.enabled", Type: "boolean"},
 			{Path: "eternal_dragonborn.development.presenter.allow_semantic_actuation", Type: "boolean"},
+			{Path: "eternal_dragonborn.development.presenter.allow_host_request_evaluation", Type: "boolean"},
 			{Path: "eternal_dragonborn.development.presenter.profile", Type: "string"},
 			{Path: "eternal_dragonborn.development.presenter.token", Type: "string", Secret: true},
 		},
