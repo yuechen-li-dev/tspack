@@ -45,6 +45,8 @@ type skyrimHostProfile struct {
 	RuntimeLogDirectory string                    `toml:"runtimeLogDirectory"`
 	RuntimeVersion      string                    `toml:"runtimeVersion"`
 	SaveDirectory       string                    `toml:"saveDirectory"`
+	INIPath             string                    `toml:"iniPath"`
+	INIOverrides        map[string]any            `toml:"iniOverrides"`
 	TestSaves           map[string]skyrimTestSave `toml:"testSaves"`
 	Tools               map[string]string         `toml:"tools"`
 	RuntimeOverrides    map[string]map[string]any `toml:"runtimeOverrides"`
@@ -100,6 +102,26 @@ type skyrimRuntimeConfigPlan struct {
 	RestorationPlanned bool                             `json:"restorationPlanned"`
 }
 
+type skyrimINIPlan struct {
+	Enabled            bool                     `json:"enabled"`
+	ResolvedPath       string                   `json:"resolvedIniPath,omitempty"`
+	PathSource         string                   `json:"pathSource,omitempty"`
+	SourceSHA256       string                   `json:"sourceSha256,omitempty"`
+	EffectiveSHA256    string                   `json:"effectiveSha256,omitempty"`
+	StagedPath         string                   `json:"stagedPath,omitempty"`
+	AppliedOverrides   []skyrimINIOverrideValue `json:"appliedOverrides,omitempty"`
+	RestorationPlanned bool                     `json:"restorationPlanned"`
+
+	sourcePath string
+}
+
+type skyrimINIOverrideValue struct {
+	Section        string `json:"section"`
+	Key            string `json:"key"`
+	SourceValue    any    `json:"sourceValue"`
+	EffectiveValue bool   `json:"effectiveValue"`
+}
+
 type skyrimPluginStatePlan struct {
 	Path           string   `json:"path"`
 	CurrentEntries []string `json:"currentEntries"`
@@ -131,25 +153,29 @@ type skyrimPlanReport struct {
 	RuntimeEvidence      string                     `json:"runtimeEvidence"`
 	ReadyMarker          string                     `json:"readyMarker"`
 	RuntimeConfig        skyrimRuntimeConfigPlan    `json:"runtimeConfig"`
+	INI                  skyrimINIPlan              `json:"ini"`
 	Blockers             []string                   `json:"blockers"`
 }
 
 type skyrimMaterializationReport struct {
-	Plan                   skyrimPlanReport `json:"plan"`
-	ChangedFiles           []string         `json:"changedFiles"`
-	UnchangedFiles         []string         `json:"unchangedFiles"`
-	RollbackPath           string           `json:"rollbackPath"`
-	PluginStateChanged     bool             `json:"pluginStateChanged"`
-	LaunchedExecutable     string           `json:"launchedExecutable,omitempty"`
-	LauncherPID            int              `json:"launcherPid,omitempty"`
-	RuntimePID             int              `json:"runtimePid,omitempty"`
-	RuntimeLog             string           `json:"runtimeLog,omitempty"`
-	RuntimeVerified        bool             `json:"runtimeVerified"`
-	RestorationAttempted   bool             `json:"restorationAttempted"`
-	RestorationVerified    bool             `json:"restorationVerified"`
-	RestoredConfigSHA256   string           `json:"restoredConfigSha256,omitempty"`
-	RestorationError       string           `json:"restorationError,omitempty"`
-	SessionBootstrapConfig string           `json:"sessionBootstrapConfig,omitempty"`
+	Plan                    skyrimPlanReport `json:"plan"`
+	ChangedFiles            []string         `json:"changedFiles"`
+	UnchangedFiles          []string         `json:"unchangedFiles"`
+	RollbackPath            string           `json:"rollbackPath"`
+	PluginStateChanged      bool             `json:"pluginStateChanged"`
+	LaunchedExecutable      string           `json:"launchedExecutable,omitempty"`
+	LauncherPID             int              `json:"launcherPid,omitempty"`
+	RuntimePID              int              `json:"runtimePid,omitempty"`
+	RuntimeLog              string           `json:"runtimeLog,omitempty"`
+	RuntimeVerified         bool             `json:"runtimeVerified"`
+	RestorationAttempted    bool             `json:"restorationAttempted"`
+	RestorationVerified     bool             `json:"restorationVerified"`
+	RestoredConfigSHA256    string           `json:"restoredConfigSha256,omitempty"`
+	INIRestorationAttempted bool             `json:"iniRestorationAttempted"`
+	INIRestorationVerified  bool             `json:"iniRestorationVerified"`
+	RestoredINISHA256       string           `json:"restoredIniSha256,omitempty"`
+	RestorationError        string           `json:"restorationError,omitempty"`
+	SessionBootstrapConfig  string           `json:"sessionBootstrapConfig,omitempty"`
 }
 
 type skyrimBridgeInspection struct {
@@ -229,6 +255,19 @@ func runSkyrimCommand(args []string) {
 		} else {
 			report.RestorationVerified = true
 			report.RestoredConfigSHA256, _ = hashFile(plan.RuntimeConfig.SourcePath)
+		}
+	}
+	if plan.INI.RestorationPlanned {
+		report.INIRestorationAttempted = true
+		if err := restoreSkyrimINI(plan, report); err != nil {
+			if report.RestorationError == "" {
+				report.RestorationError = err.Error()
+			} else {
+				report.RestorationError += "; " + err.Error()
+			}
+		} else {
+			report.INIRestorationVerified = true
+			report.RestoredINISHA256, _ = hashFile(plan.INI.sourcePath)
 		}
 	}
 	if err := writeSkyrimReports(root, plan, report); err != nil {
@@ -404,6 +443,12 @@ func buildSkyrimPlan(root string, manifestPath string, target skyrimTargetRef, p
 	} else {
 		plan.RuntimeConfig = runtimeConfig
 	}
+	iniPlan, iniPlanErr := buildSkyrimINIPlan(root, target, profile, stageRuntimeConfig)
+	if iniPlanErr != nil {
+		plan.Blockers = append(plan.Blockers, iniPlanErr.Error())
+	} else {
+		plan.INI = iniPlan
+	}
 	if profile.RuntimeVersion != target.Target.RuntimeVersion {
 		plan.Blockers = append(plan.Blockers, fmt.Sprintf("runtime version mismatch: manifest=%s host=%s", target.Target.RuntimeVersion, profile.RuntimeVersion))
 	}
@@ -430,10 +475,19 @@ func buildSkyrimPlan(root string, manifestPath string, target skyrimTargetRef, p
 		{Kind: "dll", Source: filepath.Join(target.PackageRoot, filepath.FromSlash(target.Target.NativeDLL)), Destination: filepath.Join(profile.DataDirectory, filepath.FromSlash(target.Target.DLLDestination))},
 		{Kind: "config", Source: configSource, MaterializedSource: configMaterializedSource, Destination: filepath.Join(profile.DataDirectory, filepath.FromSlash(target.Target.ConfigDestination))},
 	}
+	if iniPlanErr == nil && iniPlan.Enabled {
+		files = append(files, skyrimFilePlan{
+			Kind:               "ini",
+			Source:             iniPlan.sourcePath,
+			MaterializedSource: iniPlan.StagedPath,
+			Destination:        iniPlan.sourcePath,
+			SourceSHA256:       iniPlan.EffectiveSHA256,
+		})
+	}
 	for _, file := range files {
 		if file.Kind == "config" && configHash != "" {
 			file.SourceSHA256 = configHash
-		} else {
+		} else if file.Kind != "ini" || file.SourceSHA256 == "" {
 			file.SourceSHA256, _ = hashFile(skyrimMaterializedSource(file))
 		}
 		file.CurrentSHA256, _ = hashFile(file.Destination)
@@ -1273,6 +1327,24 @@ func restoreSkyrimRuntimeConfig(root string, plan skyrimPlanReport) error {
 		return err
 	}
 	return fmt.Errorf("runtime restoration was planned but no config file was present")
+}
+
+func restoreSkyrimINI(plan skyrimPlanReport, report skyrimMaterializationReport) error {
+	if !plan.INI.RestorationPlanned {
+		return nil
+	}
+	backupPath := filepath.Join(report.RollbackPath, "ini"+filepath.Ext(plan.INI.sourcePath))
+	if err := copyAndReplaceFile(backupPath, plan.INI.sourcePath); err != nil {
+		return fmt.Errorf("restore Skyrim INI: %w", err)
+	}
+	restoredHash, err := hashFile(plan.INI.sourcePath)
+	if err != nil {
+		return fmt.Errorf("hash restored Skyrim INI: %w", err)
+	}
+	if restoredHash != plan.INI.SourceSHA256 {
+		return fmt.Errorf("restored Skyrim INI hash mismatch")
+	}
+	return nil
 }
 
 func stringSlicesEqual(left []string, right []string) bool {

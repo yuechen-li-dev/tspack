@@ -134,6 +134,7 @@ type SkyrimTarget struct {
 	RuntimeConfig          string                  `json:"runtimeConfig"`
 	RuntimeOverrideTarget  string                  `json:"runtimeOverrideTarget,omitempty"`
 	RuntimeOverrideFields  []SkyrimRuntimeOverride `json:"runtimeOverrideFields,omitempty"`
+	INIOverrideFields      []SkyrimINIOverride     `json:"iniOverrideFields,omitempty"`
 	DLLDestination         string                  `json:"dllDestination"`
 	ConfigDestination      string                  `json:"configDestination"`
 	ExpectedRecords        []SkyrimExpectedRecord  `json:"expectedRecords"`
@@ -149,6 +150,15 @@ type SkyrimRuntimeOverride struct {
 	Path   string `json:"path"`
 	Type   string `json:"type"`
 	Secret bool   `json:"secret,omitempty"`
+}
+
+// SkyrimINIOverride describes one Skyrim engine setting that a selected host
+// may vary for a bounded run. This is intentionally separate from runtime TOML
+// overrides because the target is an engine-owned file.
+type SkyrimINIOverride struct {
+	Section string `json:"section"`
+	Key     string `json:"key"`
+	Type    string `json:"type"`
 }
 
 type SkyrimCommand struct {
@@ -857,6 +867,15 @@ func validateSkyrimTarget(add func(string, string, ...string), packagePath strin
 		seenOverridePaths[field.Path] = struct{}{}
 		if field.Type != "boolean" && field.Type != "string" && field.Type != "integer" {
 			add("TSPACK_SKYRIM_OVERRIDE_TYPE_INVALID", fieldPath+".type must be boolean, string, or integer")
+		}
+	}
+	if len(target.INIOverrideFields) > 1 {
+		add("TSPACK_SKYRIM_INI_OVERRIDE_INVALID", prefix+".iniOverrideFields supports only the declared General.bAlwaysActive setting")
+	}
+	for index, field := range target.INIOverrideFields {
+		fieldPath := fmt.Sprintf("%s.iniOverrideFields[%d]", prefix, index)
+		if field.Section != "General" || field.Key != "bAlwaysActive" || field.Type != "boolean" {
+			add("TSPACK_SKYRIM_INI_OVERRIDE_INVALID", fieldPath+" must declare General.bAlwaysActive as boolean")
 		}
 	}
 	seenPacks := map[string]struct{}{}
