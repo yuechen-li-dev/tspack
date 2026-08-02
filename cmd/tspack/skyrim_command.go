@@ -25,11 +25,12 @@ import (
 const skyrimProfileRelativePath = ".tspack/skyrim-hosts.toml"
 
 type skyrimRunOptions struct {
-	root     string
-	host     string
-	dryRun   bool
-	json     bool
-	noLaunch bool
+	root             string
+	host             string
+	dryRun           bool
+	json             bool
+	noLaunch         bool
+	sessionBootstrap bool
 }
 
 type skyrimProfilesFile struct {
@@ -43,8 +44,24 @@ type skyrimHostProfile struct {
 	PluginState         string                    `toml:"pluginState"`
 	RuntimeLogDirectory string                    `toml:"runtimeLogDirectory"`
 	RuntimeVersion      string                    `toml:"runtimeVersion"`
+	SaveDirectory       string                    `toml:"saveDirectory"`
+	TestSaves           map[string]skyrimTestSave `toml:"testSaves"`
 	Tools               map[string]string         `toml:"tools"`
 	RuntimeOverrides    map[string]map[string]any `toml:"runtimeOverrides"`
+}
+
+// skyrimTestSave is machine-local fixture provenance. It contains no source
+// path: the save directory is owned by the selected host profile.
+type skyrimTestSave struct {
+	Filename          string `toml:"filename"`
+	Disposable        bool   `toml:"disposable"`
+	ReadOnly          bool   `toml:"readOnly"`
+	SidecarPresent    bool   `toml:"sidecarPresent"`
+	EssSHA256         string `toml:"essSha256"`
+	SkseSHA256        string `toml:"skseSha256"`
+	SourceCandidateID string `toml:"sourceCandidateId"`
+	SourceEssSHA256   string `toml:"sourceEssSha256"`
+	SourceSkseSHA256  string `toml:"sourceSkseSha256"`
 }
 
 type skyrimTargetRef struct {
@@ -118,20 +135,21 @@ type skyrimPlanReport struct {
 }
 
 type skyrimMaterializationReport struct {
-	Plan                 skyrimPlanReport `json:"plan"`
-	ChangedFiles         []string         `json:"changedFiles"`
-	UnchangedFiles       []string         `json:"unchangedFiles"`
-	RollbackPath         string           `json:"rollbackPath"`
-	PluginStateChanged   bool             `json:"pluginStateChanged"`
-	LaunchedExecutable   string           `json:"launchedExecutable,omitempty"`
-	LauncherPID          int              `json:"launcherPid,omitempty"`
-	RuntimePID           int              `json:"runtimePid,omitempty"`
-	RuntimeLog           string           `json:"runtimeLog,omitempty"`
-	RuntimeVerified      bool             `json:"runtimeVerified"`
-	RestorationAttempted bool             `json:"restorationAttempted"`
-	RestorationVerified  bool             `json:"restorationVerified"`
-	RestoredConfigSHA256 string           `json:"restoredConfigSha256,omitempty"`
-	RestorationError     string           `json:"restorationError,omitempty"`
+	Plan                   skyrimPlanReport `json:"plan"`
+	ChangedFiles           []string         `json:"changedFiles"`
+	UnchangedFiles         []string         `json:"unchangedFiles"`
+	RollbackPath           string           `json:"rollbackPath"`
+	PluginStateChanged     bool             `json:"pluginStateChanged"`
+	LaunchedExecutable     string           `json:"launchedExecutable,omitempty"`
+	LauncherPID            int              `json:"launcherPid,omitempty"`
+	RuntimePID             int              `json:"runtimePid,omitempty"`
+	RuntimeLog             string           `json:"runtimeLog,omitempty"`
+	RuntimeVerified        bool             `json:"runtimeVerified"`
+	RestorationAttempted   bool             `json:"restorationAttempted"`
+	RestorationVerified    bool             `json:"restorationVerified"`
+	RestoredConfigSHA256   string           `json:"restoredConfigSha256,omitempty"`
+	RestorationError       string           `json:"restorationError,omitempty"`
+	SessionBootstrapConfig string           `json:"sessionBootstrapConfig,omitempty"`
 }
 
 type skyrimBridgeInspection struct {
@@ -167,6 +185,12 @@ func runSkyrimCommand(args []string) {
 	if err != nil {
 		failSkyrim("TSPACK_SKYRIM_PROFILE_INVALID", err)
 	}
+	if opts.sessionBootstrap {
+		profile, err = withSkyrimSessionBootstrap(profile, target.Target.Host)
+		if err != nil {
+			failSkyrim("TSPACK_SKYRIM_SESSION_BOOTSTRAP_INVALID", err)
+		}
+	}
 	plan := buildSkyrimPlan(root, manifestPath, target, profile, false)
 	if opts.dryRun {
 		renderSkyrimPlan(plan, opts.json)
@@ -186,6 +210,13 @@ func runSkyrimCommand(args []string) {
 	report, err := materializeSkyrimPlan(root, plan)
 	if err != nil {
 		failSkyrim("TSPACK_SKYRIM_MATERIALIZATION_FAILED", err)
+	}
+	if opts.sessionBootstrap {
+		configPath, configErr := writeSkyrimSessionBootstrapTransportConfig(root, profile)
+		if configErr != nil {
+			failSkyrim("TSPACK_SKYRIM_SESSION_BOOTSTRAP_CONFIG_FAILED", configErr)
+		}
+		report.SessionBootstrapConfig = configPath
 	}
 	var lifecycleError error
 	if !opts.noLaunch {
@@ -222,6 +253,8 @@ func parseSkyrimRunOptions(args []string) skyrimRunOptions {
 			opts.json = true
 		case "--no-launch":
 			opts.noLaunch = true
+		case "--session-bootstrap":
+			opts.sessionBootstrap = true
 		case "--root":
 			if index+1 >= len(args) {
 				failSkyrim("TSPACK_SKYRIM_ARGUMENT_INVALID", errors.New("--root requires a value"))
@@ -239,6 +272,56 @@ func parseSkyrimRunOptions(args []string) skyrimRunOptions {
 		}
 	}
 	return opts
+}
+
+func withSkyrimSessionBootstrap(profile skyrimHostProfile, host string) (skyrimHostProfile, error) {
+	fixture, found := profile.TestSaves["ed-m2b2d"]
+	if !found || !fixture.Disposable || !fixture.ReadOnly || !isSafeSkyrimFixtureFilename(fixture.Filename) {
+		return skyrimHostProfile{}, errors.New("--session-bootstrap requires a provisioned disposable, read-only ed-m2b2d fixture")
+	}
+	copy := profile
+	copy.RuntimeOverrides = map[string]map[string]any{}
+	for target, values := range profile.RuntimeOverrides {
+		copy.RuntimeOverrides[target] = copySkyrimRuntimeOverrideValues(values)
+	}
+	values := copy.RuntimeOverrides["MarionetteSSE"]
+	if values == nil {
+		values = map[string]any{}
+		copy.RuntimeOverrides["MarionetteSSE"] = values
+	}
+	values["host"] = host
+	values["eternal_dragonborn.development.presenter.enabled"] = true
+	values["eternal_dragonborn.development.presenter.allow_semantic_actuation"] = false
+	values["eternal_dragonborn.development.presenter.allow_host_request_evaluation"] = false
+	values["eternal_dragonborn.development.presenter.allow_session_bootstrap"] = true
+	return copy, nil
+}
+
+func writeSkyrimSessionBootstrapTransportConfig(root string, profile skyrimHostProfile) (string, error) {
+	values := profile.RuntimeOverrides["MarionetteSSE"]
+	profileName, profileOK := values["eternal_dragonborn.development.presenter.profile"].(string)
+	token, tokenOK := values["eternal_dragonborn.development.presenter.token"].(string)
+	if !profileOK || profileName == "" || !tokenOK || token == "" {
+		return "", errors.New("session bootstrap requires a local presenter profile and token")
+	}
+	directory := filepath.Join(root, "build", "msse-presenter-m1")
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return "", err
+	}
+	path := filepath.Join(directory, "aurelian-transport.json")
+	data, err := json.MarshalIndent(map[string]any{
+		"profile":    profileName,
+		"token":      token,
+		"clientName": "tspack-session-bootstrap",
+	}, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	data = append(data, '\n')
+	if err := copyBytesAndReplaceFile(data, path); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func selectSkyrimTarget(ir *manifest.ManifestIR, root string, name string) skyrimTargetRef {
@@ -400,6 +483,10 @@ func buildSkyrimRuntimeConfig(root string, target skyrimTargetRef, profile skyri
 	if !ok {
 		return plan, nil
 	}
+	values = copySkyrimRuntimeOverrideValues(values)
+	if err := applySkyrimFixtureRuntimeOverrides(profile, values); err != nil {
+		return skyrimRuntimeConfigPlan{}, err
+	}
 	profileIdentity, ok := values["host"].(string)
 	if !ok || profileIdentity == "" {
 		return skyrimRuntimeConfigPlan{}, fmt.Errorf("runtime override target %q must declare its host identity", target.Target.RuntimeOverrideTarget)
@@ -456,6 +543,50 @@ func buildSkyrimRuntimeConfig(root string, target skyrimTargetRef, profile skyri
 		}
 	}
 	return plan, nil
+}
+
+func copySkyrimRuntimeOverrideValues(source map[string]any) map[string]any {
+	copy := make(map[string]any, len(source))
+	for key, value := range source {
+		copy[key] = value
+	}
+	return copy
+}
+
+func applySkyrimFixtureRuntimeOverrides(profile skyrimHostProfile, values map[string]any) error {
+	const bootstrapPath = "eternal_dragonborn.development.presenter.allow_session_bootstrap"
+	const filenamePath = "eternal_dragonborn.development.presenter.development_session_ed_m2b2d"
+	const readOnlyPath = "eternal_dragonborn.development.presenter.development_session_ed_m2b2d_read_only"
+	bootstrapEnabled, _ := values[bootstrapPath].(bool)
+	if !bootstrapEnabled {
+		return nil
+	}
+	fixture, found := profile.TestSaves["ed-m2b2d"]
+	if !found || !fixture.Disposable || !fixture.ReadOnly || !isSafeSkyrimFixtureFilename(fixture.Filename) {
+		return errors.New("session bootstrap requires a declared disposable, read-only ed-m2b2d fixture")
+	}
+	if existing, declared := values[filenamePath]; declared && existing != fixture.Filename {
+		return errors.New("session bootstrap filename must be supplied by the ed-m2b2d fixture mapping")
+	}
+	if existing, declared := values[readOnlyPath]; declared && existing != true {
+		return errors.New("session bootstrap fixture mapping requires read-only=true")
+	}
+	values[filenamePath] = fixture.Filename
+	values[readOnlyPath] = true
+	return nil
+}
+
+func isSafeSkyrimFixtureFilename(value string) bool {
+	if value == "" || filepath.Base(value) != value || !strings.EqualFold(filepath.Ext(value), ".ess") {
+		return false
+	}
+	for _, character := range value {
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') || character == '-' || character == '_' || character == '.' || character == ' ' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func getSkyrimTOMLValue(document map[string]any, path string) (any, bool) {

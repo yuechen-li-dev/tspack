@@ -34,8 +34,8 @@ host = "skyrim-dev"
 ```
 
 The filename is not a presenter protocol argument: the only supported request
-identity is `ed-m2b2d`. It must name a disposable save and must remain ignored
-alongside the rest of the host profile.
+identity is `ed-m2b2d`. TSPack derives it from the ignored disposable fixture
+mapping; humans do not type it into a runtime override.
 
 The target name and `host` identity must match the selected `SkyrimTarget`.
 Unknown targets, unknown or undeclared paths, duplicate TOML keys, values of

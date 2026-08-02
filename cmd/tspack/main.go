@@ -350,6 +350,10 @@ func main() {
 		runScenarioCommand(args)
 		return
 	}
+	if args[0] == "skyrim" {
+		runSkyrimFixtureCommand(args)
+		return
+	}
 
 	if args[0] == "format" {
 		runFormatCommand(args)

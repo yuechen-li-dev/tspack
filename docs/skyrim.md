@@ -75,3 +75,5 @@ once, and rejects or removes only explicitly declared stale Marionette bridges.
 
 For the bounded machine-local runtime TOML overlay used by Marionette's
 development presenter, see [Skyrim runtime overrides](skyrim-runtime-overrides.md).
+For save discovery and disposable paired fixture provisioning, see
+[Skyrim disposable save fixtures](skyrim-save-fixtures.md).
