@@ -119,25 +119,36 @@ type Package struct {
 }
 
 type SkyrimTarget struct {
-	Name                   string                 `json:"name"`
-	Host                   string                 `json:"host"`
-	RuntimeVersion         string                 `json:"runtimeVersion"`
-	Bridge                 string                 `json:"bridge"`
-	NativeConfigure        SkyrimCommand          `json:"nativeConfigure"`
-	NativeBuild            SkyrimCommand          `json:"nativeBuild"`
-	NativeTests            SkyrimCommand          `json:"nativeTests"`
-	NativeDLL              string                 `json:"nativeDll"`
-	AssetCompilerProject   string                 `json:"assetCompilerProject"`
-	AssetTestsProject      string                 `json:"assetTestsProject"`
-	AssetPacks             []SkyrimAssetPack      `json:"assetPacks"`
-	AssetOutput            string                 `json:"assetOutput"`
-	RuntimeConfig          string                 `json:"runtimeConfig"`
-	DLLDestination         string                 `json:"dllDestination"`
-	ConfigDestination      string                 `json:"configDestination"`
-	ExpectedRecords        []SkyrimExpectedRecord `json:"expectedRecords"`
-	StalePlugins           []string               `json:"stalePlugins,omitempty"`
-	RuntimeEvidencePattern string                 `json:"runtimeEvidencePattern"`
-	ReadyMarker            string                 `json:"readyMarker"`
+	Name                   string                  `json:"name"`
+	Host                   string                  `json:"host"`
+	RuntimeVersion         string                  `json:"runtimeVersion"`
+	Bridge                 string                  `json:"bridge"`
+	NativeConfigure        SkyrimCommand           `json:"nativeConfigure"`
+	NativeBuild            SkyrimCommand           `json:"nativeBuild"`
+	NativeTests            SkyrimCommand           `json:"nativeTests"`
+	NativeDLL              string                  `json:"nativeDll"`
+	AssetCompilerProject   string                  `json:"assetCompilerProject"`
+	AssetTestsProject      string                  `json:"assetTestsProject"`
+	AssetPacks             []SkyrimAssetPack       `json:"assetPacks"`
+	AssetOutput            string                  `json:"assetOutput"`
+	RuntimeConfig          string                  `json:"runtimeConfig"`
+	RuntimeOverrideTarget  string                  `json:"runtimeOverrideTarget,omitempty"`
+	RuntimeOverrideFields  []SkyrimRuntimeOverride `json:"runtimeOverrideFields,omitempty"`
+	DLLDestination         string                  `json:"dllDestination"`
+	ConfigDestination      string                  `json:"configDestination"`
+	ExpectedRecords        []SkyrimExpectedRecord  `json:"expectedRecords"`
+	StalePlugins           []string                `json:"stalePlugins,omitempty"`
+	RuntimeEvidencePattern string                  `json:"runtimeEvidencePattern"`
+	ReadyMarker            string                  `json:"readyMarker"`
+}
+
+// SkyrimRuntimeOverride describes one authored TOML leaf that a selected,
+// machine-local Skyrim host may vary for a run. It is intentionally a typed
+// allowlist rather than a general TOML patch language.
+type SkyrimRuntimeOverride struct {
+	Path   string `json:"path"`
+	Type   string `json:"type"`
+	Secret bool   `json:"secret,omitempty"`
 }
 
 type SkyrimCommand struct {
@@ -830,6 +841,23 @@ func validateSkyrimTarget(add func(string, string, ...string), packagePath strin
 	}
 	if target.ConfigDestination != "SKSE/Plugins/MarionetteSSE.toml" {
 		add("TSPACK_SKYRIM_DESTINATION_INVALID", prefix+".configDestination must be SKSE/Plugins/MarionetteSSE.toml")
+	}
+	if len(target.RuntimeOverrideFields) > 0 && (strings.TrimSpace(target.RuntimeOverrideTarget) == "" || !targetNameRe.MatchString(target.RuntimeOverrideTarget)) {
+		add("TSPACK_SKYRIM_OVERRIDE_TARGET_INVALID", prefix+".runtimeOverrideTarget is required and must be a valid target name when runtimeOverrideFields are declared")
+	}
+	seenOverridePaths := map[string]struct{}{}
+	for index, field := range target.RuntimeOverrideFields {
+		fieldPath := fmt.Sprintf("%s.runtimeOverrideFields[%d]", prefix, index)
+		if strings.TrimSpace(field.Path) == "" || strings.HasPrefix(field.Path, ".") || strings.HasSuffix(field.Path, ".") || strings.Contains(field.Path, "..") {
+			add("TSPACK_SKYRIM_OVERRIDE_PATH_INVALID", fieldPath+".path must be a non-empty dotted TOML path")
+		}
+		if _, ok := seenOverridePaths[field.Path]; ok {
+			add("TSPACK_SKYRIM_OVERRIDE_DUPLICATE", "duplicate Skyrim runtime override path: "+field.Path)
+		}
+		seenOverridePaths[field.Path] = struct{}{}
+		if field.Type != "boolean" && field.Type != "string" && field.Type != "integer" {
+			add("TSPACK_SKYRIM_OVERRIDE_TYPE_INVALID", fieldPath+".type must be boolean, string, or integer")
+		}
 	}
 	seenPacks := map[string]struct{}{}
 	for index, pack := range target.AssetPacks {

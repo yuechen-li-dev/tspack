@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -25,6 +26,7 @@ const skyrimProfileRelativePath = ".tspack/skyrim-hosts.toml"
 
 type skyrimRunOptions struct {
 	root     string
+	host     string
 	dryRun   bool
 	json     bool
 	noLaunch bool
@@ -35,13 +37,14 @@ type skyrimProfilesFile struct {
 }
 
 type skyrimHostProfile struct {
-	GameRoot            string            `toml:"gameRoot"`
-	DataDirectory       string            `toml:"dataDirectory"`
-	SKSELauncher        string            `toml:"skseLauncher"`
-	PluginState         string            `toml:"pluginState"`
-	RuntimeLogDirectory string            `toml:"runtimeLogDirectory"`
-	RuntimeVersion      string            `toml:"runtimeVersion"`
-	Tools               map[string]string `toml:"tools"`
+	GameRoot            string                    `toml:"gameRoot"`
+	DataDirectory       string                    `toml:"dataDirectory"`
+	SKSELauncher        string                    `toml:"skseLauncher"`
+	PluginState         string                    `toml:"pluginState"`
+	RuntimeLogDirectory string                    `toml:"runtimeLogDirectory"`
+	RuntimeVersion      string                    `toml:"runtimeVersion"`
+	Tools               map[string]string         `toml:"tools"`
+	RuntimeOverrides    map[string]map[string]any `toml:"runtimeOverrides"`
 }
 
 type skyrimTargetRef struct {
@@ -51,12 +54,33 @@ type skyrimTargetRef struct {
 }
 
 type skyrimFilePlan struct {
-	Kind          string `json:"kind"`
-	Source        string `json:"source"`
-	Destination   string `json:"destination"`
-	SourceSHA256  string `json:"sourceSha256,omitempty"`
-	CurrentSHA256 string `json:"currentSha256,omitempty"`
-	Action        string `json:"action"`
+	Kind               string `json:"kind"`
+	Source             string `json:"source"`
+	Destination        string `json:"destination"`
+	SourceSHA256       string `json:"sourceSha256,omitempty"`
+	MaterializedSource string `json:"materializedSource,omitempty"`
+	CurrentSHA256      string `json:"currentSha256,omitempty"`
+	Action             string `json:"action"`
+}
+
+type skyrimRuntimeOverrideValue struct {
+	Path           string `json:"path"`
+	Type           string `json:"type"`
+	SourceValue    any    `json:"sourceValue"`
+	EffectiveValue any    `json:"effectiveValue"`
+	Secret         bool   `json:"secret,omitempty"`
+}
+
+type skyrimRuntimeConfigPlan struct {
+	SourcePath         string                           `json:"sourcePath"`
+	SourceSHA256       string                           `json:"sourceSha256"`
+	EffectiveSHA256    string                           `json:"effectiveSha256"`
+	StagedPath         string                           `json:"stagedPath,omitempty"`
+	OverrideSource     string                           `json:"overrideSource,omitempty"`
+	OverrideTarget     string                           `json:"overrideTarget,omitempty"`
+	AllowedOverrides   []manifest.SkyrimRuntimeOverride `json:"allowedOverrides,omitempty"`
+	AppliedOverrides   []skyrimRuntimeOverrideValue     `json:"appliedOverrides,omitempty"`
+	RestorationPlanned bool                             `json:"restorationPlanned"`
 }
 
 type skyrimPluginStatePlan struct {
@@ -89,20 +113,25 @@ type skyrimPlanReport struct {
 	LaunchCommand        []string                   `json:"launchCommand"`
 	RuntimeEvidence      string                     `json:"runtimeEvidence"`
 	ReadyMarker          string                     `json:"readyMarker"`
+	RuntimeConfig        skyrimRuntimeConfigPlan    `json:"runtimeConfig"`
 	Blockers             []string                   `json:"blockers"`
 }
 
 type skyrimMaterializationReport struct {
-	Plan               skyrimPlanReport `json:"plan"`
-	ChangedFiles       []string         `json:"changedFiles"`
-	UnchangedFiles     []string         `json:"unchangedFiles"`
-	RollbackPath       string           `json:"rollbackPath"`
-	PluginStateChanged bool             `json:"pluginStateChanged"`
-	LaunchedExecutable string           `json:"launchedExecutable,omitempty"`
-	LauncherPID        int              `json:"launcherPid,omitempty"`
-	RuntimePID         int              `json:"runtimePid,omitempty"`
-	RuntimeLog         string           `json:"runtimeLog,omitempty"`
-	RuntimeVerified    bool             `json:"runtimeVerified"`
+	Plan                 skyrimPlanReport `json:"plan"`
+	ChangedFiles         []string         `json:"changedFiles"`
+	UnchangedFiles       []string         `json:"unchangedFiles"`
+	RollbackPath         string           `json:"rollbackPath"`
+	PluginStateChanged   bool             `json:"pluginStateChanged"`
+	LaunchedExecutable   string           `json:"launchedExecutable,omitempty"`
+	LauncherPID          int              `json:"launcherPid,omitempty"`
+	RuntimePID           int              `json:"runtimePid,omitempty"`
+	RuntimeLog           string           `json:"runtimeLog,omitempty"`
+	RuntimeVerified      bool             `json:"runtimeVerified"`
+	RestorationAttempted bool             `json:"restorationAttempted"`
+	RestorationVerified  bool             `json:"restorationVerified"`
+	RestoredConfigSHA256 string           `json:"restoredConfigSha256,omitempty"`
+	RestorationError     string           `json:"restorationError,omitempty"`
 }
 
 type skyrimBridgeInspection struct {
@@ -131,11 +160,14 @@ func runSkyrimCommand(args []string) {
 	manifestPath := filepath.Join(root, "manifest.tsx")
 	ir := loadManifestPathForRun(root, manifestPath)
 	target := selectSkyrimTarget(ir, root, "skyrim")
+	if opts.host != "" && opts.host != target.Target.Host {
+		failSkyrim("TSPACK_SKYRIM_HOST_MISMATCH", fmt.Errorf("--host %q does not match manifest host %q", opts.host, target.Target.Host))
+	}
 	profile, err := loadSkyrimProfile(root, target.Target.Host)
 	if err != nil {
 		failSkyrim("TSPACK_SKYRIM_PROFILE_INVALID", err)
 	}
-	plan := buildSkyrimPlan(root, manifestPath, target, profile)
+	plan := buildSkyrimPlan(root, manifestPath, target, profile, false)
 	if opts.dryRun {
 		renderSkyrimPlan(plan, opts.json)
 		if len(plan.Blockers) > 0 {
@@ -147,7 +179,7 @@ func runSkyrimCommand(args []string) {
 		failSkyrim("TSPACK_SKYRIM_PREFLIGHT_FAILED", errors.New(strings.Join(plan.Blockers, "; ")))
 	}
 	executeSkyrimBuild(root, target, profile)
-	plan = buildSkyrimPlan(root, manifestPath, target, profile)
+	plan = buildSkyrimPlan(root, manifestPath, target, profile, true)
 	if len(plan.Blockers) > 0 {
 		failSkyrim("TSPACK_SKYRIM_STAGING_FAILED", errors.New(strings.Join(plan.Blockers, "; ")))
 	}
@@ -155,13 +187,29 @@ func runSkyrimCommand(args []string) {
 	if err != nil {
 		failSkyrim("TSPACK_SKYRIM_MATERIALIZATION_FAILED", err)
 	}
+	var lifecycleError error
 	if !opts.noLaunch {
-		launchSkyrim(&report, target, profile)
+		lifecycleError = launchSkyrim(&report, target, profile)
+	}
+	if plan.RuntimeConfig.RestorationPlanned {
+		report.RestorationAttempted = true
+		if err := restoreSkyrimRuntimeConfig(root, plan); err != nil {
+			report.RestorationError = err.Error()
+		} else {
+			report.RestorationVerified = true
+			report.RestoredConfigSHA256, _ = hashFile(plan.RuntimeConfig.SourcePath)
+		}
 	}
 	if err := writeSkyrimReports(root, plan, report); err != nil {
 		failSkyrim("TSPACK_SKYRIM_REPORT_FAILED", err)
 	}
 	renderSkyrimMaterialization(report, opts.json)
+	if report.RestorationError != "" {
+		failSkyrim("TSPACK_SKYRIM_RESTORATION_FAILED", errors.New(report.RestorationError))
+	}
+	if lifecycleError != nil {
+		failSkyrim("TSPACK_SKYRIM_LAUNCH_FAILED", lifecycleError)
+	}
 }
 
 func parseSkyrimRunOptions(args []string) skyrimRunOptions {
@@ -180,6 +228,12 @@ func parseSkyrimRunOptions(args []string) skyrimRunOptions {
 			}
 			index++
 			opts.root = args[index]
+		case "--host":
+			if index+1 >= len(args) {
+				failSkyrim("TSPACK_SKYRIM_ARGUMENT_INVALID", errors.New("--host requires a value"))
+			}
+			index++
+			opts.host = args[index]
 		default:
 			failSkyrim("TSPACK_SKYRIM_ARGUMENT_INVALID", fmt.Errorf("unknown argument %s", args[index]))
 		}
@@ -233,7 +287,7 @@ func loadSkyrimProfile(root string, name string) (skyrimHostProfile, error) {
 	return profile, nil
 }
 
-func buildSkyrimPlan(root string, manifestPath string, target skyrimTargetRef, profile skyrimHostProfile) skyrimPlanReport {
+func buildSkyrimPlan(root string, manifestPath string, target skyrimTargetRef, profile skyrimHostProfile, stageRuntimeConfig bool) skyrimPlanReport {
 	manifestHash, _ := hashFile(manifestPath)
 	assetCommand := []string{"dotnet", "run", "--project", filepath.Join(target.PackageRoot, filepath.FromSlash(target.Target.AssetCompilerProject)), "--", "compile"}
 	for _, pack := range target.Target.AssetPacks {
@@ -261,6 +315,12 @@ func buildSkyrimPlan(root string, manifestPath string, target skyrimTargetRef, p
 		RuntimeEvidence:      filepath.Join(profile.RuntimeLogDirectory, filepath.FromSlash(target.Target.RuntimeEvidencePattern)),
 		ReadyMarker:          target.Target.ReadyMarker,
 	}
+	runtimeConfig, runtimeConfigErr := buildSkyrimRuntimeConfig(root, target, profile, stageRuntimeConfig)
+	if runtimeConfigErr != nil {
+		plan.Blockers = append(plan.Blockers, runtimeConfigErr.Error())
+	} else {
+		plan.RuntimeConfig = runtimeConfig
+	}
 	if profile.RuntimeVersion != target.Target.RuntimeVersion {
 		plan.Blockers = append(plan.Blockers, fmt.Sprintf("runtime version mismatch: manifest=%s host=%s", target.Target.RuntimeVersion, profile.RuntimeVersion))
 	}
@@ -274,13 +334,25 @@ func buildSkyrimPlan(root string, manifestPath string, target skyrimTargetRef, p
 			plan.Blockers = append(plan.Blockers, label+" missing: "+path)
 		}
 	}
+	configSource := filepath.Join(target.PackageRoot, filepath.FromSlash(target.Target.RuntimeConfig))
+	configMaterializedSource := ""
+	configHash := ""
+	if runtimeConfigErr == nil {
+		configSource = runtimeConfig.SourcePath
+		configMaterializedSource = runtimeConfig.StagedPath
+		configHash = runtimeConfig.EffectiveSHA256
+	}
 	files := []skyrimFilePlan{
 		{Kind: "esp", Source: filepath.Join(target.PackageRoot, filepath.FromSlash(target.Target.AssetOutput)), Destination: filepath.Join(profile.DataDirectory, target.Target.Bridge)},
 		{Kind: "dll", Source: filepath.Join(target.PackageRoot, filepath.FromSlash(target.Target.NativeDLL)), Destination: filepath.Join(profile.DataDirectory, filepath.FromSlash(target.Target.DLLDestination))},
-		{Kind: "config", Source: filepath.Join(target.PackageRoot, filepath.FromSlash(target.Target.RuntimeConfig)), Destination: filepath.Join(profile.DataDirectory, filepath.FromSlash(target.Target.ConfigDestination))},
+		{Kind: "config", Source: configSource, MaterializedSource: configMaterializedSource, Destination: filepath.Join(profile.DataDirectory, filepath.FromSlash(target.Target.ConfigDestination))},
 	}
 	for _, file := range files {
-		file.SourceSHA256, _ = hashFile(file.Source)
+		if file.Kind == "config" && configHash != "" {
+			file.SourceSHA256 = configHash
+		} else {
+			file.SourceSHA256, _ = hashFile(skyrimMaterializedSource(file))
+		}
 		file.CurrentSHA256, _ = hashFile(file.Destination)
 		if file.SourceSHA256 == "" {
 			file.Action = "build"
@@ -301,6 +373,237 @@ func buildSkyrimPlan(root string, manifestPath string, target skyrimTargetRef, p
 	}
 	sort.Strings(plan.Blockers)
 	return plan
+}
+
+func buildSkyrimRuntimeConfig(root string, target skyrimTargetRef, profile skyrimHostProfile, stage bool) (skyrimRuntimeConfigPlan, error) {
+	sourcePath := filepath.Join(target.PackageRoot, filepath.FromSlash(target.Target.RuntimeConfig))
+	sourceBytes, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return skyrimRuntimeConfigPlan{}, fmt.Errorf("read committed runtime config %s: %w", sourcePath, err)
+	}
+	sourceHash := hashBytes(sourceBytes)
+	plan := skyrimRuntimeConfigPlan{
+		SourcePath:       sourcePath,
+		SourceSHA256:     sourceHash,
+		EffectiveSHA256:  sourceHash,
+		AllowedOverrides: append([]manifest.SkyrimRuntimeOverride(nil), target.Target.RuntimeOverrideFields...),
+	}
+	if len(profile.RuntimeOverrides) == 0 {
+		return plan, nil
+	}
+	for overrideTarget := range profile.RuntimeOverrides {
+		if overrideTarget != target.Target.RuntimeOverrideTarget {
+			return skyrimRuntimeConfigPlan{}, fmt.Errorf("unknown runtime override target %q in host %q", overrideTarget, target.Target.Host)
+		}
+	}
+	values, ok := profile.RuntimeOverrides[target.Target.RuntimeOverrideTarget]
+	if !ok {
+		return plan, nil
+	}
+	profileIdentity, ok := values["host"].(string)
+	if !ok || profileIdentity == "" {
+		return skyrimRuntimeConfigPlan{}, fmt.Errorf("runtime override target %q must declare its host identity", target.Target.RuntimeOverrideTarget)
+	}
+	if profileIdentity != target.Target.Host {
+		return skyrimRuntimeConfigPlan{}, fmt.Errorf("runtime override target %q is for host %q, not selected host %q", target.Target.RuntimeOverrideTarget, profileIdentity, target.Target.Host)
+	}
+	var document map[string]any
+	if err := toml.Unmarshal(sourceBytes, &document); err != nil {
+		return skyrimRuntimeConfigPlan{}, fmt.Errorf("parse committed runtime config %s: %w", sourcePath, err)
+	}
+	allowed := map[string]manifest.SkyrimRuntimeOverride{}
+	for _, field := range target.Target.RuntimeOverrideFields {
+		allowed[field.Path] = field
+		if sourceValue, found := getSkyrimTOMLValue(document, field.Path); (!found && !field.Secret) || (found && !skyrimRuntimeOverrideValueMatches(field.Type, sourceValue)) {
+			return skyrimRuntimeConfigPlan{}, fmt.Errorf("committed runtime config path %q is missing or does not match declared type %s", field.Path, field.Type)
+		}
+	}
+	for path, value := range values {
+		if path == "host" {
+			continue
+		}
+		field, declared := allowed[path]
+		if !declared {
+			return skyrimRuntimeConfigPlan{}, fmt.Errorf("runtime override path %q is not declared by the Skyrim target", path)
+		}
+		if !skyrimRuntimeOverrideValueMatches(field.Type, value) {
+			return skyrimRuntimeConfigPlan{}, fmt.Errorf("runtime override path %q must be %s", path, field.Type)
+		}
+		sourceValue, _ := getSkyrimTOMLValue(document, path)
+		plan.AppliedOverrides = append(plan.AppliedOverrides, skyrimRuntimeOverrideValue{Path: path, Type: field.Type, SourceValue: redactSkyrimOverrideValue(sourceValue, field.Secret), EffectiveValue: redactSkyrimOverrideValue(value, field.Secret), Secret: field.Secret})
+	}
+	sort.Slice(plan.AppliedOverrides, func(left int, right int) bool {
+		return plan.AppliedOverrides[left].Path < plan.AppliedOverrides[right].Path
+	})
+	if len(plan.AppliedOverrides) == 0 {
+		return plan, nil
+	}
+	effectiveBytes, err := applySkyrimRuntimeOverrides(sourceBytes, plan.AppliedOverrides, values)
+	if err != nil {
+		return skyrimRuntimeConfigPlan{}, err
+	}
+	plan.EffectiveSHA256 = hashBytes(effectiveBytes)
+	plan.OverrideSource = filepath.Join(root, filepath.FromSlash(skyrimProfileRelativePath))
+	plan.OverrideTarget = target.Target.RuntimeOverrideTarget
+	plan.RestorationPlanned = true
+	plan.StagedPath = filepath.Join(root, "build", "skyrim", "runtime", target.Target.RuntimeOverrideTarget+"-"+strings.ToLower(plan.EffectiveSHA256[:16])+".toml")
+	if stage {
+		if err := os.MkdirAll(filepath.Dir(plan.StagedPath), 0o755); err != nil {
+			return skyrimRuntimeConfigPlan{}, err
+		}
+		if err := os.WriteFile(plan.StagedPath, effectiveBytes, 0o644); err != nil {
+			return skyrimRuntimeConfigPlan{}, err
+		}
+	}
+	return plan, nil
+}
+
+func getSkyrimTOMLValue(document map[string]any, path string) (any, bool) {
+	var current any = document
+	for _, segment := range strings.Split(path, ".") {
+		table, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		current, ok = table[segment]
+		if !ok {
+			return nil, false
+		}
+	}
+	return current, true
+}
+
+func applySkyrimRuntimeOverrides(source []byte, overrides []skyrimRuntimeOverrideValue, values map[string]any) ([]byte, error) {
+	effective := append([]byte(nil), source...)
+	for _, override := range overrides {
+		value, ok := values[override.Path]
+		if !ok {
+			return nil, fmt.Errorf("runtime override path %q is missing its value", override.Path)
+		}
+		var err error
+		effective, err = replaceSkyrimTOMLScalar(effective, override.Path, formatSkyrimTOMLScalar(value, override.Type), override.Secret)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return effective, nil
+}
+
+func replaceSkyrimTOMLScalar(source []byte, path string, replacement string, insertIfMissing bool) ([]byte, error) {
+	segments := strings.Split(path, ".")
+	if len(segments) < 2 {
+		return nil, fmt.Errorf("runtime override path %q is not a TOML table leaf", path)
+	}
+	table := strings.Join(segments[:len(segments)-1], ".")
+	key := segments[len(segments)-1]
+	lines := strings.Split(string(source), "\n")
+	currentTable := ""
+	found := false
+	tableStart := -1
+	tableEnd := -1
+	for index, line := range lines {
+		lineEnding := ""
+		content := line
+		if strings.HasSuffix(content, "\r") {
+			content = strings.TrimSuffix(content, "\r")
+			lineEnding = "\r"
+		}
+		trimmed := strings.TrimSpace(content)
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			if currentTable == table && tableEnd == -1 {
+				tableEnd = index
+			}
+			currentTable = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "["), "]"))
+			if currentTable == table {
+				tableStart = index
+			}
+			continue
+		}
+		if currentTable != table {
+			continue
+		}
+		equals := strings.Index(trimmed, "=")
+		if equals < 0 || strings.TrimSpace(trimmed[:equals]) != key {
+			continue
+		}
+		if found {
+			return nil, fmt.Errorf("committed runtime config path %q is declared more than once", path)
+		}
+		indentLength := len(content) - len(strings.TrimLeft(content, " \t"))
+		lines[index] = content[:indentLength] + key + " = " + replacement + lineEnding
+		found = true
+	}
+	if currentTable == table && tableEnd == -1 {
+		tableEnd = len(lines)
+	}
+	if !found {
+		if insertIfMissing && tableStart >= 0 && tableEnd > tableStart {
+			lineEnding := ""
+			if strings.Contains(string(source), "\r\n") {
+				lineEnding = "\r"
+			}
+			insert := key + " = " + replacement + lineEnding
+			lines = append(lines, "")
+			copy(lines[tableEnd+1:], lines[tableEnd:])
+			lines[tableEnd] = insert
+			return []byte(strings.Join(lines, "\n")), nil
+		}
+		return nil, fmt.Errorf("committed runtime config path %q is missing", path)
+	}
+	return []byte(strings.Join(lines, "\n")), nil
+}
+
+func formatSkyrimTOMLScalar(value any, valueType string) string {
+	switch valueType {
+	case "boolean":
+		return strconv.FormatBool(value.(bool))
+	case "string":
+		return strconv.Quote(value.(string))
+	case "integer":
+		switch integer := value.(type) {
+		case int64:
+			return strconv.FormatInt(integer, 10)
+		case int32:
+			return strconv.FormatInt(int64(integer), 10)
+		case int:
+			return strconv.Itoa(integer)
+		}
+	}
+	return ""
+}
+
+func skyrimRuntimeOverrideValueMatches(valueType string, value any) bool {
+	switch valueType {
+	case "boolean":
+		_, ok := value.(bool)
+		return ok
+	case "string":
+		_, ok := value.(string)
+		return ok
+	case "integer":
+		switch value.(type) {
+		case int64, int32, int:
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
+	}
+}
+
+func redactSkyrimOverrideValue(value any, secret bool) any {
+	if secret {
+		return "<redacted>"
+	}
+	return value
+}
+
+func skyrimMaterializedSource(file skyrimFilePlan) string {
+	if file.MaterializedSource != "" {
+		return file.MaterializedSource
+	}
+	return file.Source
 }
 
 func executeSkyrimBuild(root string, target skyrimTargetRef, profile skyrimHostProfile) {
@@ -560,7 +863,7 @@ func materializeSkyrimPlan(root string, plan skyrimPlanReport) (skyrimMaterializ
 			report.UnchangedFiles = append(report.UnchangedFiles, file.Destination)
 			continue
 		}
-		if err := apply(file.Source, file.Destination, file.Kind+filepath.Ext(file.Destination)); err != nil {
+		if err := apply(skyrimMaterializedSource(file), file.Destination, file.Kind+filepath.Ext(file.Destination)); err != nil {
 			rollback()
 			return report, err
 		}
@@ -663,17 +966,20 @@ func copyAndReplaceFile(source string, destination string) error {
 	return nil
 }
 
-func launchSkyrim(report *skyrimMaterializationReport, target skyrimTargetRef, profile skyrimHostProfile) {
+func launchSkyrim(report *skyrimMaterializationReport, target skyrimTargetRef, profile skyrimHostProfile) error {
 	before := newestMatchingFile(profile.RuntimeLogDirectory, target.Target.RuntimeEvidencePattern)
 	cmd := exec.Command(profile.SKSELauncher)
 	cmd.Dir = profile.GameRoot
 	cmd.Env = os.Environ()
 	if err := cmd.Start(); err != nil {
-		failSkyrim("TSPACK_SKYRIM_LAUNCH_FAILED", err)
+		return err
 	}
 	report.LaunchedExecutable = profile.SKSELauncher
 	report.LauncherPID = cmd.Process.Pid
-	_ = cmd.Process.Release()
+	launcherDone := make(chan error, 1)
+	go func() {
+		launcherDone <- cmd.Wait()
+	}()
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		if runtimePID := findSkyrimRuntimeProcess(); runtimePID != 0 {
@@ -685,11 +991,21 @@ func launchSkyrim(report *skyrimMaterializationReport, target skyrimTargetRef, p
 			data, _ := os.ReadFile(candidate)
 			if bytes.Contains(data, []byte(target.Target.ReadyMarker)) {
 				report.RuntimeVerified = true
-				return
+				break
 			}
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
+	if !report.RuntimeVerified {
+		return fmt.Errorf("runtime ready marker %q was not observed within 30 seconds", target.Target.ReadyMarker)
+	}
+	if err := <-launcherDone; err != nil {
+		return fmt.Errorf("SKSE launcher exited: %w", err)
+	}
+	for report.RuntimePID != 0 && skyrimRuntimeProcessExists(report.RuntimePID) {
+		time.Sleep(500 * time.Millisecond)
+	}
+	return nil
 }
 
 func newestMatchingFile(directory string, pattern string) string {
@@ -754,6 +1070,13 @@ func formatSkyrimPlan(plan skyrimPlanReport) string {
 	for _, file := range plan.Files {
 		fmt.Fprintf(&builder, "%s: %s -> %s (%s)\n", file.Kind, file.Source, file.Destination, file.Action)
 	}
+	fmt.Fprintf(&builder, "Runtime config: %s source=%s effective=%s\n", plan.RuntimeConfig.SourcePath, plan.RuntimeConfig.SourceSHA256, plan.RuntimeConfig.EffectiveSHA256)
+	for _, override := range plan.RuntimeConfig.AppliedOverrides {
+		fmt.Fprintf(&builder, "runtime override: %s: %v -> %v\n", override.Path, override.SourceValue, override.EffectiveValue)
+	}
+	if plan.RuntimeConfig.RestorationPlanned {
+		fmt.Fprintf(&builder, "post-run restoration: %s -> committed safe configuration\n", plan.RuntimeConfig.SourcePath)
+	}
 	fmt.Fprintf(&builder, "Plugin state: %s changed=%t\nLaunch: %s\nEvidence: %s\n", plan.PluginState.Path, plan.PluginState.Changed, strings.Join(plan.LaunchCommand, " "), plan.RuntimeEvidence)
 	for _, blocker := range plan.Blockers {
 		fmt.Fprintf(&builder, "BLOCKER: %s\n", blocker)
@@ -771,7 +1094,7 @@ func renderSkyrimMaterialization(report skyrimMaterializationReport, jsonOutput 
 }
 
 func formatSkyrimMaterialization(report skyrimMaterializationReport) string {
-	return fmt.Sprintf("Skyrim materialization complete\nChanged files: %d\nUnchanged files: %d\nPlugin state changed: %t\nRollback: %s\nLaunched: %s launcherPID=%d runtimePID=%d\nRuntime log: %s\nRuntime verified: %t\n", len(report.ChangedFiles), len(report.UnchangedFiles), report.PluginStateChanged, report.RollbackPath, report.LaunchedExecutable, report.LauncherPID, report.RuntimePID, report.RuntimeLog, report.RuntimeVerified)
+	return fmt.Sprintf("Skyrim materialization complete\nChanged files: %d\nUnchanged files: %d\nPlugin state changed: %t\nRollback: %s\nLaunched: %s launcherPID=%d runtimePID=%d\nRuntime log: %s\nRuntime verified: %t\nRestoration attempted: %t verified: %t hash: %s error: %s\n", len(report.ChangedFiles), len(report.UnchangedFiles), report.PluginStateChanged, report.RollbackPath, report.LaunchedExecutable, report.LauncherPID, report.RuntimePID, report.RuntimeLog, report.RuntimeVerified, report.RestorationAttempted, report.RestorationVerified, report.RestoredConfigSHA256, report.RestorationError)
 }
 
 func hashFile(path string) (string, error) {
@@ -785,6 +1108,40 @@ func hashFile(path string) (string, error) {
 		return "", err
 	}
 	return strings.ToUpper(hex.EncodeToString(hash.Sum(nil))), nil
+}
+
+func hashBytes(data []byte) string {
+	sum := sha256.Sum256(data)
+	return strings.ToUpper(hex.EncodeToString(sum[:]))
+}
+
+func restoreSkyrimRuntimeConfig(root string, plan skyrimPlanReport) error {
+	if !plan.RuntimeConfig.RestorationPlanned {
+		return nil
+	}
+	for _, file := range plan.Files {
+		if file.Kind != "config" {
+			continue
+		}
+		safeHash, err := hashFile(plan.RuntimeConfig.SourcePath)
+		if err != nil {
+			return err
+		}
+		restoreFile := file
+		restoreFile.MaterializedSource = ""
+		restoreFile.SourceSHA256 = safeHash
+		restoreFile.CurrentSHA256, _ = hashFile(file.Destination)
+		if restoreFile.CurrentSHA256 == safeHash {
+			restoreFile.Action = "unchanged"
+		} else if restoreFile.CurrentSHA256 == "" {
+			restoreFile.Action = "create"
+		} else {
+			restoreFile.Action = "replace"
+		}
+		_, err = materializeSkyrimPlan(root, skyrimPlanReport{ManifestSHA256: plan.ManifestSHA256 + "-restore", Files: []skyrimFilePlan{restoreFile}})
+		return err
+	}
+	return fmt.Errorf("runtime restoration was planned but no config file was present")
 }
 
 func stringSlicesEqual(left []string, right []string) bool {

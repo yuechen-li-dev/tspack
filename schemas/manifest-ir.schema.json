@@ -199,6 +199,20 @@
               "assetPacks": { "type": "array", "items": { "type": "object" } },
               "assetOutput": { "const": "build/assets/MarionetteSSE.esp" },
               "runtimeConfig": { "type": "string" },
+              "runtimeOverrideTarget": { "type": "string" },
+              "runtimeOverrideFields": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["path", "type"],
+                  "properties": {
+                    "path": { "type": "string" },
+                    "type": { "enum": ["boolean", "string", "integer"] },
+                    "secret": { "type": "boolean" }
+                  },
+                  "additionalProperties": false
+                }
+              },
               "dllDestination": { "type": "string" },
               "configDestination": { "type": "string" },
               "expectedRecords": { "type": "array", "items": { "type": "object" } },

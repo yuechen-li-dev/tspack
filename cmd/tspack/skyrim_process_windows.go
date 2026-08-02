@@ -29,3 +29,13 @@ func findSkyrimRuntimeProcess() int {
 		}
 	}
 }
+
+func skyrimRuntimeProcessExists(pid int) bool {
+	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
+	if err != nil {
+		return false
+	}
+	defer windows.CloseHandle(handle)
+	status, err := windows.WaitForSingleObject(handle, 0)
+	return err == nil && status == 258 // WAIT_TIMEOUT
+}

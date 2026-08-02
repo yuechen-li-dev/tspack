@@ -72,3 +72,6 @@ state. Repeating unchanged materialization is idempotent.
 Humans and LLMs do not edit `plugins.txt`, `loadorder.txt`, or equivalent state.
 TSPack preserves unrelated entries and ordering, enables `MarionetteSSE.esp`
 once, and rejects or removes only explicitly declared stale Marionette bridges.
+
+For the bounded machine-local runtime TOML overlay used by Marionette's
+development presenter, see [Skyrim runtime overrides](skyrim-runtime-overrides.md).
