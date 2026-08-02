@@ -20,6 +20,23 @@ host = "skyrim-dev"
 "eternal_dragonborn.development.presenter.profile" = "skyrim-dev"
 ```
 
+Presenter-driven disposable-session loading is a separate, disabled-by-default
+capability. Marionette declares the fixed symbolic vocabulary in its manifest;
+the host profile supplies only the corresponding local filename. The filename is
+declared as a secret runtime override, so `--dry-run --json` reports the
+capability and override path but redacts the machine-local value.
+
+```toml
+[hosts.skyrim-dev.runtimeOverrides.MarionetteSSE]
+host = "skyrim-dev"
+"eternal_dragonborn.development.presenter.allow_session_bootstrap" = true
+"eternal_dragonborn.development.presenter.development_session_ed_m2b2d" = "<disposable save filename only>"
+```
+
+The filename is not a presenter protocol argument: the only supported request
+identity is `ed-m2b2d`. It must name a disposable save and must remain ignored
+alongside the rest of the host profile.
+
 The target name and `host` identity must match the selected `SkyrimTarget`.
 Unknown targets, unknown or undeclared paths, duplicate TOML keys, values of
 the wrong type, and malformed source paths are rejected before deployment.
