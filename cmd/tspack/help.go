@@ -49,7 +49,7 @@ func printDefaultHelp() {
 	fmt.Println("Reference shortcuts:")
 	fmt.Println("  tspack check [--root .] [--format] [--show-conflicts] [--show-lifecycle]")
 	fmt.Println("  tspack run [target] [--root .]")
-	fmt.Println("  tspack run skyrim [--session-bootstrap] [--dry-run] [--json]")
+	fmt.Println("  tspack run skyrim [--session-bootstrap|--dominatus-skyrim] [--dry-run] [--json]")
 	fmt.Println("  tspack npm <npm-args...> [--root .]")
 	fmt.Println("  tspack inspect <url> [experimental]")
 	fmt.Println("  tspack format [paths...] [--root .] [--check]")

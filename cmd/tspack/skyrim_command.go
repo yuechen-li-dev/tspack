@@ -31,6 +31,7 @@ type skyrimRunOptions struct {
 	json             bool
 	noLaunch         bool
 	sessionBootstrap bool
+	dominatusSkyrim  bool
 }
 
 type skyrimProfilesFile struct {
@@ -217,6 +218,12 @@ func runSkyrimCommand(args []string) {
 			failSkyrim("TSPACK_SKYRIM_SESSION_BOOTSTRAP_INVALID", err)
 		}
 	}
+	if opts.dominatusSkyrim {
+		profile, err = withDominatusSkyrimExperiment(profile, target.Target.Host)
+		if err != nil {
+			failSkyrim("TSPACK_SKYRIM_DOMINATUS_EXPERIMENT_INVALID", err)
+		}
+	}
 	plan := buildSkyrimPlan(root, manifestPath, target, profile, false)
 	if opts.dryRun {
 		renderSkyrimPlan(plan, opts.json)
@@ -237,7 +244,7 @@ func runSkyrimCommand(args []string) {
 	if err != nil {
 		failSkyrim("TSPACK_SKYRIM_MATERIALIZATION_FAILED", err)
 	}
-	if opts.sessionBootstrap {
+	if opts.sessionBootstrap || opts.dominatusSkyrim {
 		configPath, configErr := writeSkyrimSessionBootstrapTransportConfig(root, profile)
 		if configErr != nil {
 			failSkyrim("TSPACK_SKYRIM_SESSION_BOOTSTRAP_CONFIG_FAILED", configErr)
@@ -294,6 +301,8 @@ func parseSkyrimRunOptions(args []string) skyrimRunOptions {
 			opts.noLaunch = true
 		case "--session-bootstrap":
 			opts.sessionBootstrap = true
+		case "--dominatus-skyrim":
+			opts.dominatusSkyrim = true
 		case "--root":
 			if index+1 >= len(args) {
 				failSkyrim("TSPACK_SKYRIM_ARGUMENT_INVALID", errors.New("--root requires a value"))
@@ -333,6 +342,19 @@ func withSkyrimSessionBootstrap(profile skyrimHostProfile, host string) (skyrimH
 	values["eternal_dragonborn.development.presenter.allow_semantic_actuation"] = false
 	values["eternal_dragonborn.development.presenter.allow_host_request_evaluation"] = false
 	values["eternal_dragonborn.development.presenter.allow_session_bootstrap"] = true
+	return copy, nil
+}
+
+func withDominatusSkyrimExperiment(profile skyrimHostProfile, host string) (skyrimHostProfile, error) {
+	copy, err := withSkyrimSessionBootstrap(profile, host)
+	if err != nil {
+		return skyrimHostProfile{}, err
+	}
+	values := copy.RuntimeOverrides["MarionetteSSE"]
+	values["eternal_dragonborn.development.presenter.allow_semantic_actuation"] = true
+	values["eternal_dragonborn.development.presenter.allow_host_request_evaluation"] = true
+	values["eternal_dragonborn.development.presenter.allow_host_fixture_query"] = true
+	copy.INIOverrides = map[string]any{skyrimAlwaysActiveOverridePath: true}
 	return copy, nil
 }
 

@@ -189,6 +189,50 @@ func TestSessionBootstrapUsesOnlyProvisionedFixtureMapping(t *testing.T) {
 	}
 }
 
+func TestDominatusSkyrimOverlayEnablesOnlyBoundedExperimentGates(t *testing.T) {
+	profile := skyrimHostProfile{
+		TestSaves: map[string]skyrimTestSave{
+			"ed-m2b2d": {Filename: "MarionetteFixture-ed-m2b2d.ess", Disposable: true, ReadOnly: true},
+		},
+		RuntimeOverrides: map[string]map[string]any{
+			"MarionetteSSE": {
+				"host": "skyrim-dev",
+				"eternal_dragonborn.development.presenter.profile": "skyrim-dev",
+				"eternal_dragonborn.development.presenter.token":   "local-token",
+			},
+		},
+	}
+	effective, err := withDominatusSkyrimExperiment(profile, "skyrim-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := effective.RuntimeOverrides["MarionetteSSE"]
+	for _, path := range []string{
+		"eternal_dragonborn.development.presenter.enabled",
+		"eternal_dragonborn.development.presenter.allow_session_bootstrap",
+		"eternal_dragonborn.development.presenter.allow_semantic_actuation",
+		"eternal_dragonborn.development.presenter.allow_host_request_evaluation",
+		"eternal_dragonborn.development.presenter.allow_host_fixture_query",
+	} {
+		if values[path] != true {
+			t.Fatalf("expected %s enabled in run-scoped experiment: %#v", path, values)
+		}
+	}
+	if _, ok := profile.RuntimeOverrides["MarionetteSSE"]["eternal_dragonborn.development.presenter.enabled"]; ok {
+		t.Fatal("experiment overlay mutated the host profile")
+	}
+	if effective.INIOverrides[skyrimAlwaysActiveOverridePath] != true {
+		t.Fatalf("experiment must keep Skyrim active while unfocused: %#v", effective.INIOverrides)
+	}
+}
+
+func TestDominatusSkyrimRunOptionIsExplicit(t *testing.T) {
+	opts := parseSkyrimRunOptions([]string{"run", "skyrim", "--dominatus-skyrim", "--dry-run"})
+	if !opts.dominatusSkyrim || !opts.dryRun || opts.sessionBootstrap {
+		t.Fatalf("unexpected Dominatus Skyrim options: %#v", opts)
+	}
+}
+
 func TestSessionBootstrapWritesIgnoredControllerConfigFromHostValues(t *testing.T) {
 	root := t.TempDir()
 	profile := skyrimHostProfile{RuntimeOverrides: map[string]map[string]any{
