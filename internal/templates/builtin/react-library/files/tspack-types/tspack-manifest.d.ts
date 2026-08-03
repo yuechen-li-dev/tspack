@@ -355,12 +355,27 @@ declare module 'tspack/manifest' {
     assetPacks: SkyrimAssetPack[];
     assetOutput: "build/assets/MarionetteSSE.esp";
     runtimeConfig: string;
+    runtimeOverrideTarget?: string;
+    runtimeOverrideFields?: SkyrimRuntimeOverride[];
+    iniOverrideFields?: SkyrimINIOverride[];
     dllDestination: "SKSE/Plugins/MarionetteSSE.dll";
     configDestination: "SKSE/Plugins/MarionetteSSE.toml";
     expectedRecords: SkyrimExpectedRecord[];
     stalePlugins?: string[];
     runtimeEvidencePattern: string;
     readyMarker: string;
+  };
+
+  export type SkyrimRuntimeOverride = {
+    path: string;
+    type: "boolean" | "string" | "integer";
+    secret?: boolean;
+  };
+
+  export type SkyrimINIOverride = {
+    section: "General";
+    key: "bAlwaysActive";
+    type: "boolean";
   };
 
   export type SecurityProps = {
