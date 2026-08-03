@@ -1,5 +1,23 @@
 # Skyrim targets
 
+## Dominatus-managed controller lifecycle
+
+`tspack run skyrim --dominatus-skyrim --json --root <MarionetteSSE>` plans and
+owns both processes. Dry-run JSON exposes `managedControllerCommand` beside the
+SKSE command. A real run writes scoped transport/checkpoint configuration under
+`build/skyrim`, starts the managed Aurelian controller once with PID/log
+evidence, launches SKSE, observes runtime readiness and exit, and terminates the
+controller if it remains after Skyrim.
+
+Managed startup failure fails the run. If the controller fails while Skyrim is
+active, tspack waits for the scoped game process to exit before restoring the
+runtime configuration and INI. Controller logs, checkpoints, and reports remain
+build artifacts and are not written to the live Steam installation.
+The controller project defaults to the conventional
+`%USERPROFILE%\source\repos\Copeland` checkout; set
+`AURELIAN_MARIONETTE_PROJECT` to the transport `.csproj` when it lives
+elsewhere.
+
 Skyrim support is an explicit, static manifest extension. Ordinary TypeScript
 manifests have no `skyrim` IR member, and ordinary `check`, `update`, `sync`,
 `run`, `test`, and `pack` paths do not load a Skyrim profile, probe Windows, or

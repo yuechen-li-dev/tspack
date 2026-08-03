@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,6 +17,43 @@ func TestSkyrimRunIsExplicitlyOptedIn(t *testing.T) {
 	}
 	if !isSkyrimRunInvocation([]string{"run", "skyrim"}) {
 		t.Fatal("Skyrim target did not select Skyrim lifecycle")
+	}
+}
+
+func TestDominatusSkyrimManagedControllerCommandIsExplicit(t *testing.T) {
+	t.Setenv("AURELIAN_MARIONETTE_PROJECT", filepath.Join("fixture", "Aurelian.Marionette.Transport.csproj"))
+	command := managedControllerCommand(t.TempDir(), filepath.Join("build", "transport.json"))
+	joined := strings.Join(command, " ")
+	for _, required := range []string{"dotnet", "--project", "Aurelian.Marionette.Transport.csproj", "dominatus-skyrim", "--config", "transport.json"} {
+		if !strings.Contains(joined, required) {
+			t.Fatalf("managed controller command missing %q: %s", required, joined)
+		}
+	}
+}
+
+func TestDominatusSkyrimTransportConfigIncludesScopedCheckpointDirectory(t *testing.T) {
+	root := t.TempDir()
+	profile := skyrimHostProfile{RuntimeOverrides: map[string]map[string]any{
+		"MarionetteSSE": {
+			"eternal_dragonborn.development.presenter.profile": "fixture",
+			"eternal_dragonborn.development.presenter.token":   "fixture-token",
+		},
+	}}
+	path, err := writeSkyrimSessionBootstrapTransportConfig(root, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config map[string]any
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(root, "build", "skyrim", "checkpoints")
+	if config["checkpointDirectory"] != want {
+		t.Fatalf("transport config checkpoint directory=%v want=%s", config["checkpointDirectory"], want)
 	}
 }
 
@@ -149,11 +187,11 @@ func TestSkyrimRuntimeConfigAppliesDeclaredTypedOverridesDeterministically(t *te
 	profile := skyrimHostProfile{RuntimeOverrides: map[string]map[string]any{
 		"MarionetteSSE": {
 			"host": "skyrim-dev",
-			"eternal_dragonborn.development.presenter.enabled":                  true,
-			"eternal_dragonborn.development.presenter.allow_semantic_actuation": false,
+			"eternal_dragonborn.development.presenter.enabled":                       true,
+			"eternal_dragonborn.development.presenter.allow_semantic_actuation":      false,
 			"eternal_dragonborn.development.presenter.allow_host_request_evaluation": true,
-			"eternal_dragonborn.development.presenter.profile":                  "skyrim-dev",
-			"eternal_dragonborn.development.presenter.token":                    "test-token-012345",
+			"eternal_dragonborn.development.presenter.profile":                       "skyrim-dev",
+			"eternal_dragonborn.development.presenter.token":                         "test-token-012345",
 		},
 	}}
 	first, err := buildSkyrimRuntimeConfig(root, target, profile, false)

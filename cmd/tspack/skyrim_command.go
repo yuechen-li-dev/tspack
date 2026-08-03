@@ -132,30 +132,31 @@ type skyrimPluginStatePlan struct {
 }
 
 type skyrimPlanReport struct {
-	Command              string                     `json:"command"`
-	TSPackVersion        string                     `json:"tspackVersion"`
-	TSPackCommit         string                     `json:"tspackCommit"`
-	ManifestPath         string                     `json:"manifestPath"`
-	ManifestSHA256       string                     `json:"manifestSha256"`
-	Package              string                     `json:"package"`
-	Target               string                     `json:"target"`
-	Host                 string                     `json:"host"`
-	RuntimeVersion       string                     `json:"runtimeVersion"`
-	GameRoot             string                     `json:"gameRoot"`
-	DataDirectory        string                     `json:"dataDirectory"`
-	SKSELauncher         string                     `json:"skseLauncher"`
-	AssetPacks           []manifest.SkyrimAssetPack `json:"assetPacks"`
-	NativeConfigure      []string                   `json:"nativeConfigure"`
-	NativeBuild          []string                   `json:"nativeBuild"`
-	AssetCompilerCommand []string                   `json:"assetCompilerCommand"`
-	Files                []skyrimFilePlan           `json:"files"`
-	PluginState          skyrimPluginStatePlan      `json:"pluginState"`
-	LaunchCommand        []string                   `json:"launchCommand"`
-	RuntimeEvidence      string                     `json:"runtimeEvidence"`
-	ReadyMarker          string                     `json:"readyMarker"`
-	RuntimeConfig        skyrimRuntimeConfigPlan    `json:"runtimeConfig"`
-	INI                  skyrimINIPlan              `json:"ini"`
-	Blockers             []string                   `json:"blockers"`
+	Command                  string                     `json:"command"`
+	TSPackVersion            string                     `json:"tspackVersion"`
+	TSPackCommit             string                     `json:"tspackCommit"`
+	ManifestPath             string                     `json:"manifestPath"`
+	ManifestSHA256           string                     `json:"manifestSha256"`
+	Package                  string                     `json:"package"`
+	Target                   string                     `json:"target"`
+	Host                     string                     `json:"host"`
+	RuntimeVersion           string                     `json:"runtimeVersion"`
+	GameRoot                 string                     `json:"gameRoot"`
+	DataDirectory            string                     `json:"dataDirectory"`
+	SKSELauncher             string                     `json:"skseLauncher"`
+	AssetPacks               []manifest.SkyrimAssetPack `json:"assetPacks"`
+	NativeConfigure          []string                   `json:"nativeConfigure"`
+	NativeBuild              []string                   `json:"nativeBuild"`
+	AssetCompilerCommand     []string                   `json:"assetCompilerCommand"`
+	Files                    []skyrimFilePlan           `json:"files"`
+	PluginState              skyrimPluginStatePlan      `json:"pluginState"`
+	LaunchCommand            []string                   `json:"launchCommand"`
+	ManagedControllerCommand []string                   `json:"managedControllerCommand,omitempty"`
+	RuntimeEvidence          string                     `json:"runtimeEvidence"`
+	ReadyMarker              string                     `json:"readyMarker"`
+	RuntimeConfig            skyrimRuntimeConfigPlan    `json:"runtimeConfig"`
+	INI                      skyrimINIPlan              `json:"ini"`
+	Blockers                 []string                   `json:"blockers"`
 }
 
 type skyrimMaterializationReport struct {
@@ -177,6 +178,9 @@ type skyrimMaterializationReport struct {
 	RestoredINISHA256       string           `json:"restoredIniSha256,omitempty"`
 	RestorationError        string           `json:"restorationError,omitempty"`
 	SessionBootstrapConfig  string           `json:"sessionBootstrapConfig,omitempty"`
+	ManagedControllerPID    int              `json:"managedControllerPid,omitempty"`
+	ManagedControllerLog    string           `json:"managedControllerLog,omitempty"`
+	ManagedControllerExited bool             `json:"managedControllerExited"`
 }
 
 type skyrimBridgeInspection struct {
@@ -225,6 +229,9 @@ func runSkyrimCommand(args []string) {
 		}
 	}
 	plan := buildSkyrimPlan(root, manifestPath, target, profile, false)
+	if opts.dominatusSkyrim {
+		plan.ManagedControllerCommand = managedControllerCommand(root, "<generated-transport-config>")
+	}
 	if opts.dryRun {
 		renderSkyrimPlan(plan, opts.json)
 		if len(plan.Blockers) > 0 {
@@ -237,6 +244,9 @@ func runSkyrimCommand(args []string) {
 	}
 	executeSkyrimBuild(root, target, profile)
 	plan = buildSkyrimPlan(root, manifestPath, target, profile, true)
+	if opts.dominatusSkyrim {
+		plan.ManagedControllerCommand = managedControllerCommand(root, filepath.Join(root, "build", "msse-presenter-m1", "aurelian-transport.json"))
+	}
 	if len(plan.Blockers) > 0 {
 		failSkyrim("TSPACK_SKYRIM_STAGING_FAILED", errors.New(strings.Join(plan.Blockers, "; ")))
 	}
@@ -253,7 +263,7 @@ func runSkyrimCommand(args []string) {
 	}
 	var lifecycleError error
 	if !opts.noLaunch {
-		lifecycleError = launchSkyrim(&report, target, profile)
+		lifecycleError = launchSkyrim(&report, target, profile, opts.dominatusSkyrim)
 	}
 	if plan.RuntimeConfig.RestorationPlanned {
 		report.RestorationAttempted = true
@@ -371,9 +381,10 @@ func writeSkyrimSessionBootstrapTransportConfig(root string, profile skyrimHostP
 	}
 	path := filepath.Join(directory, "aurelian-transport.json")
 	data, err := json.MarshalIndent(map[string]any{
-		"profile":    profileName,
-		"token":      token,
-		"clientName": "tspack-session-bootstrap",
+		"profile":             profileName,
+		"token":               token,
+		"clientName":          "tspack-session-bootstrap",
+		"checkpointDirectory": filepath.Join(root, "build", "skyrim", "checkpoints"),
 	}, "", "  ")
 	if err != nil {
 		return "", err
@@ -1173,8 +1184,55 @@ func copyAndReplaceFile(source string, destination string) error {
 	return nil
 }
 
-func launchSkyrim(report *skyrimMaterializationReport, target skyrimTargetRef, profile skyrimHostProfile) error {
+func launchSkyrim(report *skyrimMaterializationReport, target skyrimTargetRef, profile skyrimHostProfile, launchManagedController bool) error {
 	before := newestMatchingFile(profile.RuntimeLogDirectory, target.Target.RuntimeEvidencePattern)
+	var managed *exec.Cmd
+	var managedDone chan error
+	if launchManagedController {
+		command := managedControllerCommand(target.PackageRoot, report.SessionBootstrapConfig)
+		if len(command) == 0 {
+			return errors.New("managed Aurelian controller command is unavailable")
+		}
+		logPath := filepath.Join(target.PackageRoot, "build", "skyrim", "managed-controller.log")
+		if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+			return err
+		}
+		logFile, err := os.Create(logPath)
+		if err != nil {
+			return err
+		}
+		defer logFile.Close()
+		managed = exec.Command(command[0], command[1:]...)
+		managed.Dir = target.PackageRoot
+		managed.Env = os.Environ()
+		managed.Stdout = logFile
+		managed.Stderr = logFile
+		if err := managed.Start(); err != nil {
+			return fmt.Errorf("start managed Aurelian controller: %w", err)
+		}
+		report.ManagedControllerPID = managed.Process.Pid
+		report.ManagedControllerLog = logPath
+		managedDone = make(chan error, 1)
+		go func() { managedDone <- managed.Wait() }()
+		select {
+		case err := <-managedDone:
+			report.ManagedControllerExited = true
+			if err == nil {
+				return errors.New("managed Aurelian controller exited before Skyrim launch")
+			}
+			return fmt.Errorf("managed Aurelian controller startup failed: %w", err)
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	if managed != nil {
+		defer func() {
+			if !report.ManagedControllerExited && managed.Process != nil {
+				_ = managed.Process.Kill()
+				<-managedDone
+				report.ManagedControllerExited = true
+			}
+		}()
+	}
 	cmd := exec.Command(profile.SKSELauncher)
 	cmd.Dir = profile.GameRoot
 	cmd.Env = os.Environ()
@@ -1210,9 +1268,51 @@ func launchSkyrim(report *skyrimMaterializationReport, target skyrimTargetRef, p
 		return fmt.Errorf("SKSE launcher exited: %w", err)
 	}
 	for report.RuntimePID != 0 && skyrimRuntimeProcessExists(report.RuntimePID) {
+		if managedDone != nil && !report.ManagedControllerExited {
+			select {
+			case managedErr := <-managedDone:
+				report.ManagedControllerExited = true
+				if managedErr != nil {
+					for skyrimRuntimeProcessExists(report.RuntimePID) {
+						time.Sleep(500 * time.Millisecond)
+					}
+					return fmt.Errorf("managed Aurelian controller failed; Skyrim exited before scoped restoration: %w", managedErr)
+				}
+			case <-time.After(500 * time.Millisecond):
+			}
+			continue
+		}
 		time.Sleep(500 * time.Millisecond)
 	}
+	if managedDone != nil && !report.ManagedControllerExited {
+		select {
+		case managedErr := <-managedDone:
+			report.ManagedControllerExited = true
+			if managedErr != nil {
+				return fmt.Errorf("managed Aurelian controller exited with failure: %w", managedErr)
+			}
+		case <-time.After(2 * time.Second):
+			_ = managed.Process.Kill()
+			<-managedDone
+			report.ManagedControllerExited = true
+		}
+	}
 	return nil
+}
+
+func managedControllerCommand(root string, configPath string) []string {
+	project := os.Getenv("AURELIAN_MARIONETTE_PROJECT")
+	if project == "" {
+		userProfile, err := os.UserHomeDir()
+		if err != nil {
+			return nil
+		}
+		project = filepath.Join(userProfile, "source", "repos", "Copeland", "src", "Aurelian", "Aurelian.Marionette.Transport", "Aurelian.Marionette.Transport.csproj")
+	}
+	return []string{
+		"dotnet", "run", "--project", project, "--",
+		"dominatus-skyrim", "--config", configPath,
+	}
 }
 
 func newestMatchingFile(directory string, pattern string) string {
@@ -1248,7 +1348,7 @@ func writeSkyrimReports(root string, plan skyrimPlanReport, report skyrimMateria
 	if err := os.WriteFile(filepath.Join(directory, "materialization-report.txt"), []byte(formatSkyrimMaterialization(report)), 0o644); err != nil {
 		return err
 	}
-	verification := fmt.Sprintf("launched=%t\nlauncherPid=%d\nruntimePid=%d\nlog=%s\nmarker=%s\nverified=%t\n", report.LauncherPID != 0, report.LauncherPID, report.RuntimePID, report.RuntimeLog, report.Plan.ReadyMarker, report.RuntimeVerified)
+	verification := fmt.Sprintf("launched=%t\nlauncherPid=%d\nruntimePid=%d\nlog=%s\nmarker=%s\nverified=%t\nmanagedControllerPid=%d\nmanagedControllerLog=%s\nmanagedControllerExited=%t\n", report.LauncherPID != 0, report.LauncherPID, report.RuntimePID, report.RuntimeLog, report.Plan.ReadyMarker, report.RuntimeVerified, report.ManagedControllerPID, report.ManagedControllerLog, report.ManagedControllerExited)
 	return os.WriteFile(filepath.Join(directory, "runtime-verification.txt"), []byte(verification), 0o644)
 }
 
@@ -1284,7 +1384,11 @@ func formatSkyrimPlan(plan skyrimPlanReport) string {
 	if plan.RuntimeConfig.RestorationPlanned {
 		fmt.Fprintf(&builder, "post-run restoration: %s -> committed safe configuration\n", plan.RuntimeConfig.SourcePath)
 	}
-	fmt.Fprintf(&builder, "Plugin state: %s changed=%t\nLaunch: %s\nEvidence: %s\n", plan.PluginState.Path, plan.PluginState.Changed, strings.Join(plan.LaunchCommand, " "), plan.RuntimeEvidence)
+	fmt.Fprintf(&builder, "Plugin state: %s changed=%t\nLaunch: %s\n", plan.PluginState.Path, plan.PluginState.Changed, strings.Join(plan.LaunchCommand, " "))
+	if len(plan.ManagedControllerCommand) > 0 {
+		fmt.Fprintf(&builder, "Managed controller: %s\n", strings.Join(plan.ManagedControllerCommand, " "))
+	}
+	fmt.Fprintf(&builder, "Evidence: %s\n", plan.RuntimeEvidence)
 	for _, blocker := range plan.Blockers {
 		fmt.Fprintf(&builder, "BLOCKER: %s\n", blocker)
 	}
