@@ -9,6 +9,21 @@ SKSE command. A real run writes scoped transport/checkpoint configuration under
 evidence, launches SKSE, observes runtime readiness and exit, and terminates the
 controller if it remains after Skyrim.
 
+The managed command is `live-save-correlation`. It keeps one authenticated pipe
+session open for the scoped game process, polls bounded ordered lifecycle facts,
+stages a canonical Dominatus checkpoint at `kSaveGame`, commits it only after
+the SKSE serialization save callback, and restores only after a successful
+`kPostLoadGame`. Failed loads never restore. The checkpoint directory is scoped
+to `build/skyrim/checkpoints`; ordinary cleanup removes transient deployment
+state while leaving this proof evidence available for inspection.
+
+For the interactive A/B rollback proof, wait for `M4A_MANAGED
+world_state=WorldReady`, create `AURELIAN_M4A_A`, advance the observable agent
+state, create `AURELIAN_M4A_B`, then load `AURELIAN_M4A_A`. The native and
+managed logs show the shared operation IDs, save names, sequences, timeline,
+checkpoint selection, lineage rebase, and rematerialized placed origin. Menu
+input remains manual.
+
 Managed startup failure fails the run. If the controller fails while Skyrim is
 active, tspack waits for the scoped game process to exit before restoring the
 runtime configuration and INI. Controller logs, checkpoints, and reports remain

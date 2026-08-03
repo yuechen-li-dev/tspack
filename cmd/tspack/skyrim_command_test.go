@@ -24,7 +24,7 @@ func TestDominatusSkyrimManagedControllerCommandIsExplicit(t *testing.T) {
 	t.Setenv("AURELIAN_MARIONETTE_PROJECT", filepath.Join("fixture", "Aurelian.Marionette.Transport.csproj"))
 	command := managedControllerCommand(t.TempDir(), filepath.Join("build", "transport.json"))
 	joined := strings.Join(command, " ")
-	for _, required := range []string{"dotnet", "--project", "Aurelian.Marionette.Transport.csproj", "dominatus-skyrim", "--config", "transport.json"} {
+	for _, required := range []string{"dotnet", "--project", "Aurelian.Marionette.Transport.csproj", "live-save-correlation", "--config", "transport.json"} {
 		if !strings.Contains(joined, required) {
 			t.Fatalf("managed controller command missing %q: %s", required, joined)
 		}

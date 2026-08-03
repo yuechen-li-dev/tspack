@@ -1311,7 +1311,7 @@ func managedControllerCommand(root string, configPath string) []string {
 	}
 	return []string{
 		"dotnet", "run", "--project", project, "--",
-		"dominatus-skyrim", "--config", configPath,
+		"live-save-correlation", "--config", configPath,
 	}
 }
 
