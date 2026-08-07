@@ -27,6 +27,7 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/resolver"
 	"github.com/yuechen-li-dev/tspack/internal/securityevidence"
 	"github.com/yuechen-li-dev/tspack/internal/store"
+	"github.com/yuechen-li-dev/tspack/internal/version"
 	"github.com/yuechen-li-dev/tspack/internal/why"
 )
 
@@ -62,9 +63,10 @@ type UpdateOptions struct {
 }
 
 type UpdateTargetResult struct {
-	Targeted bool
-	Query    string
-	Selected []UpdateSelectedTarget
+	Targeted       bool
+	Query          string
+	Selected       []UpdateSelectedTarget
+	DirectPackages []string
 }
 
 type UpdateSelectedTarget struct {
@@ -223,7 +225,7 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
 	}
-	targetResult := &UpdateTargetResult{Targeted: updateOpts.Query != "", Query: updateOpts.Query}
+	targetResult := &UpdateTargetResult{Targeted: updateOpts.Query != "", Query: updateOpts.Query, DirectPackages: directNPMPackageNames(g)}
 	var old *lockfile.Lockfile
 	if _, err := os.Stat(opts.LockfilePath); err == nil {
 		lf, d, e := lockfile.LoadFile(opts.LockfilePath)
@@ -388,6 +390,22 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 
 func lockDiffHasPackageChanges(diff lockfile.Diff) bool {
 	return len(diff.PackagesAdded) > 0 || len(diff.PackagesRemoved) > 0 || len(diff.PackagesChanged) > 0
+}
+
+func directNPMPackageNames(g *graph.WorkspaceGraph) []string {
+	seen := map[string]bool{}
+	names := []string{}
+	for _, pkg := range g.AllPackages() {
+		for _, dependency := range pkg.AllDependencies() {
+			if dependency.Source.Kind != "npm" || dependency.Source.Package == "" || seen[dependency.Source.Package] {
+				continue
+			}
+			seen[dependency.Source.Package] = true
+			names = append(names, dependency.Source.Package)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 type populatedPackage struct {
@@ -1071,6 +1089,20 @@ func manifestFrontendCLIPath() string {
 }
 
 func loadManifestIR(opts Options) (*manifest.ManifestIR, []diag.Diagnostic) {
+	requirement, requirementErr := version.ReadRequirement(opts.RootDir)
+	if requirementErr != nil {
+		return nil, []diag.Diagnostic{errDiag("TSPACK_VERSION_REQUIREMENT_INVALID", "invalid TSPack minimum-version contract", requirementErr.Error())}
+	}
+	if requirement != nil && requirement.TooOld {
+		return nil, []diag.Diagnostic{{
+			Code:     "TSPACK_VERSION_TOO_OLD",
+			Severity: diag.SeverityError,
+			File:     requirement.Path,
+			Message:  "this project requires a newer TSPack release",
+			Details:  []string{"installed: " + requirement.Current, "minimum: " + requirement.Minimum},
+			Fixes:    []string{"Install TSPack " + requirement.Minimum + " or newer.", "Update the setup-tspack version in CI before retrying."},
+		}}
+	}
 	if opts.ManifestIRPath != "" {
 		b, err := os.ReadFile(opts.ManifestIRPath)
 		if err != nil {
@@ -1121,24 +1153,30 @@ func loadManifestIR(opts Options) (*manifest.ManifestIR, []diag.Diagnostic) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	runErr := cmd.Run()
+	var parsed struct {
+		OK          bool              `json:"ok"`
+		IR          json.RawMessage   `json:"ir"`
+		Diagnostics []diag.Diagnostic `json:"diagnostics"`
+	}
+	parseErr := json.Unmarshal(stdout.Bytes(), &parsed)
+	if runErr != nil && (parseErr != nil || parsed.OK) {
 		details := append([]string{
 			"selected frontend path: " + cliPath,
-			"node execution error: " + err.Error(),
+			"node execution error: " + runErr.Error(),
 		}, bridge.ResolutionDetails(resolution)...)
+		stdoutText := strings.TrimSpace(stdout.String())
+		if parseErr != nil && stdoutText != "" {
+			details = append(details, "node stdout:", stdoutText)
+		}
 		stderrText := strings.TrimSpace(stderr.String())
 		if stderrText != "" {
 			details = append(details, "node stderr:", stderrText)
 		}
 		return nil, []diag.Diagnostic{{Code: "TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", Severity: diag.SeverityError, Message: "manifest frontend failed", Details: details}}
 	}
-	var parsed struct {
-		OK          bool              `json:"ok"`
-		IR          json.RawMessage   `json:"ir"`
-		Diagnostics []diag.Diagnostic `json:"diagnostics"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &parsed); err != nil {
-		return nil, []diag.Diagnostic{errDiag("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", "invalid frontend JSON", err.Error())}
+	if parseErr != nil {
+		return nil, []diag.Diagnostic{errDiag("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", "invalid frontend JSON", parseErr.Error())}
 	}
 	if !parsed.OK {
 		if len(parsed.Diagnostics) == 0 {

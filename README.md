@@ -4,9 +4,9 @@ TSPack is an early TypeScript project lifecycle manager built around explicit ma
 
 ## Status
 
-The repository is prepared for the `v0.1.7` release cut. Until the tag is created, `v0.1.6` remains the latest public release. TSPack is useful for early dogfooding and release-candidate validation, but it is not production-stable and the CLI, manifest API, and generated artifacts may still change.
+The current release is `v0.1.8`. TSPack is useful for early dogfooding and release-candidate validation, but it is not production-stable and the CLI, manifest API, and generated artifacts may still change.
 
-The v0.1.7 release-prep focus is faster cold update, near no-op warm sync, cleaner manifest and xTest editor support, managed workspace TypeScript SDK consistency for VS Code, and hardlink-backed materialization.
+The v0.1.8 focus is operational trust: structured manifest failures, explicit minimum-version contracts, actionable Windows file-lock diagnostics, dependency-change attribution, and native OSV vulnerability auditing.
 
 The repository is self-hosted after bootstrap: a trusted source checkout or binary is required first, then TSPack can manage, check, audit, and describe its own project contract. See [self-hosting](docs/self-hosting.md) and the [release gate](docs/release-gate.md).
 
@@ -24,7 +24,7 @@ Download release artifacts from GitHub Releases. Release archives are expected t
 From a trusted checkout, Unix users can run:
 
 ```bash
-TSPACK_VERSION=v0.1.7 sh scripts/install.sh
+TSPACK_VERSION=v0.1.8 sh scripts/install.sh
 ```
 
 The installer downloads GitHub Release artifacts, verifies the checksum entry, and installs `tspack` to `$HOME/.local/bin` unless `TSPACK_INSTALL_DIR` is set. Review installer scripts before running them from raw URLs. `get.tspack.dev` is not live.
@@ -62,6 +62,7 @@ tspack help commands
 - `check` and read-only `check --format` validation.
 - Blocked-by-default dependency lifecycle security policy.
 - `doctor security` lifecycle capability audit surface.
+- Native `tspack audit` checks locked npm versions against OSV.dev without invoking npm or mutating dependency state.
 - Declared RunTargets with runtime inheritance.
 - Native xTest harness.
 - `outdated` plus declared UpdatePolicy dry-run planning.
@@ -81,7 +82,7 @@ TSPack is self-hosted after bootstrap. The root `manifest.tsx` and `ts-lock.toml
 
 ## Docs
 
-Start with [docs/README.md](docs/README.md), especially the [v0.1.7 release notes](docs/releases/v0.1.7.md), [performance closeout](docs/dev/v0.1.7-performance-closeout.md), [roadmap](docs/roadmap.md), [distribution](docs/distribution.md), [security](docs/security.md), and [release gate](docs/release-gate.md).
+Start with [docs/README.md](docs/README.md), especially the [v0.1.8 release notes](docs/releases/v0.1.8.md), [native audit guide](docs/audit.md), [roadmap](docs/roadmap.md), [distribution](docs/distribution.md), [security](docs/security.md), and [release gate](docs/release-gate.md).
 
 ### Quickstart template
 

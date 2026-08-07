@@ -30,6 +30,19 @@ function testChecksums() {
 function testVersionParsing() {
   assert.strictEqual(installer.parseLatestTagName('{"tag_name":"v0.0.0-test"}'), "v0.0.0-test");
   assert.throws(() => installer.parseLatestTagName('{"name":"missing"}'), /tag_name/);
+  assert.strictEqual(installer.parseSemver("v0.1.8", "test").text, "v0.1.8");
+  assert.throws(() => installer.parseSemver("latest", "test"), /semantic version/);
+  assert.strictEqual(installer.compareSemver(installer.parseSemver("v0.1.8", "a"), installer.parseSemver("v0.1.7", "b")), 1);
+}
+
+function testMinimumVersionFile() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "setup-tspack-version-"));
+  fs.writeFileSync(path.join(root, ".tspack-version"), "v0.1.8\n");
+  const requirement = installer.readMinimumVersion(root, ".tspack-version");
+  assert.strictEqual(requirement.text, "v0.1.8");
+  installer.enforceMinimumVersion("v0.1.8", requirement);
+  installer.enforceMinimumVersion("v0.2.0", requirement);
+  assert.throws(() => installer.enforceMinimumVersion("v0.1.7", requirement), /TSPACK_VERSION_TOO_OLD/);
 }
 
 async function testResolveVersion() {
@@ -61,6 +74,7 @@ async function main() {
   testPlatformMapping();
   testChecksums();
   testVersionParsing();
+  testMinimumVersionFile();
   await testResolveVersion();
   testUrls();
   testFindExtractedBinary();

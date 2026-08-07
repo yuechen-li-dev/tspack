@@ -20,8 +20,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
 	"github.com/yuechen-li-dev/tspack/internal/nodecmd"
+	"github.com/yuechen-li-dev/tspack/internal/version"
 )
 
 type runTargetRef struct {
@@ -471,7 +473,13 @@ func loadManifestForRun(root string) *manifest.ManifestIR {
 }
 
 func loadManifestPathForRun(root string, manifestPath string) *manifest.ManifestIR {
-	_ = root
+	requirement, requirementErr := version.ReadRequirement(root)
+	if requirementErr != nil {
+		failRun("TSPACK_VERSION_REQUIREMENT_INVALID", requirementErr.Error())
+	}
+	if requirement != nil && requirement.TooOld {
+		failRun("TSPACK_VERSION_TOO_OLD", fmt.Sprintf("installed %s; project requires %s or newer", requirement.Current, requirement.Minimum))
+	}
 	cliPath := manifestFrontendCLIPath()
 	cmd, err := nodecmd.Command(cliPath, manifestPath)
 	if err != nil {
@@ -483,16 +491,24 @@ func loadManifestPathForRun(root string, manifestPath string) *manifest.Manifest
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		failRun("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", err.Error()+": "+stderr.String())
-	}
+	runErr := cmd.Run()
 	var parsed struct {
-		Ok          bool `json:"ok"`
-		IR          any  `json:"ir"`
-		Diagnostics any  `json:"diagnostics"`
+		Ok          bool              `json:"ok"`
+		IR          any               `json:"ir"`
+		Diagnostics []diag.Diagnostic `json:"diagnostics"`
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &parsed); err != nil || !parsed.Ok {
+	parseErr := json.Unmarshal(stdout.Bytes(), &parsed)
+	if runErr != nil && parseErr != nil {
+		failRun("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", runErr.Error()+": "+stderr.String())
+	}
+	if parseErr != nil {
 		failRun("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", "failed to parse manifest frontend output")
+	}
+	if !parsed.Ok {
+		if len(parsed.Diagnostics) > 0 {
+			failRun(parsed.Diagnostics[0].Code, parsed.Diagnostics[0].Message)
+		}
+		failRun("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", "manifest frontend returned failure without diagnostics")
 	}
 	irBytes, _ := json.Marshal(parsed.IR)
 	ir, diags := manifest.LoadBytes(manifestPath, irBytes)

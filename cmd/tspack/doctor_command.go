@@ -18,6 +18,7 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
 	"github.com/yuechen-li-dev/tspack/internal/nodecmd"
 	"github.com/yuechen-li-dev/tspack/internal/securityevidence"
+	"github.com/yuechen-li-dev/tspack/internal/version"
 )
 
 type doctorScope string
@@ -467,11 +468,19 @@ func commandVersion(path string, flag string) string {
 }
 
 func runCommandWithTimeout(cmd *exec.Cmd, timeout time.Duration) ([]byte, error) {
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
 	timer := time.AfterFunc(timeout, func() {
-		_ = cmd.Process.Kill()
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
 	})
 	defer timer.Stop()
-	return cmd.Output()
+	err := cmd.Wait()
+	return stdout.Bytes(), err
 }
 
 func runTargetCommandFirstToken(target manifest.RunTarget) string {
@@ -720,6 +729,13 @@ func annotateMissingLockfileAcknowledgements(checks []DoctorCheck, acknowledgeme
 }
 
 func loadDoctorSecurityManifest(root string) (*manifest.ManifestIR, []DoctorCheck) {
+	requirement, requirementErr := version.ReadRequirement(root)
+	if requirementErr != nil {
+		return nil, []DoctorCheck{{Name: "security manifest", Status: "error", Message: "invalid TSPack minimum-version contract", Details: map[string]any{"diagnosticCode": "TSPACK_VERSION_REQUIREMENT_INVALID", "error": requirementErr.Error()}}}
+	}
+	if requirement != nil && requirement.TooOld {
+		return nil, []DoctorCheck{{Name: "security manifest", Status: "error", Message: "installed TSPack is older than the project minimum", Details: map[string]any{"diagnosticCode": "TSPACK_VERSION_TOO_OLD", "installed": requirement.Current, "minimum": requirement.Minimum}}}
+	}
 	manifestPath := filepath.Join(root, "manifest.tsx")
 	if _, err := os.Stat(manifestPath); err != nil {
 		if os.IsNotExist(err) {
@@ -753,17 +769,18 @@ func loadDoctorSecurityManifest(root string) (*manifest.ManifestIR, []DoctorChec
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, []DoctorCheck{{Name: "security manifest", Status: "error", Message: "manifest frontend failed", Details: map[string]any{"error": err.Error(), "stderr": stderr.String()}}}
-	}
-
 	var parsed struct {
 		OK          bool              `json:"ok"`
 		IR          json.RawMessage   `json:"ir"`
 		Diagnostics []diag.Diagnostic `json:"diagnostics"`
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &parsed); err != nil {
-		return nil, []DoctorCheck{{Name: "security manifest", Status: "error", Message: "manifest frontend returned invalid JSON", Details: map[string]any{"error": err.Error()}}}
+	runErr := cmd.Run()
+	parseErr := json.Unmarshal(stdout.Bytes(), &parsed)
+	if runErr != nil && parseErr != nil {
+		return nil, []DoctorCheck{{Name: "security manifest", Status: "error", Message: "manifest frontend failed", Details: map[string]any{"error": runErr.Error(), "stdout": stdout.String(), "stderr": stderr.String()}}}
+	}
+	if parseErr != nil {
+		return nil, []DoctorCheck{{Name: "security manifest", Status: "error", Message: "manifest frontend returned invalid JSON", Details: map[string]any{"error": parseErr.Error()}}}
 	}
 	if !parsed.OK {
 		details := map[string]any{}

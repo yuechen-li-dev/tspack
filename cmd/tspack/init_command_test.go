@@ -73,7 +73,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 				t.Fatalf("init output missing concept %q:\n%s", want, string(b))
 			}
 		}
-		for _, rel := range []string{"manifest.tsx", "tsconfig.tspack.json", ".vscode/settings.json", "tsconfig.json", "biome.json", "vite.config.ts", "package.json", "index.html", "src/main.tsx", "src/App.tsx", "src/style.css", "README.md"} {
+		for _, rel := range []string{"manifest.tsx", ".tspack-version", "tsconfig.tspack.json", ".vscode/settings.json", "tsconfig.json", "biome.json", "vite.config.ts", "package.json", "index.html", "src/main.tsx", "src/App.tsx", "src/style.css", "README.md"} {
 			if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
 				t.Fatalf("missing generated file %s: %v", rel, err)
 			}
@@ -115,7 +115,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 				t.Fatalf("init output missing concept %q:\n%s", want, string(b))
 			}
 		}
-		for _, rel := range []string{"manifest.tsx", "tsconfig.tspack.json", ".vscode/settings.json", "tsconfig.json", "tsconfig.build.json", "biome.json", "vite.config.ts", "package.json", "src/index.ts", "src/Button.tsx", "src/style.css", "README.md"} {
+		for _, rel := range []string{"manifest.tsx", ".tspack-version", "tsconfig.tspack.json", ".vscode/settings.json", "tsconfig.json", "tsconfig.build.json", "biome.json", "vite.config.ts", "package.json", "src/index.ts", "src/Button.tsx", "src/style.css", "README.md"} {
 			if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
 				t.Fatalf("missing generated file %s: %v", rel, err)
 			}

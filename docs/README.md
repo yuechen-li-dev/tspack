@@ -2,6 +2,7 @@
 
 ## Release and status
 
+- [v0.1.8 release notes](releases/v0.1.8.md)
 - [v0.1.7 release notes](releases/v0.1.7.md)
 - [v0.1.7 performance closeout](dev/v0.1.7-performance-closeout.md)
 - [v0.1.5 release notes](releases/v0.1.5.md)
@@ -19,6 +20,7 @@
 - [Manifest](manifest.md)
 - [Commands](commands.md)
 - [Security](security.md)
+- [Native vulnerability audit](audit.md)
 - [Update, outdated, and UpdatePolicy](update.md)
 - [Performance harness and profiling](performance.md)
 - [Run targets](run.md)

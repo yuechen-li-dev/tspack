@@ -714,6 +714,9 @@ func materializeDiagnosticFromError(err error, packageID string, file string, pa
 		if packageName != "" {
 			details = append(details, "packageName="+packageName)
 		}
+		for _, owner := range materializeLockOwners(locked.Path) {
+			details = append(details, formatMaterializeLockOwner(owner))
+		}
 		return diag.Diagnostic{
 			Code:     "TSPACK_MATERIALIZE_FILE_LOCKED",
 			Severity: diag.SeverityError,

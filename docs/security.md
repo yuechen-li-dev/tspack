@@ -82,7 +82,7 @@ The report focuses on lifecycle visibility and context:
 
 When `package-lock.json` lacks script metadata, the report says so explicitly. If installed `node_modules` metadata is available, TSPack may inspect `package.json` files read-only and label those findings as `installed-package-json`.
 
-## Non-goals for M14
+## Historical non-goals for M14
 
 - vulnerability scanning
 - license scanning
@@ -91,6 +91,8 @@ When `package-lock.json` lacks script metadata, the report says so explicitly. I
 - script execution
 
 - `tspack outdated` fetches registry metadata only; it does not fetch tarballs or execute scripts.
+
+Vulnerability scanning was outside the original M14 lifecycle-capability milestone. It is now provided separately by the read-only `tspack audit` command; see `docs/audit.md`. Lifecycle capability policy and known-vulnerability data remain distinct signals.
 
 
 ## Phase 7 lifecycle security closeout

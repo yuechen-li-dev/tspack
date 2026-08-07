@@ -32,6 +32,10 @@ from = "files/manifest.tsx.tmpl"
 to = "manifest.tsx"
 
 [[files]]
+from = "files/tspack-version"
+to = ".tspack-version"
+
+[[files]]
 from = "files/package.json.tmpl"
 to = "package.json"
 

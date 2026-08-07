@@ -267,6 +267,7 @@ type lockDiffPackage struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
 	Source  string `json:"source"`
+	Direct  bool   `json:"direct"`
 }
 type lockDiffPackageChange struct {
 	From lockDiffPackage `json:"from"`
@@ -308,6 +309,10 @@ func main() {
 	}
 	if args[0] == "build" {
 		runBuildCommand(args)
+		return
+	}
+	if args[0] == "audit" {
+		runAuditCommand(args)
 		return
 	}
 	if args[0] == "npm" {
@@ -1347,6 +1352,9 @@ func runCommand(args []string) {
 			printUpdateDryRunPlan(result)
 		} else {
 			fmt.Printf("lockfile diff: +%d -%d\n", len(result.LockDiff.PackagesAdded), len(result.LockDiff.PackagesRemoved))
+			if cmd == "update" {
+				printUpdateAttribution(result)
+			}
 		}
 	}
 	if result.WhyResult != nil && whyOpts.Reverse {
@@ -1614,23 +1622,61 @@ func printUpdateDryRunPlan(result project.Result) {
 	if len(diff.PackagesAdded) > 0 {
 		fmt.Println("  added:")
 		for _, pkg := range diff.PackagesAdded {
-			fmt.Printf("    %s\n", pkg.ID)
+			fmt.Printf("    %s (%s)\n", pkg.ID, updatePackageKind(result, pkg.Name))
 		}
 	}
 	if len(diff.PackagesChanged) > 0 {
 		fmt.Println("  changed:")
 		for _, ch := range diff.PackagesChanged {
-			fmt.Printf("    %s -> %s\n", ch.Old.ID, ch.New.ID)
+			fmt.Printf("    %s -> %s (%s)\n", ch.Old.ID, ch.New.ID, updatePackageKind(result, ch.New.Name))
 		}
 	}
 	if len(diff.PackagesRemoved) > 0 {
 		fmt.Println("  removed:")
 		for _, pkg := range diff.PackagesRemoved {
-			fmt.Printf("    %s\n", pkg.ID)
+			fmt.Printf("    %s (%s)\n", pkg.ID, updatePackageKind(result, pkg.Name))
 		}
 	}
 	fmt.Println()
 	fmt.Println("No files were written.")
+}
+
+func updatePackageKind(result project.Result, packageName string) string {
+	if result.UpdateTarget != nil {
+		for _, name := range result.UpdateTarget.DirectPackages {
+			if name == packageName {
+				return "direct"
+			}
+		}
+	}
+	return "transitive"
+}
+
+func printUpdateAttribution(result project.Result) {
+	if result.LockDiff == nil {
+		return
+	}
+	direct, transitive := 0, 0
+	count := func(name string) {
+		if updatePackageKind(result, name) == "direct" {
+			direct++
+		} else {
+			transitive++
+		}
+	}
+	for _, pkg := range result.LockDiff.PackagesAdded {
+		count(pkg.Name)
+	}
+	for _, pkg := range result.LockDiff.PackagesRemoved {
+		count(pkg.Name)
+	}
+	for _, change := range result.LockDiff.PackagesChanged {
+		count(change.New.Name)
+	}
+	fmt.Printf("change attribution: %d direct, %d transitive closure\n", direct, transitive)
+	if result.UpdateTarget != nil && !result.UpdateTarget.Targeted && direct+transitive >= 10 {
+		fmt.Println("hint: preview or limit broad changes with `tspack update <dependency> --dry-run`.")
+	}
 }
 
 func buildPolicyUpdateDryRunJSONReport(opts project.Options, result project.Result) PolicyUpdateDryRunJSONReport {
@@ -1920,15 +1966,15 @@ func buildUpdateDryRunJSONReport(opts project.Options, result project.Result) Up
 	}
 	if result.LockDiff != nil {
 		for _, pkg := range result.LockDiff.PackagesAdded {
-			report.Changes.Added = append(report.Changes.Added, lockDiffPackage{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source})
+			report.Changes.Added = append(report.Changes.Added, lockDiffPackage{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, Direct: updatePackageKind(result, pkg.Name) == "direct"})
 		}
 		for _, pkg := range result.LockDiff.PackagesRemoved {
-			report.Changes.Removed = append(report.Changes.Removed, lockDiffPackage{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source})
+			report.Changes.Removed = append(report.Changes.Removed, lockDiffPackage{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, Direct: updatePackageKind(result, pkg.Name) == "direct"})
 		}
 		for _, ch := range result.LockDiff.PackagesChanged {
 			report.Changes.Changed = append(report.Changes.Changed, lockDiffPackageChange{
-				From: lockDiffPackage{ID: ch.Old.ID, Name: ch.Old.Name, Version: ch.Old.Version, Source: ch.Old.Source},
-				To:   lockDiffPackage{ID: ch.New.ID, Name: ch.New.Name, Version: ch.New.Version, Source: ch.New.Source},
+				From: lockDiffPackage{ID: ch.Old.ID, Name: ch.Old.Name, Version: ch.Old.Version, Source: ch.Old.Source, Direct: updatePackageKind(result, ch.Old.Name) == "direct"},
+				To:   lockDiffPackage{ID: ch.New.ID, Name: ch.New.Name, Version: ch.New.Version, Source: ch.New.Source, Direct: updatePackageKind(result, ch.New.Name) == "direct"},
 			})
 		}
 	}

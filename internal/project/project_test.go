@@ -835,14 +835,14 @@ func TestSyncHydratesReactViteToolingFromLock(t *testing.T) {
 	mustExist(t, rootBinPathForTest(dir, "biome"))
 }
 
-func TestFrontendBridgeMissingCLI(t *testing.T) {
+func TestFrontendBridgeReturnsManifestDiagnostic(t *testing.T) {
 	dir := t.TempDir()
 	opts := DefaultOptions(dir)
 	opts.ManifestPath = filepath.Join(dir, "manifest.tsx")
 	_ = os.WriteFile(opts.ManifestPath, []byte("export default {}"), 0o644)
 	res := Check(opts)
-	if !hasErrCode(res.Diagnostics, "TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED") {
-		t.Fatalf("expected frontend failure")
+	if !hasErrCode(res.Diagnostics, "TSPACK_MANIFEST_INVALID_DEFAULT_EXPORT") {
+		t.Fatalf("expected structured manifest failure, got %#v", res.Diagnostics)
 	}
 }
 
@@ -2875,6 +2875,58 @@ func TestLoadManifestIRNodeFailureIncludesSelectedFrontendPath(t *testing.T) {
 		if !strings.Contains(details, expected) {
 			t.Fatalf("missing detail %q in %#v", expected, diagnostic.Details)
 		}
+	}
+}
+
+func TestLoadManifestIRPreservesStructuredFrontendDiagnosticsOnNonzeroExit(t *testing.T) {
+	dir := t.TempDir()
+	frontendPath := filepath.Join(dir, "frontend", "cli.js")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND", frontendPath)
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_CLI", "")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR", "")
+	writeManifestFixture(t, dir)
+	writeManifestTestFile(t, frontendPath, `process.stdout.write(JSON.stringify({ok:false,diagnostics:[{code:"TSPACK_MANIFEST_UNKNOWN_ELEMENT",severity:"error",message:"Unknown JSX element: CompatFiles",file:process.argv[2]}]}) + "\n"); process.exit(1);`)
+
+	_, diagnostics := loadManifestIR(DefaultOptions(dir))
+	diagnostic := findDiagnostic(diagnostics, "TSPACK_MANIFEST_UNKNOWN_ELEMENT")
+	if diagnostic == nil {
+		t.Fatalf("expected structured frontend diagnostic, got %#v", diagnostics)
+	}
+	if diagnostic.Message != "Unknown JSX element: CompatFiles" {
+		t.Fatalf("unexpected diagnostic: %#v", diagnostic)
+	}
+}
+
+func TestLoadManifestIRRejectsSuccessfulPayloadOnNonzeroExit(t *testing.T) {
+	dir := t.TempDir()
+	frontendPath := filepath.Join(dir, "frontend", "cli.js")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND", frontendPath)
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_CLI", "")
+	t.Setenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR", "")
+	writeManifestFixture(t, dir)
+	writeManifestTestFile(t, frontendPath, `process.stdout.write(JSON.stringify({ok:true,ir:{format:1,workspace:{name:"bad"},packages:[]}}) + "\n"); process.exit(1);`)
+
+	_, diagnostics := loadManifestIR(DefaultOptions(dir))
+	diagnostic := findDiagnostic(diagnostics, "TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED")
+	if diagnostic == nil || !strings.Contains(strings.Join(diagnostic.Details, "\n"), "node execution error:") {
+		t.Fatalf("expected exit failure despite successful payload, got %#v", diagnostics)
+	}
+}
+
+func TestLoadManifestIRChecksMinimumVersionBeforeFrontend(t *testing.T) {
+	dir := t.TempDir()
+	writeManifestFixture(t, dir)
+	if err := os.WriteFile(filepath.Join(dir, ".tspack-version"), []byte("v999.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, diagnostics := loadManifestIR(DefaultOptions(dir))
+	diagnostic := findDiagnostic(diagnostics, "TSPACK_VERSION_TOO_OLD")
+	if diagnostic == nil {
+		t.Fatalf("expected version failure, got %#v", diagnostics)
+	}
+	if strings.Contains(strings.Join(diagnostic.Details, "\n"), "frontend") {
+		t.Fatalf("version check should run before frontend resolution: %#v", diagnostic)
 	}
 }
 

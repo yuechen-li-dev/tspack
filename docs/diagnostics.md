@@ -31,6 +31,12 @@ This inventory groups primary diagnostic families by subsystem to keep command-s
 
 ## Package/core diagnostics
 
+- `TSPACK_VERSION_REQUIREMENT_INVALID`: `.tspack-version` could not be read or did not contain exactly one semantic version.
+- `TSPACK_VERSION_TOO_OLD`: the installed CLI is below the project's declared minimum and manifest parsing was not attempted.
+- `TSPACK_AUDIT_LOCKFILE_FAILED`: native audit could not read a valid `ts-lock.toml`.
+- `TSPACK_AUDIT_SERVICE_FAILED`: OSV could not be queried or returned an unusable response; the scan is not clean.
+- `TSPACK_AUDIT_INVALID_ARGS`: an audit flag or severity threshold was invalid.
+
 - `TSPACK_FRONTEND_*`
 - `TSPACK_IR_*`
 - `TSPACK_MANIFEST_INVALID_RUNTIME_PROFILE`: workspace `runtime` was not one of `nodejs`, `bun`, or `deno`; package manager names such as `npm`, `pnpm`, and `yarn` are not runtime profiles.

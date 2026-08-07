@@ -681,7 +681,7 @@ func TestCLIHelpAndUnsupportedCommands(t *testing.T) {
 		t.Fatalf("help failed: %v\n%s", err, string(b))
 	}
 	text := string(b)
-	for _, cmd := range []string{"check", "update", "sync", "pack", "why", "outdated", "how", "format", "lint", "run", "test", "artifact", "bench", "doom", "inspect", "--version", "help"} {
+	for _, cmd := range []string{"check", "update", "sync", "audit", "pack", "why", "outdated", "how", "format", "lint", "run", "test", "artifact", "bench", "doom", "inspect", "--version", "help"} {
 		if !strings.Contains(text, cmd) {
 			t.Fatalf("help missing %s: %s", cmd, text)
 		}
@@ -3610,7 +3610,7 @@ process.stdout.write(JSON.stringify(out));`
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("update failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
 	}
-	if stdout.String() != "lockfile diff: +1 -0\n" {
+	if stdout.String() != "lockfile diff: +1 -0\nchange attribution: 0 direct, 1 transitive closure\n" {
 		t.Fatalf("unexpected stdout: %q", stdout.String())
 	}
 	for _, want := range []string{"resolving packages...", "populating store...", "writing lockfile...", "update complete"} {

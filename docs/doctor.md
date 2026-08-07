@@ -35,7 +35,7 @@
 - No package-manager mutation.
 - No xTest bridge generation; use `tspack test --xtest-bridge <path>` when an explicit native bridge path is needed.
 - No lifecycle script execution or lifecycle behavior probing; `doctor security` only reads manifest policy and lockfile metadata.
-- No vulnerability database scanning, `npm audit`, registry checks, approval policy generation, rebuilds, jailed builds, or package-manager mutation.
+- `doctor security` does not contact vulnerability databases, run `npm audit`, generate approval policy, rebuild packages, create jailed builds, or mutate package-manager state. Use the separate read-only `tspack audit` command for OSV-backed known-vulnerability scanning.
 
 Scoped exit behavior:
 - `tspack doctor format` exits nonzero when format-critical checks have errors.

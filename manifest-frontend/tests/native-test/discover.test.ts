@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   discoverNativeTestFile,
   discoverNativeTestFiles,
@@ -327,14 +327,18 @@ it("discovery does not copy fixture directory or create sandbox temp paths", () 
     "no-run.xtest.tsx",
     'export default (<Suite name="s"><Fact name="f"><Project from="fixture" />{() => {}}</Fact></Suite>);',
   );
-  const before = new Set(fs.readdirSync(os.tmpdir()));
-  discoverNativeTestFiles({ rootDir: root });
-  const after = new Set(fs.readdirSync(os.tmpdir()));
+  const mkdtemp = vi.spyOn(fs, "mkdtempSync");
+  let createdSandbox = false;
+  try {
+    discoverNativeTestFiles({ rootDir: root });
+  } finally {
+    createdSandbox = mkdtemp.mock.calls.some(([prefix]) =>
+      String(prefix).includes("tspack-project-"),
+    );
+    mkdtemp.mockRestore();
+  }
   expect(fs.existsSync(path.join(root, "generated.txt"))).toBe(false);
-  expect(
-    [...after].filter((n) => !before.has(n) && n.includes("tspack-project-"))
-      .length,
-  ).toBe(0);
+  expect(createdSandbox).toBe(false);
 });
 
 it("reports invalid Project from path", () => {

@@ -85,6 +85,45 @@ function parseLatestTagName(body) {
   return parsed.tag_name.trim();
 }
 
+function parseSemver(value, label) {
+  const match = String(value).trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/);
+  if (!match) {
+    throw new Error(`${label} must be a semantic version such as v0.1.8; got ${JSON.stringify(value)}.`);
+  }
+  return { text: `v${match[1]}.${match[2]}.${match[3]}${match[4] ? `-${match[4]}` : ""}`, numbers: match.slice(1, 4).map(Number), prerelease: match[4] || "" };
+}
+
+function compareSemver(left, right) {
+  for (let index = 0; index < 3; index += 1) {
+    if (left.numbers[index] !== right.numbers[index]) {
+      return left.numbers[index] < right.numbers[index] ? -1 : 1;
+    }
+  }
+  if (left.prerelease === right.prerelease) return 0;
+  if (left.prerelease === "") return 1;
+  if (right.prerelease === "") return -1;
+  return left.prerelease.localeCompare(right.prerelease, "en", { numeric: true });
+}
+
+function readMinimumVersion(workspace, versionFile) {
+  if (!versionFile) return null;
+  const filePath = path.resolve(workspace, versionFile);
+  if (!fs.existsSync(filePath)) return null;
+  const raw = fs.readFileSync(filePath, "utf8").trim();
+  if (raw === "" || /\s/.test(raw)) {
+    throw new Error(`${filePath} must contain exactly one semantic version such as v0.1.8.`);
+  }
+  return { ...parseSemver(raw, filePath), path: filePath };
+}
+
+function enforceMinimumVersion(resolvedVersion, requirement) {
+  if (!requirement) return;
+  const resolved = parseSemver(resolvedVersion, "Resolved TSPack release");
+  if (compareSemver(resolved, requirement) < 0) {
+    throw new Error(`TSPACK_VERSION_TOO_OLD: requested ${resolved.text}, but ${requirement.path} requires ${requirement.text} or newer.`);
+  }
+}
+
 async function resolveVersion(versionInput, repo, token) {
   if (versionInput !== "latest") {
     return versionInput;
@@ -281,9 +320,12 @@ async function main() {
   const token = getInput("github-token", process.env.GITHUB_TOKEN || "");
   const installDir = getInput("install-dir", path.join(process.env.RUNNER_TEMP || os.tmpdir(), "tspack-bin"));
   const check = getInput("check", "true");
+  const versionFile = getInput("version-file", ".tspack-version");
   const platformInfo = mapPlatform(process.platform, process.arch);
 
   const version = await resolveVersion(versionInput, repo, token);
+  const workspace = process.env.GITHUB_WORKSPACE || process.cwd();
+  enforceMinimumVersion(version, readMinimumVersion(workspace, versionFile));
   const urls = buildDownloadUrls(repo, version, platformInfo.artifact);
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "setup-tspack-"));
   const archivePath = path.join(tempDir, platformInfo.artifact);
@@ -331,8 +373,12 @@ module.exports = {
   buildDownloadUrls,
   findExtractedBinary,
   mapPlatform,
+  compareSemver,
+  enforceMinimumVersion,
   parseChecksums,
   parseLatestTagName,
+  parseSemver,
+  readMinimumVersion,
   resolveVersion,
   shouldRunCheck,
   verifyChecksum,

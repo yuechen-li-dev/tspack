@@ -67,6 +67,11 @@ func TestRetryMaterializeFileOpReturnsLockedErrorAfterBoundedRetries(t *testing.
 }
 
 func TestMaterializeDiagnosticFromLockedError(t *testing.T) {
+	previousOwners := materializeLockOwners
+	materializeLockOwners = func(string) []materializeLockOwner {
+		return []materializeLockOwner{{PID: 4242, Name: "esbuild.exe"}}
+	}
+	t.Cleanup(func() { materializeLockOwners = previousOwners })
 	diag := materializeDiagnosticFromError(
 		&materializeFileLockError{
 			Op:       "remove",
@@ -86,5 +91,8 @@ func TestMaterializeDiagnosticFromLockedError(t *testing.T) {
 	}
 	if len(diag.Fixes) == 0 {
 		t.Fatal("expected actionable fixes")
+	}
+	if !strings.Contains(strings.Join(diag.Details, "\n"), "lockOwner=esbuild.exe (pid=4242)") {
+		t.Fatalf("expected lock owner details, got %#v", diag.Details)
 	}
 }

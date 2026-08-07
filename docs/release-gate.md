@@ -36,6 +36,11 @@
 - `tspack doctor`
 - `tspack doctor security`
 - `tspack doctor security --json`
+- `tspack audit`
+- `tspack audit --audit-level high`
+- `tspack audit --json`
+
+The audit smoke must query controlled OSV fixtures, report exact locked package versions and direct/transitive paths, fail on any finding by default, honor `--audit-level`, and fail closed when the advisory service is unavailable or returns invalid data.
 
 
 ### Migrate smoke

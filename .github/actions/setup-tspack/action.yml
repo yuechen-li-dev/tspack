@@ -2,7 +2,7 @@ name: setup-tspack
 description: Install TSPack from GitHub Releases and add it to PATH.
 inputs:
   version:
-    description: "TSPack version to install. Use 'latest' or a tag like v0.1.7."
+    description: "TSPack version to install. Use 'latest' or a tag like v0.1.8."
     required: false
     default: "latest"
   repo:
@@ -19,6 +19,10 @@ inputs:
     description: "Run 'tspack --help' after installation."
     required: false
     default: "true"
+  version-file:
+    description: "Project-relative minimum-version file checked after resolving the requested release. Defaults to .tspack-version."
+    required: false
+    default: ".tspack-version"
 outputs:
   version:
     description: "Installed TSPack release tag."
