@@ -2163,7 +2163,9 @@ func TestCLIBiomeDefaultConfigSignalingAndCleanup(t *testing.T) {
 				t.Fatalf("captured config must be valid JSON: %v\n%s", err, captured.ConfigJSON)
 			}
 			assertNestedValue(t, config, "double", "javascript", "formatter", "quoteStyle")
-			assertNestedValue(t, config, true, "organizeImports", "enabled")
+			assertNestedValue(t, config, "on", "assist", "actions", "source", "organizeImports")
+			assertStringArrayContains(t, config, ".tspack", "files", "experimentalScannerIgnores")
+			assertStringArrayContains(t, config, "!.tspack/**", "files", "includes")
 		})
 	}
 }
@@ -2767,6 +2769,32 @@ func assertNestedValue(t *testing.T, root map[string]any, want any, path ...stri
 	if !reflect.DeepEqual(current, want) {
 		t.Fatalf("expected %s to be %#v, got %#v", strings.Join(path, "."), want, current)
 	}
+}
+
+func assertStringArrayContains(t *testing.T, root map[string]any, want string, path ...string) {
+	t.Helper()
+	var current any = root
+	for _, key := range path {
+		currentMap, ok := current.(map[string]any)
+		if !ok {
+			t.Fatalf("expected object at %s, got %#v", strings.Join(path, "."), current)
+		}
+		value, ok := currentMap[key]
+		if !ok {
+			t.Fatalf("missing key %s", strings.Join(path, "."))
+		}
+		current = value
+	}
+	values, ok := current.([]any)
+	if !ok {
+		t.Fatalf("expected array at %s, got %#v", strings.Join(path, "."), current)
+	}
+	for _, value := range values {
+		if value == want {
+			return
+		}
+	}
+	t.Fatalf("expected %s to contain %q, got %#v", strings.Join(path, "."), want, values)
 }
 
 func containsExactArg(args []string, want string) bool {

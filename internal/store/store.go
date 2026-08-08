@@ -16,13 +16,24 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 )
 
-type Store struct{ Root string }
+type Store struct {
+	Root string
+
+	artifactLocksMu sync.Mutex
+	artifactLocks   map[string]*artifactLock
+}
+
+type artifactLock struct {
+	mu   sync.Mutex
+	refs int
+}
 
 type ArtifactKind string
 
@@ -66,7 +77,10 @@ func Open(root string) (*Store, error) {
 			return nil, err
 		}
 	}
-	return &Store{Root: root}, nil
+	return &Store{
+		Root:          root,
+		artifactLocks: map[string]*artifactLock{},
+	}, nil
 }
 
 func (s *Store) Has(hash string) bool { return len(s.Verify(normalizeHash(hash))) == 0 }
@@ -79,6 +93,9 @@ func (s *Store) PutArtifact(a Artifact) (StoreRef, []diag.Diagnostic) {
 	if a.Hash != "" && normalizeHash(a.Hash) != hash {
 		return StoreRef{}, []diag.Diagnostic{errDiag("TSPACK_STORE_HASH_MISMATCH", "provided hash does not match artifact bytes")}
 	}
+	unlock := s.lockArtifact(hash)
+	defer unlock()
+
 	ref := s.ref(hash, a.Kind, a.ID)
 	if a.Kind == ArtifactNPMTarball {
 		if d := s.writeBlobIfMissing(ref.StorePath, a.Bytes); d != nil {
@@ -117,6 +134,29 @@ func (s *Store) PutArtifact(a Artifact) (StoreRef, []diag.Diagnostic) {
 		return StoreRef{}, d
 	}
 	return ref, nil
+}
+
+func (s *Store) lockArtifact(hash string) func() {
+	s.artifactLocksMu.Lock()
+	lock := s.artifactLocks[hash]
+	if lock == nil {
+		lock = &artifactLock{}
+		s.artifactLocks[hash] = lock
+	}
+	lock.refs++
+	s.artifactLocksMu.Unlock()
+
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+
+		s.artifactLocksMu.Lock()
+		lock.refs--
+		if lock.refs == 0 {
+			delete(s.artifactLocks, hash)
+		}
+		s.artifactLocksMu.Unlock()
+	}
 }
 
 func (s *Store) Get(hash string) (StoreRef, []diag.Diagnostic) {
