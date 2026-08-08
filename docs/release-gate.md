@@ -881,7 +881,7 @@ The M46b gate covers default human `tspack check` readability for noisy informat
 
 Release smoke for M51a must verify:
 
-- The default Biome config ignores `.tspack/**`, `node_modules/**`, `dist/**`, and `tspack-artifacts/**`.
+- The default Biome 2 config excludes `.tspack/**`, `node_modules/**`, `dist/**`, and `tspack-artifacts/**` with negated `files.includes` entries.
 - `tspack init` generates a `biome.json` matching the same default ignore behavior.
 - `tspack check --format` scopes Biome to source/project paths rather than the whole repository root.
 - Generated store, artifact, and dist files do not fail format checks.

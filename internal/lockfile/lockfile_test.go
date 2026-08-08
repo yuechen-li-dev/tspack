@@ -157,6 +157,14 @@ func TestLockfileTargetPathsRejectBareDot(t *testing.T) {
 	}
 }
 
+func TestLockfileAppTargetAllowsEmptyTypes(t *testing.T) {
+	lf := []byte("[lock]\nformat = 1\n\n[[target]]\npackage = 'app'\nname = 'browser'\nexport = '.'\nentry = 'src/main.tsx'\nruntime = 'dist/main.js'\ntypes = ''\n")
+	_, diags := Parse("app.ts-lock.toml", lf)
+	if len(diags) != 0 {
+		t.Fatalf("expected an app target without declarations to parse, got %#v", diags)
+	}
+}
+
 func TestCheckVersionConflicts(t *testing.T) {
 	t.Run("no warning when one version", func(t *testing.T) {
 		lf := &Lockfile{Packages: []Package{{ID: "npm:react@18.3.1", Source: "npm", Name: "react", Version: "18.3.1"}}}

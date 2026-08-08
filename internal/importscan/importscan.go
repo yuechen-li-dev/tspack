@@ -34,7 +34,7 @@ type Import struct {
 
 var (
 	reImportFrom              = regexp.MustCompile(`(?m)\bimport\s+(type\s+)?([^;\n]*?)\sfrom\s*["']([^"']+)["']`)
-	reImportSide              = regexp.MustCompile(`(?m)\bimport\s*["']([^"']+)["']`)
+	reImportSide              = regexp.MustCompile(`(?m)\bimport[\t ]*["']([^"'\r\n]+)["']`)
 	reExportFrom              = regexp.MustCompile(`(?m)\bexport\s+(type\s+)?(\*|\{[^}]*\})\s*from\s*["']([^"']+)["']`)
 	reRequireLiteral          = regexp.MustCompile(`(?m)\brequire\s*\(\s*["']([^"']+)["']\s*\)`)
 	reRequireAny              = regexp.MustCompile(`(?m)\brequire\s*\(`)

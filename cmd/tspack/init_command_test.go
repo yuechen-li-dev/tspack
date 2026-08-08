@@ -256,17 +256,18 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		if err := json.Unmarshal(biomeBytes, &biomeConfig); err != nil {
 			t.Fatalf("generated biome config should be valid JSON: %v", err)
 		}
-		ignoreValues, ok := biomeConfig["files"].(map[string]any)["ignore"].([]any)
+		includeValues, ok := biomeConfig["files"].(map[string]any)["includes"].([]any)
 		if !ok {
-			t.Fatalf("generated biome config missing files.ignore: %#v", biomeConfig["files"])
+			t.Fatalf("generated biome config missing files.includes: %#v", biomeConfig["files"])
 		}
-		ignoreSet := map[string]bool{}
-		for _, value := range ignoreValues {
-			ignoreSet[value.(string)] = true
+		includeSet := map[string]bool{}
+		for _, value := range includeValues {
+			includeSet[value.(string)] = true
 		}
 		for _, want := range []string{".tspack/**", "node_modules/**", "dist/**", "tspack-artifacts/**"} {
-			if !ignoreSet[want] {
-				t.Fatalf("generated biome config missing ignore %q in %#v", want, ignoreValues)
+			exclusion := "!" + want
+			if !includeSet[exclusion] {
+				t.Fatalf("generated biome config missing exclusion %q in %#v", exclusion, includeValues)
 			}
 		}
 		text, _ := os.ReadFile(manifestPath)
@@ -343,17 +344,18 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		if err := json.Unmarshal(biomeBytes, &biomeConfig); err != nil {
 			t.Fatalf("generated biome config should be valid JSON: %v", err)
 		}
-		ignoreValues, ok := biomeConfig["files"].(map[string]any)["ignore"].([]any)
+		includeValues, ok := biomeConfig["files"].(map[string]any)["includes"].([]any)
 		if !ok {
-			t.Fatalf("generated biome config missing files.ignore: %#v", biomeConfig["files"])
+			t.Fatalf("generated biome config missing files.includes: %#v", biomeConfig["files"])
 		}
-		ignoreSet := map[string]bool{}
-		for _, value := range ignoreValues {
-			ignoreSet[value.(string)] = true
+		includeSet := map[string]bool{}
+		for _, value := range includeValues {
+			includeSet[value.(string)] = true
 		}
 		for _, want := range []string{".tspack/**", "node_modules/**", "dist/**", "tspack-artifacts/**"} {
-			if !ignoreSet[want] {
-				t.Fatalf("generated biome config missing ignore %q in %#v", want, ignoreValues)
+			exclusion := "!" + want
+			if !includeSet[exclusion] {
+				t.Fatalf("generated biome config missing exclusion %q in %#v", exclusion, includeValues)
 			}
 		}
 		text, _ := os.ReadFile(manifestPath)

@@ -133,8 +133,10 @@ func PlanPackage(root string, pkg *graph.PackageNode, opts Options) Result {
 		if _, err := os.Stat(filepath.Join(pkgRoot, t.Runtime)); err != nil {
 			out.Diagnostics = append(out.Diagnostics, dErr("TSPACK_PACK_MISSING_RUNTIME_OUTPUT", "missing runtime output", "package="+pkg.Name, t.Runtime))
 		}
-		if _, err := os.Stat(filepath.Join(pkgRoot, t.Types)); err != nil {
-			out.Diagnostics = append(out.Diagnostics, dErr("TSPACK_PACK_MISSING_TYPE_OUTPUT", "missing type output", "package="+pkg.Name, t.Types))
+		if t.Types != "" {
+			if _, err := os.Stat(filepath.Join(pkgRoot, t.Types)); err != nil {
+				out.Diagnostics = append(out.Diagnostics, dErr("TSPACK_PACK_MISSING_TYPE_OUTPUT", "missing type output", "package="+pkg.Name, t.Types))
+			}
 		}
 		out.Diagnostics = append(out.Diagnostics, unpublishablePeerDiagnostics(pkg, t)...)
 	}

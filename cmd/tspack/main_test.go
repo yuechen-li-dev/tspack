@@ -2011,22 +2011,36 @@ func TestDefaultBiomeConfigContent(t *testing.T) {
 	}
 
 	assertNestedValue(t, config, true, "formatter", "enabled")
-	ignoreValues, ok := config["files"].(map[string]any)["ignore"].([]any)
+	scannerIgnores, ok := config["files"].(map[string]any)["experimentalScannerIgnores"].([]any)
 	if !ok {
-		t.Fatalf("default Biome config missing files.ignore: %#v", config["files"])
+		t.Fatalf("default Biome config missing files.experimentalScannerIgnores: %#v", config["files"])
 	}
-	ignoreSet := map[string]bool{}
-	for _, value := range ignoreValues {
-		ignoreSet[value.(string)] = true
+	scannerIgnoreSet := map[string]bool{}
+	for _, value := range scannerIgnores {
+		scannerIgnoreSet[value.(string)] = true
+	}
+	for _, want := range []string{".tspack", "node_modules", "dist", "tspack-artifacts"} {
+		if !scannerIgnoreSet[want] {
+			t.Fatalf("default Biome config missing scanner ignore %q in %#v", want, scannerIgnores)
+		}
+	}
+	includeValues, ok := config["files"].(map[string]any)["includes"].([]any)
+	if !ok {
+		t.Fatalf("default Biome config missing files.includes: %#v", config["files"])
+	}
+	includeSet := map[string]bool{}
+	for _, value := range includeValues {
+		includeSet[value.(string)] = true
 	}
 	for _, want := range []string{".tspack/**", "node_modules/**", "dist/**", "tspack-artifacts/**"} {
-		if !ignoreSet[want] {
-			t.Fatalf("default Biome config missing ignore %q in %#v", want, ignoreValues)
+		exclusion := "!" + want
+		if !includeSet[exclusion] {
+			t.Fatalf("default Biome config missing exclusion %q in %#v", exclusion, includeValues)
 		}
 	}
 	assertNestedValue(t, config, "tab", "formatter", "indentStyle")
 	assertNestedValue(t, config, float64(100), "formatter", "lineWidth")
-	assertNestedValue(t, config, true, "organizeImports", "enabled")
+	assertNestedValue(t, config, "on", "assist", "actions", "source", "organizeImports")
 	assertNestedValue(t, config, true, "linter", "rules", "recommended")
 	assertNestedValue(t, config, "warn", "linter", "rules", "correctness", "noUnusedVariables")
 	assertNestedValue(t, config, "warn", "linter", "rules", "correctness", "noUnusedImports")

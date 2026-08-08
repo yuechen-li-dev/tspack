@@ -35,6 +35,31 @@ func TestScanForms(t *testing.T) {
 	}
 }
 
+func TestScanDoesNotTreatJSXImportTextAsSideEffectImport(t *testing.T) {
+	d := t.TempDir()
+	p := filepath.Join(d, "App.tsx")
+	src := `import React from "react";
+
+export function App() {
+	return (
+		<section className="tool-section">
+			<h2>Step Import</h2>
+		</section>
+	);
+}
+`
+	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	imps, diags := ScanFile(p)
+	if len(diags) > 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diags)
+	}
+	if len(imps) != 1 || !scanHas(imps, "react", ImportKindRuntime) {
+		t.Fatalf("expected only React import, got %#v", imps)
+	}
+}
+
 func TestResolveRelative(t *testing.T) {
 	d := t.TempDir()
 	os.MkdirAll(filepath.Join(d, "foo"), 0o755)

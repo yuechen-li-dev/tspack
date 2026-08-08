@@ -326,14 +326,14 @@ func validate(file string, lf *Lockfile) []diag.Diagnostic {
 	}
 	tk, ek := map[string]struct{}{}, map[string]struct{}{}
 	for _, t := range lf.Targets {
-		if t.Package == "" || t.Name == "" || t.Export == "" || t.Entry == "" || t.Runtime == "" || t.Types == "" {
-			out = append(out, errD("TSPACK_LOCK_INVALID_TARGET", "target requires package/name/export/entry/runtime/types", t.Package, t.Name))
+		if t.Package == "" || t.Name == "" || t.Export == "" || t.Entry == "" || t.Runtime == "" {
+			out = append(out, errD("TSPACK_LOCK_INVALID_TARGET", "target requires package/name/export/entry/runtime", t.Package, t.Name))
 			continue
 		}
 		if t.Export != "." && !strings.HasPrefix(t.Export, "./") {
 			out = append(out, errD("TSPACK_LOCK_INVALID_TARGET", "target export must be . or ./ prefixed", t.Package, t.Name))
 		}
-		if !pathutil.IsSafePackageFilePath(t.Entry) || !pathutil.IsSafePackageFilePath(t.Runtime) || !pathutil.IsSafePackageFilePath(t.Types) {
+		if !pathutil.IsSafePackageFilePath(t.Entry) || !pathutil.IsSafePackageFilePath(t.Runtime) || (t.Types != "" && !pathutil.IsSafePackageFilePath(t.Types)) {
 			out = append(out, errD("TSPACK_LOCK_INVALID_PATH", "target paths must be safe relative", t.Package, t.Name))
 		}
 		k := t.Package + "::" + t.Name

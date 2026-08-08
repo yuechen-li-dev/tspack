@@ -82,6 +82,9 @@ func runBiomeCommand(command string, args []string) {
 	if options.UseUnsafe && !options.UseFix {
 		emitBiomeInvalidFlags(command, "--unsafe requires --fix")
 	}
+	if len(options.Paths) == 0 {
+		options.Paths = deriveCheckFormatPaths(options.Root)
+	}
 
 	result := runBiomeCommandWithOptions(options)
 	for _, diagnostic := range result.Diagnostics {
@@ -330,16 +333,28 @@ func writeDefaultBiomeConfigTempFile() (string, error) {
 func defaultBiomeConfigBytes() []byte {
 	return []byte(`{
   "files": {
-    "ignore": [
-      ".tspack/**",
-      "node_modules/**",
-      "dist/**",
-      "tspack-artifacts/**",
-      "coverage/**",
-      ".git/**",
-      "build/**",
-      ".turbo/**",
-      ".vite/**"
+    "experimentalScannerIgnores": [
+      ".tspack",
+      "node_modules",
+      "dist",
+      "tspack-artifacts",
+      "coverage",
+      ".git",
+      "build",
+      ".turbo",
+      ".vite"
+    ],
+    "includes": [
+      "**",
+      "!.tspack/**",
+      "!node_modules/**",
+      "!dist/**",
+      "!tspack-artifacts/**",
+      "!coverage/**",
+      "!.git/**",
+      "!build/**",
+      "!.turbo/**",
+      "!.vite/**"
     ]
   },
   "formatter": {
@@ -347,8 +362,13 @@ func defaultBiomeConfigBytes() []byte {
     "indentStyle": "tab",
     "lineWidth": 100
   },
-  "organizeImports": {
-    "enabled": true
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
   },
   "linter": {
     "enabled": true,
@@ -364,20 +384,7 @@ func defaultBiomeConfigBytes() []byte {
     }
   },
   "javascript": {
-    "files": {
-    "ignore": [
-      ".tspack/**",
-      "node_modules/**",
-      "dist/**",
-      "tspack-artifacts/**",
-      "coverage/**",
-      ".git/**",
-      "build/**",
-      ".turbo/**",
-      ".vite/**"
-    ]
-  },
-  "formatter": {
+    "formatter": {
       "quoteStyle": "double",
       "trailingCommas": "all",
       "semicolons": "always",
