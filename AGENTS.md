@@ -37,5 +37,8 @@ Any partial work must leave the codebase in a cleaner, more legible, and more di
 - Manifest loading is an explicit application stage; do not hide frontend execution in a cheap constructor.
 - Generated declarations and embedded assets have one canonical source and a drift check.
 - CLI subprocess tests reuse the shared test binary. Do not add per-test `go run ./cmd/tspack` calls.
+- Lifecycle commands use dedicated parsers and renderers over typed `internal/project` operations; do not add command-name switches that combine lifecycle semantics.
+- Application lifecycle results are semantic values. Terminal text, JSON DTOs, and exit mapping remain in `internal/cli`.
+- Use `internal/cli/clitest` for process-level CLI tests, and keep application semantics directly tested in their owning package.
 - New top-level `internal` packages require a clear, durable responsibility and dependency direction. Do not create generic `utils` packages.
 - See `docs/dev/architecture.md` for the repository map and feature-placement guide.

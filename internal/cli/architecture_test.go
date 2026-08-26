@@ -5,6 +5,8 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -100,6 +102,34 @@ func TestCommandRegistryIsExplicit(t *testing.T) {
 	sort.Strings(got)
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("command registry changed without updating its architecture contract:\nwant %v\ngot  %v", want, got)
+	}
+}
+
+func TestLifecycleCommandsHaveDedicatedHandlers(t *testing.T) {
+	want := map[string]string{
+		"check":    "runCheckCommand",
+		"update":   "runUpdateCommand",
+		"sync":     "runSyncCommand",
+		"pack":     "runPackCommand",
+		"why":      "runWhyCommand",
+		"outdated": "runOutdatedCommand",
+	}
+	for command, handlerName := range want {
+		handler := commandHandlers[command]
+		function := runtime.FuncForPC(reflect.ValueOf(handler).Pointer())
+		if function == nil || !strings.HasSuffix(function.Name(), "."+handlerName) {
+			t.Errorf("%s must use dedicated handler %s; got %v", command, handlerName, function)
+		}
+	}
+}
+
+func TestLifecycleApplicationFacadeDoesNotImportPresentation(t *testing.T) {
+	path := filepath.Join("..", "project", "lifecycle_operations.go")
+	imports := parseImports(t, path)
+	for _, forbidden := range []string{"fmt", "os", "encoding/json", "github.com/yuechen-li-dev/tspack/internal/cli"} {
+		if imports[forbidden] {
+			t.Errorf("application lifecycle facade imports presentation dependency %s", forbidden)
+		}
 	}
 }
 

@@ -9,8 +9,8 @@ the project history.
 | Path | Responsibility | Classification |
 | --- | --- | --- |
 | `cmd/tspack` | Process bootstrap only; passes process arguments to `internal/cli` | CLI/presentation |
-| `internal/cli` | Command registry, parsing, output, report DTOs, workspace loading, and application orchestration | application + CLI/presentation |
-| `internal/project` | Update, sync, check, pack, why, outdated, policy, progress, and performance orchestration | application/orchestration |
+| `internal/cli` | Command registry, command-specific parsing, text/JSON renderers, exit mapping, and cheap workspace path loading | CLI/presentation |
+| `internal/project` | Typed lifecycle application operations for update, sync, check, pack, why, outdated, and policy planning | application/orchestration |
 | `internal/manifest`, `manifesttypes` | Normalized manifest IR and the small public declaration type vocabulary | core domain |
 | `internal/graph`, `projectir`, `ecosystem` | Semantic workspace/dependency models and ecosystem-neutral project evidence | core domain |
 | `internal/resolver`, `lockfile` | Resolution and deterministic lockfile truth | core domain + infrastructure boundary |
@@ -75,15 +75,19 @@ Architecture tests enforce these two rules and keep `cmd/tspack` bootstrap-only.
 ## Command and application layer
 
 `internal/cli/app.go` owns top-level help/version behavior. `registry.go` is the
-single command-registration point. Feature-named `*_command.go` files own flag
-parsing and rendering. `reports.go` owns the lifecycle command JSON schemas;
-specialized commands such as audit and adoption keep their schemas beside their
-implementation. `workspace.go` owns the cheap resolved workspace context and the
-explicit, potentially expensive manifest-loading stage.
+single command-registration point. Each lifecycle command has a dedicated
+feature-named `*_command.go` owner for parsing, typed request construction,
+rendering, and exit mapping. `reports.go` owns lifecycle JSON contracts;
+specialized commands such as audit and adoption keep schemas beside their
+implementation. `workspace.go` and `lifecycle_command_paths.go` own cheap path
+context only. Potentially expensive manifest/frontend work remains explicit.
 
-`internal/project` owns package-manager semantics. CLI code may translate flags
-into `project.Options` and render `project.Result`; it must not reimplement
-resolution, lockfile, store, materialization, or policy behavior.
+`internal/project` owns package-manager semantics. `lifecycle_operations.go`
+exposes command-specific requests and semantic results without terminal or JSON
+dependencies. Feature-named operation files own the implementation. The broad
+`project.Result` survives as a compatibility adapter, not as the preferred new
+application API. CLI must not reimplement resolution, lockfile, store,
+materialization, policy classification, or security-gate behavior.
 
 ## Manifest frontend boundary
 
@@ -117,10 +121,13 @@ storage.
 
 ## Testing and generated files
 
-Unit tests live beside their owner. CLI subprocess tests build one shared binary
-per package run; do not add per-test `go run ./cmd/tspack` calls. Slow/live tests
-must state their external requirement and remain distinguishable from the fast
-unit path. Browser and Skyrim tests live with their integration packages.
+Unit and application tests live beside their semantic owner. Parser, renderer,
+and report tests stay in CLI and should run directly when process behavior is not
+under test. Process tests use `internal/cli/clitest` and one shared binary per
+package run; do not add per-test `go run ./cmd/tspack` calls. Keep process tests
+for dispatch, exit codes, stdio, signals, environment, and executable behavior.
+Slow/live tests must state their external requirement. Browser and Skyrim tests
+live with their integration packages.
 
 Generated files are changed through their owner generator or compatibility
 writer. `compat diff`, generator tests, frontend type checks, and embedded-surface
@@ -130,9 +137,10 @@ tests are the drift gates.
 
 1. Put new semantic vocabulary in `manifest`, `graph`, or another durable domain
    package only when it is genuinely shared.
-2. Put resolution/update/sync behavior in `resolver` or `project`, not in CLI.
-3. Put a command's registration in `registry.go`, parsing/rendering in a
-   feature-named CLI file, and reusable behavior below the CLI boundary.
+2. Put a new lifecycle request/result and orchestration in `project`; put lower
+   resolution or persistence mechanics in their existing core owner.
+3. Put a command's registration in `registry.go`, parsing/rendering/exit mapping
+   in one feature-named CLI file, and semantic behavior below the CLI boundary.
 4. Put OS/browser/ecosystem/deployment-specific behavior in
    `internal/integrations/<name>` behind a narrow adapter.
 5. Put fixtures under `fixtures` or package `testdata`; keep generated output out
