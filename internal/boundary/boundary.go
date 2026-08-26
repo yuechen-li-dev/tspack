@@ -388,6 +388,17 @@ func BuildTransitiveTypeRuleMatches(root string, p *graph.PackageNode) map[strin
 
 func buildTransitiveRuleMatches(root string, p *graph.PackageNode, includeTypeOnlyLocalImports bool) map[string][]TransitiveRuleMatch {
 	matches := map[string][]TransitiveRuleMatch{}
+	hasTransitiveRule := false
+	for _, rule := range p.Boundaries {
+		if rule.TransitiveFrom != "" {
+			hasTransitiveRule = true
+			break
+		}
+	}
+	if !hasTransitiveRule {
+		return matches
+	}
+
 	sourceFiles := packageSourceFiles(root, p)
 	for _, rule := range p.Boundaries {
 		if rule.TransitiveFrom == "" {

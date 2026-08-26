@@ -1,3 +1,3 @@
+// Package pack creates and verifies publishable package artifacts from a
+// resolved project graph without owning CLI presentation.
 package pack
-
-// TODO(M0): Placeholder package for future milestone implementations.

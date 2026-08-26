@@ -1,3 +1,4 @@
+// Package cli owns TSPack command registration, argument parsing, presentation,
+// and application orchestration. The executable in cmd/tspack is intentionally
+// limited to process bootstrap.
 package cli
-
-// TODO(M0): Placeholder package for future milestone implementations.
