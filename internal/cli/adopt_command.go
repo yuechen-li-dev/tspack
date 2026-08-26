@@ -23,7 +23,7 @@ func runAdoptCommand(args []string) {
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_ROOT_REQUIRED: --root requires a path")
-				os.Exit(1)
+				exit(1)
 			}
 			root = args[i]
 		case "--report":
@@ -34,7 +34,7 @@ func runAdoptCommand(args []string) {
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_SUGGEST_PACKAGE_REQUIRED: --suggest-package requires a package root")
-				os.Exit(1)
+				exit(1)
 			}
 			suggestPackage = args[i]
 		case "--check-annotations":
@@ -43,7 +43,7 @@ func runAdoptCommand(args []string) {
 			jsonOutput = true
 		default:
 			fmt.Fprintf(os.Stderr, "unknown adopt flag: %s\n", args[i])
-			os.Exit(1)
+			exit(1)
 		}
 	}
 	requestedCount := 0
@@ -61,11 +61,11 @@ func runAdoptCommand(args []string) {
 	}
 	if requestedCount > 1 {
 		fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_INVALID_ARGS: --report, --security, --suggest-package, and --check-annotations cannot be combined")
-		os.Exit(1)
+		exit(1)
 	}
 	if requestedCount == 0 {
 		fmt.Fprintln(os.Stderr, "TSPACK_ADOPT_INVALID_ARGS: adopt requires --report, --security, --suggest-package, or --check-annotations")
-		os.Exit(1)
+		exit(1)
 	}
 	if securityRequested {
 		runAdoptSecurity(root, jsonOutput)
@@ -82,12 +82,12 @@ func runAdoptCommand(args []string) {
 	obs, err := adoption.Observe(root)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
+		exit(1)
 	}
 	annotations, err := adoption.DiscoverPackageAnnotations(obs.Root, manifestFrontendCLIPath())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
+		exit(1)
 	}
 	report := adoption.BuildReportWithAnnotations(obs, annotations)
 	if jsonOutput {
@@ -95,7 +95,7 @@ func runAdoptCommand(args []string) {
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(report); err != nil {
 			fmt.Fprintf(os.Stderr, "TSPACK_ADOPT_JSON_ENCODE_FAILED: %v\n", err)
-			os.Exit(1)
+			exit(1)
 		}
 		return
 	}
@@ -106,7 +106,7 @@ func runAdoptSuggestPackage(root string, packageRoot string) {
 	suggestion, err := adoption.SuggestPackageAnnotation(root, packageRoot)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
+		exit(1)
 	}
 	if suggestion.ExistingManifestKind != "" {
 		fmt.Fprintf(os.Stderr, "TSPACK_ADOPT_SUGGEST_PACKAGE_MANIFEST_EXISTS: %s already exists as a %s; not overwriting.\n", suggestion.ManifestPath, suggestion.ExistingManifestKind)
@@ -118,14 +118,14 @@ func runAdoptSecurity(root string, jsonOutput bool) {
 	report, err := npmobserve.Observe(npmobserve.Options{Root: root})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "TSPACK_ADOPT_SECURITY_FAILED: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 	if jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(report); err != nil {
 			fmt.Fprintf(os.Stderr, "TSPACK_ADOPT_SECURITY_JSON_ENCODE_FAILED: %v\n", err)
-			os.Exit(1)
+			exit(1)
 		}
 		return
 	}
@@ -136,7 +136,7 @@ func runAdoptCheckAnnotations(root string, jsonOutput bool) {
 	report, err := adoption.CheckPackageAnnotations(root, manifestFrontendCLIPath())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
+		exit(1)
 	}
 
 	if jsonOutput {
@@ -144,14 +144,14 @@ func runAdoptCheckAnnotations(root string, jsonOutput bool) {
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(report); err != nil {
 			fmt.Fprintf(os.Stderr, "TSPACK_ADOPT_ANNOTATION_CHECK_JSON_ENCODE_FAILED: %v\n", err)
-			os.Exit(1)
+			exit(1)
 		}
 	} else {
 		printAnnotationCheckReport(report)
 	}
 
 	if report.HasErrors || report.HasWarnings {
-		os.Exit(1)
+		exit(1)
 	}
 }
 

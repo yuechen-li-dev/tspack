@@ -1,10 +1,6 @@
 package cli
 
-import (
-	"os"
-
-	"github.com/yuechen-li-dev/tspack/internal/diag"
-)
+import "github.com/yuechen-li-dev/tspack/internal/diag"
 
 func hasErrors(diags []diag.Diagnostic) bool {
 	for _, d := range diags {
@@ -17,6 +13,6 @@ func hasErrors(diags []diag.Diagnostic) bool {
 
 func exitForDiagnostics(diagnostics []diag.Diagnostic) {
 	if hasErrors(diagnostics) {
-		os.Exit(1)
+		exit(1)
 	}
 }

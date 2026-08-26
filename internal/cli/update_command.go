@@ -37,18 +37,18 @@ func runUpdateCommand(args []string) {
 			}
 			if query != "" {
 				fmt.Fprintln(os.Stderr, "update accepts at most one query")
-				os.Exit(1)
+				exit(1)
 			}
 			query = args[index]
 		}
 	}
 	if policy && !dryRun {
 		fmt.Fprintln(os.Stderr, "TSPACK_UPDATE_POLICY_REQUIRES_DRY_RUN: policy-driven mutation is not implemented yet; use --dry-run")
-		os.Exit(1)
+		exit(1)
 	}
 	if policy && query != "" {
 		fmt.Fprintln(os.Stderr, "TSPACK_UPDATE_POLICY_TARGET_UNSUPPORTED: targeted policy planning is not implemented in M50b; use workspace policy dry-run")
-		os.Exit(1)
+		exit(1)
 	}
 	if !policy && !quiet && !jsonOutput {
 		paths.Options.Progress = project.Progress{Enabled: true, Writer: os.Stderr}
@@ -88,7 +88,7 @@ func renderPolicyUpdate(options project.Options, result project.Result, jsonOutp
 		encoder.SetIndent("", "  ")
 		if err := encoder.Encode(buildPolicyUpdateDryRunJSONReport(options, result)); err != nil {
 			fmt.Fprintf(os.Stderr, "TSPACK_UPDATE_JSON_ENCODE_FAILED: %v\n", err)
-			os.Exit(1)
+			exit(1)
 		}
 		exitForDiagnostics(result.Diagnostics)
 		return
@@ -103,7 +103,7 @@ func writeUpdateJSON(options project.Options, result project.Result) {
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(buildUpdateDryRunJSONReport(options, result)); err != nil {
 		fmt.Fprintf(os.Stderr, "TSPACK_UPDATE_JSON_ENCODE_FAILED: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 	exitForDiagnostics(result.Diagnostics)
 }

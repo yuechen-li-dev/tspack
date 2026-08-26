@@ -94,7 +94,7 @@ func runBiomeCommand(command string, args []string) {
 		}
 	}
 	if result.ExitCode != 0 {
-		os.Exit(result.ExitCode)
+		exit(result.ExitCode)
 	}
 }
 
@@ -274,7 +274,7 @@ func emitBiomeInvalidFlags(command string, msg string) {
 	} else {
 		fmt.Fprintf(os.Stderr, "TSPACK_LINT_INVALID_FLAGS: %s\n", msg)
 	}
-	os.Exit(1)
+	exit(1)
 }
 
 const defaultBiomeConfigStatusLine = "Using TSPack default Biome config: tabs, 100 columns, double quotes, organized imports, recommended lint rules. Add biome.json to customize."

@@ -14,7 +14,7 @@ import (
 
 func TestInitLegacyHelpIncludesCommand(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	cmd := exec.Command(testTspackBinary, "help", "all")
+	cmd := newInProcessCommand("help", "all")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil {
@@ -30,7 +30,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 
 	t.Run("default static template without kind", func(t *testing.T) {
 		root := t.TempDir()
-		cmd := exec.Command(testTspackBinary, "init", "--root", root, "--name", "acme-demo")
+		cmd := newInProcessCommand("init", "--root", root, "--name", "acme-demo")
 		cmd.Dir = repo
 		b, err := cmd.CombinedOutput()
 		if err != nil || !strings.Contains(string(b), `Created TSPack project: acme-demo`) {
@@ -47,7 +47,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 	})
 
 	t.Run("list includes react template concepts", func(t *testing.T) {
-		cmd := exec.Command(testTspackBinary, "init", "--list-templates")
+		cmd := newInProcessCommand("init", "--list-templates")
 		cmd.Dir = repo
 		b, err := cmd.CombinedOutput()
 		if err != nil {
@@ -62,7 +62,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 
 	t.Run("react template generation", func(t *testing.T) {
 		root := t.TempDir()
-		cmd := exec.Command(testTspackBinary, "init", "--root", root, "--template", "react", "--name", "hello-react", "--package", "@acme/hello-react", "--runtime", "bun")
+		cmd := newInProcessCommand("init", "--root", root, "--template", "react", "--name", "hello-react", "--package", "@acme/hello-react", "--runtime", "bun")
 		cmd.Dir = repo
 		b, err := cmd.CombinedOutput()
 		if err != nil {
@@ -104,7 +104,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 
 	t.Run("react-library template generation", func(t *testing.T) {
 		root := t.TempDir()
-		cmd := exec.Command(testTspackBinary, "init", "--root", root, "--template", "react-library", "--name", "ui-kit", "--package", "@local/ui-kit", "--runtime", "bun")
+		cmd := newInProcessCommand("init", "--root", root, "--template", "react-library", "--name", "ui-kit", "--package", "@local/ui-kit", "--runtime", "bun")
 		cmd.Dir = repo
 		b, err := cmd.CombinedOutput()
 		if err != nil {
@@ -154,7 +154,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 
 	t.Run("react template rejects invalid runtime", func(t *testing.T) {
 		root := t.TempDir()
-		cmd := exec.Command(testTspackBinary, "init", "--root", root, "--template", "react", "--name", "hello-react", "--runtime", "npm")
+		cmd := newInProcessCommand("init", "--root", root, "--template", "react", "--name", "hello-react", "--runtime", "npm")
 		cmd.Dir = repo
 		b, err := cmd.CombinedOutput()
 		if err == nil || !strings.Contains(string(b), "TSPACK_TEMPLATE_VARIABLE_INVALID") {
@@ -164,7 +164,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 
 	t.Run("invalid kind", func(t *testing.T) {
 		root := t.TempDir()
-		cmd := exec.Command(testTspackBinary, "init", "--root", root, "--kind", "service", "--name", "acme-demo")
+		cmd := newInProcessCommand("init", "--root", root, "--kind", "service", "--name", "acme-demo")
 		cmd.Dir = repo
 		b, err := cmd.CombinedOutput()
 		if err == nil || !strings.Contains(string(b), "TSPACK_INIT_INVALID_KIND") {
@@ -174,7 +174,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 
 	t.Run("missing name", func(t *testing.T) {
 		root := t.TempDir()
-		cmd := exec.Command(testTspackBinary, "init", "--root", root, "--kind", "library")
+		cmd := newInProcessCommand("init", "--root", root, "--kind", "library")
 		cmd.Dir = repo
 		b, err := cmd.CombinedOutput()
 		if err == nil || !strings.Contains(string(b), "TSPACK_INIT_NAME_REQUIRED") {
@@ -184,7 +184,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 
 	t.Run("invalid package name", func(t *testing.T) {
 		root := t.TempDir()
-		cmd := exec.Command(testTspackBinary, "init", "--root", root, "--kind", "library", "--name", "Bad Name")
+		cmd := newInProcessCommand("init", "--root", root, "--kind", "library", "--name", "Bad Name")
 		cmd.Dir = repo
 		b, err := cmd.CombinedOutput()
 		if err == nil || !strings.Contains(string(b), "TSPACK_INIT_INVALID_NAME") {
@@ -194,7 +194,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 
 	t.Run("invalid version", func(t *testing.T) {
 		root := t.TempDir()
-		cmd := exec.Command(testTspackBinary, "init", "--root", root, "--kind", "library", "--name", "acme-demo", "--version", "1")
+		cmd := newInProcessCommand("init", "--root", root, "--kind", "library", "--name", "acme-demo", "--version", "1")
 		cmd.Dir = repo
 		b, err := cmd.CombinedOutput()
 		if err == nil || !strings.Contains(string(b), "TSPACK_INIT_INVALID_VERSION") {
@@ -204,14 +204,14 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 
 	t.Run("unsupported flags", func(t *testing.T) {
 		root := t.TempDir()
-		cmd := exec.Command(testTspackBinary, "init", "--root", root, "--kind", "library", "--name", "demo", "--target", "core")
+		cmd := newInProcessCommand("init", "--root", root, "--kind", "library", "--name", "demo", "--target", "core")
 		cmd.Dir = repo
 		b, err := cmd.CombinedOutput()
 		if err == nil || !strings.Contains(string(b), "TSPACK_INIT_UNSUPPORTED_FLAG") {
 			t.Fatalf("expected unsupported flag diagnostic: %v\n%s", err, string(b))
 		}
 
-		cmd = exec.Command(testTspackBinary, "init", "--root", root, "--kind", "app", "--name", "demo", "--runtime-target")
+		cmd = newInProcessCommand("init", "--root", root, "--kind", "app", "--name", "demo", "--runtime-target")
 		cmd.Dir = repo
 		b, err = cmd.CombinedOutput()
 		if err == nil || !strings.Contains(string(b), "TSPACK_INIT_UNSUPPORTED_FLAG") {
@@ -221,7 +221,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 
 	t.Run("library write and force", func(t *testing.T) {
 		root := t.TempDir()
-		cmd := exec.Command(testTspackBinary, "init", "--root", root, "--kind", "library", "--name", "@acme/widgets")
+		cmd := newInProcessCommand("init", "--root", root, "--kind", "library", "--name", "@acme/widgets")
 		cmd.Dir = repo
 		b, err := cmd.CombinedOutput()
 		if err != nil {
@@ -284,7 +284,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 			t.Fatalf("node_modules should not be created")
 		}
 
-		cmd = exec.Command(testTspackBinary, "init", "--root", root, "--kind", "library", "--name", "@acme/widgets")
+		cmd = newInProcessCommand("init", "--root", root, "--kind", "library", "--name", "@acme/widgets")
 		cmd.Dir = repo
 		b, err = cmd.CombinedOutput()
 		if err == nil || !strings.Contains(string(b), "TSPACK_INIT_FILE_EXISTS") {
@@ -292,7 +292,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 		}
 
 		_ = os.WriteFile(srcPath, []byte("custom\n"), 0o644)
-		cmd = exec.Command(testTspackBinary, "init", "--root", root, "--kind", "library", "--name", "@acme/widgets", "--force")
+		cmd = newInProcessCommand("init", "--root", root, "--kind", "library", "--name", "@acme/widgets", "--force")
 		cmd.Dir = repo
 		b, err = cmd.CombinedOutput()
 		if err != nil {
@@ -306,7 +306,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 
 	t.Run("app write and dry run", func(t *testing.T) {
 		root := t.TempDir()
-		cmd := exec.Command(testTspackBinary, "init", "--root", root, "--kind", "app", "--name", "acme-demo", "--dry-run")
+		cmd := newInProcessCommand("init", "--root", root, "--kind", "app", "--name", "acme-demo", "--dry-run")
 		cmd.Dir = repo
 		b, err := cmd.CombinedOutput()
 		if err != nil {
@@ -319,7 +319,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 			t.Fatalf("dry-run output missing file list: %s", string(b))
 		}
 
-		cmd = exec.Command(testTspackBinary, "init", "--root", root, "--kind", "app", "--name", "acme-demo")
+		cmd = newInProcessCommand("init", "--root", root, "--kind", "app", "--name", "acme-demo")
 		cmd.Dir = repo
 		b, err = cmd.CombinedOutput()
 		if err != nil {
@@ -380,7 +380,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 			t.Fatalf("write existing tsconfig: %v", err)
 		}
 
-		cmd := exec.Command(testTspackBinary, "init", "--root", root, "--kind", "app", "--name", "acme-demo")
+		cmd := newInProcessCommand("init", "--root", root, "--kind", "app", "--name", "acme-demo")
 		cmd.Dir = repo
 		b, err := cmd.CombinedOutput()
 		if err != nil {
@@ -433,7 +433,7 @@ func TestInitValidationAndWriteFlow(t *testing.T) {
 			tc := tc
 			t.Run(tc.kind, func(t *testing.T) {
 				root := t.TempDir()
-				cmd := exec.Command(testTspackBinary, "init", "--root", root, "--kind", tc.kind, "--name", tc.name, "--version", tc.version)
+				cmd := newInProcessCommand("init", "--root", root, "--kind", tc.kind, "--name", tc.name, "--version", tc.version)
 				cmd.Dir = repo
 				b, err := cmd.CombinedOutput()
 				if err != nil {
@@ -532,7 +532,7 @@ func TestInitManifestTypeSupportDriftAndTypecheck(t *testing.T) {
 		tc := tc
 		t.Run(tc.kind, func(t *testing.T) {
 			root := t.TempDir()
-			cmd := exec.Command(testTspackBinary, "init", "--root", root, "--kind", tc.kind, "--name", tc.name)
+			cmd := newInProcessCommand("init", "--root", root, "--kind", tc.kind, "--name", tc.name)
 			cmd.Dir = repo
 			b, err := cmd.CombinedOutput()
 			if err != nil {

@@ -75,7 +75,7 @@ func runAuditCommand(args []string) {
 		printAuditReport(report, auditLevel, failing)
 	}
 	if failing > 0 {
-		os.Exit(1)
+		exit(1)
 	}
 }
 
@@ -113,7 +113,7 @@ func printAuditReport(report audit.Report, auditLevel string, failing int) {
 func failAuditArgs(message string) {
 	fmt.Fprintln(os.Stderr, "TSPACK_AUDIT_INVALID_ARGS:", message)
 	fmt.Fprintln(os.Stderr, "usage: tspack audit [--root path] [--audit-level any|low|moderate|high|critical] [--json]")
-	os.Exit(2)
+	exit(2)
 }
 
 func failAudit(code, message string, jsonOutput bool) {
@@ -122,5 +122,5 @@ func failAudit(code, message string, jsonOutput bool) {
 	} else {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", code, message)
 	}
-	os.Exit(1)
+	exit(1)
 }

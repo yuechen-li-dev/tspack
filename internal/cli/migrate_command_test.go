@@ -93,7 +93,7 @@ func TestMigrateDryRunWritesNothing(t *testing.T) {
 	root := t.TempDir()
 	writePackageJSON(t, root, `{"name":"dry","version":"1.0.0"}`)
 
-	cmd := exec.Command(testTspackBinary, "migrate", "--root", root)
+	cmd := newInProcessCommand("migrate", "--root", root)
 	cmd.Dir = repoRootForMigrateTest(t)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -112,7 +112,7 @@ func TestMigrateWriteForceAndAllOrNothing(t *testing.T) {
 	writePackageJSON(t, root, `{"name":"writer","version":"1.0.0","dependencies":{"react-dom":"^19"}}`)
 	repo := repoRootForMigrateTest(t)
 
-	cmd := exec.Command(testTspackBinary, "migrate", "--root", root, "--write")
+	cmd := newInProcessCommand("migrate", "--root", root, "--write")
 	cmd.Dir = repo
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -126,7 +126,7 @@ func TestMigrateWriteForceAndAllOrNothing(t *testing.T) {
 	if err := os.Remove(reportPath); err != nil {
 		t.Fatal(err)
 	}
-	cmd = exec.Command(testTspackBinary, "migrate", "--root", root, "--write")
+	cmd = newInProcessCommand("migrate", "--root", root, "--write")
 	cmd.Dir = repo
 	output, err = cmd.CombinedOutput()
 	if err == nil {
@@ -140,7 +140,7 @@ func TestMigrateWriteForceAndAllOrNothing(t *testing.T) {
 	if err := os.WriteFile(manifestPath, []byte("old manifest"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd = exec.Command(testTspackBinary, "migrate", "--root", root, "--write", "--force")
+	cmd = newInProcessCommand("migrate", "--root", root, "--write", "--force")
 	cmd.Dir = repo
 	output, err = cmd.CombinedOutput()
 	if err != nil {
@@ -421,7 +421,7 @@ func TestMigrateWriteWithLockEvidenceDoesNotWriteTsLock(t *testing.T) {
 	writePackageLock(t, root, `{"lockfileVersion":3,"packages":{"node_modules/react":{"version":"18.3.1"}}}`)
 	repo := repoRootForMigrateTest(t)
 
-	cmd := exec.Command(testTspackBinary, "migrate", "--root", root, "--write")
+	cmd := newInProcessCommand("migrate", "--root", root, "--write")
 	cmd.Dir = repo
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -880,7 +880,7 @@ func TestMigrateReportValidationNotRunWithoutCheck(t *testing.T) {
 	root := t.TempDir()
 	writePackageJSON(t, root, `{"name":"not-run","version":"1.0.0"}`)
 
-	cmd := exec.Command(testTspackBinary, "migrate", "--root", root, "--write")
+	cmd := newInProcessCommand("migrate", "--root", root, "--write")
 	cmd.Dir = repoRootForMigrateTest(t)
 	output, err := cmd.CombinedOutput()
 	if err != nil {

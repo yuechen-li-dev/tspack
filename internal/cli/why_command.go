@@ -36,11 +36,11 @@ func runWhyCommand(args []string) {
 	}
 	if options.Reverse && len(positionals) == 0 {
 		fmt.Fprintln(os.Stderr, "TSPACK_WHY_QUERY_REQUIRED: reverse why requires exactly one query")
-		os.Exit(1)
+		exit(1)
 	}
 	if options.Reverse && len(positionals) > 1 {
 		fmt.Fprintln(os.Stderr, "TSPACK_WHY_INVALID_ARGS: reverse why requires exactly one query")
-		os.Exit(1)
+		exit(1)
 	}
 	if len(positionals) > 0 {
 		options.Query = positionals[0]
@@ -70,7 +70,7 @@ func renderWhyResult(projectOptions project.Options, whyOptions project.WhyOptio
 		encoder.SetIndent("", "  ")
 		if err := encoder.Encode(buildWhyJSONReport(projectOptions, whyOptions, result)); err != nil {
 			fmt.Fprintf(os.Stderr, "TSPACK_WHY_JSON_ENCODE_FAILED: %v\n", err)
-			os.Exit(1)
+			exit(1)
 		}
 		exitForDiagnostics(result.Diagnostics)
 		return
@@ -227,7 +227,7 @@ func printObservedNPMWhyJSON(result npmobserve.ExplainResult) {
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(report); err != nil {
 		fmt.Fprintf(os.Stderr, "TSPACK_OBSERVED_NPM_WHY_JSON_ENCODE_FAILED: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 }
 

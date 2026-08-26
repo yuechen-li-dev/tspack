@@ -21,7 +21,7 @@ func runHowCommand(args []string) {
 		default:
 			if strings.HasPrefix(args[i], "-") {
 				fmt.Fprintf(os.Stderr, "TSPACK_HOW_INVALID_ARGS: unknown flag %s\n", args[i])
-				os.Exit(1)
+				exit(1)
 			}
 			positionals = append(positionals, args[i])
 		}
@@ -53,16 +53,16 @@ func runHowCommand(args []string) {
 	}
 	if len(positionals) == 0 {
 		fmt.Fprintln(os.Stderr, "TSPACK_HOW_CODE_REQUIRED: diagnostic code is required (or use --list)")
-		os.Exit(1)
+		exit(1)
 	}
 	if len(positionals) > 1 {
 		fmt.Fprintln(os.Stderr, "TSPACK_HOW_INVALID_ARGS: expected exactly one diagnostic code")
-		os.Exit(1)
+		exit(1)
 	}
 	entry, ok := how.Lookup(positionals[0])
 	if !ok {
 		fmt.Fprintf(os.Stderr, "TSPACK_HOW_CODE_NOT_FOUND: unknown diagnostic code %s (run: tspack how --list)\n", positionals[0])
-		os.Exit(1)
+		exit(1)
 	}
 	if jsonOutput {
 		enc := json.NewEncoder(os.Stdout)

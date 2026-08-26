@@ -30,7 +30,7 @@ func runNpmCommand(args []string) {
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(os.Stderr, "--root requires a value")
-				os.Exit(2)
+				exit(2)
 			}
 			root = args[i]
 			continue
@@ -41,7 +41,7 @@ func runNpmCommand(args []string) {
 	if len(npmArgs) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: tspack npm <npm-args...>")
 		fmt.Fprintln(os.Stderr, "examples: install, ci, update, exec vite -- --version")
-		os.Exit(2)
+		exit(2)
 	}
 
 	root = resolveWorkspaceRoot(root)
@@ -56,13 +56,13 @@ func runNpmCommand(args []string) {
 		var notFound npmbridge.NotFoundError
 		if errors.As(err, &notFound) {
 			fmt.Fprintf(os.Stderr, "TSPACK_NPM_NOT_FOUND: %v\n", notFound)
-			os.Exit(127)
+			exit(127)
 		}
 		fmt.Fprintf(os.Stderr, "TSPACK_NPM_FAILED: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 	if result.ExitCode != 0 {
-		os.Exit(result.ExitCode)
+		exit(result.ExitCode)
 	}
 	fmt.Fprintln(os.Stderr, "TSPack: npm completed. Run `tspack adopt --report` to inspect the package.json-native project state.")
 }
@@ -74,7 +74,7 @@ func runCompatCommand(args []string) {
 	}
 	if len(args) < 2 {
 		fmt.Fprintln(os.Stderr, "usage: tspack compat list|diff|write [--root .]")
-		os.Exit(2)
+		exit(2)
 	}
 	subcommand := args[1]
 	root := "."
@@ -84,24 +84,24 @@ func runCompatCommand(args []string) {
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(os.Stderr, "--root requires a value")
-				os.Exit(2)
+				exit(2)
 			}
 			root = args[i]
 		default:
 			fmt.Fprintf(os.Stderr, "unknown compat flag: %s\n", args[i])
-			os.Exit(2)
+			exit(2)
 		}
 	}
 	if subcommand != "list" && subcommand != "diff" && subcommand != "write" {
 		fmt.Fprintf(os.Stderr, "unknown compat subcommand: %s\n", subcommand)
-		os.Exit(2)
+		exit(2)
 	}
 	root = resolveWorkspaceRoot(root)
 	ir := loadManifestPathForRun(root, filepath.Join(root, "manifest.tsx"))
 	statuses, err := compatplan.Plan(root, ir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "TSPACK_COMPAT_FAILED: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 	if len(statuses) == 0 {
 		fmt.Println("No compatibility files declared.")
@@ -129,12 +129,12 @@ func runCompatCommand(args []string) {
 			}
 		}
 		if hasDrift {
-			os.Exit(1)
+			exit(1)
 		}
 	case "write":
 		if err := compatplan.Write(root, statuses); err != nil {
 			fmt.Fprintf(os.Stderr, "TSPACK_COMPAT_WRITE_FAILED: %v\n", err)
-			os.Exit(1)
+			exit(1)
 		}
 		for _, status := range statuses {
 			if status.State == compatplan.StateClean {
@@ -214,7 +214,7 @@ func runInspectCommand(args []string) {
 		case "--root":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "TSPACK_INSPECT_INVALID_TARGET_OPTIONS: --root requires a value")
-				os.Exit(1)
+				exit(1)
 			}
 			i++
 			root = args[i]
@@ -222,33 +222,33 @@ func runInspectCommand(args []string) {
 		case "--run":
 			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
 				fmt.Fprintln(os.Stderr, "TSPACK_INSPECT_RUN_TARGET_MISSING: --run requires a target name")
-				os.Exit(1)
+				exit(1)
 			}
 			i++
 			runTarget = args[i]
 		case "--run-ready-timeout":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "TSPACK_INSPECT_INVALID_TARGET_OPTIONS: --run-ready-timeout requires a value")
-				os.Exit(1)
+				exit(1)
 			}
 			i++
 			n, err := strconv.Atoi(args[i])
 			if err != nil || n <= 0 {
 				fmt.Fprintln(os.Stderr, "TSPACK_INSPECT_INVALID_TARGET_OPTIONS: --run-ready-timeout must be positive seconds")
-				os.Exit(1)
+				exit(1)
 			}
 			runReadyTimeout = n
 		case "--env":
 			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
 				fmt.Fprintln(os.Stderr, "TSPACK_RUN_INVALID_ENV: --env requires KEY=VALUE")
-				os.Exit(1)
+				exit(1)
 			}
 			i++
 			var envErr *runErr
 			runEnv, envErr = runEnv.WithAssignment(args[i])
 			if envErr != nil {
 				fmt.Fprintf(os.Stderr, "%s: %s\n", envErr.code, envErr.msg)
-				os.Exit(1)
+				exit(1)
 			}
 		default:
 			if !strings.HasPrefix(a, "-") && positionalTarget == "" {
@@ -259,7 +259,7 @@ func runInspectCommand(args []string) {
 	}
 	if runTarget != "" && positionalTarget != "" && (strings.HasPrefix(positionalTarget, "http://") || strings.HasPrefix(positionalTarget, "https://")) {
 		fmt.Fprintln(os.Stderr, "TSPACK_INSPECT_INVALID_TARGET_OPTIONS: cannot combine URL target with --run")
-		os.Exit(1)
+		exit(1)
 	}
 	if runTarget == "" && positionalTarget != "" && !strings.HasPrefix(positionalTarget, "http://") && !strings.HasPrefix(positionalTarget, "https://") {
 		runTarget = positionalTarget
@@ -267,7 +267,7 @@ func runInspectCommand(args []string) {
 	}
 	if runTarget == "" && len(runEnv.Keys) > 0 {
 		fmt.Fprintln(os.Stderr, "TSPACK_INSPECT_INVALID_TARGET_OPTIONS: --env requires --run or a run target name")
-		os.Exit(1)
+		exit(1)
 	}
 
 	bridge := requireManifestFrontendBridge("inspect-cli.js", "TSPACK_INSPECT_BRIDGE_MISSING", "inspect bridge")
@@ -281,12 +281,12 @@ func runInspectCommand(args []string) {
 		ref, ok := findRunTargetRefByName(workspaceRoot, manifestPath, ir, runTarget)
 		if !ok {
 			fmt.Fprintf(os.Stderr, "TSPACK_INSPECT_RUN_TARGET_NOT_FOUND: %s\n", runTarget)
-			os.Exit(1)
+			exit(1)
 		}
 		cwdPath, cwdErr := resolveRunTargetCwd(ref)
 		if cwdErr != nil {
 			fmt.Fprintf(os.Stderr, "%s: %s\n", cwdErr.code, cwdErr.msg)
-			os.Exit(1)
+			exit(1)
 		}
 		rt := ref.Target
 		resolvedRuntime := resolveRunTargetRuntime(rt, workspaceRuntimeForRunTargets(ir))
@@ -306,7 +306,7 @@ func runInspectCommand(args []string) {
 				code = "TSPACK_INSPECT_RUN_EXITED_EARLY"
 			}
 			fmt.Fprintf(os.Stderr, "%s: %s\n", code, readyErr.msg)
-			os.Exit(1)
+			exit(1)
 		}
 		defer func() {
 			if err := session.Stop(); err != nil {
@@ -317,7 +317,7 @@ func runInspectCommand(args []string) {
 				if exitMessage != "" {
 					fmt.Fprintln(os.Stderr, exitMessage)
 				}
-				os.Exit(exitCode)
+				exit(exitCode)
 			}
 		}()
 		fmt.Fprintf(os.Stderr, "Ready: %s\n", session.URL)
@@ -336,7 +336,7 @@ func runInspectCommand(args []string) {
 				return
 			}
 			fmt.Fprintln(os.Stderr, exitMessage)
-			os.Exit(exitCode)
+			exit(exitCode)
 		}
 		exitMessage = fmt.Sprintf("TSPACK_INSPECT_FAILED: %v", err)
 		exitCode = 1
@@ -344,7 +344,7 @@ func runInspectCommand(args []string) {
 			return
 		}
 		fmt.Fprintln(os.Stderr, exitMessage)
-		os.Exit(exitCode)
+		exit(exitCode)
 	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -354,7 +354,7 @@ func runInspectCommand(args []string) {
 			if runTarget != "" {
 				return
 			}
-			os.Exit(exitCode)
+			exit(exitCode)
 		}
 		exitMessage = fmt.Sprintf("TSPACK_INSPECT_FAILED: %v", err)
 		exitCode = 1
@@ -362,7 +362,7 @@ func runInspectCommand(args []string) {
 			return
 		}
 		fmt.Fprintln(os.Stderr, exitMessage)
-		os.Exit(exitCode)
+		exit(exitCode)
 	}
 }
 
@@ -398,7 +398,7 @@ func runDoomCommand(args []string) {
 			jsonOut = true
 		default:
 			fmt.Fprintf(os.Stderr, "unknown doom flag: %s\n", args[i])
-			os.Exit(1)
+			exit(1)
 		}
 	}
 	bridge := requireManifestFrontendBridge("native-test-cli.js", "TSPACK_DOOM_BRIDGE_MISSING", "native doom bridge")
@@ -419,19 +419,19 @@ func runDoomCommand(args []string) {
 	if err != nil {
 		if nodecmd.IsNotFound(err) {
 			fmt.Fprintln(os.Stderr, nodecmd.Message())
-			os.Exit(127)
+			exit(127)
 		}
 		fmt.Fprintf(os.Stderr, "TSPACK_DOOM_FAILED: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitErr.ExitCode())
+			exit(exitErr.ExitCode())
 		}
 		fmt.Fprintf(os.Stderr, "TSPACK_DOOM_FAILED: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 }
 
@@ -454,7 +454,7 @@ func runBenchCommand(args []string) {
 			jsonOut = true
 		default:
 			fmt.Fprintf(os.Stderr, "unknown bench flag: %s\n", args[i])
-			os.Exit(1)
+			exit(1)
 		}
 	}
 	bridge := requireManifestFrontendBridge("native-test-cli.js", "TSPACK_BENCH_BRIDGE_MISSING", "native benchmark bridge")
@@ -472,19 +472,19 @@ func runBenchCommand(args []string) {
 	if err != nil {
 		if nodecmd.IsNotFound(err) {
 			fmt.Fprintln(os.Stderr, nodecmd.Message())
-			os.Exit(127)
+			exit(127)
 		}
 		fmt.Fprintf(os.Stderr, "TSPACK_BENCH_FAILED: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitErr.ExitCode())
+			exit(exitErr.ExitCode())
 		}
 		fmt.Fprintf(os.Stderr, "TSPACK_BENCH_FAILED: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 }
 
@@ -511,7 +511,7 @@ func runArtifactCommand(args []string) {
 			jsonOut = true
 		default:
 			fmt.Fprintf(os.Stderr, "unknown artifact flag: %s\n", args[i])
-			os.Exit(1)
+			exit(1)
 		}
 	}
 	bridge := requireManifestFrontendBridge("native-test-cli.js", "TSPACK_ARTIFACT_BRIDGE_MISSING", "native artifact bridge")
@@ -532,26 +532,26 @@ func runArtifactCommand(args []string) {
 	if err != nil {
 		if nodecmd.IsNotFound(err) {
 			fmt.Fprintln(os.Stderr, nodecmd.Message())
-			os.Exit(127)
+			exit(127)
 		}
 		fmt.Fprintf(os.Stderr, "TSPACK_ARTIFACT_FAILED: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitErr.ExitCode())
+			exit(exitErr.ExitCode())
 		}
 		fmt.Fprintf(os.Stderr, "TSPACK_ARTIFACT_FAILED: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 }
 
 func nextTestFlagValue(args []string, index *int, flag string) (string, bool) {
 	if *index+1 >= len(args) {
 		fmt.Fprintf(os.Stderr, "missing value for test flag: %s\n", flag)
-		os.Exit(1)
+		exit(1)
 		return "", false
 	}
 	*index = *index + 1
@@ -598,7 +598,7 @@ func runTestCommand(args []string) {
 			opts.XTestBridge = value
 		default:
 			fmt.Fprintf(os.Stderr, "unknown test flag: %s\n", args[i])
-			os.Exit(1)
+			exit(1)
 		}
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -615,6 +615,6 @@ func runTestCommand(args []string) {
 		}
 	}
 	if result.ExitCode != 0 {
-		os.Exit(result.ExitCode)
+		exit(result.ExitCode)
 	}
 }

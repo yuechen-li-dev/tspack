@@ -48,6 +48,6 @@ func runPackCommand(args []string) {
 	}
 	if hasErrors(operation.Diagnostics) {
 		fmt.Fprintln(os.Stderr, "pack failed; no artifacts were written")
-		os.Exit(1)
+		exit(1)
 	}
 }

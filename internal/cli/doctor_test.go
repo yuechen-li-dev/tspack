@@ -37,14 +37,14 @@ func TestDoctorHelpAndJson(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(root, "security", "ack-postinstall.report.json"), []byte(`{"ok":true,"violations":[]}`), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "ts-lock.toml"), []byte("[lock]\nformat=1\n"), 0o644)
 
-	cmd := exec.Command(testTspackBinary, "help")
+	cmd := newInProcessCommand("help")
 	cmd.Dir = repo
 	b, _ := cmd.CombinedOutput()
 	if !strings.Contains(string(b), "tspack doctor") {
 		t.Fatalf("help missing doctor")
 	}
 
-	cmd = exec.Command(testTspackBinary, "doctor", "--root", root)
+	cmd = newInProcessCommand("doctor", "--root", root)
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil {
@@ -56,7 +56,7 @@ func TestDoctorHelpAndJson(t *testing.T) {
 		}
 	}
 
-	cmd = exec.Command(testTspackBinary, "doctor", "--root", root, "--json")
+	cmd = newInProcessCommand("doctor", "--root", root, "--json")
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err != nil {
@@ -76,7 +76,7 @@ func TestDoctorHelpAndJson(t *testing.T) {
 
 func TestDoctorInvalidScope(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	cmd := exec.Command(testTspackBinary, "doctor", "badscope")
+	cmd := newInProcessCommand("doctor", "badscope")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(b), "TSPACK_DOCTOR_INVALID_SCOPE") {
@@ -88,7 +88,7 @@ func TestDoctorFormatMissingBiomeExitsNonzero(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
-	cmd := exec.Command(testTspackBinary, "doctor", "format", "--root", root)
+	cmd := newInProcessCommand("doctor", "format", "--root", root)
 	cmd.Dir = repo
 	cmd.Env = []string{"PATH=/definitely-missing"}
 	b, err := cmd.CombinedOutput()
@@ -110,7 +110,7 @@ func TestDoctorFormatReportsDefaultBiomeConfigSource(t *testing.T) {
 	backend = writeNodeBackedExecutable(t, backend, "#!/usr/bin/env node\nconsole.log('1.0.0')\n")
 
 	before := tempBiomeConfigFiles(t)
-	cmd := exec.Command(testTspackBinary, "doctor", "format", "--root", root, "--json")
+	cmd := newInProcessCommand("doctor", "format", "--root", root, "--json")
 	cmd.Dir = repo
 	cmd.Env = append(os.Environ(), "PATH="+doctorPathWithNodeOnly(t))
 	b, err := cmd.CombinedOutput()
@@ -154,7 +154,7 @@ func TestDoctorFormatReportsProjectBiomeConfigSource(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command(testTspackBinary, "doctor", "format", "--root", root, "--json")
+	cmd := newInProcessCommand("doctor", "format", "--root", root, "--json")
 	cmd.Dir = repo
 	cmd.Env = append(os.Environ(), "PATH="+doctorPathWithNodeOnly(t))
 	b, err := cmd.CombinedOutput()
@@ -189,7 +189,7 @@ func TestDoctorFormatReportsDirectPackageBiomeBackend(t *testing.T) {
 	}
 	backend := writeNodeBackedExecutable(t, directPackagePath, "#!/usr/bin/env node\nconsole.log('1.0.0')\n")
 
-	cmd := exec.Command(testTspackBinary, "doctor", "format", "--root", root, "--json")
+	cmd := newInProcessCommand("doctor", "format", "--root", root, "--json")
 	cmd.Dir = repo
 	cmd.Env = append(os.Environ(), "PATH="+t.TempDir())
 	b, err := cmd.CombinedOutput()
@@ -219,7 +219,7 @@ func TestDoctorRuntimeReportsSelectedNodejsProfile(t *testing.T) {
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
 
-	cmd := exec.Command(testTspackBinary, "doctor", "runtime", "--root", root, "--json")
+	cmd := newInProcessCommand("doctor", "runtime", "--root", root, "--json")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil {
@@ -242,7 +242,7 @@ func TestDoctorRuntimeTextReportsOwnershipDetails(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	root := t.TempDir()
 
-	cmd := exec.Command(testTspackBinary, "doctor", "runtime", "--root", root)
+	cmd := newInProcessCommand("doctor", "runtime", "--root", root)
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil {
@@ -284,7 +284,7 @@ func TestDoctorRuntimeReportsOmittedAndExplicitNodejsEquivalently(t *testing.T) 
 func doctorRuntimeDetailsForIR(t *testing.T, repo string, root string, irJSON string) map[string]any {
 	t.Helper()
 	writeManifestStubWithIR(t, repo, irJSON)
-	cmd := exec.Command(testTspackBinary, "doctor", "runtime", "--root", root, "--json")
+	cmd := newInProcessCommand("doctor", "runtime", "--root", root, "--json")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil {
@@ -303,7 +303,7 @@ func TestDoctorRuntimeReportsSelectedBunWithoutDenoNoise(t *testing.T) {
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
 
-	cmd := exec.Command(testTspackBinary, "doctor", "runtime", "--root", root, "--json")
+	cmd := newInProcessCommand("doctor", "runtime", "--root", root, "--json")
 	cmd.Dir = repo
 	cmd.Env = append(os.Environ(), "PATH="+doctorPathWithNodeOnly(t))
 	b, err := cmd.CombinedOutput()
@@ -333,7 +333,7 @@ func TestDoctorRuntimeReportsSelectedBunAvailableWithStub(t *testing.T) {
 	bunPath := filepath.Join(binDir, "bun")
 	_ = writeNodeBackedExecutable(t, bunPath, "#!/usr/bin/env node\nconsole.log('bun-stub')\n")
 
-	cmd := exec.Command(testTspackBinary, "doctor", "runtime", "--root", root, "--json")
+	cmd := newInProcessCommand("doctor", "runtime", "--root", root, "--json")
 	cmd.Dir = repo
 	cmd.Env = append(os.Environ(), "PATH="+binDir+string(os.PathListSeparator)+doctorPathWithNodeOnly(t))
 	b, err := cmd.CombinedOutput()
@@ -359,7 +359,7 @@ func TestDoctorRuntimeReportsSelectedDeno(t *testing.T) {
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
 
-	cmd := exec.Command(testTspackBinary, "doctor", "runtime", "--root", root, "--json")
+	cmd := newInProcessCommand("doctor", "runtime", "--root", root, "--json")
 	cmd.Dir = repo
 	cmd.Env = append(os.Environ(), "PATH="+doctorPathWithNodeOnly(t))
 	b, err := cmd.CombinedOutput()
@@ -392,7 +392,7 @@ func TestDoctorRuntimeReportsSelectedDenoAvailableWithStub(t *testing.T) {
 	denoPath := filepath.Join(binDir, "deno")
 	_ = writeNodeBackedExecutable(t, denoPath, "#!/usr/bin/env node\nconsole.log('deno-stub')\n")
 
-	cmd := exec.Command(testTspackBinary, "doctor", "runtime", "--root", root, "--json")
+	cmd := newInProcessCommand("doctor", "runtime", "--root", root, "--json")
 	cmd.Dir = repo
 	cmd.Env = append(os.Environ(), "PATH="+binDir+string(os.PathListSeparator)+doctorPathWithNodeOnly(t))
 	b, err := cmd.CombinedOutput()
@@ -415,7 +415,7 @@ func TestDoctorAllIncludesRuntimeProfileSection(t *testing.T) {
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
 
-	cmd := exec.Command(testTspackBinary, "doctor", "--root", root, "--json")
+	cmd := newInProcessCommand("doctor", "--root", root, "--json")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil {
@@ -442,7 +442,7 @@ func TestDoctorRunSystemRuntimeAndReservedRuntimeSignal(t *testing.T) {
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
 
-	cmd := exec.Command(testTspackBinary, "doctor", "run", "--root", root, "--json")
+	cmd := newInProcessCommand("doctor", "run", "--root", root, "--json")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil {
@@ -483,7 +483,7 @@ func TestDoctorRunSystemRuntimeAndReservedRuntimeSignal(t *testing.T) {
 		t.Fatalf("doctor run should report Bun runtime availability")
 	}
 
-	cmd = exec.Command(testTspackBinary, "doctor", "run", "--root", root)
+	cmd = newInProcessCommand("doctor", "run", "--root", root)
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err != nil {
@@ -592,7 +592,7 @@ func TestDoctorRunReportsReadyKindSpecificDetails(t *testing.T) {
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
 
-	cmd := exec.Command(testTspackBinary, "doctor", "run", "--root", root, "--json")
+	cmd := newInProcessCommand("doctor", "run", "--root", root, "--json")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil {
@@ -612,7 +612,7 @@ func TestDoctorRunReportsReadyKindSpecificDetails(t *testing.T) {
 		t.Fatalf("missing stdout-match ready details: %#v", web.Details)
 	}
 
-	cmd = exec.Command(testTspackBinary, "doctor", "run", "--root", root)
+	cmd = newInProcessCommand("doctor", "run", "--root", root)
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err != nil {
@@ -633,7 +633,7 @@ func TestDoctorSecurityNoLifecycleCapabilities(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "ts-lock.toml"), []byte("[lock]\nformat=1\ntool=\"tspack\"\n"), 0o644)
 
-	cmd := exec.Command(testTspackBinary, "doctor", "security", "--root", root)
+	cmd := newInProcessCommand("doctor", "security", "--root", root)
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil {
@@ -645,7 +645,7 @@ func TestDoctorSecurityNoLifecycleCapabilities(t *testing.T) {
 			t.Fatalf("doctor security text missing %q:\n%s", expected, text)
 		}
 	}
-	cmd = exec.Command(testTspackBinary, "doctor", "security", "--root", root, "--json")
+	cmd = newInProcessCommand("doctor", "security", "--root", root, "--json")
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err != nil {
@@ -724,7 +724,7 @@ kind = "runtime"
 `
 	_ = os.WriteFile(filepath.Join(root, "ts-lock.toml"), []byte(lockText), 0o644)
 
-	cmd := exec.Command(testTspackBinary, "doctor", "security", "--root", root, "--json")
+	cmd := newInProcessCommand("doctor", "security", "--root", root, "--json")
 	cmd.Dir = repo
 	var stdout strings.Builder
 	var stderr strings.Builder
@@ -737,7 +737,7 @@ kind = "runtime"
 		t.Fatalf("doctor security --json wrote stderr: %q", stderr.String())
 	}
 	firstOutput := stdout.String()
-	cmd = exec.Command(testTspackBinary, "doctor", "security", "--root", root, "--json")
+	cmd = newInProcessCommand("doctor", "security", "--root", root, "--json")
 	cmd.Dir = repo
 	b, err := cmd.Output()
 	if err != nil {
@@ -795,7 +795,7 @@ func TestDoctorSecurityMissingLockfileSuppressesUnusedAcknowledgements(t *testin
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
 
-	cmd := exec.Command(testTspackBinary, "doctor", "security", "--root", root, "--json")
+	cmd := newInProcessCommand("doctor", "security", "--root", root, "--json")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil {
@@ -824,7 +824,7 @@ func TestDoctorAllIncludesSecuritySection(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "ts-lock.toml"), []byte("[lock]\nformat=1\ntool=\"tspack\"\n"), 0o644)
 
-	cmd := exec.Command(testTspackBinary, "doctor", "--root", root, "--json")
+	cmd := newInProcessCommand("doctor", "--root", root, "--json")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil {
@@ -865,7 +865,7 @@ func TestRuntimeSwitchDoctorRuntimeReportsSelectedProfile(t *testing.T) {
 		t.Run(tc.profile, func(t *testing.T) {
 			irJSON := readRuntimeSwitchFixtureIRJSON(t, repo, tc.profile)
 			writeManifestStubWithIR(t, repo, irJSON)
-			cmd := exec.Command(testTspackBinary, "doctor", "runtime", "--root", root, "--json")
+			cmd := newInProcessCommand("doctor", "runtime", "--root", root, "--json")
 			cmd.Dir = repo
 			cmd.Env = append(os.Environ(), "PATH="+doctorPathWithNodeOnly(t))
 			output, err := cmd.CombinedOutput()

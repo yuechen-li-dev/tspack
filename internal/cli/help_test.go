@@ -1,22 +1,17 @@
 package cli
 
 import (
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func runTSPackForHelpTest(t *testing.T, args ...string) string {
 	t.Helper()
-	repo := filepath.Join("..", "..")
-	cmd := exec.Command(testTspackBinary, args...)
-	cmd.Dir = repo
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("tspack %v failed: %v\n%s", args, err, string(out))
+	result := runTestApp(t, args...)
+	if result.ExitCode != 0 {
+		t.Fatalf("tspack %v failed: %s", args, result)
 	}
-	return string(out)
+	return result.Stdout + result.Stderr
 }
 
 func assertContainsAll(t *testing.T, text string, wants ...string) {
@@ -81,7 +76,6 @@ func TestExhaustiveHelpStillIncludesFlags(t *testing.T) {
 }
 
 func TestInitNextStepHints(t *testing.T) {
-	repo := filepath.Join("..", "..")
 	cases := []struct {
 		name string
 		args []string
@@ -108,15 +102,14 @@ func TestInitNextStepHints(t *testing.T) {
 			root := t.TempDir()
 			args := append([]string{}, tc.args...)
 			args = append(args, "--root", root)
-			cmd := exec.Command(testTspackBinary, args...)
-			cmd.Dir = repo
-			out, err := cmd.CombinedOutput()
-			if err != nil {
-				t.Fatalf("init failed: %v\n%s", err, string(out))
+			result := runTestApp(t, args...)
+			if result.ExitCode != 0 {
+				t.Fatalf("init failed: %s", result)
 			}
-			assertContainsAll(t, string(out), tc.want...)
-			if strings.Contains(string(out), "npm install") || strings.Contains(string(out), "pnpm install") {
-				t.Fatalf("init output should not imply command execution:\n%s", string(out))
+			output := result.Stdout + result.Stderr
+			assertContainsAll(t, output, tc.want...)
+			if strings.Contains(output, "npm install") || strings.Contains(output, "pnpm install") {
+				t.Fatalf("init output should not imply command execution:\n%s", output)
 			}
 		})
 	}

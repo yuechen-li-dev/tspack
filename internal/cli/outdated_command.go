@@ -51,7 +51,7 @@ func writeOutdatedJSON(options project.Options, result project.Result, perPackag
 	}
 	if err := encoder.Encode(report); err != nil {
 		fmt.Fprintf(os.Stderr, "TSPACK_OUTDATED_JSON_ENCODE_FAILED: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 	exitForDiagnostics(result.Diagnostics)
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
@@ -32,6 +33,30 @@ func TestExecutableContainsBootstrapOnly(t *testing.T) {
 	imports := parseImports(t, filepath.Join(commandDirectory, "main.go"))
 	if !imports["github.com/yuechen-li-dev/tspack/internal/cli"] {
 		t.Fatal("cmd/tspack/main.go must delegate to internal/cli")
+	}
+}
+
+func TestProcessTerminationBelongsToExecutableBootstrap(t *testing.T) {
+	cliDirectory := filepath.Join(".")
+	err := filepath.WalkDir(cliDirectory, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		if countSelectorCalls(t, path, "os", "Exit") != 0 {
+			t.Errorf("CLI production code must return status instead of calling os.Exit: %s", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bootstrap := filepath.Join("..", "..", "cmd", "tspack", "main.go")
+	if calls := countSelectorCalls(t, bootstrap, "os", "Exit"); calls != 1 {
+		t.Fatalf("cmd/tspack bootstrap must own exactly one os.Exit call; got %d", calls)
 	}
 }
 
@@ -148,4 +173,29 @@ func parseImports(t *testing.T, path string) map[string]bool {
 		imports[path] = true
 	}
 	return imports
+}
+
+func countSelectorCalls(t *testing.T, path string, packageName string, functionName string) int {
+	t.Helper()
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse calls for %s: %v", path, err)
+	}
+	count := 0
+	ast.Inspect(parsed, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || selector.Sel.Name != functionName {
+			return true
+		}
+		identifier, ok := selector.X.(*ast.Ident)
+		if ok && identifier.Name == packageName {
+			count++
+		}
+		return true
+	})
+	return count
 }

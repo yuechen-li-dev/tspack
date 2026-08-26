@@ -7,9 +7,16 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/yuechen-li-dev/tspack/internal/cli/clitest"
 )
 
 var testTspackBinary string
+
+func runTestApp(t testing.TB, args ...string) clitest.Result {
+	t.Helper()
+	return clitest.RunApp(t, NewDefaultApp(), args...)
+}
 
 func TestMain(m *testing.M) {
 	repo, err := filepath.Abs(filepath.Join("..", ".."))

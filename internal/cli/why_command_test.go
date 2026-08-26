@@ -35,7 +35,7 @@ process.stdout.write(JSON.stringify(out));`
 	lock := "[lock]\nformat=1\ntool=\"tspack\"\n[[package]]\nid=\"npm:vue@3.4.0\"\nname=\"vue\"\nversion=\"3.4.0\"\nsource=\"npm\"\nhash=\"h\"\n[[package]]\nid=\"npm:dep-a@1.0.0\"\nname=\"dep-a\"\nversion=\"1.0.0\"\nsource=\"npm\"\nhash=\"h\"\n[[package]]\nid=\"npm:left-pad@1.2.0\"\nname=\"left-pad\"\nversion=\"1.2.0\"\nsource=\"npm\"\nhash=\"h\"\n[[package]]\nid=\"npm:left-pad@1.3.0\"\nname=\"left-pad\"\nversion=\"1.3.0\"\nsource=\"npm\"\nhash=\"h\"\n[[edge]]\nfrom=\"app:target:vue\"\nto=\"npm:vue@3.4.0\"\nkind=\"peer\"\noptional=true\n[[edge]]\nfrom=\"npm:dep-a@1.0.0\"\nto=\"npm:left-pad@1.2.0\"\nkind=\"runtime\"\n[[target]]\npackage=\"app\"\nname=\"core\"\nexport=\".\"\nentry=\"src/index.ts\"\nruntime=\"src/index.ts\"\ntypes=\"dist/index.d.ts\"\n[[target]]\npackage=\"app\"\nname=\"react\"\nexport=\"./react\"\nentry=\"src/react.ts\"\nruntime=\"src/react.ts\"\ntypes=\"dist/react.d.ts\"\n[[target]]\npackage=\"app\"\nname=\"vue\"\nexport=\"./vue\"\nentry=\"src/vue.ts\"\nruntime=\"src/vue.ts\"\ntypes=\"dist/vue.d.ts\"\n"
 	_ = os.WriteFile(filepath.Join(root, "ts-lock.toml"), []byte(lock), 0o644)
 
-	cmd := exec.Command(testTspackBinary, "why", "vue", "--root", root, "--lockfile", filepath.Join(root, "ts-lock.toml"))
+	cmd := newInProcessCommand("why", "vue", "--root", root, "--lockfile", filepath.Join(root, "ts-lock.toml"))
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil {
@@ -46,7 +46,7 @@ process.stdout.write(JSON.stringify(out));`
 		t.Fatalf("unexpected why vue output: %s", o)
 	}
 
-	cmd = exec.Command(testTspackBinary, "why", "npm:left-pad@1.2.0", "--root", root, "--lockfile", filepath.Join(root, "ts-lock.toml"))
+	cmd = newInProcessCommand("why", "npm:left-pad@1.2.0", "--root", root, "--lockfile", filepath.Join(root, "ts-lock.toml"))
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err != nil {
@@ -60,7 +60,7 @@ process.stdout.write(JSON.stringify(out));`
 		t.Fatalf("expected deduped lock edge output: %s", o)
 	}
 
-	cmd = exec.Command(testTspackBinary, "why", "left-pad", "--root", root, "--lockfile", filepath.Join(root, "ts-lock.toml"))
+	cmd = newInProcessCommand("why", "left-pad", "--root", root, "--lockfile", filepath.Join(root, "ts-lock.toml"))
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err == nil {
@@ -77,7 +77,7 @@ process.stdout.write(JSON.stringify(out));`
 		t.Fatalf("expected concrete suggestion command: %s", o)
 	}
 
-	cmd = exec.Command(testTspackBinary, "why")
+	cmd = newInProcessCommand("why")
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err == nil {

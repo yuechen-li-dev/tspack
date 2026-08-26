@@ -12,7 +12,7 @@ import (
 
 func TestCLIHelpAndUnsupportedCommands(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	help := exec.Command(testTspackBinary, "help")
+	help := newInProcessCommand("help")
 	help.Dir = repo
 	b, err := help.CombinedOutput()
 	if err != nil {
@@ -40,7 +40,7 @@ func TestCLIHelpAndUnsupportedCommands(t *testing.T) {
 	// build has a real, deliberately bounded tscl implementation. Keep this
 	// assertion focused on commands that are actually unsupported.
 	for _, c := range []string{"publish"} {
-		cmd := exec.Command(testTspackBinary, c)
+		cmd := newInProcessCommand(c)
 		cmd.Dir = repo
 		ob, e := cmd.CombinedOutput()
 		if e == nil || !strings.Contains(string(ob), "unknown command") {
@@ -51,7 +51,7 @@ func TestCLIHelpAndUnsupportedCommands(t *testing.T) {
 
 func TestCLIVersionPrintsMetadata(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	cmd := exec.Command(testTspackBinary, "--version")
+	cmd := newInProcessCommand("--version")
 	cmd.Dir = repo
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -68,7 +68,7 @@ func TestCLIVersionPrintsMetadata(t *testing.T) {
 
 func TestCLIUpdateDryRunUnknownFlagFailsDeterministically(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	cmd := exec.Command(testTspackBinary, "update", "--dry-run", "--unknown")
+	cmd := newInProcessCommand("update", "--dry-run", "--unknown")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err == nil {
@@ -97,7 +97,7 @@ process.stdout.write(JSON.stringify(out));`
 	_ = os.WriteFile(filepath.Join(root, "src", "index.ts"), []byte("export const x = 1\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "dist", "index.d.ts"), []byte("export declare const x: number\n"), 0o644)
 
-	cmd := exec.Command(testTspackBinary, "update", "--root", root, "--dry-run", "--json")
+	cmd := newInProcessCommand("update", "--root", root, "--dry-run", "--json")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil {

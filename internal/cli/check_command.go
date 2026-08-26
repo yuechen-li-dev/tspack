@@ -42,7 +42,7 @@ func runCheckCommand(args []string) {
 		case "--explain":
 			if explainFile != "" || index+1 >= len(args) || strings.HasPrefix(args[index+1], "-") {
 				fmt.Fprintln(os.Stderr, "TSPACK_CHECK_EXPLAIN_FILE_REQUIRED: --explain requires exactly one file path")
-				os.Exit(1)
+				exit(1)
 			}
 			explainFile = lifecycleFlagValue(args, &index, "--explain")
 		default:
@@ -54,7 +54,7 @@ func runCheckCommand(args []string) {
 	}
 	if explainFile != "" && len(positionals) > 0 {
 		fmt.Fprintln(os.Stderr, "TSPACK_CHECK_EXPLAIN_FILE_REQUIRED: --explain requires exactly one file path")
-		os.Exit(1)
+		exit(1)
 	}
 	operation := project.RunCheck(project.CheckRequest{Project: paths.Options, ExplainFile: explainFile})
 	result := project.Result{Diagnostics: operation.Diagnostics, Explain: operation.Explanation}
@@ -80,7 +80,7 @@ func renderCheckExplanation(result project.Result, jsonOutput bool) {
 		encoder.SetIndent("", "  ")
 		if err := encoder.Encode(result.Explain); err != nil {
 			fmt.Fprintf(os.Stderr, "TSPACK_CHECK_EXPLAIN_FAILED: %v\n", err)
-			os.Exit(1)
+			exit(1)
 		}
 		exitForDiagnostics(result.Diagnostics)
 		return
@@ -93,7 +93,7 @@ func renderCheckExplanation(result project.Result, jsonOutput bool) {
 	for _, diagnostic := range result.Diagnostics {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", diagnostic.Code, diagnostic.Message)
 	}
-	os.Exit(1)
+	exit(1)
 }
 
 func writeCheckJSON(options project.Options, result project.Result) {
@@ -101,7 +101,7 @@ func writeCheckJSON(options project.Options, result project.Result) {
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(buildCheckJSONReport(options, result)); err != nil {
 		fmt.Fprintf(os.Stderr, "TSPACK_CHECK_JSON_ENCODE_FAILED: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 	exitForDiagnostics(result.Diagnostics)
 }

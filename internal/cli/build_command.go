@@ -479,5 +479,5 @@ func safeBuildName(value string) string {
 
 func failBuild(code string, message string) {
 	fmt.Fprintf(os.Stderr, "%s: %s\n", code, message)
-	os.Exit(1)
+	exit(1)
 }

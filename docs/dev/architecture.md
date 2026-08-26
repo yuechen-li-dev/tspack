@@ -122,12 +122,15 @@ storage.
 ## Testing and generated files
 
 Unit and application tests live beside their semantic owner. Parser, renderer,
-and report tests stay in CLI and should run directly when process behavior is not
-under test. Process tests use `internal/cli/clitest` and one shared binary per
+and report tests stay in CLI and run in-process when process behavior is not
+under test. `cli.App` owns injected IO and returns exit status; only
+`cmd/tspack/main.go` turns that status into process termination. `clitest.RunApp`
+is the default CLI harness. Explicit process runners share one binary per
 package run; do not add per-test `go run ./cmd/tspack` calls. Keep process tests
-for dispatch, exit codes, stdio, signals, environment, and executable behavior.
-Slow/live tests must state their external requirement. Browser and Skyrim tests
-live with their integration packages.
+for dispatch, exit codes, real pipes, signals, environment, process trees,
+cross-process locks, and executable behavior. Slow/live tests must state their
+external requirement. Browser and Skyrim tests live with their integration
+packages. See `docs/dev/testing-strategy.md` for the evidence hierarchy.
 
 Generated files are changed through their owner generator or compatibility
 writer. `compat diff`, generator tests, frontend type checks, and embedded-surface

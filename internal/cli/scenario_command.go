@@ -56,7 +56,7 @@ func runScenarioCommand(args []string) {
 
 	if scenarioPath == "" || runTarget == "" {
 		printScenarioHelp()
-		os.Exit(1)
+		exit(1)
 	}
 
 	workspace := openWorkspace(root)
@@ -64,11 +64,11 @@ func runScenarioCommand(args []string) {
 	absScenarioPath, err := filepath.Abs(scenarioPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "TSPACK_SCENARIO_INVALID_FILE: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 	if _, err := os.Stat(absScenarioPath); err != nil {
 		fmt.Fprintf(os.Stderr, "TSPACK_SCENARIO_FILE_NOT_FOUND: %s\n", absScenarioPath)
-		os.Exit(1)
+		exit(1)
 	}
 
 	manifestPath := filepath.Join(workspaceRoot, "manifest.tsx")
@@ -76,12 +76,12 @@ func runScenarioCommand(args []string) {
 	ref, ok := findRunTargetRefByName(workspaceRoot, manifestPath, ir, runTarget)
 	if !ok {
 		fmt.Fprintf(os.Stderr, "TSPACK_SCENARIO_RUN_TARGET_NOT_FOUND: %s\n", runTarget)
-		os.Exit(1)
+		exit(1)
 	}
 	cwdPath, cwdErr := resolveRunTargetCwd(ref)
 	if cwdErr != nil {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", cwdErr.code, cwdErr.msg)
-		os.Exit(1)
+		exit(1)
 	}
 	target := ref.Target
 	target.Runtime = resolveRunTargetRuntime(target, workspaceRuntimeForRunTargets(ir)).Runtime
@@ -90,7 +90,7 @@ func runScenarioCommand(args []string) {
 	session, readyErr := startRunTargetInDir(workspaceRoot, cwdPath, target, time.Duration(readyTimeout)*time.Second, os.Stderr, os.Stderr, runEnvOverlay{})
 	if readyErr != nil {
 		fmt.Fprintf(os.Stderr, "TSPACK_SCENARIO_RUN_START_FAILED: %s\n", readyErr.msg)
-		os.Exit(1)
+		exit(1)
 	}
 	exitCode := 0
 	defer func() {
@@ -100,14 +100,14 @@ func runScenarioCommand(args []string) {
 		}
 		fmt.Fprintf(os.Stderr, "Stopped scenario run target %q.\n", runTarget)
 		if exitCode != 0 {
-			os.Exit(exitCode)
+			exit(exitCode)
 		}
 	}()
 
 	runnerPath, pathErr := resolveScenarioRunnerPath()
 	if pathErr != nil {
 		fmt.Fprintf(os.Stderr, "TSPACK_SCENARIO_RUNNER_UNAVAILABLE: %v\n", pathErr)
-		os.Exit(1)
+		exit(1)
 	}
 	command, commandErr := nodecmd.Command(runnerPath, "--url", session.URL, "--scenario", absScenarioPath)
 	if commandErr != nil {
@@ -170,7 +170,7 @@ func firstNonEmptyScenarioPath(value string, err error) string {
 
 func failScenarioArgument(message string) {
 	fmt.Fprintf(os.Stderr, "TSPACK_SCENARIO_INVALID_ARGS: %s\n", message)
-	os.Exit(1)
+	exit(1)
 }
 
 func printScenarioHelp() {

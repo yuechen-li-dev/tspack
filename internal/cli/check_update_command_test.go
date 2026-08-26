@@ -15,7 +15,7 @@ func TestCLICheckFormatFlagParsingAndRoot(t *testing.T) {
 	writeValidCheckFrontendStub(t, repo)
 
 	plainRoot := writeValidCheckProject(t)
-	plainCmd := exec.Command(testTspackBinary, "check", "--root", plainRoot)
+	plainCmd := newInProcessCommand("check", "--root", plainRoot)
 	plainCmd.Dir = repo
 	plainOutput, plainErr := plainCmd.CombinedOutput()
 	if plainErr != nil {
@@ -244,7 +244,7 @@ func TestCLICheckFormatJSONMissingBackendIsStructured(t *testing.T) {
 func TestCLIBiomeMissingBackendAndInvalidFlags(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	root := t.TempDir()
-	cmd := exec.Command(testTspackBinary, "format", "--root", root)
+	cmd := newInProcessCommand("format", "--root", root)
 	cmd.Dir = repo
 	cmd.Env = append(os.Environ(), "PATH="+t.TempDir())
 	b, err := cmd.CombinedOutput()
@@ -252,35 +252,35 @@ func TestCLIBiomeMissingBackendAndInvalidFlags(t *testing.T) {
 		t.Fatalf("missing backend diagnostic not shown: %v\n%s", err, string(b))
 	}
 
-	cmd = exec.Command(testTspackBinary, "format", "--fix", "--root", root)
+	cmd = newInProcessCommand("format", "--fix", "--root", root)
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(b), "TSPACK_FORMAT_INVALID_FLAGS") {
 		t.Fatalf("format invalid flags missing: %v\n%s", err, string(b))
 	}
 
-	cmd = exec.Command(testTspackBinary, "lint", "--check", "--root", root)
+	cmd = newInProcessCommand("lint", "--check", "--root", root)
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(b), "TSPACK_LINT_INVALID_FLAGS") {
 		t.Fatalf("lint invalid flags missing: %v\n%s", err, string(b))
 	}
 
-	cmd = exec.Command(testTspackBinary, "lint", "--unsafe", "--root", root)
+	cmd = newInProcessCommand("lint", "--unsafe", "--root", root)
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(b), "TSPACK_LINT_INVALID_FLAGS") || !strings.Contains(string(b), "--unsafe requires --fix") {
 		t.Fatalf("lint unsafe invalid flags missing: %v\n%s", err, string(b))
 	}
 
-	cmd = exec.Command(testTspackBinary, "format", "--unsafe", "--root", root)
+	cmd = newInProcessCommand("format", "--unsafe", "--root", root)
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(b), "TSPACK_FORMAT_INVALID_FLAGS") {
 		t.Fatalf("format unsafe invalid flags missing: %v\n%s", err, string(b))
 	}
 
-	cmd = exec.Command(testTspackBinary, "format", "--check", "--unsafe", "--root", root)
+	cmd = newInProcessCommand("format", "--check", "--unsafe", "--root", root)
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(b), "TSPACK_FORMAT_INVALID_FLAGS") {
@@ -290,21 +290,21 @@ func TestCLIBiomeMissingBackendAndInvalidFlags(t *testing.T) {
 
 func TestCLIHowCommand(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	cmd := exec.Command(testTspackBinary, "how")
+	cmd := newInProcessCommand("how")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(b), "TSPACK_HOW_CODE_REQUIRED") {
 		t.Fatalf("expected required code diagnostic: %v\n%s", err, string(b))
 	}
 
-	cmd = exec.Command(testTspackBinary, "how", "NOPE")
+	cmd = newInProcessCommand("how", "NOPE")
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(b), "TSPACK_HOW_CODE_NOT_FOUND") || !strings.Contains(string(b), "tspack how --list") {
 		t.Fatalf("expected not found diagnostic: %v\n%s", err, string(b))
 	}
 
-	cmd = exec.Command(testTspackBinary, "how", "TSPACK_LOCK_VERSION_CONFLICT")
+	cmd = newInProcessCommand("how", "TSPACK_LOCK_VERSION_CONFLICT")
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err != nil {
@@ -315,7 +315,7 @@ func TestCLIHowCommand(t *testing.T) {
 		t.Fatalf("expected guidance for conflict diagnostic: %s", text)
 	}
 
-	cmd = exec.Command(testTspackBinary, "how", "TSPACK_IR_INVALID_RELATIVE_PATH")
+	cmd = newInProcessCommand("how", "TSPACK_IR_INVALID_RELATIVE_PATH")
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err != nil {
@@ -325,7 +325,7 @@ func TestCLIHowCommand(t *testing.T) {
 		t.Fatalf("expected app types empty string note: %s", string(b))
 	}
 
-	cmd = exec.Command(testTspackBinary, "how", "TSPACK_PACK_CHANGELOG_NOT_INCLUDED")
+	cmd = newInProcessCommand("how", "TSPACK_PACK_CHANGELOG_NOT_INCLUDED")
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err != nil {
@@ -810,7 +810,7 @@ process.stdout.write(JSON.stringify(out));`
 	_ = os.WriteFile(filepath.Join(root, "src", "index.ts"), []byte("export const x=1\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "dist", "index.d.ts"), []byte("export declare const x:number\n"), 0o644)
 
-	cmd := exec.Command(testTspackBinary, "update", "react", "--root", root, "--dry-run", "--json")
+	cmd := newInProcessCommand("update", "react", "--root", root, "--dry-run", "--json")
 	cmd.Dir = repo
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

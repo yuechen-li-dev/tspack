@@ -40,5 +40,9 @@ Any partial work must leave the codebase in a cleaner, more legible, and more di
 - Lifecycle commands use dedicated parsers and renderers over typed `internal/project` operations; do not add command-name switches that combine lifecycle semantics.
 - Application lifecycle results are semantic values. Terminal text, JSON DTOs, and exit mapping remain in `internal/cli`.
 - Use `internal/cli/clitest` for process-level CLI tests, and keep application semantics directly tested in their owning package.
+- Prove each contract at the cheapest layer that can prove it: pure/domain, application, parser/renderer, filesystem integration, subprocess, then live/browser/network.
+- Use `clitest.RunApp` by default. A real subprocess test must name or comment its unique process contract (exit, pipes, environment, signals, process trees, cross-process locks, or platform behavior).
+- Use the smallest fixture that proves the behavior, and test distinct semantic branches rather than cosmetic flag/fixture permutations.
+- Slow tests must justify their cost with unique evidence; end-to-end tests prove wiring rather than repeating domain and renderer matrices.
 - New top-level `internal` packages require a clear, durable responsibility and dependency direction. Do not create generic `utils` packages.
 - See `docs/dev/architecture.md` for the repository map and feature-placement guide.

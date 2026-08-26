@@ -46,7 +46,7 @@ func runInitCommand(args []string) {
 		fmt.Fprintln(os.Stderr, "Examples:")
 		fmt.Fprintln(os.Stderr, "  tspack init --template static --name acme-demo")
 		fmt.Fprintln(os.Stderr, "  tspack init --template ./templates/app --force")
-		os.Exit(1)
+		exit(1)
 	}
 
 	if cfg.listTemplates {
@@ -56,11 +56,11 @@ func runInitCommand(args []string) {
 
 	if cfg.root == "/" {
 		fmt.Fprintln(os.Stderr, "TSPACK_INIT_UNSAFE_ROOT: refusing to initialize at filesystem root")
-		os.Exit(1)
+		exit(1)
 	}
 	if wd, err := filepath.Abs(cfg.root); err != nil || wd == "/" {
 		fmt.Fprintln(os.Stderr, "TSPACK_INIT_UNSAFE_ROOT: refusing to initialize at filesystem root")
-		os.Exit(1)
+		exit(1)
 	}
 
 	if cfg.alongside {
@@ -75,7 +75,7 @@ func runInitCommand(args []string) {
 
 	if err := runTemplateInit(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		exit(1)
 	}
 }
 
@@ -85,13 +85,13 @@ func runAlongsideInit(cfg initConfig) {
 		message := err.Error()
 		message = strings.Replace(message, "TSPACK_ADOPT_PACKAGE_JSON_MISSING", "TSPACK_INIT_ALONGSIDE_REQUIRES_PACKAGE_JSON", 1)
 		fmt.Fprintln(os.Stderr, message)
-		os.Exit(1)
+		exit(1)
 	}
 	manifestPath := filepath.Join(obs.Root, "manifest.tsx")
 	if !cfg.force {
 		if _, err := os.Stat(manifestPath); err == nil {
 			fmt.Fprintln(os.Stderr, "TSPACK_INIT_ALONGSIDE_MANIFEST_EXISTS: manifest.tsx already exists; re-run with --force to replace it")
-			os.Exit(1)
+			exit(1)
 		}
 	}
 	workspaceName := obs.Name
@@ -110,7 +110,7 @@ func runAlongsideInit(cfg initConfig) {
 	}
 	if err := writeGeneratedFile(manifestPath, manifest, cfg.force); err != nil {
 		fmt.Fprintf(os.Stderr, "TSPACK_INIT_WRITE_FAILED: manifest.tsx (%v)\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 	fmt.Printf("Initialized TSPack alongside existing npm project %q.\n", workspaceName)
 	fmt.Println("Wrote:")
@@ -171,7 +171,7 @@ func runLegacyInit(cfg initConfig) {
 			fp := filepath.Join(cfg.root, f.path)
 			if _, err := os.Stat(fp); err == nil {
 				fmt.Fprintf(os.Stderr, "TSPACK_INIT_FILE_EXISTS: %s\n", f.path)
-				os.Exit(1)
+				exit(1)
 			}
 		}
 	}
@@ -187,7 +187,7 @@ func runLegacyInit(cfg initConfig) {
 		fp := filepath.Join(cfg.root, f.path)
 		if err := writeGeneratedFile(fp, f.content, cfg.force); err != nil {
 			fmt.Fprintf(os.Stderr, "TSPACK_INIT_WRITE_FAILED: %s (%v)\n", f.path, err)
-			os.Exit(1)
+			exit(1)
 		}
 	}
 	fmt.Printf("Initialized TSPack %s package %q.\n", cfg.kind, cfg.name)
@@ -206,7 +206,7 @@ func renderTemplateList() {
 	builtins, err := templates.ListBuiltins()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		exit(1)
 	}
 	fmt.Println("Available templates:")
 	for _, tmpl := range builtins {

@@ -132,5 +132,5 @@ func safeTemplateRelativePath(path string) bool {
 
 func materializeTreeError(code string, message string) {
 	fmt.Fprintf(os.Stderr, "%s: %s\n", code, message)
-	os.Exit(1)
+	exit(1)
 }

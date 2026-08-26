@@ -27,6 +27,6 @@ func requireManifestFrontendBridge(bridgeName string, code string, label string)
 		return resolution.Path
 	}
 	fmt.Fprint(os.Stderr, bridge.MissingMessage(code, label, resolution))
-	os.Exit(1)
+	exit(1)
 	return ""
 }

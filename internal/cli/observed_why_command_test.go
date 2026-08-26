@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -102,7 +101,7 @@ type tspackRunResult struct {
 
 func runTSPack(t *testing.T, repo string, args ...string) tspackRunResult {
 	t.Helper()
-	cmd := exec.Command(testTspackBinary, args...)
+	cmd := newInProcessCommand(args...)
 	cmd.Dir = repo
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

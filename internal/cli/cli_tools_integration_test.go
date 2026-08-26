@@ -63,7 +63,7 @@ fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'artifact.txt'
 	t.Cleanup(func() { _ = os.Remove(bridge) })
 
 	root := t.TempDir()
-	cmd := exec.Command(testTspackBinary, "artifact", "--root", root, "--list")
+	cmd := newInProcessCommand("artifact", "--root", root, "--list")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil || !strings.Contains(string(b), "TSPack artifacts") {
@@ -71,7 +71,7 @@ fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'artifact.txt'
 	}
 
 	out := filepath.Join(root, "out")
-	cmd = exec.Command(testTspackBinary, "artifact", "--root", root, "--out", out)
+	cmd = newInProcessCommand("artifact", "--root", root, "--out", out)
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err != nil {
@@ -81,14 +81,14 @@ fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'artifact.txt'
 		t.Fatalf("expected written artifact: %v", err)
 	}
 
-	cmd = exec.Command(testTspackBinary, "artifact", "--root", root, "--filter", "no-match")
+	cmd = newInProcessCommand("artifact", "--root", root, "--filter", "no-match")
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(b), "TSPACK_ARTIFACT_FILTER_NO_MATCH") {
 		t.Fatalf("expected no-match failure: %v\n%s", err, string(b))
 	}
 
-	cmd = exec.Command(testTspackBinary, "artifact", "--root", root, "--json")
+	cmd = newInProcessCommand("artifact", "--root", root, "--json")
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err != nil || !strings.Contains(string(b), "\"summary\"") {
@@ -113,25 +113,25 @@ console.log('PASS demo.prophecy.tsx::suite/prophecy/x');`
 	t.Cleanup(func() { _ = os.Remove(bridge) })
 
 	root := t.TempDir()
-	cmd := exec.Command(testTspackBinary, "doom", "--root", root, "--list")
+	cmd := newInProcessCommand("doom", "--root", root, "--list")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil || !strings.Contains(string(b), "TSPack doom") {
 		t.Fatalf("doom list failed: %v\n%s", err, string(b))
 	}
-	cmd = exec.Command(testTspackBinary, "doom", "--root", root)
+	cmd = newInProcessCommand("doom", "--root", root)
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err != nil || !strings.Contains(string(b), "PASS") {
 		t.Fatalf("doom run failed: %v\n%s", err, string(b))
 	}
-	cmd = exec.Command(testTspackBinary, "doom", "--root", root, "--filter", "none")
+	cmd = newInProcessCommand("doom", "--root", root, "--filter", "none")
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(b), "TSPACK_DOOM_FILTER_NO_MATCH") {
 		t.Fatalf("expected doom no-match failure: %v\n%s", err, string(b))
 	}
-	cmd = exec.Command(testTspackBinary, "doom", "--root", root, "--json")
+	cmd = newInProcessCommand("doom", "--root", root, "--json")
 	cmd.Dir = repo
 	b, err = cmd.CombinedOutput()
 	if err != nil || !strings.Contains(string(b), "\"prophecies\"") {
@@ -154,7 +154,7 @@ func TestCLIDoomBridgeMissing(t *testing.T) {
 			t.Cleanup(func() { _ = os.Rename(backup, bridge) })
 		}
 	}
-	cmd := exec.Command(testTspackBinary, "doom", "--root", t.TempDir())
+	cmd := newInProcessCommand("doom", "--root", t.TempDir())
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(b), "TSPACK_DOOM_BRIDGE_MISSING") {
@@ -450,7 +450,7 @@ func TestCLIInspectBridgeMissing(t *testing.T) {
 
 func TestHelpMarksInspectExperimental(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	cmd := exec.Command(testTspackBinary, "help")
+	cmd := newInProcessCommand("help")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil {
@@ -831,7 +831,7 @@ func TestSanitizeTerminalOutputStripsANSIAndPreservesText(t *testing.T) {
 
 func TestCLIHelpIncludesFormatAndLint(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	cmd := exec.Command(testTspackBinary, "help")
+	cmd := newInProcessCommand("help")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil {

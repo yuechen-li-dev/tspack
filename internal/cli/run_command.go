@@ -465,7 +465,7 @@ func waitReady(session *RunTargetSession, readyCheck runReadyCheck, timeout time
 	}
 }
 
-func failRun(code, msg string) { fmt.Fprintln(os.Stderr, code+": "+msg); os.Exit(1) }
+func failRun(code, msg string) { fmt.Fprintln(os.Stderr, code+": "+msg); exit(1) }
 
 func selectRunTarget(root string, manifestPath string, ir *manifest.ManifestIR, packageName string, targetName string) runTargetRef {
 	if packageName != "" {

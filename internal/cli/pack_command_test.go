@@ -5,12 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/yuechen-li-dev/tspack/internal/cli/clitest"
 )
 
 func TestCLIPackSmokeAndDryRun(t *testing.T) {
-	repo := filepath.Join("..", "..")
 	frontend := testManifestFrontendBridgeDir(t)
 	_ = os.MkdirAll(frontend, 0o755)
 	cliPath := filepath.Join(frontend, "cli.js")
@@ -30,8 +27,10 @@ process.stdout.write(JSON.stringify(out));`
 	_ = os.WriteFile(filepath.Join(root, "README.md"), []byte("readme\n"), 0o644)
 
 	outDir := filepath.Join(root, "out")
-	packed := clitest.RunInDir(t, repo, testTspackBinary, "pack", "--root", root, "--out", outDir)
-	clitest.AssertExit(t, packed, 0)
+	packed := runTestApp(t, "pack", "--root", root, "--out", outDir)
+	if packed.ExitCode != 0 {
+		t.Fatalf("pack failed: %s", packed)
+	}
 	if !strings.Contains(packed.Stdout, "packed app@1.0.0") {
 		t.Fatalf("expected packed output, got: %s", packed)
 	}
@@ -40,8 +39,10 @@ process.stdout.write(JSON.stringify(out));`
 	}
 
 	dryDir := filepath.Join(root, "dry")
-	dryRun := clitest.RunInDir(t, repo, testTspackBinary, "pack", "--root", root, "--out", dryDir, "--dry-run")
-	clitest.AssertExit(t, dryRun, 0)
+	dryRun := runTestApp(t, "pack", "--root", root, "--out", dryDir, "--dry-run")
+	if dryRun.ExitCode != 0 {
+		t.Fatalf("pack dry run failed: %s", dryRun)
+	}
 	if _, err := os.Stat(filepath.Join(dryDir, "app-1.0.0.tgz")); !os.IsNotExist(err) {
 		t.Fatalf("dry-run wrote artifact")
 	}
@@ -49,8 +50,10 @@ process.stdout.write(JSON.stringify(out));`
 		t.Fatalf("expected preview output, got: %s", dryRun)
 	}
 
-	help := clitest.RunInDir(t, repo, testTspackBinary, "help")
-	clitest.AssertExit(t, help, 0)
+	help := runTestApp(t, "help")
+	if help.ExitCode != 0 {
+		t.Fatalf("help failed: %s", help)
+	}
 	if !strings.Contains(help.Stdout, "tspack pack") {
 		t.Fatalf("help missing pack: %s", help)
 	}

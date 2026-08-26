@@ -61,12 +61,12 @@ func lifecycleFlagValue(args []string, index *int, flag string) string {
 	*index++
 	if *index >= len(args) {
 		fmt.Fprintf(os.Stderr, "%s requires a value\n", flag)
-		os.Exit(1)
+		exit(1)
 	}
 	return args[*index]
 }
 
 func failUnknownLifecycleFlag(command string, flag string) {
 	fmt.Fprintf(os.Stderr, "unknown %s flag: %s\n", command, flag)
-	os.Exit(1)
+	exit(1)
 }

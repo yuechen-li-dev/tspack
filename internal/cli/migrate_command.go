@@ -213,13 +213,13 @@ func runMigrateCommand(args []string) {
 		for _, diagnostic := range parseDiags {
 			printMigrationDiagnostic(diagnostic)
 		}
-		os.Exit(1)
+		exit(1)
 	}
 
 	draft, diagnostic := buildMigrationDraft(cfg)
 	if diagnostic != nil {
 		printMigrationDiagnostic(*diagnostic)
-		os.Exit(1)
+		exit(1)
 	}
 	for _, diagnostic := range draft.Diagnostics {
 		printMigrationDiagnostic(diagnostic)
@@ -243,7 +243,7 @@ func runMigrateCommand(args []string) {
 					},
 					Fixes: []string{"Choose a different --out-manifest/--out-report path, remove the existing file, or pass --force."},
 				})
-				os.Exit(1)
+				exit(1)
 			}
 		}
 	}
@@ -262,7 +262,7 @@ func runMigrateCommand(args []string) {
 		printMigrationDryRun(draft)
 		if validationDiagnostic != nil {
 			printMigrationDiagnostic(*validationDiagnostic)
-			os.Exit(1)
+			exit(1)
 		}
 		return
 	}
@@ -272,7 +272,7 @@ func runMigrateCommand(args []string) {
 		fmt.Println()
 		printMigrationValidationSummary(draft.Validation)
 		printMigrationDiagnostic(*validationDiagnostic)
-		os.Exit(1)
+		exit(1)
 	}
 
 	for _, output := range outputs {
@@ -288,7 +288,7 @@ func runMigrateCommand(args []string) {
 				},
 				Fixes: []string{"Check output directory permissions and retry."},
 			})
-			os.Exit(1)
+			exit(1)
 		}
 	}
 

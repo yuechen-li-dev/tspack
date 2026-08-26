@@ -67,7 +67,7 @@ func runDoctorCommand(args []string) {
 		case "--root":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "TSPACK_DOCTOR_ROOT_INVALID: --root requires a value")
-				os.Exit(1)
+				exit(1)
 			}
 			i++
 			root = args[i]
@@ -76,20 +76,20 @@ func runDoctorCommand(args []string) {
 		default:
 			if strings.HasPrefix(a, "-") {
 				fmt.Fprintf(os.Stderr, "TSPACK_DOCTOR_INVALID_SCOPE: unknown flag %s\n", a)
-				os.Exit(1)
+				exit(1)
 			}
 			fmt.Fprintf(os.Stderr, "TSPACK_DOCTOR_INVALID_SCOPE: unknown scope %s\n", a)
-			os.Exit(1)
+			exit(1)
 		}
 	}
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "TSPACK_DOCTOR_ROOT_INVALID: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 	if st, err := os.Stat(abs); err != nil || !st.IsDir() {
 		fmt.Fprintln(os.Stderr, "TSPACK_DOCTOR_ROOT_INVALID: root directory does not exist")
-		os.Exit(1)
+		exit(1)
 	}
 
 	report := DoctorReport{Root: abs}
@@ -134,7 +134,7 @@ func runDoctorCommand(args []string) {
 		printDoctorText(report)
 	}
 	if (scope == doctorScopeFormat || scope == doctorScopeRun || scope == doctorScopeSecurity || scope == doctorScopeSkyrim) && report.Summary.Errors > 0 {
-		os.Exit(1)
+		exit(1)
 	}
 }
 
