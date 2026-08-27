@@ -9,6 +9,7 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/graph"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/packageidentity"
 	"github.com/yuechen-li-dev/tspack/internal/securityevidence"
 )
 
@@ -45,6 +46,7 @@ type ReachabilityRef struct{ PackageName, TargetName, Reason string }
 type LockPackageRef struct {
 	ID, Name, Version, Source, Hash string
 	Capabilities                    []CapabilityRef
+	Usage                           *packageidentity.PackageUsage
 }
 
 type CapabilityRef struct {
@@ -352,6 +354,9 @@ func lockPackageRefsByID(lf *lockfile.Lockfile, acknowledgements []manifest.Ackn
 
 func lockPackageRef(pkg lockfile.Package, acknowledgements []manifest.AcknowledgedCapability, rootDir string) LockPackageRef {
 	ref := LockPackageRef{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, Hash: pkg.Hash}
+	if usage, err := packageidentity.NodeUsage(packageidentity.PackageIdentity{Source: pkg.Source, Name: pkg.Name}); err == nil {
+		ref.Usage = &usage
+	}
 	for _, capability := range pkg.Capabilities {
 		if capability.Kind != "lifecycleScript" && capability.Kind != "lifecycle-script" {
 			continue

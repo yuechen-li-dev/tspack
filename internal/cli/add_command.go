@@ -8,6 +8,7 @@ import (
 
 	"github.com/yuechen-li-dev/tspack/internal/authoring"
 	"github.com/yuechen-li-dev/tspack/internal/diag"
+	"github.com/yuechen-li-dev/tspack/internal/packageidentity"
 	"github.com/yuechen-li-dev/tspack/internal/project"
 )
 
@@ -41,6 +42,7 @@ type addJSONReport struct {
 	AlreadyPresent         bool                          `json:"alreadyPresent"`
 	DeclarationChanged     bool                          `json:"declarationChanged"`
 	PreviousConstraint     string                        `json:"previousConstraint,omitempty"`
+	Usage                  *packageidentity.PackageUsage `json:"usage,omitempty"`
 	Shadowed               []addJSONDeclaration          `json:"shadowed"`
 	OverriddenDeclarations []addJSONDeclaration          `json:"overriddenDeclarations"`
 	Performance            dependencyEditJSONPerformance `json:"performance"`
@@ -130,6 +132,7 @@ func renderAddHuman(result project.AddDependencyResult) {
 	identity := dependencyEditIdentity(result.Source, result.Package)
 	if result.AlreadyPresent {
 		fmt.Printf("%s is already declared as %s.\n", identity, result.WrittenConstraint)
+		renderAddImportGuidance(result)
 		fmt.Println("No changes.")
 		return
 	}
@@ -158,6 +161,7 @@ func renderAddHuman(result project.AddDependencyResult) {
 	if result.SelectedVersion != "" {
 		fmt.Printf("  resolved: %s\n", result.SelectedVersion)
 	}
+	renderAddImportGuidance(result)
 	if len(result.ShadowedDeclarations) > 0 {
 		fmt.Println()
 		fmt.Println("Overrides:")
@@ -203,6 +207,7 @@ func renderAddJSON(result project.AddDependencyResult) {
 		AlreadyPresent:         result.AlreadyPresent,
 		DeclarationChanged:     result.DeclarationChanged,
 		PreviousConstraint:     result.PreviousConstraint,
+		Usage:                  result.Usage,
 		Shadowed:               []addJSONDeclaration{},
 		OverriddenDeclarations: []addJSONDeclaration{},
 		Performance:            dependencyEditPerformanceJSON(result.Performance),
@@ -224,6 +229,15 @@ func renderAddJSON(result project.AddDependencyResult) {
 		fmt.Fprintf(os.Stderr, "TSPACK_ADD_JSON_ENCODE_FAILED: %v\n", err)
 		exit(1)
 	}
+}
+
+func renderAddImportGuidance(result project.AddDependencyResult) {
+	if result.Usage == nil || result.Usage.Import.Specifier == result.Package {
+		return
+	}
+	fmt.Println()
+	fmt.Println("Import in Node/TypeScript as:")
+	fmt.Printf("  %s\n", result.Usage.Import.Specifier)
 }
 
 func addOriginLabel(declaration authoring.DependencyDeclaration) string {

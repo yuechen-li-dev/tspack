@@ -110,6 +110,25 @@ func TestInvalids(t *testing.T) {
 		}
 	}
 }
+
+func TestRegistryPackageIDMustMatchSourceQualifiedSemanticIdentity(t *testing.T) {
+	contents := []byte(`[lock]
+format = 1
+tool = "tspack"
+
+[[package]]
+id = "npm:@jsr/scope__pkg@1.0.0"
+name = "@scope/pkg"
+version = "1.0.0"
+source = "jsr"
+integrity = "sha512-test"
+`)
+	_, diagnostics := Parse("identity-mismatch.ts-lock.toml", contents)
+	if !hasLockDiagnosticCode(diagnostics, "TSPACK_LOCK_PACKAGE_IDENTITY_MISMATCH") {
+		t.Fatalf("expected identity mismatch diagnostic, got %#v", diagnostics)
+	}
+}
+
 func TestDiff(t *testing.T) {
 	a := &Lockfile{Lock: LockHeader{Format: 1}, Packages: []Package{{ID: "npm:a@1", Name: "a", Source: "npm", Version: "1", Integrity: "x"}}, Targets: []Target{{Package: "p", Name: "a", Export: "./a", Entry: "src/a.ts", Runtime: "dist/a.js", Types: "dist/a.d.ts"}}}
 	b := &Lockfile{Lock: LockHeader{Format: 1}, Packages: []Package{{ID: "npm:a@2", Name: "a", Source: "npm", Version: "2", Integrity: "x"}}, Targets: []Target{{Package: "p", Name: "a", Export: "./a", Entry: "src/b.ts", Runtime: "dist/a.js", Types: "dist/a.d.ts"}}, Edges: []Edge{{From: "x", To: "npm:a@2", Kind: "dep"}}}

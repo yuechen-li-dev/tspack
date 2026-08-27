@@ -289,6 +289,15 @@ func validate(file string, lf *Lockfile) []diag.Diagnostic {
 			if p.Version == "" || (p.Integrity == "" && p.Hash == "") {
 				out = append(out, errD("TSPACK_LOCK_INVALID_PACKAGE", "registry package requires version and integrity/hash", p.ID))
 			}
+			expectedID := p.Source + ":" + p.Name + "@" + p.Version
+			if p.ID != expectedID {
+				out = append(out, errD(
+					"TSPACK_LOCK_PACKAGE_IDENTITY_MISMATCH",
+					"registry lock package ID does not match its source-qualified semantic identity",
+					"package: "+p.ID,
+					"expected: "+expectedID,
+				))
+			}
 		case "git":
 			if p.Repo == "" || p.Rev == "" || (p.TreeHash == "" && p.Hash == "") {
 				out = append(out, errD("TSPACK_LOCK_INVALID_PACKAGE", "git package requires repo/rev/tree_hash/hash", p.ID))

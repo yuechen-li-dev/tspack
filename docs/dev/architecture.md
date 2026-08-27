@@ -83,6 +83,23 @@ store path. Workspace/path/git retain their distinct local semantics. See
 metadata lookup; npm is the default and there is no cross-registry discovery or
 fallback policy.
 
+`internal/packageidentity` owns the boundary between semantic package truth and
+runtime compatibility spelling. `PackageIdentity` (`source + logical name`) is
+used by authoring, graph, lock, and provenance. `MaterializationIdentity`
+selects a package-tree name, and `ImportIdentity` selects the spelling consumed
+by a runtime/compiler resolver. For Node, `jsr:@std/path` maps to
+`npm-compat:@jsr/std__path`; that mapping is consumed by project results,
+`why`, and materialization but never flows back into authoring truth. The
+materializer validates the complete destination plan before filesystem writes
+and rejects two semantic packages that map to one path.
+
+Runtime and optional registry dependency maps are normalized into
+source-qualified requirements by the backend. Transitive registry
+`peerDependencies` and true npm alias constraints are not yet normalized and
+must not be represented as working until the resolver has source-qualified peer
+satisfaction and alias-spec semantics. See
+`docs/dev/m70c-cross-registry-semantics.md`.
+
 Dependencies point down toward domain and infrastructure capabilities. Core
 packages must not import `internal/cli` or `internal/integrations`. Integrations
 may consume stable domain contracts but must not import CLI presentation.
@@ -151,6 +168,9 @@ does not query registry metadata merely to select a declaration.
 - Boundary/type checks live in `internal/check`, `boundary`, and `typesurface`.
 - Lifecycle capabilities and evidence live in `capability`, `installscript`, and
   `securityevidence`; OSV querying lives in `audit`.
+- Audit coverage is a typed per-source result. npm has an OSV ecosystem; JSR is
+  an unsupported ecosystem rather than an npm alias, and unmapped sources have
+  unknown coverage.
 - Performance measurement lives in `perf`, while orchestration decides when to
   record it.
 

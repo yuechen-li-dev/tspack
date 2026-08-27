@@ -14,6 +14,7 @@
 | `tspack sync` | Materialize compatibility `node_modules` from `ts-lock.toml`, hydrating missing local store artifacts from locked sources when needed. | No / No | Does not re-resolve versions or mutate the lockfile. | `docs/materialization.md` |
 | `tspack why` | Explain why a dependency, target, lock package, or observed npm package is present, with package-lock-backed observed npm chains before migration, `--reverse` for TSPack lock reverse paths, and `--json` for structured reports. | No / No | Not a resolver/editor command. | `docs/why.md` |
 | `tspack how` | Explain diagnostic codes and remediation guidance. | No / No | Does not mutate project state or resolve packages. | `docs/how.md` |
+| `tspack audit` | Check exact locked npm versions against OSV and report coverage for the whole mixed-source lock. | No / No | Does not treat JSR compatibility names as npm vulnerability identity or claim full coverage for unmapped sources. | `docs/audit.md` |
 | `tspack outdated` | Report declared dependencies with current/wanted/latest npm freshness data (`--json` supported). | No / No | Read-only query; no lock/store/node_modules mutation. | `docs/outdated.md` |
 | `tspack pack` | Create deterministic package archives all-or-nothing for the selected package set; `--dry-run` validates and prints the plan without writing; `--verify` structurally verifies produced npm artifacts before finalizing them. | No / No | Not a build pipeline or publish command; include patterns that match nothing are errors. | `docs/pack.md` |
 | `tspack run [target]` | Start declared manifest `RunTargets`, treat targets with `ready` as server targets and targets without `ready` as finite commands, apply repeatable child env overlays with `--env KEY=VALUE`, list targets with `--list [--json]`, scope selection with `--package <name>`, run readiness proofs with `--once`, and support explicit manifests with `--manifest <path>`; status stays on stderr. | No / No | Not `npm run`; no package.json script inference; declared cwd controls workspace-root vs package-root command resolution. | `docs/run.md` |
@@ -39,12 +40,14 @@
 - `tspack add lodash` selects the newest stable npm release, authors a caret constraint such as `^4.17.21`, and records the exact selected release in `ts-lock.toml` through the normal update path.
 - `tspack add lodash@^4` and `tspack add lodash@4.17.21` preserve the explicit constraint exactly.
 - `tspack add lodash --source npm` is equivalent to the default and makes the source-qualified identity explicit. `tspack add @std/path --source jsr` selects JSR. Omitting `--source` always means npm; a failed npm lookup is never retried against JSR.
+- A successful JSR add reports the stable Node/TypeScript import spelling, such as `@jsr/std__path`, and JSON includes semantic/materialization/import usage. npm adds omit redundant guidance when the spelling is unchanged. The command does not rewrite application imports.
 - Scoped forms such as `@scope/pkg` and `@scope/pkg@^3` remain intact for either source. Git, URL, file, workspace, and general install-spec syntax are rejected explicitly.
 - `--optional` is orthogonal to the normal TSPack `dep` kind. `--kind peer` authors peer intent. Package selection accepts a stable package name or an exact workspace-relative package root; when run inside one package directory, that package is inferred if the mapping is unambiguous.
 - `--dry-run` performs metadata selection, semantic editing, and source projection planning without writing the manifest, lockfile, or store. `--json` exposes stable semantic result fields.
 - Repeating an unqualified or textually equivalent explicit add of the same editable declaration is a zero-registry, byte-for-byte no-op. A changed explicit spec replaces the matching editable declaration and is reported as a constraint change; a derived or concept-owned declaration is retained and shadowed by a new explicit declaration.
 - `--dev` is intentionally rejected: TSPack's `test` dependency kind remains reserved and has no native manifest helper or execution contract. `--tool` is also rejected for add because a usable tool requires both `tool(...)` dependency intent and a `<Tools>` selection, while the M69 projector owns only dependency islands. This avoids creating apparently installed but unusable tooling.
 - npm and JSR declarations with the same logical name remain source-distinct. Replacement matches source-qualified identity, and removal requires `--source` when the name is ambiguous.
+- True npm alias constraints and transitive registry peer satisfaction are not supported by this workflow. `@jsr/scope__package` metadata-key normalization is a JSR compatibility mapping, not general npm alias support.
 - package.json-native incremental projects receive an authority diagnostic and should use `tspack npm install ...` for npm dependencies until ownership is migrated. TSPack does not invent a package.json representation for native JSR intent.
 
 ## `tspack remove`
@@ -64,6 +67,15 @@
 - If the artifact is already present and verifies locally, sync does not refetch it.
 - `tspack sync` may need network access when the local store is empty and a locked npm or JSR artifact must be downloaded.
 - Cold materialization may print deterministic plain-text lines such as `materializing packages [12/20] react@19.2.7`.
+- Before writing `node_modules`, sync rejects semantic packages that map to the same destination with `TSPACK_MATERIALIZE_IMPORT_COLLISION`; it never silently chooses or overwrites one source.
+
+## `tspack why` and package usage
+
+A source-qualified registry query retains semantic package identity. For JSR
+lock packages, human and JSON output also explain the npm-compat materialization
+name and Node/TypeScript import specifier. Mixed pull chains retain the real
+parent source, including JSR parents of npm transitives. `tspack how` remains
+diagnostic-code documentation and does not duplicate package usage lookup.
 
 ## Runtime versions
 

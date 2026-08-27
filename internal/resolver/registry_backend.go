@@ -8,11 +8,12 @@ import (
 
 	"github.com/yuechen-li-dev/tspack/internal/capability"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/packageidentity"
 )
 
 const (
-	SourceNPM = "npm"
-	SourceJSR = "jsr"
+	SourceNPM = packageidentity.SourceNPM
+	SourceJSR = packageidentity.SourceJSR
 )
 
 // RegistryBackend adapts one registry into TSPack's source-qualified package
@@ -198,14 +199,7 @@ func (backend *jsrBackend) FetchArtifact(ctx context.Context, artifact ArtifactD
 }
 
 func jsrCompatibilityName(name string) (string, error) {
-	if !strings.HasPrefix(name, "@") {
-		return "", fmt.Errorf("JSR package name %q must use @scope/package form", name)
-	}
-	parts := strings.Split(strings.TrimPrefix(name, "@"), "/")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", fmt.Errorf("JSR package name %q must use @scope/package form", name)
-	}
-	return "@jsr/" + parts[0] + "__" + parts[1], nil
+	return packageidentity.JSRCompatibilityName(name)
 }
 
 func normalizeJSRDependencies(dependencies map[string]string) ([]DependencyRequirement, error) {
@@ -229,12 +223,7 @@ func normalizeJSRDependencies(dependencies map[string]string) ([]DependencyRequi
 }
 
 func logicalJSRName(compatibilityName string) (string, error) {
-	value := strings.TrimPrefix(compatibilityName, "@jsr/")
-	parts := strings.SplitN(value, "__", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", fmt.Errorf("unsupported JSR compatibility dependency name %q", compatibilityName)
-	}
-	return "@" + parts[0] + "/" + parts[1], nil
+	return packageidentity.LogicalJSRName(compatibilityName)
 }
 
 func registryClientHost(client NPMRegistryClient) string {

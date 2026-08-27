@@ -82,15 +82,25 @@ func runAuditCommand(args []string) {
 func printAuditReport(report audit.Report, auditLevel string, failing int) {
 	fmt.Println("TSPack audit (OSV.dev)")
 	fmt.Println()
-	fmt.Printf("Scanned %d locked npm packages.\n", report.Packages)
+	fmt.Printf("Locked packages: %d. Checked npm packages: %d.\n", report.LockedPackages, report.Packages)
 	for _, coverage := range report.Coverage {
-		if coverage.Status == "checked" {
-			continue
+		switch coverage.Status {
+		case audit.CoverageChecked:
+			fmt.Printf("%s: %d checked.\n", coverage.Source, coverage.Packages)
+		case audit.CoverageUnsupportedEcosystem:
+			fmt.Printf("%s: %d not checked (unsupported ecosystem). %s\n", coverage.Source, coverage.Packages, coverage.Reason)
+		case audit.CoverageUnknown:
+			fmt.Printf("%s: %d not checked (coverage unknown). %s\n", coverage.Source, coverage.Packages, coverage.Reason)
+		default:
+			fmt.Printf("%s: %d not checked. %s\n", coverage.Source, coverage.Packages, coverage.Reason)
 		}
-		fmt.Printf("Audit coverage: %s packages %s (%d). %s\n", coverage.Source, coverage.Status, coverage.Packages, coverage.Reason)
 	}
 	if len(report.Findings) == 0 {
-		fmt.Println("No known vulnerabilities found.")
+		if report.CoverageComplete {
+			fmt.Println("No known vulnerabilities found in the fully checked lock graph.")
+		} else {
+			fmt.Println("No known vulnerabilities found in checked packages; audit coverage is incomplete.")
+		}
 		return
 	}
 	fmt.Printf("Found %d known vulnerabilities (%d meet audit level %s).\n", len(report.Findings), failing, auditLevel)

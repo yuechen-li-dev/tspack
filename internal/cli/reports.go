@@ -1,6 +1,9 @@
 package cli
 
-import "github.com/yuechen-li-dev/tspack/internal/project"
+import (
+	"github.com/yuechen-li-dev/tspack/internal/packageidentity"
+	"github.com/yuechen-li-dev/tspack/internal/project"
+)
 
 type CheckJSONReport struct {
 	Command      string                `json:"command"`
@@ -101,12 +104,13 @@ type WhyJSONReachability struct {
 }
 
 type WhyJSONLockPackage struct {
-	ID           string              `json:"id"`
-	Name         string              `json:"name,omitempty"`
-	Version      string              `json:"version,omitempty"`
-	Source       string              `json:"source,omitempty"`
-	Hash         string              `json:"hash,omitempty"`
-	Capabilities []WhyJSONCapability `json:"capabilities,omitempty"`
+	ID           string                        `json:"id"`
+	Name         string                        `json:"name,omitempty"`
+	Version      string                        `json:"version,omitempty"`
+	Source       string                        `json:"source,omitempty"`
+	Hash         string                        `json:"hash,omitempty"`
+	Capabilities []WhyJSONCapability           `json:"capabilities,omitempty"`
+	Usage        *packageidentity.PackageUsage `json:"usage,omitempty"`
 }
 
 type WhyJSONCapability struct {

@@ -91,7 +91,26 @@ func TestScanReportsJSRCoverageAsNotChecked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(report.Coverage) != 2 || report.Coverage[1].Source != "jsr" || report.Coverage[1].Status != "not-checked" {
+	if len(report.Coverage) != 2 || report.Coverage[1].Source != "jsr" || report.Coverage[1].Status != CoverageUnsupportedEcosystem {
 		t.Fatalf("JSR audit coverage was not explicit: %#v", report.Coverage)
+	}
+	if report.LockedPackages != 2 || report.CoverageComplete {
+		t.Fatalf("mixed coverage summary = %#v", report)
+	}
+}
+
+func TestScanJSROnlyDoesNotQueryOSV(t *testing.T) {
+	lf := &lockfile.Lockfile{Packages: []lockfile.Package{
+		{ID: "jsr:@std/path@1.1.6", Name: "@std/path", Version: "1.1.6", Source: "jsr"},
+	}}
+	report, err := Scan(context.Background(), lf, &fakeClient{err: errors.New("OSV should not be called for JSR")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Packages != 0 || report.LockedPackages != 1 || report.CoverageComplete {
+		t.Fatalf("JSR-only coverage = %#v", report)
+	}
+	if len(report.Coverage) != 1 || report.Coverage[0].Status != CoverageUnsupportedEcosystem {
+		t.Fatalf("JSR-only coverage rows = %#v", report.Coverage)
 	}
 }

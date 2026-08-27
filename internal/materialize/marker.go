@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 )
 
@@ -115,6 +116,51 @@ func buildMaterializationPlan(lf *lockfile.Lockfile, nmRoot string, mode LinkMod
 		rootVisible: rootVisible,
 		entries:     entries,
 	}
+}
+
+func materializationPlanCollisionDiagnostics(plan materializationPlan) []diag.Diagnostic {
+	diagnostics := []diag.Diagnostic{}
+	for start := 0; start < len(plan.entries); {
+		end := start + 1
+		for end < len(plan.entries) && plan.entries[end].Destination == plan.entries[start].Destination {
+			end++
+		}
+
+		packageIDs := []string{}
+		previousPackageID := ""
+		for index := start; index < end; index++ {
+			packageID := plan.entries[index].PackageID
+			if packageID == previousPackageID {
+				continue
+			}
+			packageIDs = append(packageIDs, packageID)
+			previousPackageID = packageID
+		}
+
+		if len(packageIDs) > 1 {
+			details := []string{
+				"destination: " + plan.entries[start].Destination,
+				"source-qualified packages:",
+			}
+			for _, packageID := range packageIDs {
+				details = append(details, "  "+packageID)
+			}
+			details = append(details, "Compatibility/materialization names must be unique within each node_modules directory.")
+
+			diagnostics = append(diagnostics, diag.Diagnostic{
+				Code:     "TSPACK_MATERIALIZE_IMPORT_COLLISION",
+				Severity: diag.SeverityError,
+				File:     plan.entries[start].Destination,
+				Message:  "source-qualified packages map to the same materialization path",
+				Details:  details,
+			})
+		}
+
+		start = end
+	}
+
+	diag.SortDiagnostics(diagnostics)
+	return diagnostics
 }
 
 func appendMaterializationPlanEntries(entries *[]materializationPlanEntry, pkgs map[string]lockfile.Package, edgesByFrom map[string][]lockfile.Edge, pkg lockfile.Package, parentNodeModules string, state *materializeState) {

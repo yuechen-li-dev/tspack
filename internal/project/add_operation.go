@@ -16,6 +16,7 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
 	"github.com/yuechen-li-dev/tspack/internal/manifestedit"
+	"github.com/yuechen-li-dev/tspack/internal/packageidentity"
 	"github.com/yuechen-li-dev/tspack/internal/resolver"
 )
 
@@ -52,6 +53,7 @@ type AddDependencyResult struct {
 	AlreadyPresent       bool
 	DeclarationChanged   bool
 	PreviousConstraint   string
+	Usage                *packageidentity.PackageUsage
 	DryRun               bool
 	SemanticChanges      []authoring.AuthoringChange
 	ShadowedDeclarations []authoring.DependencyDeclaration
@@ -142,6 +144,20 @@ func RunAddDependency(request AddDependencyRequest) (result AddDependencyResult)
 		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_PACKAGE_SPEC_INVALID", "invalid package specification", err.Error()))
 		return result
 	}
+	usage, usageErr := packageidentity.NodeUsage(packageidentity.PackageIdentity{
+		Source: parsed.Identity.Source,
+		Name:   parsed.Identity.Name,
+	})
+	if usageErr != nil {
+		result.Diagnostics = append(result.Diagnostics, addDiagnostic(
+			"TSPACK_ADD_IMPORT_IDENTITY_INVALID",
+			"package cannot be represented safely for Node and TypeScript",
+			parsed.Identity.Key(),
+			usageErr.Error(),
+		))
+		return result
+	}
+	result.Usage = &usage
 
 	result.Package = parsed.Identity.Name
 	result.Source = parsed.Identity.Source

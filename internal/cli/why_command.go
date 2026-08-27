@@ -111,12 +111,25 @@ func renderWhyExplanation(result *why.Result) {
 			}
 		}
 		printWhyCapabilities(explanation.LockPackages)
+		printWhyPackageUsage(explanation.LockPackages)
 		if len(explanation.LockEdges) > 0 {
 			fmt.Println("lock edges:")
 			for _, edge := range explanation.LockEdges {
 				fmt.Printf("  %s -> %s %s\n", edge.From, edge.To, edge.Kind)
 			}
 		}
+	}
+}
+
+func printWhyPackageUsage(lockPackages []why.LockPackageRef) {
+	for _, lockPackage := range lockPackages {
+		if lockPackage.Usage == nil || lockPackage.Usage.Import.Specifier == lockPackage.Name {
+			continue
+		}
+		fmt.Printf("package identity %s:\n", lockPackage.ID)
+		fmt.Printf("  semantic: %s\n", lockPackage.Usage.Semantic.Key())
+		fmt.Printf("  materialized as: %s:%s\n", lockPackage.Usage.MaterializedAs.Source, lockPackage.Usage.MaterializedAs.Name)
+		fmt.Printf("  import in Node/TypeScript as: %s\n", lockPackage.Usage.Import.Specifier)
 	}
 }
 
@@ -180,6 +193,7 @@ func printReverseWhyResult(whyOpts project.WhyOptions, result *why.Result) {
 		}
 
 		fmt.Printf("%s is pulled in by:\n", lockPackage.ID)
+		printWhyPackageUsage([]why.LockPackageRef{lockPackage})
 		printWhyCapabilities([]why.LockPackageRef{lockPackage})
 		fmt.Println()
 		for _, path := range paths {
@@ -423,6 +437,7 @@ func buildWhyJSONLockPackage(lockPackage why.LockPackageRef) WhyJSONLockPackage 
 		Version: lockPackage.Version,
 		Source:  lockPackage.Source,
 		Hash:    lockPackage.Hash,
+		Usage:   lockPackage.Usage,
 	}
 	for _, capability := range lockPackage.Capabilities {
 		jsonPackage.Capabilities = append(jsonPackage.Capabilities, WhyJSONCapability{

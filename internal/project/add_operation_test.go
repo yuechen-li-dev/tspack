@@ -164,6 +164,9 @@ export default define(<Workspace name="demo"><Package name="app" version="1.0.0"
 	if result.Source != "jsr" || result.Package != "@std/path" || result.WrittenConstraint != "^1.1.6" || result.SelectedVersion != "1.1.6" {
 		t.Fatalf("unexpected JSR add result: %#v", result)
 	}
+	if result.Usage == nil || result.Usage.Semantic.Key() != "jsr:@std/path" || result.Usage.Import.Specifier != "@jsr/std__path" {
+		t.Fatalf("unexpected JSR usage guidance: %#v", result.Usage)
+	}
 	if result.Performance.RegistryMetadataRequests != 1 || result.Performance.RegistryTarballRequests != 1 {
 		t.Fatalf("request counts = %#v", result.Performance)
 	}

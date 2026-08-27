@@ -324,6 +324,12 @@ func TestWhySourceQualifiedQueryDoesNotCrossRegistryCollision(t *testing.T) {
 	if len(packages) != 1 || packages[0].ID != "jsr:@scope/foo@1.0.0" {
 		t.Fatalf("why crossed registry identities: %#v", packages)
 	}
+	if packages[0].Usage == nil || packages[0].Usage.Semantic.Key() != "jsr:@scope/foo" {
+		t.Fatalf("why semantic usage = %#v", packages[0].Usage)
+	}
+	if packages[0].Usage.MaterializedAs.Name != "@jsr/scope__foo" || packages[0].Usage.Import.Specifier != "@jsr/scope__foo" {
+		t.Fatalf("why compatibility usage = %#v", packages[0].Usage)
+	}
 }
 
 func TestReverseWhyMatrix(t *testing.T) {

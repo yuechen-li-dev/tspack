@@ -5,11 +5,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
-	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/yuechen-li-dev/tspack/internal/diag"
+	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 )
 
 func TestPutTarballAndGetVerify(t *testing.T) {
@@ -60,6 +62,68 @@ func TestDedupAndMismatch(t *testing.T) {
 	_, diags := s.PutArtifact(Artifact{Kind: ArtifactNPMTarball, Bytes: tgz, Hash: "sha256:deadbeef"})
 	if len(diags) == 0 || diags[0].Code != "TSPACK_STORE_HASH_MISMATCH" {
 		t.Fatal(diags)
+	}
+}
+
+func TestDedupPreservesSourceQualifiedProvenanceDeterministically(t *testing.T) {
+	tgz := makeTarball(t, map[string]string{"package/package.json": `{"name":"same","version":"1.0.0"}`})
+	artifacts := []Artifact{
+		{
+			ID:      "npm:same@1.0.0",
+			Name:    "same",
+			Version: "1.0.0",
+			Source:  "npm",
+			Kind:    ArtifactNPMTarball,
+			Bytes:   tgz,
+			Metadata: PackageMetadata{
+				Capabilities: []lockfile.Capability{{Kind: "lifecycleScript", Script: "postinstall", Command: "node install.js"}},
+			},
+		},
+		{
+			ID:      "jsr:@scope/same@1.0.0",
+			Name:    "@scope/same",
+			Version: "1.0.0",
+			Source:  "jsr",
+			Kind:    ArtifactRegistryTarball,
+			Bytes:   tgz,
+		},
+	}
+
+	writeInOrder := func(order []int) []byte {
+		t.Helper()
+		contentStore, err := Open(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ref StoreRef
+		for _, index := range order {
+			var diagnostics []diag.Diagnostic
+			ref, diagnostics = contentStore.PutArtifact(artifacts[index])
+			if len(diagnostics) > 0 {
+				t.Fatalf("put artifact %d: %#v", index, diagnostics)
+			}
+		}
+		body, err := os.ReadFile(ref.MetadataPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var metadata PackageMetadata
+		if err := json.Unmarshal(body, &metadata); err != nil {
+			t.Fatal(err)
+		}
+		if len(metadata.Provenance) != 2 {
+			t.Fatalf("expected both package identities, got %#v", metadata.Provenance)
+		}
+		if metadata.Provenance[0].PackageID != "jsr:@scope/same@1.0.0" || metadata.Provenance[1].PackageID != "npm:same@1.0.0" {
+			t.Fatalf("unexpected provenance order: %#v", metadata.Provenance)
+		}
+		return body
+	}
+
+	forward := writeInOrder([]int{0, 1})
+	reverse := writeInOrder([]int{1, 0})
+	if !bytes.Equal(forward, reverse) {
+		t.Fatalf("metadata depends on insertion order:\nforward:\n%s\nreverse:\n%s", forward, reverse)
 	}
 }
 

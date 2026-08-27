@@ -3,6 +3,7 @@ package resolver
 import (
 	"bytes"
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,6 +71,201 @@ func TestJSRBackendRejectsUnscopedPackageName(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid JSR package name error")
 	}
+}
+
+func TestJSRCompatibilityLifecycleScriptsDoNotBecomeCapabilities(t *testing.T) {
+	jsrClient := newRegistryFixture()
+	name := "@jsr/scope__pkg"
+	version := "1.0.0"
+	artifactURL := "https://registry.example/jsr-scripted.tgz"
+	scripts := map[string]string{
+		"preinstall":  "node preinstall.js",
+		"postinstall": "node postinstall.js",
+	}
+	body := tarFor(name, version, nil, nil, scripts)
+	jsrClient.meta[name] = &PackageMetadata{
+		Name: name,
+		Versions: map[string]PackageVersion{
+			version: {
+				Name:    name,
+				Version: version,
+				Dist:    PackageDist{Tarball: artifactURL},
+				Scripts: scripts,
+			},
+		},
+	}
+	jsrClient.tar[artifactURL] = body
+
+	dependency := manifest.DependencyIntent{
+		Key:    "pkg",
+		Kind:   "dep",
+		Source: manifest.Source{Kind: "jsr", Package: "@scope/pkg", Range: version},
+	}
+	result := Resolve(context.Background(), ResolverOptions{
+		Mode: ResolveModeUpdate,
+		Backends: BackendRegistry{
+			SourceJSR: NewJSRBackend(jsrClient),
+		},
+	}, ResolveRequest{Graph: graphForDeps([]manifest.DependencyIntent{dependency}, nil, []string{"pkg"})})
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("resolve diagnostics: %#v", result.Diagnostics)
+	}
+	if len(result.Lock.Packages) != 1 {
+		t.Fatalf("unexpected packages: %#v", result.Lock.Packages)
+	}
+	if len(result.Lock.Packages[0].Capabilities) != 0 {
+		t.Fatalf("JSR compatibility scripts became executable capabilities: %#v", result.Lock.Packages[0].Capabilities)
+	}
+}
+
+func TestJSRCompatibilityNamesAreScopedAndBijective(t *testing.T) {
+	valid := []struct {
+		logical       string
+		compatibility string
+	}{
+		{logical: "@scope/package", compatibility: "@jsr/scope__package"},
+		{logical: "@scope_name/package_name", compatibility: "@jsr/scope_name__package_name"},
+		{logical: "@scope-name/package-name", compatibility: "@jsr/scope-name__package-name"},
+	}
+	for _, test := range valid {
+		compatibility, err := jsrCompatibilityName(test.logical)
+		if err != nil || compatibility != test.compatibility {
+			t.Fatalf("compatibility name for %q = %q, %v", test.logical, compatibility, err)
+		}
+		logical, err := logicalJSRName(compatibility)
+		if err != nil || logical != test.logical {
+			t.Fatalf("logical name for %q = %q, %v", compatibility, logical, err)
+		}
+	}
+
+	invalidLogical := []string{
+		"package",
+		"@scope",
+		"@scope/",
+		"@/package",
+		"@scope/package/subpath",
+		"@scope__nested/package",
+		"@scope/package__variant",
+	}
+	for _, name := range invalidLogical {
+		if compatibility, err := jsrCompatibilityName(name); err == nil {
+			t.Errorf("ambiguous or malformed logical name %q produced %q", name, compatibility)
+		}
+	}
+
+	invalidCompatibility := []string{
+		"scope__package",
+		"@jsr/scope",
+		"@jsr/__package",
+		"@jsr/scope__",
+		"@jsr/scope__package__variant",
+		"@jsr/scope/name__package",
+	}
+	for _, name := range invalidCompatibility {
+		if logical, err := logicalJSRName(name); err == nil {
+			t.Errorf("ambiguous or malformed compatibility name %q produced %q", name, logical)
+		}
+	}
+}
+
+func TestRegistryOptionalDependenciesPreserveSourceIdentity(t *testing.T) {
+	npmClient := newRegistryFixture()
+	addRegistryFixture(npmClient, "optional-parent", "1.0.0", nil)
+	npmVersion := npmClient.meta["optional-parent"].Versions["1.0.0"]
+	npmVersion.OptionalDependencies = map[string]string{"@scope/foo": "^1.0.0"}
+	npmClient.meta["optional-parent"].Versions["1.0.0"] = npmVersion
+
+	npmMetadata, err := NewNPMBackend(npmClient).Metadata(context.Background(), "optional-parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertOptionalRequirement(t, npmMetadata.Versions["1.0.0"].Dependencies, SourceNPM, "@scope/foo", "^1.0.0")
+
+	jsrClient := newRegistryFixture()
+	addRegistryFixture(jsrClient, "@jsr/scope__parent", "1.0.0", nil)
+	jsrVersion := jsrClient.meta["@jsr/scope__parent"].Versions["1.0.0"]
+	jsrVersion.OptionalDependencies = map[string]string{
+		"@jsr/scope__child": "^2.0.0",
+		"optional-npm":      "^3.0.0",
+	}
+	jsrClient.meta["@jsr/scope__parent"].Versions["1.0.0"] = jsrVersion
+
+	jsrMetadata, err := NewJSRBackend(jsrClient).Metadata(context.Background(), "@scope/parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dependencies := jsrMetadata.Versions["1.0.0"].Dependencies
+	assertOptionalRequirement(t, dependencies, SourceJSR, "@scope/child", "^2.0.0")
+	assertOptionalRequirement(t, dependencies, SourceNPM, "optional-npm", "^3.0.0")
+}
+
+func TestResolveMixedOptionalDependenciesPreservesSourcesInLock(t *testing.T) {
+	npmClient := newRegistryFixture()
+	addRegistryFixture(npmClient, "optional-parent", "1.0.0", nil)
+	addRegistryFixture(npmClient, "@scope/foo", "1.0.0", nil)
+	addRegistryFixture(npmClient, "optional-npm", "3.0.0", nil)
+	npmParent := npmClient.meta["optional-parent"].Versions["1.0.0"]
+	npmParent.OptionalDependencies = map[string]string{"@scope/foo": "^1.0.0"}
+	npmClient.meta["optional-parent"].Versions["1.0.0"] = npmParent
+
+	jsrClient := newRegistryFixture()
+	addRegistryFixture(jsrClient, "@jsr/scope__parent", "1.0.0", nil)
+	addRegistryFixture(jsrClient, "@jsr/scope__child", "2.0.0", nil)
+	addRegistryFixture(jsrClient, "@jsr/scope__foo", "1.0.0", nil)
+	jsrParent := jsrClient.meta["@jsr/scope__parent"].Versions["1.0.0"]
+	jsrParent.OptionalDependencies = map[string]string{
+		"@jsr/scope__child": "^2.0.0",
+		"optional-npm":      "^3.0.0",
+	}
+	jsrClient.meta["@jsr/scope__parent"].Versions["1.0.0"] = jsrParent
+
+	dependencies := []manifest.DependencyIntent{
+		{Key: "npmParent", Kind: "dep", Source: manifest.Source{Kind: SourceNPM, Package: "optional-parent", Range: "1.0.0"}},
+		{Key: "jsrParent", Kind: "dep", Source: manifest.Source{Kind: SourceJSR, Package: "@scope/parent", Range: "1.0.0"}},
+		{Key: "jsrFoo", Kind: "dep", Source: manifest.Source{Kind: SourceJSR, Package: "@scope/foo", Range: "1.0.0"}},
+	}
+	result := Resolve(context.Background(), ResolverOptions{
+		Mode: ResolveModeUpdate,
+		Backends: BackendRegistry{
+			SourceNPM: NewNPMBackend(npmClient),
+			SourceJSR: NewJSRBackend(jsrClient),
+		},
+	}, ResolveRequest{Graph: graphForDeps(dependencies, nil, []string{"npmParent", "jsrParent", "jsrFoo"})})
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("mixed optional resolution diagnostics: %#v", result.Diagnostics)
+	}
+
+	assertHasEdge(t, result.Lock, "npm:optional-parent@1.0.0", "npm:@scope/foo@1.0.0", "runtime", true)
+	assertHasEdge(t, result.Lock, "jsr:@scope/parent@1.0.0", "jsr:@scope/child@2.0.0", "runtime", true)
+	assertHasEdge(t, result.Lock, "jsr:@scope/parent@1.0.0", "npm:optional-npm@3.0.0", "runtime", true)
+	assertHasPackage(t, result.Lock, "npm:@scope/foo@1.0.0")
+	assertHasPackage(t, result.Lock, "jsr:@scope/foo@1.0.0")
+}
+
+func TestJSROptionalAliasErrorIdentifiesSourceQualifiedParent(t *testing.T) {
+	jsrClient := newRegistryFixture()
+	addRegistryFixture(jsrClient, "@jsr/scope__parent", "1.0.0", nil)
+	version := jsrClient.meta["@jsr/scope__parent"].Versions["1.0.0"]
+	version.OptionalDependencies = map[string]string{"@jsr/ambiguous__package__name": "^1.0.0"}
+	jsrClient.meta["@jsr/scope__parent"].Versions["1.0.0"] = version
+
+	_, err := NewJSRBackend(jsrClient).Metadata(context.Background(), "@scope/parent")
+	if err == nil {
+		t.Fatal("expected malformed optional compatibility name to fail")
+	}
+	if !strings.Contains(err.Error(), "normalize optional dependencies for jsr:@scope/parent@1.0.0") {
+		t.Fatalf("error does not identify source-qualified parent: %v", err)
+	}
+}
+
+func assertOptionalRequirement(t *testing.T, requirements []DependencyRequirement, source string, name string, constraint string) {
+	t.Helper()
+	for _, requirement := range requirements {
+		if requirement.Identity.Source == source && requirement.Identity.Name == name && requirement.Constraint == constraint && requirement.Optional {
+			return
+		}
+	}
+	t.Fatalf("missing optional requirement %s:%s %s in %#v", source, name, constraint, requirements)
 }
 
 func TestJSRResolverReportsNotFoundAndIntegrityFailures(t *testing.T) {

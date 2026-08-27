@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -126,6 +127,81 @@ func TestMaterializeRegistryNameCollisionUsesDistinctNodeNames(t *testing.T) {
 	}
 	mustExist(t, filepath.Join(workspace, "node_modules", "@jsr", "std__path", "package.json"))
 	mustExist(t, filepath.Join(workspace, "node_modules", "@std", "path", "package.json"))
+}
+
+func TestMaterializeRejectsSourceQualifiedPackagesWithSameDestination(t *testing.T) {
+	workspace := t.TempDir()
+	contentStore, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	npmHash := putPkgWithPackageJSON(
+		t,
+		contentStore,
+		"npm:@jsr/scope__pkg@1.0.0",
+		"@jsr/scope__pkg",
+		`{"name":"@jsr/scope__pkg","version":"1.0.0"}`,
+		nil,
+	)
+	jsrHash := putPkgWithPackageJSON(
+		t,
+		contentStore,
+		"jsr:@scope/pkg@1.0.0",
+		"@scope/pkg",
+		`{"name":"@jsr/scope__pkg","version":"1.0.0"}`,
+		nil,
+	)
+	locked := &lockfile.Lockfile{
+		Packages: []lockfile.Package{
+			{ID: "npm:@jsr/scope__pkg@1.0.0", Name: "@jsr/scope__pkg", Source: "npm", Hash: npmHash},
+			{ID: "jsr:@scope/pkg@1.0.0", Name: "@scope/pkg", Source: "jsr", Hash: jsrHash},
+		},
+		Edges: []lockfile.Edge{
+			{From: "app:target:core", To: "npm:@jsr/scope__pkg@1.0.0", Kind: "runtime"},
+			{From: "app:target:core", To: "jsr:@scope/pkg@1.0.0", Kind: "runtime"},
+		},
+	}
+
+	result := NodeModulesMaterializer{}.Materialize(context.Background(), Request{
+		WorkspaceRoot: workspace,
+		Lock:          locked,
+		Store:         contentStore,
+		Options:       Options{LinkMode: LinkModeCopy},
+	})
+
+	if len(result.Diagnostics) != 1 {
+		t.Fatalf("collision diagnostics = %#v", result.Diagnostics)
+	}
+	diagnostic := result.Diagnostics[0]
+	if diagnostic.Code != "TSPACK_MATERIALIZE_IMPORT_COLLISION" {
+		t.Fatalf("collision diagnostic = %#v", diagnostic)
+	}
+	wantDetails := []string{
+		"destination: " + filepath.ToSlash(filepath.Join(workspace, "node_modules", "@jsr", "scope__pkg")),
+		"source-qualified packages:",
+		"  jsr:@scope/pkg@1.0.0",
+		"  npm:@jsr/scope__pkg@1.0.0",
+		"Compatibility/materialization names must be unique within each node_modules directory.",
+	}
+	if !reflect.DeepEqual(diagnostic.Details, wantDetails) {
+		t.Fatalf("collision details = %#v, want %#v", diagnostic.Details, wantDetails)
+	}
+	reversedLock := &lockfile.Lockfile{
+		Packages: []lockfile.Package{locked.Packages[1], locked.Packages[0]},
+		Edges:    []lockfile.Edge{locked.Edges[1], locked.Edges[0]},
+	}
+	reversedResult := NodeModulesMaterializer{}.Materialize(context.Background(), Request{
+		WorkspaceRoot: workspace,
+		Lock:          reversedLock,
+		Store:         contentStore,
+		Options:       Options{LinkMode: LinkModeCopy},
+	})
+	if !reflect.DeepEqual(result.Diagnostics, reversedResult.Diagnostics) {
+		t.Fatalf("collision diagnostics depend on lock order:\nfirst: %#v\nreversed: %#v", result.Diagnostics, reversedResult.Diagnostics)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "node_modules")); !os.IsNotExist(err) {
+		t.Fatalf("collision should be detected before filesystem mutation, stat error = %v", err)
+	}
 }
 
 func TestRootBinMaterializationAndStrictness(t *testing.T) {

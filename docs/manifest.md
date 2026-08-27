@@ -97,6 +97,18 @@ TypeScript compatibility artifacts use JSR's `@jsr/scope__package` names (for
 example `@jsr/std__path`), while manifest, lock, and diagnostic identity remains
 `jsr:@std/path`. Application imports currently use the compatibility name, such
 as `import { join } from "@jsr/std__path"`; TSPack does not rewrite source files.
+`tspack add --source jsr` and source-qualified `tspack why` expose this mapping
+as structured package usage and human import guidance. The compatibility
+spelling remains a Node/TypeScript detail, not a legal replacement for
+`jsr("@std/path", ...)` in manifest truth.
+
+JSR compatibility dependency keys are normalized by source: `@jsr/...` keys
+refer to JSR packages and ordinary keys refer to npm packages, including in
+optional dependency metadata. Malformed or ambiguous compatibility names fail
+instead of becoming authoring identity. This is not general npm alias support:
+true npm alias constraints such as `npm:real-package@^1` remain unsupported.
+Likewise, root `peer(...)` authoring is supported, but transitive registry peer
+requirements are not yet normalized or satisfied across sources.
 
 ```tsx
 import {

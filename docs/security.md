@@ -66,9 +66,26 @@ JSR packages report no install-script capabilities. If a JSR package depends on
 an npm package, that npm package retains its normal lifecycle capability data
 and blocked-by-default behavior.
 
+M70c includes a controlled compatibility-registry case whose metadata and
+tarball both declare `preinstall` and `postinstall`. Resolution records no JSR
+lifecycle capabilities, and normal update/sync/materialization still executes
+nothing. Compatibility packaging therefore cannot accidentally grant npm
+install-script semantics. This does not suppress npm capabilities on npm
+transitives reached from a JSR parent.
+
 Native audit coverage remains source-explicit. OSV currently has an npm
 ecosystem but no JSR ecosystem identifier, so mixed-source audit reports mark
-JSR packages `not-checked` instead of silently presenting them as clean.
+JSR packages `unsupported-ecosystem` instead of silently presenting them as
+clean.
+The audit model classifies JSR as an unsupported ecosystem and other unmapped
+sources as coverage unknown. JSR's npm-compatible name is not submitted as npm
+vulnerability identity. Linked repositories or registry provenance are useful
+review evidence but do not prove that an npm advisory applies to a JSR package.
+
+The content store may deduplicate identical bytes, but its metadata retains a
+deterministic set of every source-qualified package provenance for that hash.
+The lockfile remains authoritative graph provenance; content deduplication does
+not collapse npm and JSR identity.
 
 ## Current policy status
 

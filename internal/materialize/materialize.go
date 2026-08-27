@@ -17,6 +17,7 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/graph"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/packageidentity"
 	"github.com/yuechen-li-dev/tspack/internal/store"
 )
 
@@ -122,6 +123,10 @@ func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) R
 	nmRoot := filepath.Join(req.WorkspaceRoot, "node_modules")
 	observer := newMaterializeObserver(req.Options.Stats)
 	plan := buildMaterializationPlan(req.Lock, nmRoot, mode)
+	if diagnostics := materializationPlanCollisionDiagnostics(plan); len(diagnostics) > 0 {
+		out.Diagnostics = append(out.Diagnostics, diagnostics...)
+		return finalize(out)
+	}
 	if req.Options.Force {
 		observer.RecordForcedMaterialization()
 	}
@@ -818,14 +823,14 @@ func materializeRootBins(req Request, out *Result, nmRoot string, pkgs map[strin
 }
 
 func materializedPackageName(pkg lockfile.Package) string {
-	if pkg.Source != "jsr" || !strings.HasPrefix(pkg.Name, "@") {
+	usage, err := packageidentity.NodeUsage(packageidentity.PackageIdentity{
+		Source: pkg.Source,
+		Name:   pkg.Name,
+	})
+	if err != nil {
 		return pkg.Name
 	}
-	parts := strings.Split(strings.TrimPrefix(pkg.Name, "@"), "/")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return pkg.Name
-	}
-	return "@jsr/" + parts[0] + "__" + parts[1]
+	return usage.MaterializedAs.Name
 }
 
 type binDef struct{ name, relPath string }

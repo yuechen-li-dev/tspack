@@ -193,31 +193,60 @@ type Finding struct {
 }
 
 type Report struct {
-	Packages int        `json:"packages"`
-	Findings []Finding  `json:"findings"`
-	Coverage []Coverage `json:"coverage,omitempty"`
+	Packages         int        `json:"packages"`
+	LockedPackages   int        `json:"lockedPackages"`
+	CoverageComplete bool       `json:"coverageComplete"`
+	Findings         []Finding  `json:"findings"`
+	Coverage         []Coverage `json:"coverage,omitempty"`
 }
 
+type CoverageStatus string
+
+const (
+	CoverageChecked              CoverageStatus = "checked"
+	CoverageNotChecked           CoverageStatus = "not-checked"
+	CoverageUnsupportedEcosystem CoverageStatus = "unsupported-ecosystem"
+	CoverageUnknown              CoverageStatus = "coverage-unknown"
+)
+
 type Coverage struct {
-	Source   string `json:"source"`
-	Packages int    `json:"packages"`
-	Status   string `json:"status"`
-	Reason   string `json:"reason,omitempty"`
+	Source   string         `json:"source"`
+	Packages int            `json:"packages"`
+	Status   CoverageStatus `json:"status"`
+	Reason   string         `json:"reason,omitempty"`
 }
 
 func Scan(ctx context.Context, lf *lockfile.Lockfile, client Client) (Report, error) {
 	packages := npmPackages(lf)
-	report := Report{Packages: len(packages), Findings: []Finding{}}
+	report := Report{
+		Packages:         len(packages),
+		LockedPackages:   packageCount(lf),
+		CoverageComplete: true,
+		Findings:         []Finding{},
+	}
 	if len(packages) > 0 {
-		report.Coverage = append(report.Coverage, Coverage{Source: "npm", Packages: len(packages), Status: "checked"})
+		report.Coverage = append(report.Coverage, Coverage{Source: "npm", Packages: len(packages), Status: CoverageChecked})
 	}
 	if jsrCount := packageCountForSource(lf, "jsr"); jsrCount > 0 {
 		report.Coverage = append(report.Coverage, Coverage{
 			Source:   "jsr",
 			Packages: jsrCount,
-			Status:   "not-checked",
+			Status:   CoverageUnsupportedEcosystem,
 			Reason:   "OSV does not define a JSR ecosystem identifier; npm compatibility names are not treated as JSR vulnerability truth",
 		})
+		report.CoverageComplete = false
+	}
+	for _, source := range packageSources(lf) {
+		if source == "npm" || source == "jsr" {
+			continue
+		}
+		report.Coverage = append(report.Coverage, Coverage{
+			Source:   source,
+			Packages: packageCountForSource(lf, source),
+			Status:   CoverageUnknown,
+			Reason:   "no vulnerability ecosystem mapping is configured for this package source",
+		})
+		report.CoverageComplete = false
 	}
 	if len(packages) == 0 {
 		return report, nil
@@ -284,6 +313,37 @@ func Scan(ctx context.Context, lf *lockfile.Lockfile, client Client) (Report, er
 		return report.Findings[i].ID < report.Findings[j].ID
 	})
 	return report, nil
+}
+
+func packageCount(lf *lockfile.Lockfile) int {
+	if lf == nil {
+		return 0
+	}
+	seen := map[string]bool{}
+	for _, pkg := range lf.Packages {
+		if pkg.ID != "" {
+			seen[pkg.ID] = true
+		}
+	}
+	return len(seen)
+}
+
+func packageSources(lf *lockfile.Lockfile) []string {
+	if lf == nil {
+		return nil
+	}
+	sources := map[string]bool{}
+	for _, pkg := range lf.Packages {
+		if pkg.ID != "" && pkg.Source != "" {
+			sources[pkg.Source] = true
+		}
+	}
+	values := make([]string, 0, len(sources))
+	for source := range sources {
+		values = append(values, source)
+	}
+	sort.Strings(values)
+	return values
 }
 
 func packageCountForSource(lf *lockfile.Lockfile, source string) int {

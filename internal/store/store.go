@@ -50,6 +50,7 @@ type PackageMetadata struct {
 	Version              string                `json:"version"`
 	Source               string                `json:"source,omitempty"`
 	PackageID            string                `json:"packageId,omitempty"`
+	Provenance           []PackageProvenance   `json:"provenance,omitempty"`
 	Hash                 string                `json:"hash"`
 	Integrity            string                `json:"integrity,omitempty"`
 	Capabilities         []lockfile.Capability `json:"capabilities,omitempty"`
@@ -57,6 +58,18 @@ type PackageMetadata struct {
 	OptionalDependencies map[string]string     `json:"optionalDependencies,omitempty"`
 	PeerDependencies     map[string]string     `json:"peerDependencies,omitempty"`
 	Bin                  any                   `json:"bin,omitempty"`
+}
+
+// PackageProvenance preserves source-qualified package identity when multiple
+// packages deduplicate to the same content-addressed artifact. The singular
+// PackageMetadata identity fields remain for compatibility with existing store
+// readers.
+type PackageProvenance struct {
+	Name      string `json:"name"`
+	Version   string `json:"version"`
+	Source    string `json:"source"`
+	PackageID string `json:"packageId,omitempty"`
+	Integrity string `json:"integrity,omitempty"`
 }
 
 type Artifact struct {
@@ -127,14 +140,110 @@ func (s *Store) PutArtifact(a Artifact) (StoreRef, []diag.Diagnostic) {
 	if meta.Source == "" {
 		meta.Source = a.Source
 	}
+	if meta.PackageID == "" {
+		meta.PackageID = a.ID
+	}
 	if meta.Integrity == "" {
 		meta.Integrity = a.Integrity
 	}
+	meta = mergeStoredProvenance(ref.MetadataPath, meta)
 	sortCaps(meta.Capabilities)
 	if d := writeMetadata(ref.MetadataPath, meta); d != nil {
 		return StoreRef{}, d
 	}
 	return ref, nil
+}
+
+func mergeStoredProvenance(metadataPath string, current PackageMetadata) PackageMetadata {
+	var existing PackageMetadata
+	if body, err := os.ReadFile(metadataPath); err == nil {
+		_ = json.Unmarshal(body, &existing)
+	}
+
+	byIdentity := map[string]PackageProvenance{}
+	add := func(provenance PackageProvenance) {
+		if provenance.Source == "" || provenance.Name == "" {
+			return
+		}
+		key := provenance.Source + "\x00" + provenance.Name + "\x00" + provenance.Version
+		previous, found := byIdentity[key]
+		if found {
+			previous.PackageID = preferredMetadataValue(previous.PackageID, provenance.PackageID)
+			previous.Integrity = preferredMetadataValue(previous.Integrity, provenance.Integrity)
+			byIdentity[key] = previous
+			return
+		}
+		byIdentity[key] = provenance
+	}
+	add(packageMetadataProvenance(existing))
+	for _, provenance := range existing.Provenance {
+		add(provenance)
+	}
+	add(packageMetadataProvenance(current))
+	for _, provenance := range current.Provenance {
+		add(provenance)
+	}
+
+	provenance := make([]PackageProvenance, 0, len(byIdentity))
+	for _, item := range byIdentity {
+		provenance = append(provenance, item)
+	}
+	sort.SliceStable(provenance, func(left, right int) bool {
+		leftKey := provenanceIdentityKey(provenance[left])
+		rightKey := provenanceIdentityKey(provenance[right])
+		return leftKey < rightKey
+	})
+	if len(provenance) == 0 {
+		current.Provenance = nil
+		return current
+	}
+
+	canonical := provenance[0]
+	merged := current
+	if len(provenance) > 1 && packageMetadataMatchesProvenance(existing, canonical) && !packageMetadataMatchesProvenance(current, canonical) {
+		merged = existing
+	}
+	merged.Name = canonical.Name
+	merged.Version = canonical.Version
+	merged.Source = canonical.Source
+	merged.PackageID = canonical.PackageID
+	merged.Integrity = canonical.Integrity
+	if len(provenance) > 1 {
+		merged.Provenance = provenance
+	} else {
+		merged.Provenance = nil
+	}
+	return merged
+}
+
+func preferredMetadataValue(left, right string) string {
+	if left == "" {
+		return right
+	}
+	if right == "" || left < right {
+		return left
+	}
+	return right
+}
+
+func packageMetadataProvenance(metadata PackageMetadata) PackageProvenance {
+	return PackageProvenance{
+		Name:      metadata.Name,
+		Version:   metadata.Version,
+		Source:    metadata.Source,
+		PackageID: metadata.PackageID,
+		Integrity: metadata.Integrity,
+	}
+}
+
+func packageMetadataMatchesProvenance(metadata PackageMetadata, provenance PackageProvenance) bool {
+	return metadata.Source == provenance.Source &&
+		metadata.Name == provenance.Name &&
+		metadata.Version == provenance.Version
+}
+
+func provenanceIdentityKey(provenance PackageProvenance) string {
+	return provenance.Source + "\x00" + provenance.Name + "\x00" + provenance.Version + "\x00" + provenance.PackageID + "\x00" + provenance.Integrity
 }
 
 func (s *Store) lockArtifact(hash string) func() {
