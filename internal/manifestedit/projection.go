@@ -216,6 +216,51 @@ func WritePlannedFile(path string, result ProjectionResult) (bool, error) {
 	return true, nil
 }
 
+// RestorePlannedFile rolls back a successfully written projection only when
+// the file still contains the exact planned result. This keeps recovery from
+// overwriting a concurrent user edit.
+func RestorePlannedFile(path string, result ProjectionResult) error {
+	if !result.Changed {
+		return nil
+	}
+	current, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("TSPACK_MANIFEST_ROLLBACK_FAILED: read current source: %w", err)
+	}
+	if !bytes.Equal(current, []byte(result.UpdatedSource)) {
+		return fmt.Errorf("TSPACK_MANIFEST_ROLLBACK_FAILED: manifest changed after the projected source was written")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("TSPACK_MANIFEST_ROLLBACK_FAILED: stat current source: %w", err)
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".tspack-manifest-rollback-*.tmp")
+	if err != nil {
+		return fmt.Errorf("TSPACK_MANIFEST_ROLLBACK_FAILED: create temporary source: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(info.Mode().Perm()); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("TSPACK_MANIFEST_ROLLBACK_FAILED: preserve source mode: %w", err)
+	}
+	if _, err := temporary.Write([]byte(result.originalSource)); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("TSPACK_MANIFEST_ROLLBACK_FAILED: write temporary source: %w", err)
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("TSPACK_MANIFEST_ROLLBACK_FAILED: sync temporary source: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("TSPACK_MANIFEST_ROLLBACK_FAILED: close temporary source: %w", err)
+	}
+	if err := replaceFileAtomic(temporaryPath, path); err != nil {
+		return fmt.Errorf("TSPACK_MANIFEST_ROLLBACK_FAILED: atomically replace source: %w", err)
+	}
+	return nil
+}
+
 func primaryChanges(changes []authoring.AuthoringChange) []authoring.AuthoringChange {
 	out := make([]authoring.AuthoringChange, 0, len(changes))
 	for _, change := range changes {

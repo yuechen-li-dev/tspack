@@ -4,6 +4,7 @@ package cli
 // Help topics remain presentation data in help.go; handlers own parsing and
 // application orchestration for their command.
 var commandHandlers = map[string]func([]string){
+	"add":              runAddCommand,
 	"adopt":            runAdoptCommand,
 	"artifact":         runArtifactCommand,
 	"audit":            runAuditCommand,

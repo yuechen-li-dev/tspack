@@ -187,14 +187,25 @@ func ResolveNPM(ctx context.Context, opts ResolverOptions, req ResolveRequest) R
 
 	frontier := make([]resolveWorkItem, 0)
 	for _, pkg := range req.Graph.AllPackages() {
+		selectedRuntimeDependencies := map[string]bool{}
 		for _, target := range pkg.AllTargets() {
 			from := fmt.Sprintf("%s:target:%s", pkg.Name, target.Name)
 			for _, dep := range target.AllowedRuntimeDependencies() {
+				selectedRuntimeDependencies[dep.Key] = true
 				frontier = state.enqueueDirectRequest(ctx, frontier, dep, from, dependencyEdgeKind(dep))
 			}
 			for _, dep := range target.AllowedPeerDependencies() {
 				frontier = state.enqueueDirectRequest(ctx, frontier, dep, from, "peer")
 			}
+		}
+		for _, dep := range pkg.AllDependencies() {
+			if selectedRuntimeDependencies[dep.Key] {
+				continue
+			}
+			if dep.Kind != graph.DependencyKindDep && dep.Kind != graph.DependencyKindRuntime {
+				continue
+			}
+			frontier = state.enqueueDirectRequest(ctx, frontier, dep, fmt.Sprintf("%s:dependency", pkg.Name), dependencyEdgeKind(dep))
 		}
 		for _, dep := range pkg.ToolDependencies() {
 			frontier = state.enqueueDirectRequest(ctx, frontier, dep, fmt.Sprintf("%s:tool", pkg.Name), "tool")

@@ -216,6 +216,20 @@ During incremental adoption, package.json declarations are recorded as
 observed, non-editable compatibility evidence and package.json remains
 authoritative.
 
+### Authoring dependencies with `tspack add`
+
+`tspack add <package>` creates or replaces an explicit owned declaration through
+the authoring IR and tape, then uses the source-preserving projector for the
+selected package's `dependencies.values` island. An unqualified npm package uses
+the newest stable release and writes a compatible caret constraint; an explicit
+constraint is preserved. The subsequent normal update writes exact resolved
+truth to `ts-lock.toml`.
+
+The default kind is TSPack `dep`, not an emulated npm section. `--optional`
+sets the independent optional bit. Multiple native packages require
+`--package <name>`. Annotation manifests and alongside/package.json-native
+projects remain non-editable because package.json retains authority.
+
 Without the explicit keys in the dependency-alias example above, the manifest frontend preserves the property alias fallback. Because the dependency identity derived from the npm package is `@biomejs/biome` or `react-dom`, Go IR validation reports `TSPACK_IR_UNKNOWN_DEPENDENCY_REF` if the alias and dependency identity do not match. `tspack migrate` follows this rule automatically: generated declarations get `key` whenever the TypeScript identifier differs from the npm package name, while packages such as `typescript` do not get noisy key options.
 
 ## Publish include conventions

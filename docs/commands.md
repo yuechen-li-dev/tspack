@@ -3,6 +3,7 @@
 | Command | Purpose | Mutates manifest/lock? | Notable non-goals | Details |
 |---|---|---|---|---|
 | `tspack init` | Scaffold a starter manifest and entry source for `library` or `app`. | **Yes (files)** / No | Does not install, update lock, sync, or build outputs. | `docs/init.md` |
+| `tspack add <package>` | Author an explicit native dependency through the dependency tape, project it into the owned manifest island, and run normal update resolution. | **Yes (manifest and lock)** | Does not mutate package.json authority, accept arbitrary npm install specs, or execute lifecycle scripts. | `docs/dev/m69c-add.md` |
 | `tspack migrate` | Convert package.json metadata into a reviewable `manifest.migrated.tsx` draft and `tspack-migration.md` report, including package-lock evidence, source scan evidence, script classification, report-only RunTarget suggestions, and optional `--check` structural validation. Dry-run by default; `--write` creates files. | **Yes with `--write` (migration outputs only)** / No | `--check` validates the generated draft with the manifest frontend and Go IR validator, but does not overwrite `manifest.tsx`, mutate package.json, translate lockfiles to TSPack locks, mutate source imports, install, execute scripts, migrate npm scripts into active RunTargets, generate `ts-lock.toml`, or run update/sync/check. | `docs/migrate.md` |
 | `tspack adopt --check-annotations` | Check package.manifest.tsx annotation consistency against package.json and exit nonzero on errors or warnings. | No | CI-friendly read-only drift check; unannotated dependencies are notices and do not fail. | `docs/design/incremental-adoption.md` |
 | `tspack adopt --suggest-package <package-root>` | Print a dry-run `package.manifest.tsx` annotation suggestion for an existing package.json package. | No | Advisory only; writes no manifest, mutates no package.json, and generates no lockfile. | `docs/design/incremental-adoption.md` |
@@ -30,6 +31,16 @@
 - Text-mode progress is written to **stderr** so stdout remains reserved for human diff output or JSON payloads, depending on mode.
 - Cold store population prints deterministic plain-text lines such as `fetching npm artifacts [3/20] vite@7.1.0`.
 - `tspack update --quiet` suppresses progress/status lines while leaving diagnostics and errors on stderr.
+
+## `tspack add`
+
+- `tspack add lodash` selects the newest stable npm release, authors a caret constraint such as `^4.17.21`, and records the exact selected release in `ts-lock.toml` through the normal update path.
+- `tspack add lodash@^4` and `tspack add lodash@4.17.21` preserve the explicit constraint exactly.
+- Scoped forms such as `@scope/pkg` and `@scope/pkg@^3` are supported. Git, URL, file, workspace, and general npm install-spec syntax are rejected explicitly in M69c.
+- `--optional` is orthogonal to the normal TSPack `dep` kind. `--package <name>` is required when more than one native package is editable.
+- `--dry-run` performs metadata selection, semantic editing, and source projection planning without writing the manifest, lockfile, or store. `--json` exposes stable semantic result fields.
+- Repeating an unqualified add of the same editable declaration is a byte-for-byte no-op. An explicit spec replaces the matching editable declaration; a derived or concept-owned declaration is retained and shadowed by a new explicit declaration.
+- package.json-native incremental projects receive an authority diagnostic and should use `tspack npm install ...` until ownership is migrated.
 
 ## `tspack sync`
 

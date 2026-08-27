@@ -115,7 +115,7 @@ func TestIntegrationsDoNotDependOnCLI(t *testing.T) {
 
 func TestCommandRegistryIsExplicit(t *testing.T) {
 	want := []string{
-		"adopt", "artifact", "audit", "bench", "build", "check", "compat",
+		"add", "adopt", "artifact", "audit", "bench", "build", "check", "compat",
 		"doctor", "doom", "format", "how", "init", "inspect", "lint",
 		"materialize-tree", "migrate", "npm", "outdated", "pack", "run",
 		"scenario", "skyrim", "sync", "test", "update", "why",

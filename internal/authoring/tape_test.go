@@ -137,6 +137,9 @@ func TestAddDefaultsToExplicitEditableUserLayer(t *testing.T) {
 	if winner.Authority != AuthorityOwned || winner.Editability != EditabilityEditable {
 		t.Fatalf("added declaration editability = %#v", winner)
 	}
+	if !hasChange(result.Changes, ChangeShadowed, "concept") {
+		t.Fatalf("add changes = %#v, want concept shadow explanation", result.Changes)
+	}
 }
 
 func TestRemoveSurfacesAmbiguityAndEditability(t *testing.T) {

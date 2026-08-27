@@ -187,6 +187,7 @@ export function parseWorkspace(rootManifestPath: string): ManifestParseResult {
     mergedPackages.push({
       ...withDependencyAuthoringSourcePath(pkg, slashPath(row.manifest)),
       root: slashPath(row.root),
+      manifestPath: slashPath(row.manifest),
     });
   }
 
@@ -906,6 +907,7 @@ function mapPackageAnnotation(p: any): Record<string, unknown> {
   };
   return {
     name: p.name,
+    manifestPath: context.sourcePath,
     dependencies: mapDependencies(values),
     dependencyAuthoring: mapDependencyAuthoring(values, context),
   };

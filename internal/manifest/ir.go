@@ -102,6 +102,7 @@ func (a AcknowledgedLifecycleCategory) Key() string {
 
 type Package struct {
 	Name                string                    `json:"name"`
+	ManifestPath        string                    `json:"manifestPath,omitempty"`
 	Version             string                    `json:"version"`
 	Compiler            string                    `json:"compiler,omitempty"`
 	CompilerPath        string                    `json:"compilerPath,omitempty"`

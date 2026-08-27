@@ -10,7 +10,7 @@ the project history.
 | --- | --- | --- |
 | `cmd/tspack` | Process bootstrap only; passes process arguments to `internal/cli` | CLI/presentation |
 | `internal/cli` | Command registry, command-specific parsing, text/JSON renderers, exit mapping, and cheap workspace path loading | CLI/presentation |
-| `internal/project` | Typed lifecycle application operations for update, sync, check, pack, why, outdated, and policy planning | application/orchestration |
+| `internal/project` | Typed lifecycle application operations for add, update, sync, check, pack, why, outdated, and policy planning | application/orchestration |
 | `internal/authoring` | Dependency authoring declarations, provenance, ordered tape, effective projection, and pure edit semantics | core domain |
 | `internal/manifestedit` | Syntax-qualified owned dependency islands, deterministic dependency rendering, and source-edit planning over M69a semantic edits | core domain + manifest frontend boundary |
 | `internal/manifest`, `manifesttypes` | Normalized manifest IR and the small public declaration type vocabulary | core domain |
@@ -123,6 +123,14 @@ dependencies into the existing graph. Graph and resolver packages do not own
 authoring precedence, and lockfiles do not contain authoring history. Concept,
 template, package-manifest, and compatibility producers converge on the same
 declaration vocabulary. See `docs/dev/m69a-authoring-ir.md` for the full model.
+
+`tspack add` enters this boundary as a typed `project.AddDependencyRequest`.
+Project orchestration selects package/source/constraint policy, applies the pure
+authoring edit, asks `internal/manifestedit` for a projection, performs a guarded
+atomic manifest write, and invokes the ordinary update operation. CLI code only
+parses flags and renders the typed result. Metadata and tarballs are memoized
+across add preflight and update commit so the safety pass does not duplicate
+registry requests.
 
 ## Cross-cutting services
 

@@ -195,24 +195,22 @@ func buildEditResult(before TapeResolution, after TapeResolution, changes []Auth
 		if beforeEntry.Declaration.ID == afterEntry.Declaration.ID {
 			continue
 		}
-		changes = append(changes, AuthoringChange{Kind: ChangeUnshadowed, Declaration: afterEntry.Declaration, Previous: &beforeEntry.Declaration})
-	}
-	for identity, afterEntry := range afterEffective {
-		beforeEntry, existed := beforeEffective[identity]
-		if !existed || beforeEntry.Declaration.ID == afterEntry.Declaration.ID {
-			continue
-		}
-		alreadyUnshadowed := false
-		for _, change := range changes {
-			if change.Kind == ChangeUnshadowed && change.Declaration.ID == afterEntry.Declaration.ID {
-				alreadyUnshadowed = true
-			}
-		}
-		if !alreadyUnshadowed {
+		if removesDeclaration(changes, beforeEntry.Declaration.ID) {
+			changes = append(changes, AuthoringChange{Kind: ChangeUnshadowed, Declaration: afterEntry.Declaration, Previous: &beforeEntry.Declaration})
+		} else {
 			changes = append(changes, AuthoringChange{Kind: ChangeShadowed, Declaration: beforeEntry.Declaration, Previous: &afterEntry.Declaration})
 		}
 	}
 	return EditResult{Before: before, After: after, Changes: changes}
+}
+
+func removesDeclaration(changes []AuthoringChange, declarationID string) bool {
+	for _, change := range changes {
+		if change.Kind == ChangeRemoved && change.Declaration.ID == declarationID {
+			return true
+		}
+	}
+	return false
 }
 
 func effectiveEntriesByIdentity(resolution TapeResolution) map[string]TapeEntry {
