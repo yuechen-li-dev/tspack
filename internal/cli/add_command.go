@@ -16,29 +16,35 @@ type addCommandOptions struct {
 	PackageSpec   string
 	TargetPackage string
 	Kind          authoring.DependencyKind
+	Source        string
 	Optional      bool
 	DryRun        bool
 	JSON          bool
 }
 
 type addJSONReport struct {
-	Command             string               `json:"command"`
-	OK                  bool                 `json:"ok"`
-	DryRun              bool                 `json:"dryRun"`
-	Package             string               `json:"package,omitempty"`
-	Source              string               `json:"source,omitempty"`
-	Kind                string               `json:"kind,omitempty"`
-	Optional            bool                 `json:"optional"`
-	RequestedConstraint string               `json:"requestedConstraint,omitempty"`
-	SelectedVersion     string               `json:"selectedVersion,omitempty"`
-	WrittenConstraint   string               `json:"writtenConstraint,omitempty"`
-	TargetPackage       string               `json:"targetPackage,omitempty"`
-	ManifestPath        string               `json:"manifestPath,omitempty"`
-	ManifestChanged     bool                 `json:"manifestChanged"`
-	LockChanged         bool                 `json:"lockChanged"`
-	AlreadyPresent      bool                 `json:"alreadyPresent"`
-	Shadowed            []addJSONDeclaration `json:"shadowed"`
-	Diagnostics         []diag.Diagnostic    `json:"diagnostics"`
+	Command                string                        `json:"command"`
+	OK                     bool                          `json:"ok"`
+	DryRun                 bool                          `json:"dryRun"`
+	Package                string                        `json:"package,omitempty"`
+	Source                 string                        `json:"source,omitempty"`
+	Kind                   string                        `json:"kind,omitempty"`
+	Optional               bool                          `json:"optional"`
+	RequestedConstraint    string                        `json:"requestedConstraint,omitempty"`
+	SelectedVersion        string                        `json:"selectedVersion,omitempty"`
+	WrittenConstraint      string                        `json:"writtenConstraint,omitempty"`
+	Constraint             string                        `json:"constraint,omitempty"`
+	TargetPackage          string                        `json:"targetPackage,omitempty"`
+	ManifestPath           string                        `json:"manifestPath,omitempty"`
+	ManifestChanged        bool                          `json:"manifestChanged"`
+	LockChanged            bool                          `json:"lockChanged"`
+	AlreadyPresent         bool                          `json:"alreadyPresent"`
+	DeclarationChanged     bool                          `json:"declarationChanged"`
+	PreviousConstraint     string                        `json:"previousConstraint,omitempty"`
+	Shadowed               []addJSONDeclaration          `json:"shadowed"`
+	OverriddenDeclarations []addJSONDeclaration          `json:"overriddenDeclarations"`
+	Performance            dependencyEditJSONPerformance `json:"performance"`
+	Diagnostics            []diag.Diagnostic             `json:"diagnostics"`
 }
 
 type addJSONDeclaration struct {
@@ -51,13 +57,21 @@ type addJSONDeclaration struct {
 
 func runAddCommand(args []string) {
 	options := parseAddCommandOptions(args)
+	options.Paths.discoverDependencyRoot()
+	workingDirectory, _ := os.Getwd()
+	var source *authoring.PackageSource
+	if options.Source != "" {
+		source = &authoring.PackageSource{Kind: options.Source}
+	}
 	result := project.RunAddDependency(project.AddDependencyRequest{
-		Project:       options.Paths.Options,
-		PackageSpec:   options.PackageSpec,
-		Kind:          options.Kind,
-		TargetPackage: options.TargetPackage,
-		Optional:      options.Optional,
-		DryRun:        options.DryRun,
+		Project:          options.Paths.Options,
+		PackageSpec:      options.PackageSpec,
+		Kind:             options.Kind,
+		Source:           source,
+		TargetPackage:    options.TargetPackage,
+		WorkingDirectory: workingDirectory,
+		Optional:         options.Optional,
+		DryRun:           options.DryRun,
 	})
 	if options.JSON {
 		renderAddJSON(result)
@@ -79,6 +93,14 @@ func parseAddCommandOptions(args []string) addCommandOptions {
 		switch args[index] {
 		case "--optional":
 			options.Optional = true
+		case "--dev":
+			options.Kind = authoring.DependencyTest
+		case "--tool":
+			options.Kind = authoring.DependencyTool
+		case "--kind":
+			options.Kind = authoring.DependencyKind(lifecycleFlagValue(args, &index, "--kind"))
+		case "--source":
+			options.Source = lifecycleFlagValue(args, &index, "--source")
 		case "--dry-run":
 			options.DryRun = true
 		case "--json":
@@ -97,7 +119,7 @@ func parseAddCommandOptions(args []string) addCommandOptions {
 		}
 	}
 	if options.PackageSpec == "" {
-		fmt.Fprintln(os.Stderr, "usage: tspack add <package> [--optional] [--package <name>] [--dry-run] [--json]")
+		fmt.Fprintln(os.Stderr, "usage: tspack add <package> [--source npm] [--kind dep|peer] [--optional] [--package <name|path>] [--dry-run] [--json]")
 		exit(1)
 	}
 	return options
@@ -108,16 +130,27 @@ func renderAddHuman(result project.AddDependencyResult) {
 	if hasErrors(result.Diagnostics) {
 		return
 	}
+	identity := dependencyEditIdentity(result.Source, result.Package)
 	if result.AlreadyPresent {
-		fmt.Printf("%s is already declared as %s.\n", result.Package, result.WrittenConstraint)
+		fmt.Printf("%s is already declared as %s.\n", identity, result.WrittenConstraint)
 		fmt.Println("No changes.")
 		return
 	}
 	verb := "Added"
+	if result.DeclarationChanged {
+		verb = "Changed"
+	}
 	if result.DryRun {
 		verb = "Would add"
+		if result.DeclarationChanged {
+			verb = "Would change"
+		}
 	}
-	fmt.Printf("%s %s %s\n", verb, result.Package, result.WrittenConstraint)
+	if result.DeclarationChanged {
+		fmt.Printf("%s %s:\n  %s -> %s\n", verb, identity, result.PreviousConstraint, result.WrittenConstraint)
+	} else {
+		fmt.Printf("%s %s %s\n", verb, identity, result.WrittenConstraint)
+	}
 	fmt.Println()
 	fmt.Printf("  package: %s\n", result.Package)
 	fmt.Printf("  source: %s\n", result.Source)
@@ -155,23 +188,28 @@ func renderAddHuman(result project.AddDependencyResult) {
 
 func renderAddJSON(result project.AddDependencyResult) {
 	report := addJSONReport{
-		Command:             "add",
-		OK:                  !hasErrors(result.Diagnostics),
-		DryRun:              result.DryRun,
-		Package:             result.Package,
-		Source:              result.Source,
-		Kind:                string(result.Kind),
-		Optional:            result.Optional,
-		RequestedConstraint: result.RequestedConstraint,
-		SelectedVersion:     result.SelectedVersion,
-		WrittenConstraint:   result.WrittenConstraint,
-		TargetPackage:       result.TargetPackage,
-		ManifestPath:        result.ManifestPath,
-		ManifestChanged:     result.ManifestChanged,
-		LockChanged:         result.LockChanged,
-		AlreadyPresent:      result.AlreadyPresent,
-		Shadowed:            []addJSONDeclaration{},
-		Diagnostics:         append([]diag.Diagnostic{}, result.Diagnostics...),
+		Command:                "add",
+		OK:                     !hasErrors(result.Diagnostics),
+		DryRun:                 result.DryRun,
+		Package:                result.Package,
+		Source:                 result.Source,
+		Kind:                   string(result.Kind),
+		Optional:               result.Optional,
+		RequestedConstraint:    result.RequestedConstraint,
+		SelectedVersion:        result.SelectedVersion,
+		WrittenConstraint:      result.WrittenConstraint,
+		Constraint:             result.WrittenConstraint,
+		TargetPackage:          result.TargetPackage,
+		ManifestPath:           result.ManifestPath,
+		ManifestChanged:        result.ManifestChanged,
+		LockChanged:            result.LockChanged,
+		AlreadyPresent:         result.AlreadyPresent,
+		DeclarationChanged:     result.DeclarationChanged,
+		PreviousConstraint:     result.PreviousConstraint,
+		Shadowed:               []addJSONDeclaration{},
+		OverriddenDeclarations: []addJSONDeclaration{},
+		Performance:            dependencyEditPerformanceJSON(result.Performance),
+		Diagnostics:            append([]diag.Diagnostic{}, result.Diagnostics...),
 	}
 	for _, declaration := range result.ShadowedDeclarations {
 		report.Shadowed = append(report.Shadowed, addJSONDeclaration{
@@ -181,6 +219,7 @@ func renderAddJSON(result project.AddDependencyResult) {
 			Constraint: declaration.Constraint,
 			Origin:     addOriginLabel(declaration),
 		})
+		report.OverriddenDeclarations = append(report.OverriddenDeclarations, report.Shadowed[len(report.Shadowed)-1])
 	}
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")

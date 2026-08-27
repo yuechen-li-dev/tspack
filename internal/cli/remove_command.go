@@ -17,39 +17,43 @@ type removeCommandOptions struct {
 	PackageSpec   string
 	TargetPackage string
 	Optional      *bool
+	Kind          authoring.DependencyKind
+	Source        string
 	DryRun        bool
 	JSON          bool
 }
 
 type removeJSONReport struct {
-	Command                   string                  `json:"command"`
-	OK                        bool                    `json:"ok"`
-	DryRun                    bool                    `json:"dryRun"`
-	Package                   string                  `json:"package,omitempty"`
-	Source                    string                  `json:"source,omitempty"`
-	Kind                      string                  `json:"kind,omitempty"`
-	Optional                  bool                    `json:"optional"`
-	RemovedConstraint         string                  `json:"removedConstraint,omitempty"`
-	TargetPackage             string                  `json:"targetPackage,omitempty"`
-	ManifestPath              string                  `json:"manifestPath,omitempty"`
-	DeclarationRemoved        bool                    `json:"declarationRemoved"`
-	ManifestChanged           bool                    `json:"manifestChanged"`
-	LockChanged               bool                    `json:"lockChanged"`
-	StillDeclared             bool                    `json:"stillDeclared"`
-	StillRequired             bool                    `json:"stillRequired"`
-	StillResolved             bool                    `json:"stillResolved"`
-	ResolvedStatusKnown       bool                    `json:"resolvedStatusKnown"`
-	LockPackageRemoved        bool                    `json:"lockPackageRemoved"`
-	NoEditableDeclaration     bool                    `json:"noEditableDeclaration"`
-	NewlyEffectiveDeclaration *removeJSONDeclaration  `json:"newlyEffective,omitempty"`
-	Provenance                []removeJSONDeclaration `json:"provenance"`
-	Performance               removeJSONPerformance   `json:"performance"`
-	Diagnostics               []diag.Diagnostic       `json:"diagnostics"`
+	Command                   string                        `json:"command"`
+	OK                        bool                          `json:"ok"`
+	DryRun                    bool                          `json:"dryRun"`
+	Package                   string                        `json:"package,omitempty"`
+	Source                    string                        `json:"source,omitempty"`
+	Kind                      string                        `json:"kind,omitempty"`
+	Optional                  bool                          `json:"optional"`
+	RemovedConstraint         string                        `json:"removedConstraint,omitempty"`
+	Constraint                string                        `json:"constraint,omitempty"`
+	TargetPackage             string                        `json:"targetPackage,omitempty"`
+	ManifestPath              string                        `json:"manifestPath,omitempty"`
+	DeclarationRemoved        bool                          `json:"declarationRemoved"`
+	ManifestChanged           bool                          `json:"manifestChanged"`
+	LockChanged               bool                          `json:"lockChanged"`
+	StillDeclared             bool                          `json:"stillDeclared"`
+	StillRequired             bool                          `json:"stillRequired"`
+	StillResolved             bool                          `json:"stillResolved"`
+	ResolvedStatusKnown       bool                          `json:"resolvedStatusKnown"`
+	LockPackageRemoved        bool                          `json:"lockPackageRemoved"`
+	NoEditableDeclaration     bool                          `json:"noEditableDeclaration"`
+	NewlyEffectiveDeclaration *removeJSONDeclaration        `json:"newlyEffective,omitempty"`
+	Provenance                []removeJSONDeclaration       `json:"provenance"`
+	Performance               dependencyEditJSONPerformance `json:"performance"`
+	Diagnostics               []diag.Diagnostic             `json:"diagnostics"`
 }
 
-type removeJSONPerformance struct {
+type dependencyEditJSONPerformance struct {
 	ManifestLoadMs           float64 `json:"manifestLoadMs"`
-	SemanticRemovalMs        float64 `json:"semanticRemovalMs"`
+	MetadataSelectionMs      float64 `json:"metadataSelectionMs"`
+	SemanticEditMs           float64 `json:"semanticEditMs"`
 	ProjectionMs             float64 `json:"projectionMs"`
 	UpdateMs                 float64 `json:"updateMs"`
 	TotalMs                  float64 `json:"totalMs"`
@@ -70,12 +74,17 @@ type removeJSONDeclaration struct {
 
 func runRemoveCommand(args []string) {
 	options := parseRemoveCommandOptions(args)
+	options.Paths.discoverDependencyRoot()
+	workingDirectory, _ := os.Getwd()
 	result := project.RunRemoveDependency(project.RemoveDependencyRequest{
-		Project:       options.Paths.Options,
-		PackageSpec:   options.PackageSpec,
-		TargetPackage: options.TargetPackage,
-		Optional:      options.Optional,
-		DryRun:        options.DryRun,
+		Project:          options.Paths.Options,
+		PackageSpec:      options.PackageSpec,
+		TargetPackage:    options.TargetPackage,
+		WorkingDirectory: workingDirectory,
+		Kind:             options.Kind,
+		Source:           options.Source,
+		Optional:         options.Optional,
+		DryRun:           options.DryRun,
 	})
 	if options.JSON {
 		renderRemoveJSON(result)
@@ -95,6 +104,14 @@ func parseRemoveCommandOptions(args []string) removeCommandOptions {
 		case "--optional":
 			optional := true
 			options.Optional = &optional
+		case "--dev":
+			options.Kind = authoring.DependencyTest
+		case "--tool":
+			options.Kind = authoring.DependencyTool
+		case "--kind":
+			options.Kind = authoring.DependencyKind(lifecycleFlagValue(args, &index, "--kind"))
+		case "--source":
+			options.Source = lifecycleFlagValue(args, &index, "--source")
 		case "--dry-run":
 			options.DryRun = true
 		case "--json":
@@ -113,7 +130,7 @@ func parseRemoveCommandOptions(args []string) removeCommandOptions {
 		}
 	}
 	if options.PackageSpec == "" {
-		fmt.Fprintln(os.Stderr, "usage: tspack remove <package> [--optional] [--package <name>] [--dry-run] [--json]")
+		fmt.Fprintln(os.Stderr, "usage: tspack remove <package> [--source npm] [--kind dep|peer|tool|test] [--optional] [--package <name|path>] [--dry-run] [--json]")
 		exit(1)
 	}
 	return options
@@ -142,7 +159,7 @@ func renderRemoveHuman(result project.RemoveDependencyResult) {
 	if result.DryRun {
 		verb = "Would remove"
 	}
-	fmt.Printf("%s explicit %s %s.\n", verb, result.Package, result.RemovedConstraint)
+	fmt.Printf("%s explicit %s %s.\n", verb, dependencyEditIdentity(result.Source, result.Package), result.RemovedConstraint)
 	if result.StillRequired {
 		fmt.Println()
 		fmt.Printf("%s remains required:\n", result.Package)
@@ -185,6 +202,7 @@ func renderRemoveJSON(result project.RemoveDependencyResult) {
 		Kind:                      string(result.Kind),
 		Optional:                  result.Optional,
 		RemovedConstraint:         result.RemovedConstraint,
+		Constraint:                result.RemovedConstraint,
 		TargetPackage:             result.TargetPackage,
 		ManifestPath:              result.ManifestPath,
 		DeclarationRemoved:        result.DeclarationRemoved,
@@ -198,9 +216,9 @@ func renderRemoveJSON(result project.RemoveDependencyResult) {
 		NoEditableDeclaration:     result.NoEditableDeclaration,
 		NewlyEffectiveDeclaration: nil,
 		Provenance:                []removeJSONDeclaration{},
-		Performance: removeJSONPerformance{
+		Performance: dependencyEditJSONPerformance{
 			ManifestLoadMs:           durationMilliseconds(result.Performance.ManifestLoad),
-			SemanticRemovalMs:        durationMilliseconds(result.Performance.SemanticRemoval),
+			SemanticEditMs:           durationMilliseconds(result.Performance.SemanticRemoval),
 			ProjectionMs:             durationMilliseconds(result.Performance.Projection),
 			UpdateMs:                 durationMilliseconds(result.Performance.Update),
 			TotalMs:                  durationMilliseconds(result.Performance.Total),
@@ -221,6 +239,26 @@ func renderRemoveJSON(result project.RemoveDependencyResult) {
 	if err := encoder.Encode(report); err != nil {
 		fmt.Fprintf(os.Stderr, "TSPACK_REMOVE_JSON_ENCODE_FAILED: %v\n", err)
 		exit(1)
+	}
+}
+
+func dependencyEditIdentity(source string, packageName string) string {
+	if source == "" {
+		return packageName
+	}
+	return source + ":" + packageName
+}
+
+func dependencyEditPerformanceJSON(performance project.AddDependencyPerformance) dependencyEditJSONPerformance {
+	return dependencyEditJSONPerformance{
+		ManifestLoadMs:           durationMilliseconds(performance.ManifestLoad),
+		MetadataSelectionMs:      durationMilliseconds(performance.MetadataSelection),
+		SemanticEditMs:           durationMilliseconds(performance.SemanticEdit),
+		ProjectionMs:             durationMilliseconds(performance.Projection),
+		UpdateMs:                 durationMilliseconds(performance.Update),
+		TotalMs:                  durationMilliseconds(performance.Total),
+		RegistryMetadataRequests: performance.RegistryMetadataRequests,
+		RegistryTarballRequests:  performance.RegistryTarballRequests,
 	}
 }
 

@@ -282,7 +282,7 @@ Roadmap status:
 - M69b canonical projection: complete;
 - M69c `tspack add`: complete;
 - M69d `tspack remove`: complete;
-- M69e ergonomics: not started.
+- M69e ergonomics and product-surface closeout: complete; see `m69-closeout.md`.
 
 `add` and `remove` now expose the semantic edit model through the M69b guarded
 source projector and normal update path.

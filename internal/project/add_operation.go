@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	semver "github.com/Masterminds/semver/v3"
 	"github.com/yuechen-li-dev/tspack/internal/authoring"
@@ -21,13 +22,14 @@ import (
 // AddDependencyRequest describes dependency authoring intent independently of
 // command-line spelling.
 type AddDependencyRequest struct {
-	Project       Options
-	PackageSpec   string
-	Kind          authoring.DependencyKind
-	Source        *authoring.PackageSource
-	TargetPackage string
-	Optional      bool
-	DryRun        bool
+	Project          Options
+	PackageSpec      string
+	Kind             authoring.DependencyKind
+	Source           *authoring.PackageSource
+	TargetPackage    string
+	WorkingDirectory string
+	Optional         bool
+	DryRun           bool
 }
 
 type ParsedPackageSpec struct {
@@ -48,11 +50,25 @@ type AddDependencyResult struct {
 	ManifestChanged      bool
 	LockChanged          bool
 	AlreadyPresent       bool
+	DeclarationChanged   bool
+	PreviousConstraint   string
 	DryRun               bool
 	SemanticChanges      []authoring.AuthoringChange
 	ShadowedDeclarations []authoring.DependencyDeclaration
 	LockDiff             *lockfile.Diff
+	Performance          AddDependencyPerformance
 	Diagnostics          []diag.Diagnostic
+}
+
+type AddDependencyPerformance struct {
+	ManifestLoad             time.Duration
+	MetadataSelection        time.Duration
+	SemanticEdit             time.Duration
+	Projection               time.Duration
+	Update                   time.Duration
+	Total                    time.Duration
+	RegistryMetadataRequests int
+	RegistryTarballRequests  int
 }
 
 func ParsePackageSpec(value string) (ParsedPackageSpec, error) {
@@ -96,8 +112,12 @@ func ParsePackageSpec(value string) (ParsedPackageSpec, error) {
 	}, nil
 }
 
-func RunAddDependency(request AddDependencyRequest) AddDependencyResult {
-	result := AddDependencyResult{DryRun: request.DryRun, Optional: request.Optional}
+func RunAddDependency(request AddDependencyRequest) (result AddDependencyResult) {
+	result = AddDependencyResult{DryRun: request.DryRun, Optional: request.Optional}
+	totalStarted := time.Now()
+	defer func() {
+		result.Performance.Total = time.Since(totalStarted)
+	}()
 	parsed, err := ParsePackageSpec(request.PackageSpec)
 	if err != nil {
 		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_PACKAGE_SPEC_INVALID", "invalid package specification", err.Error()))
@@ -112,17 +132,32 @@ func RunAddDependency(request AddDependencyRequest) AddDependencyResult {
 		kind = authoring.DependencyRuntime
 	}
 	result.Kind = kind
-	if kind != authoring.DependencyRuntime && kind != authoring.DependencyPeer && kind != authoring.DependencyTool {
+	if kind == authoring.DependencyTest {
+		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_DEV_UNSUPPORTED", "--dev cannot yet author a usable TSPack test dependency", "The test dependency kind is reserved and has no native manifest helper yet.", "Declare the package explicitly in manifest.tsx until test dependency execution is implemented."))
+		return result
+	}
+	if kind == authoring.DependencyTool {
+		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_TOOL_UNSUPPORTED", "--tool cannot yet author a usable TSPack tool", "A tool dependency must also be selected by <Tools>, and M69's dependency projector does not rewrite that surface.", "Declare tool(...) and its <Tools> selection together in manifest.tsx."))
+		return result
+	}
+	if kind != authoring.DependencyRuntime && kind != authoring.DependencyPeer {
 		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_KIND_UNSUPPORTED", "dependency kind cannot be projected into a native manifest", string(kind)))
 		return result
 	}
+	if request.Source != nil && request.Source.Kind != string(authoring.SourceNPM) {
+		result.Source = request.Source.Kind
+		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_SOURCE_UNSUPPORTED", "dependency source is not supported", request.Source.Kind, "Only --source npm is implemented in M69."))
+		return result
+	}
 
+	manifestLoadStarted := time.Now()
 	ir, diagnostics := loadManifestIR(request.Project)
+	result.Performance.ManifestLoad = time.Since(manifestLoadStarted)
 	result.Diagnostics = append(result.Diagnostics, diagnostics...)
 	if hasErrors(result.Diagnostics) || ir == nil {
 		return result
 	}
-	target, targetDiagnostics := selectAddTarget(ir, request.TargetPackage)
+	target, targetDiagnostics := selectDependencyEditTarget(ir.Packages, request.TargetPackage, request.Project.RootDir, request.WorkingDirectory, "TSPACK_ADD")
 	result.Diagnostics = append(result.Diagnostics, targetDiagnostics...)
 	if hasErrors(result.Diagnostics) {
 		return result
@@ -137,7 +172,11 @@ func RunAddDependency(request AddDependencyRequest) AddDependencyResult {
 
 	identity := parsed.Identity
 	if request.Source != nil {
-		identity = request.Source.Identity()
+		source := *request.Source
+		if source.Package == "" {
+			source.Package = parsed.Identity.Name
+		}
+		identity = source.Identity()
 		if !identity.Valid() {
 			result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_SOURCE_INVALID", "dependency source has no package identity"))
 			return result
@@ -155,7 +194,8 @@ func RunAddDependency(request AddDependencyRequest) AddDependencyResult {
 		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_DECLARATION_AMBIGUOUS", "several editable declarations match the package", declarationDetails(editable)...))
 		return result
 	}
-	if len(editable) == 1 && parsed.ExplicitConstraint == "" && editable[0].Kind == kind && editable[0].Optional == request.Optional {
+	if len(editable) == 1 && editable[0].Kind == kind && editable[0].Optional == request.Optional &&
+		(parsed.ExplicitConstraint == "" || parsed.ExplicitConstraint == editable[0].Constraint) {
 		result.WrittenConstraint = editable[0].Constraint
 		result.AlreadyPresent = true
 		return result
@@ -165,8 +205,14 @@ func RunAddDependency(request AddDependencyRequest) AddDependencyResult {
 	if client == nil {
 		client = resolver.NewHTTPRegistryClient("")
 	}
-	client = newDependencyEditMemoClient(client)
+	memoClient := newDependencyEditMemoClient(client)
+	client = memoClient
+	defer func() {
+		result.Performance.RegistryMetadataRequests, result.Performance.RegistryTarballRequests = memoClient.RequestCounts()
+	}()
+	metadataSelectionStarted := time.Now()
 	metadata, metadataErr := client.PackageMetadata(context.Background(), identity.Name)
+	result.Performance.MetadataSelection = time.Since(metadataSelectionStarted)
 	if metadataErr != nil {
 		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_METADATA_FETCH_FAILED", "failed to fetch npm package metadata", identity.Name, metadataErr.Error()))
 		return result
@@ -182,6 +228,7 @@ func RunAddDependency(request AddDependencyRequest) AddDependencyResult {
 	source := authoring.PackageSource{Kind: string(authoring.SourceNPM), Package: identity.Name, Range: writtenConstraint}
 	if request.Source != nil {
 		source = *request.Source
+		source.Package = identity.Name
 		source.Range = writtenConstraint
 	}
 	declaration := authoring.DependencyDeclaration{
@@ -197,6 +244,7 @@ func RunAddDependency(request AddDependencyRequest) AddDependencyResult {
 	}
 
 	var edit authoring.EditResult
+	semanticEditStarted := time.Now()
 	if len(editable) == 1 {
 		selector := authoring.DeclarationSelector{ID: editable[0].ID, EditableOnly: true}
 		declaration.ID = editable[0].ID
@@ -205,6 +253,7 @@ func RunAddDependency(request AddDependencyRequest) AddDependencyResult {
 	} else {
 		edit = authoring.Add(*target.DependencyAuthoring, declaration)
 	}
+	result.Performance.SemanticEdit = time.Since(semanticEditStarted)
 	if err != nil {
 		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_SEMANTIC_EDIT_FAILED", "dependency authoring edit failed", err.Error()))
 		return result
@@ -215,6 +264,10 @@ func RunAddDependency(request AddDependencyRequest) AddDependencyResult {
 	}
 	result.SemanticChanges = append([]authoring.AuthoringChange(nil), edit.Changes...)
 	for _, change := range edit.Changes {
+		if change.Kind == authoring.ChangeChanged && change.Previous != nil {
+			result.DeclarationChanged = true
+			result.PreviousConstraint = change.Previous.Constraint
+		}
 		if change.Kind == authoring.ChangeShadowed {
 			result.ShadowedDeclarations = append(result.ShadowedDeclarations, change.Declaration)
 		}
@@ -228,7 +281,9 @@ func RunAddDependency(request AddDependencyRequest) AddDependencyResult {
 		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_FRONTEND_MISSING", "manifest frontend CLI not found"))
 		return result
 	}
+	projectionStarted := time.Now()
 	projection, projectionErr := manifestedit.PlanFile(frontendPath, manifestPath, target.Name, edit)
+	result.Performance.Projection = time.Since(projectionStarted)
 	if projectionErr != nil {
 		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_PROJECTION_FAILED", "failed to plan manifest projection", projectionErr.Error()))
 		return result
@@ -255,6 +310,10 @@ func RunAddDependency(request AddDependencyRequest) AddDependencyResult {
 
 	updateOptions := request.Project
 	updateOptions.ResolverClient = client
+	updateStarted := time.Now()
+	defer func() {
+		result.Performance.Update = time.Since(updateStarted)
+	}()
 	preflight := RunUpdate(UpdateRequest{Project: updateOptions, DryRun: true})
 	if hasErrors(preflight.Diagnostics) {
 		result.Diagnostics = append(result.Diagnostics, preflight.Diagnostics...)
@@ -272,24 +331,6 @@ func RunAddDependency(request AddDependencyRequest) AddDependencyResult {
 		return result
 	}
 	return result
-}
-
-func selectAddTarget(ir *manifest.ManifestIR, requested string) (*manifest.Package, []diag.Diagnostic) {
-	if len(ir.Packages) == 0 {
-		return nil, []diag.Diagnostic{addDiagnostic("TSPACK_ADD_AUTHORITY_DENIED", "no editable native package is available; package.json remains authoritative", "Use `tspack npm install <package>` for an incremental npm project.")}
-	}
-	if requested != "" {
-		for index := range ir.Packages {
-			if ir.Packages[index].Name == requested {
-				return &ir.Packages[index], nil
-			}
-		}
-		return nil, []diag.Diagnostic{addDiagnostic("TSPACK_ADD_PACKAGE_TARGET_NOT_FOUND", "selected package target was not found", requested, strings.Join(packageNames(ir.Packages), ", "))}
-	}
-	if len(ir.Packages) != 1 {
-		return nil, []diag.Diagnostic{addDiagnostic("TSPACK_ADD_PACKAGE_TARGET_AMBIGUOUS", "several editable packages are available; select one with --package", packageNames(ir.Packages)...)}
-	}
-	return &ir.Packages[0], nil
 }
 
 func addManifestPath(options Options, pkg *manifest.Package) (string, error) {

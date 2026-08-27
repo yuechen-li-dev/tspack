@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/yuechen-li-dev/tspack/internal/authoring"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 	"github.com/yuechen-li-dev/tspack/internal/resolver"
 )
@@ -166,6 +167,51 @@ export default define(<Workspace name="demo"><Package name="one" version="1.0.0"
 	ambiguous := RunAddDependency(AddDependencyRequest{Project: multiOptions, PackageSpec: "zod", DryRun: true})
 	if !addHasDiagnosticCode(ambiguous.Diagnostics, "TSPACK_ADD_PACKAGE_TARGET_AMBIGUOUS") {
 		t.Fatalf("ambiguity diagnostics = %#v", ambiguous.Diagnostics)
+	}
+}
+
+func TestRunAddDependencyEquivalentExplicitConstraintIsZeroRegistryNoop(t *testing.T) {
+	frontendPath := addFrontendPath(t)
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "manifest.tsx")
+	source := `import { Package, Workspace, define, dep, npm } from "tspack/manifest";
+export default define(<Workspace name="demo"><Package name="app" version="1.0.0" kind="app" dependencies={{ values: [dep(npm("lodash", "^4"))] }} /></Workspace>);
+`
+	if err := os.WriteFile(manifestPath, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	client := addRegistryClient("lodash", "4.17.21")
+	options := DefaultOptions(root)
+	options.FrontendCLIPath = frontendPath
+	options.ResolverClient = client
+	result := RunAddDependency(AddDependencyRequest{Project: options, PackageSpec: "lodash@^4"})
+	if hasErrors(result.Diagnostics) || !result.AlreadyPresent || result.ManifestChanged || result.LockChanged {
+		t.Fatalf("equivalent add = %#v", result)
+	}
+	if client.packageMetaCalls != 0 || len(client.tarCalls) != 0 {
+		t.Fatalf("equivalent add made registry requests: metadata=%d tarballs=%d", client.packageMetaCalls, len(client.tarCalls))
+	}
+}
+
+func TestRunAddDependencyBoundsDevToolAndSourceSemantics(t *testing.T) {
+	for _, test := range []struct {
+		kind authoring.DependencyKind
+		code string
+	}{
+		{kind: authoring.DependencyTest, code: "TSPACK_ADD_DEV_UNSUPPORTED"},
+		{kind: authoring.DependencyTool, code: "TSPACK_ADD_TOOL_UNSUPPORTED"},
+	} {
+		result := RunAddDependency(AddDependencyRequest{PackageSpec: "vitest", Kind: test.kind})
+		if !addHasDiagnosticCode(result.Diagnostics, test.code) {
+			t.Fatalf("kind %s diagnostics = %#v", test.kind, result.Diagnostics)
+		}
+	}
+	unsupportedSource := RunAddDependency(AddDependencyRequest{
+		PackageSpec: "lodash",
+		Source:      &authoring.PackageSource{Kind: "jsr"},
+	})
+	if !addHasDiagnosticCode(unsupportedSource.Diagnostics, "TSPACK_ADD_SOURCE_UNSUPPORTED") {
+		t.Fatalf("source diagnostics = %#v", unsupportedSource.Diagnostics)
 	}
 }
 

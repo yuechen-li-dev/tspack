@@ -13,6 +13,7 @@ import (
 // explicit application operation in internal/project.
 type lifecycleProjectPaths struct {
 	Options          project.Options
+	rootExplicit     bool
 	manifestExplicit bool
 	lockfileExplicit bool
 	storeExplicit    bool
@@ -30,6 +31,7 @@ func (paths *lifecycleProjectPaths) consume(args []string, index *int) bool {
 	case "--root":
 		value := lifecycleFlagValue(args, index, flag)
 		paths.Options.RootDir = value
+		paths.rootExplicit = true
 		if !paths.manifestExplicit {
 			paths.Options.ManifestPath = filepath.Join(value, "manifest.tsx")
 		}
@@ -54,6 +56,36 @@ func (paths *lifecycleProjectPaths) consume(args []string, index *int) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// discoverDependencyRoot gives dependency editing its package-directory UX
+// without changing root semantics for unrelated lifecycle commands.
+func (paths *lifecycleProjectPaths) discoverDependencyRoot() {
+	if paths.rootExplicit || paths.manifestExplicit {
+		return
+	}
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	for directory := workingDirectory; ; directory = filepath.Dir(directory) {
+		manifestPath := filepath.Join(directory, "manifest.tsx")
+		if _, err := os.Stat(manifestPath); err == nil {
+			paths.Options.RootDir = directory
+			paths.Options.ManifestPath = manifestPath
+			if !paths.lockfileExplicit {
+				paths.Options.LockfilePath = filepath.Join(directory, "ts-lock.toml")
+			}
+			if !paths.storeExplicit {
+				paths.Options.StoreRoot = filepath.Join(directory, ".tspack", "store")
+			}
+			return
+		}
+		parent := filepath.Dir(directory)
+		if parent == directory {
+			return
+		}
 	}
 }
 

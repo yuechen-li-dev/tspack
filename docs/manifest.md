@@ -226,9 +226,18 @@ constraint is preserved. The subsequent normal update writes exact resolved
 truth to `ts-lock.toml`.
 
 The default kind is TSPack `dep`, not an emulated npm section. `--optional`
-sets the independent optional bit. Multiple native packages require
-`--package <name>`. Annotation manifests and alongside/package.json-native
+sets the independent optional bit, `--kind peer` authors peer intent, and
+`--source npm` explicitly selects the currently implemented source. Package
+selection accepts either the stable package name or its exact workspace-relative
+root. When invoked below one package root, add/remove infer that package if the
+mapping is unambiguous. Annotation manifests and alongside/package.json-native
 projects remain non-editable because package.json retains authority.
+
+`--dev` does not emulate npm `devDependencies`. The normalized `test` kind is
+reserved but does not yet have a manifest helper or execution contract. A
+TSPack tool also requires a `tool(...)` dependency plus selection through
+`<Tools>`; because the M69 source projector edits only dependency islands,
+`tspack add --tool` fails with guidance instead of authoring an unusable tool.
 
 ### Removing authored dependencies
 
@@ -243,8 +252,8 @@ declaring a dependency while the same artifact remains in `ts-lock.toml`
 through another workspace package or a transitive edge. Repeated removal and a
 match that exists only as concept/template/derived provenance are no-op
 operations. Use `--package <name>` in multi-package workspaces and
-`--optional` when optional semantics are needed to disambiguate editable
-declarations. package.json-native projects keep npm authority and must use
+`--optional`, `--source npm`, or `--kind dep|peer|tool|test` when those semantics
+are needed to disambiguate editable declarations. package.json-native projects keep npm authority and must use
 `tspack npm uninstall` instead.
 
 Without the explicit keys in the dependency-alias example above, the manifest frontend preserves the property alias fallback. Because the dependency identity derived from the npm package is `@biomejs/biome` or `react-dom`, Go IR validation reports `TSPACK_IR_UNKNOWN_DEPENDENCY_REF` if the alias and dependency identity do not match. `tspack migrate` follows this rule automatically: generated declarations get `key` whenever the TypeScript identifier differs from the npm package name, while packages such as `typescript` do not get noisy key options.

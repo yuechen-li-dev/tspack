@@ -37,10 +37,12 @@
 
 - `tspack add lodash` selects the newest stable npm release, authors a caret constraint such as `^4.17.21`, and records the exact selected release in `ts-lock.toml` through the normal update path.
 - `tspack add lodash@^4` and `tspack add lodash@4.17.21` preserve the explicit constraint exactly.
+- `tspack add lodash --source npm` is equivalent to the default and makes the source-qualified identity explicit. Other registry sources are not implemented by M69.
 - Scoped forms such as `@scope/pkg` and `@scope/pkg@^3` are supported. Git, URL, file, workspace, and general npm install-spec syntax are rejected explicitly in M69c.
-- `--optional` is orthogonal to the normal TSPack `dep` kind. `--package <name>` is required when more than one native package is editable.
+- `--optional` is orthogonal to the normal TSPack `dep` kind. `--kind peer` authors peer intent. Package selection accepts a stable package name or an exact workspace-relative package root; when run inside one package directory, that package is inferred if the mapping is unambiguous.
 - `--dry-run` performs metadata selection, semantic editing, and source projection planning without writing the manifest, lockfile, or store. `--json` exposes stable semantic result fields.
-- Repeating an unqualified add of the same editable declaration is a byte-for-byte no-op. An explicit spec replaces the matching editable declaration; a derived or concept-owned declaration is retained and shadowed by a new explicit declaration.
+- Repeating an unqualified or textually equivalent explicit add of the same editable declaration is a zero-registry, byte-for-byte no-op. A changed explicit spec replaces the matching editable declaration and is reported as a constraint change; a derived or concept-owned declaration is retained and shadowed by a new explicit declaration.
+- `--dev` is intentionally rejected: TSPack's `test` dependency kind remains reserved and has no native manifest helper or execution contract. `--tool` is also rejected for add because a usable tool requires both `tool(...)` dependency intent and a `<Tools>` selection, while the M69 projector owns only dependency islands. This avoids creating apparently installed but unusable tooling.
 - package.json-native incremental projects receive an authority diagnostic and should use `tspack npm install ...` until ownership is migrated.
 
 ## `tspack remove`
@@ -48,7 +50,7 @@
 - `tspack remove lodash` removes one owned, editable declaration from the selected native package. It does not interpret `lodash@^4` as an uninstall query and does not force matching lock entries out of the graph.
 - The command rebuilds the authoring tape before source projection. If an explicit override shadowed a concept or template declaration, that lower declaration becomes effective again and is reported with its provenance.
 - Package-local direct truth and resolved truth are separate. A declaration can disappear while the artifact remains locked transitively or because another workspace package still requires it.
-- Several editable matches are an error. `--optional` can select an optional declaration, and `--package <name>` is required when several native packages are editable.
+- Several editable matches are an error. `--optional`, `--source npm`, and `--kind dep|peer|tool|test` narrow declarations; `--dev` and `--tool` are remove aliases for the corresponding kinds. Package selection accepts a stable name or exact workspace-relative package root, with unambiguous current-directory inference.
 - Derived/concept-only and repeated removals are no-op operations. Incremental package.json authority is denied with guidance to use `tspack npm uninstall`.
 - `--dry-run` performs selection, semantic removal, tape rebuilding, and source projection without writing manifest, lock, or store state. Resolved status is reported only after a committed update or when reading unchanged no-op state. `--json` exposes the semantic fields without raw tape or AST data.
 

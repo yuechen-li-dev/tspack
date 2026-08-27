@@ -97,6 +97,9 @@ Human output reports package, source, kind, selected exact version, written
 constraint, changed files, and shadowed origins. `--json` exposes durable
 semantic fields without AST ranges or tape internals.
 
-M69d remove is complete. M69e still includes tool/dev selection, additional
-source selection, richer diff polish, and any target-specific authoring
-controls. JSR and compiler work remain out of scope.
+M69d remove and M69e ergonomics are complete. M69e added explicit npm source
+selection, replacement/no-op reporting, shared performance/JSON conventions,
+and package-directory targeting. Add-time dev/tool selection is explicitly
+bounded because test intent lacks an execution contract and usable tools also
+require a `<Tools>` selection surface. See `m69-closeout.md`. JSR and compiler
+work remain out of scope.

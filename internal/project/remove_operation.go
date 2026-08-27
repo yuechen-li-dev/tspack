@@ -3,14 +3,12 @@ package project
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/yuechen-li-dev/tspack/internal/authoring"
 	"github.com/yuechen-li-dev/tspack/internal/bridge"
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
-	"github.com/yuechen-li-dev/tspack/internal/manifest"
 	"github.com/yuechen-li-dev/tspack/internal/manifestedit"
 	"github.com/yuechen-li-dev/tspack/internal/resolver"
 )
@@ -18,12 +16,14 @@ import (
 // RemoveDependencyRequest describes removal of one editable authoring
 // declaration. It deliberately does not request removal from the resolved graph.
 type RemoveDependencyRequest struct {
-	Project       Options
-	PackageSpec   string
-	TargetPackage string
-	Kind          authoring.DependencyKind
-	Optional      *bool
-	DryRun        bool
+	Project          Options
+	PackageSpec      string
+	TargetPackage    string
+	WorkingDirectory string
+	Kind             authoring.DependencyKind
+	Source           string
+	Optional         *bool
+	DryRun           bool
 }
 
 // RemoveDependencyResult keeps authoring truth separate from resolved truth.
@@ -88,6 +88,18 @@ func RunRemoveDependency(request RemoveDependencyRequest) (result RemoveDependen
 	}
 	result.Package = identity.Name
 	result.Source = identity.Source
+	if request.Source != "" {
+		if request.Source != string(authoring.SourceNPM) {
+			result.Diagnostics = append(result.Diagnostics, removeDiagnostic("TSPACK_REMOVE_SOURCE_UNSUPPORTED", "dependency source is not supported", request.Source, "Only --source npm is implemented in M69."))
+			return result
+		}
+		identity.Source = request.Source
+		result.Source = request.Source
+	}
+	if request.Kind != "" && request.Kind != authoring.DependencyRuntime && request.Kind != authoring.DependencyPeer && request.Kind != authoring.DependencyTool && request.Kind != authoring.DependencyTest {
+		result.Diagnostics = append(result.Diagnostics, removeDiagnostic("TSPACK_REMOVE_KIND_UNSUPPORTED", "dependency kind selector is not supported", string(request.Kind), "Use dep, peer, tool, or test."))
+		return result
+	}
 
 	manifestLoadStarted := time.Now()
 	ir, diagnostics := loadManifestIR(request.Project)
@@ -96,7 +108,7 @@ func RunRemoveDependency(request RemoveDependencyRequest) (result RemoveDependen
 	if hasErrors(result.Diagnostics) || ir == nil {
 		return result
 	}
-	target, targetDiagnostics := selectRemoveTarget(ir.Packages, request.TargetPackage)
+	target, targetDiagnostics := selectDependencyEditTarget(ir.Packages, request.TargetPackage, request.Project.RootDir, request.WorkingDirectory, "TSPACK_REMOVE")
 	result.Diagnostics = append(result.Diagnostics, targetDiagnostics...)
 	if hasErrors(result.Diagnostics) {
 		return result
@@ -240,24 +252,6 @@ func RunRemoveDependency(request RemoveDependencyRequest) (result RemoveDependen
 	populateCurrentResolvedStatus(&result, request.Project.LockfilePath)
 	result.LockPackageRemoved = !result.StillResolved && lockDiffRemovesPackage(updated.LockDiff, result.Package)
 	return result
-}
-
-func selectRemoveTarget(packages []manifest.Package, requested string) (*manifest.Package, []diag.Diagnostic) {
-	if len(packages) == 0 {
-		return nil, []diag.Diagnostic{removeDiagnostic("TSPACK_REMOVE_AUTHORITY_DENIED", "no editable native package is available; package.json remains authoritative", "Use `tspack npm uninstall <package>` for an incremental npm project.")}
-	}
-	if requested != "" {
-		for index := range packages {
-			if packages[index].Name == requested {
-				return &packages[index], nil
-			}
-		}
-		return nil, []diag.Diagnostic{removeDiagnostic("TSPACK_REMOVE_PACKAGE_TARGET_NOT_FOUND", "selected package target was not found", requested, strings.Join(packageNames(packages), ", "))}
-	}
-	if len(packages) != 1 {
-		return nil, []diag.Diagnostic{removeDiagnostic("TSPACK_REMOVE_PACKAGE_TARGET_AMBIGUOUS", "several editable packages are available; select one with --package", packageNames(packages)...)}
-	}
-	return &packages[0], nil
 }
 
 func declarationsForIdentity(ir authoring.PackageIR, identity authoring.PackageIdentity) []authoring.DependencyDeclaration {
