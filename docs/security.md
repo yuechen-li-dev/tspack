@@ -55,6 +55,12 @@ Capabilities are sorted/deduplicated deterministically and round-trip through lo
 - `tspack update --dry-run` may fetch registry metadata for version resolution but does not fetch/store tarballs or materialize `node_modules`.
 - `tspack sync` materializes files only and never executes scripts.
 
+`tspack add` follows the same boundary. It contacts only the explicitly selected
+registry (`npm` by default or `jsr` with `--source jsr`), performs no fallback
+search, invokes neither npm nor Deno, and then delegates artifact verification
+and store capture to the normal update path. Unknown sources fail before
+registry access.
+
 JSR compatibility artifacts do not receive npm lifecycle capability semantics.
 JSR packages report no install-script capabilities. If a JSR package depends on
 an npm package, that npm package retains its normal lifecycle capability data

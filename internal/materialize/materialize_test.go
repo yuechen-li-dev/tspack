@@ -47,6 +47,44 @@ func TestMaterializeStrictLayout(t *testing.T) {
 	}
 }
 
+func TestMaterializeDirectDependencyRootEdge(t *testing.T) {
+	workspace := t.TempDir()
+	contentStore, _ := store.Open(t.TempDir())
+	packageHash := putPkgWithPackageJSON(
+		t,
+		contentStore,
+		"jsr:@luca/flag@1.0.1",
+		"@luca/flag",
+		`{"name":"@jsr/luca__flag","version":"1.0.1","exports":"./mod.js"}`,
+		[]fileSpec{{path: "mod.js", content: "export const flag = true;\n", mode: 0o644}},
+	)
+	locked := &lockfile.Lockfile{
+		Packages: []lockfile.Package{{
+			ID:      "jsr:@luca/flag@1.0.1",
+			Name:    "@luca/flag",
+			Version: "1.0.1",
+			Source:  "jsr",
+			Hash:    packageHash,
+		}},
+		Edges: []lockfile.Edge{{
+			From: "app:dependency",
+			To:   "jsr:@luca/flag@1.0.1",
+			Kind: "runtime",
+		}},
+	}
+
+	result := NodeModulesMaterializer{}.Materialize(context.Background(), Request{
+		WorkspaceRoot: workspace,
+		Lock:          locked,
+		Store:         contentStore,
+		Options:       Options{LinkMode: LinkModeCopy},
+	})
+	if len(result.Diagnostics) > 0 {
+		t.Fatalf("direct dependency materialization diagnostics: %#v", result.Diagnostics)
+	}
+	mustExist(t, filepath.Join(workspace, "node_modules", "@jsr", "luca__flag", "package.json"))
+}
+
 func TestMaterializeRegistryNameCollisionUsesDistinctNodeNames(t *testing.T) {
 	workspace := t.TempDir()
 	contentStore, _ := store.Open(t.TempDir())

@@ -94,8 +94,9 @@ const deps = defineDeps({
 
 JSR names use `@scope/package`. JSR resolution does not require Deno. Node and
 TypeScript compatibility artifacts use JSR's `@jsr/scope__package` names (for
-example `@jsr/std__path`), while lock and diagnostic identity remains
-`jsr:@std/path`.
+example `@jsr/std__path`), while manifest, lock, and diagnostic identity remains
+`jsr:@std/path`. Application imports currently use the compatibility name, such
+as `import { join } from "@jsr/std__path"`; TSPack does not rewrite source files.
 
 ```tsx
 import {
@@ -235,14 +236,17 @@ authoritative.
 
 `tspack add <package>` creates or replaces an explicit owned declaration through
 the authoring IR and tape, then uses the source-preserving projector for the
-selected package's `dependencies.values` island. An unqualified npm package uses
-the newest stable release and writes a compatible caret constraint; an explicit
-constraint is preserved. The subsequent normal update writes exact resolved
-truth to `ts-lock.toml`.
+selected package's `dependencies.values` island. npm is the default source;
+`--source jsr` selects JSR explicitly. TSPack does not search another registry
+after a lookup failure. An unqualified package uses the newest stable release
+from the selected source and writes a compatible caret constraint; an explicit
+constraint is preserved. The subsequent normal mixed-source update writes exact
+resolved truth to `ts-lock.toml` and captures required artifacts in the shared
+store.
 
 The default kind is TSPack `dep`, not an emulated npm section. `--optional`
 sets the independent optional bit, `--kind peer` authors peer intent, and
-`--source npm` explicitly selects the currently implemented source. Package
+`--source npm|jsr` explicitly selects the registry source. Package
 selection accepts either the stable package name or its exact workspace-relative
 root. When invoked below one package root, add/remove infer that package if the
 mapping is unambiguous. Annotation manifests and alongside/package.json-native
@@ -267,7 +271,7 @@ declaring a dependency while the same artifact remains in `ts-lock.toml`
 through another workspace package or a transitive edge. Repeated removal and a
 match that exists only as concept/template/derived provenance are no-op
 operations. Use `--package <name>` in multi-package workspaces and
-`--optional`, `--source npm`, or `--kind dep|peer|tool|test` when those semantics
+`--optional`, `--source npm|jsr`, or `--kind dep|peer|tool|test` when those semantics
 are needed to disambiguate editable declarations. package.json-native projects keep npm authority and must use
 `tspack npm uninstall` instead.
 

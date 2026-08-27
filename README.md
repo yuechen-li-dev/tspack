@@ -37,6 +37,7 @@ TSPack resolves npm and JSR registry packages directly and does not manage Node.
 tspack init --kind library --name my-package
 # init also writes tsconfig.tspack.json and local manifest/xTest editor types.
 tspack add lodash
+tspack add @std/path --source jsr
 tspack remove lodash
 tspack update
 tspack check
@@ -61,7 +62,7 @@ tspack help commands
 - `manifest.tsx` / `package.manifest.tsx` project contracts.
 - Deterministic `ts-lock.toml` lockfiles.
 - Mixed npm + JSR resolution through source-qualified registry backends, with no Deno requirement.
-- First-class `tspack add` and `tspack remove` through semantic authoring IR and source-preserving manifest projection.
+- First-class npm-default and explicit `--source jsr` add/remove through semantic authoring IR and source-preserving manifest projection; registries are never auto-searched.
 - `update`, `sync`, and content-addressed store population.
 - `check` and read-only `check --format` validation.
 - Blocked-by-default dependency lifecycle security policy.

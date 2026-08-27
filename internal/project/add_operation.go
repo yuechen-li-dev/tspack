@@ -25,7 +25,7 @@ type AddDependencyRequest struct {
 	Project          Options
 	PackageSpec      string
 	Kind             authoring.DependencyKind
-	Source           *authoring.PackageSource
+	Source           authoring.SourceKind
 	TargetPackage    string
 	WorkingDirectory string
 	Optional         bool
@@ -69,15 +69,20 @@ type AddDependencyPerformance struct {
 	Total                    time.Duration
 	RegistryMetadataRequests int
 	RegistryTarballRequests  int
+	RegistryRequests         map[string]int
 }
 
-func ParsePackageSpec(value string) (ParsedPackageSpec, error) {
+func ParsePackageSpec(value string, selectedSource ...authoring.SourceKind) (ParsedPackageSpec, error) {
+	source := authoring.SourceNPM
+	if len(selectedSource) > 0 && selectedSource[0] != "" {
+		source = selectedSource[0]
+	}
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return ParsedPackageSpec{}, fmt.Errorf("package specification is empty")
 	}
 	if strings.ContainsAny(value, " \\#") || strings.Contains(value, ":") || strings.Contains(value, "/../") {
-		return ParsedPackageSpec{}, fmt.Errorf("unsupported npm package specification %q", value)
+		return ParsedPackageSpec{}, fmt.Errorf("unsupported registry package specification %q", value)
 	}
 
 	name := value
@@ -85,7 +90,7 @@ func ParsePackageSpec(value string) (ParsedPackageSpec, error) {
 	if strings.HasPrefix(value, "@") {
 		slash := strings.Index(value, "/")
 		if slash <= 1 || slash == len(value)-1 {
-			return ParsedPackageSpec{}, fmt.Errorf("invalid scoped npm package specification %q", value)
+			return ParsedPackageSpec{}, fmt.Errorf("invalid scoped registry package specification %q", value)
 		}
 		if separator := strings.LastIndex(value, "@"); separator > slash {
 			name = value[:separator]
@@ -96,18 +101,18 @@ func ParsePackageSpec(value string) (ParsedPackageSpec, error) {
 		constraint = value[separator+1:]
 	}
 	if name == "" || constraint == "" && strings.HasSuffix(value, "@") {
-		return ParsedPackageSpec{}, fmt.Errorf("invalid npm package specification %q", value)
+		return ParsedPackageSpec{}, fmt.Errorf("invalid registry package specification %q", value)
 	}
 	if strings.Count(name, "/") > 1 || (!strings.HasPrefix(name, "@") && strings.Contains(name, "/")) {
-		return ParsedPackageSpec{}, fmt.Errorf("unsupported npm package name %q", name)
+		return ParsedPackageSpec{}, fmt.Errorf("unsupported registry package name %q", name)
 	}
 	if constraint != "" {
 		if _, err := semver.NewConstraint(constraint); err != nil {
-			return ParsedPackageSpec{}, fmt.Errorf("invalid npm version constraint %q: %w", constraint, err)
+			return ParsedPackageSpec{}, fmt.Errorf("invalid registry version constraint %q: %w", constraint, err)
 		}
 	}
 	return ParsedPackageSpec{
-		Identity:           authoring.PackageIdentity{Source: string(authoring.SourceNPM), Name: name},
+		Identity:           authoring.PackageIdentity{Source: string(source), Name: name},
 		ExplicitConstraint: constraint,
 	}, nil
 }
@@ -118,7 +123,21 @@ func RunAddDependency(request AddDependencyRequest) (result AddDependencyResult)
 	defer func() {
 		result.Performance.Total = time.Since(totalStarted)
 	}()
-	parsed, err := ParsePackageSpec(request.PackageSpec)
+	selectedSource := request.Source
+	if selectedSource == "" {
+		selectedSource = authoring.SourceNPM
+	}
+	result.Source = string(selectedSource)
+	if selectedSource != authoring.SourceNPM && selectedSource != authoring.SourceJSR {
+		result.Diagnostics = append(result.Diagnostics, addDiagnostic(
+			"TSPACK_ADD_SOURCE_UNSUPPORTED",
+			"dependency source is not supported",
+			string(selectedSource),
+			"Supported registry sources: npm, jsr.",
+		))
+		return result
+	}
+	parsed, err := ParsePackageSpec(request.PackageSpec, selectedSource)
 	if err != nil {
 		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_PACKAGE_SPEC_INVALID", "invalid package specification", err.Error()))
 		return result
@@ -144,12 +163,6 @@ func RunAddDependency(request AddDependencyRequest) (result AddDependencyResult)
 		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_KIND_UNSUPPORTED", "dependency kind cannot be projected into a native manifest", string(kind)))
 		return result
 	}
-	if request.Source != nil && request.Source.Kind != string(authoring.SourceNPM) {
-		result.Source = request.Source.Kind
-		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_SOURCE_UNSUPPORTED", "dependency source is not supported", request.Source.Kind, "Only --source npm is implemented in M69."))
-		return result
-	}
-
 	manifestLoadStarted := time.Now()
 	ir, diagnostics := loadManifestIR(request.Project)
 	result.Performance.ManifestLoad = time.Since(manifestLoadStarted)
@@ -171,23 +184,6 @@ func RunAddDependency(request AddDependencyRequest) (result AddDependencyResult)
 	result.ManifestPath = manifestPath
 
 	identity := parsed.Identity
-	if request.Source != nil {
-		source := *request.Source
-		if source.Package == "" {
-			source.Package = parsed.Identity.Name
-		}
-		identity = source.Identity()
-		if !identity.Valid() {
-			result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_SOURCE_INVALID", "dependency source has no package identity"))
-			return result
-		}
-		if request.Source.Kind != string(authoring.SourceNPM) {
-			result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_SOURCE_UNSUPPORTED", "M69c supports npm as the add source", request.Source.Kind))
-			return result
-		}
-		result.Package = identity.Name
-		result.Source = identity.Source
-	}
 
 	editable := editableDeclarations(*target.DependencyAuthoring, identity)
 	if len(editable) > 1 {
@@ -201,36 +197,32 @@ func RunAddDependency(request AddDependencyRequest) (result AddDependencyResult)
 		return result
 	}
 
-	client := request.Project.ResolverClient
-	if client == nil {
-		client = resolver.NewHTTPRegistryClient("")
-	}
-	memoClient := newDependencyEditMemoClient(client)
-	client = memoClient
+	memoBackends := newDependencyEditMemoBackends(addRegistryBackends(request.Project))
 	defer func() {
-		result.Performance.RegistryMetadataRequests, result.Performance.RegistryTarballRequests = memoClient.RequestCounts()
+		result.Performance.RegistryMetadataRequests, result.Performance.RegistryTarballRequests = memoBackends.RequestCounts()
+		result.Performance.RegistryRequests = memoBackends.RequestsByKind()
 	}()
+	backend, ok := memoBackends.Registry().Backend(identity.Source)
+	if !ok {
+		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_SOURCE_UNSUPPORTED", "dependency source is not supported", identity.Source, "Supported registry sources: npm, jsr."))
+		return result
+	}
 	metadataSelectionStarted := time.Now()
-	metadata, metadataErr := client.PackageMetadata(context.Background(), identity.Name)
+	metadata, metadataErr := backend.Metadata(context.Background(), identity.Name)
 	result.Performance.MetadataSelection = time.Since(metadataSelectionStarted)
 	if metadataErr != nil {
-		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_METADATA_FETCH_FAILED", "failed to fetch npm package metadata", identity.Name, metadataErr.Error()))
+		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_METADATA_FETCH_FAILED", "failed to fetch registry package metadata", identity.Key(), metadataErr.Error()))
 		return result
 	}
 	writtenConstraint, selectedVersion, selectionErr := selectAddConstraint(metadata, parsed.ExplicitConstraint)
 	if selectionErr != nil {
-		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_VERSION_SELECTION_FAILED", "failed to select an npm package version", identity.Name, selectionErr.Error()))
+		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_VERSION_SELECTION_FAILED", "failed to select a registry package version", identity.Key(), selectionErr.Error()))
 		return result
 	}
 	result.WrittenConstraint = writtenConstraint
 	result.SelectedVersion = selectedVersion
 
-	source := authoring.PackageSource{Kind: string(authoring.SourceNPM), Package: identity.Name, Range: writtenConstraint}
-	if request.Source != nil {
-		source = *request.Source
-		source.Package = identity.Name
-		source.Range = writtenConstraint
-	}
+	source := authoring.PackageSource{Kind: identity.Source, Package: identity.Name, Range: writtenConstraint}
 	declaration := authoring.DependencyDeclaration{
 		Identity:    identity,
 		Source:      source,
@@ -242,11 +234,22 @@ func RunAddDependency(request AddDependencyRequest) (result AddDependencyResult)
 		Authority:   authoring.AuthorityOwned,
 		Editability: authoring.EditabilityEditable,
 	}
+	if len(editable) == 1 {
+		declaration.Key = editable[0].Key
+	} else if hasDeclarationFromOtherSource(*target.DependencyAuthoring, identity) {
+		declaration.Key = identity.Key()
+	}
 
 	var edit authoring.EditResult
 	semanticEditStarted := time.Now()
 	if len(editable) == 1 {
-		selector := authoring.DeclarationSelector{ID: editable[0].ID, EditableOnly: true}
+		selector := authoring.DeclarationSelector{
+			ID:           editable[0].ID,
+			Identity:     &identity,
+			Kind:         editable[0].Kind,
+			SourcePath:   editable[0].Origin.SourcePath,
+			EditableOnly: true,
+		}
 		declaration.ID = editable[0].ID
 		declaration.Order = editable[0].Order
 		edit, err = authoring.Replace(*target.DependencyAuthoring, selector, declaration)
@@ -309,7 +312,7 @@ func RunAddDependency(request AddDependencyRequest) (result AddDependencyResult)
 	}
 
 	updateOptions := request.Project
-	updateOptions.ResolverClient = client
+	updateOptions.ResolverBackends = memoBackends.Registry()
 	updateStarted := time.Now()
 	defer func() {
 		result.Performance.Update = time.Since(updateStarted)
@@ -370,7 +373,7 @@ func addManifestPath(options Options, pkg *manifest.Package) (string, error) {
 	return target, nil
 }
 
-func selectAddConstraint(metadata *resolver.PackageMetadata, explicit string) (string, string, error) {
+func selectAddConstraint(metadata *resolver.RegistryPackageMetadata, explicit string) (string, string, error) {
 	if metadata == nil {
 		return "", "", fmt.Errorf("registry returned empty metadata")
 	}
@@ -392,7 +395,7 @@ func selectAddConstraint(metadata *resolver.PackageMetadata, explicit string) (s
 	return "^" + version.String(), selected, nil
 }
 
-func highestMatchingVersion(metadata *resolver.PackageMetadata, constraintText string, allowPrerelease bool) (string, error) {
+func highestMatchingVersion(metadata *resolver.RegistryPackageMetadata, constraintText string, allowPrerelease bool) (string, error) {
 	constraint, err := semver.NewConstraint(constraintText)
 	if err != nil {
 		return "", err
@@ -430,6 +433,19 @@ func editableDeclarations(ir authoring.PackageIR, identity authoring.PackageIden
 		}
 	}
 	return declarations
+}
+
+func hasDeclarationFromOtherSource(ir authoring.PackageIR, identity authoring.PackageIdentity) bool {
+	for _, declaration := range ir.Declarations {
+		declarationIdentity := declaration.Identity
+		if !declarationIdentity.Valid() {
+			declarationIdentity = declaration.Source.Identity()
+		}
+		if declarationIdentity.Name == identity.Name && declarationIdentity.Source != identity.Source {
+			return true
+		}
+	}
+	return false
 }
 
 func packageNames(packages []manifest.Package) []string {
@@ -484,65 +500,127 @@ func addDiagnostic(code string, message string, details ...string) diag.Diagnost
 	return diag.Diagnostic{Code: code, Severity: diag.SeverityError, Message: message, Details: details}
 }
 
-type dependencyEditMemoClient struct {
-	inner            resolver.NPMRegistryClient
-	mu               sync.Mutex
-	metadata         map[string]addMetadataMemo
-	tarballs         map[string]addTarballMemo
-	metadataRequests int
-	tarballRequests  int
+func addRegistryBackends(options Options) resolver.BackendRegistry {
+	backends := resolver.BackendRegistry{}
+	for source, backend := range options.ResolverBackends {
+		backends[source] = backend
+	}
+	if _, ok := backends.Backend(resolver.SourceNPM); !ok {
+		backends[resolver.SourceNPM] = resolver.NewNPMBackend(options.ResolverClient)
+	}
+	if _, ok := backends.Backend(resolver.SourceJSR); !ok {
+		backends[resolver.SourceJSR] = resolver.NewJSRBackend(nil)
+	}
+	return backends
 }
 
-type addMetadataMemo struct {
-	metadata *resolver.PackageMetadata
+type dependencyEditMemoBackends struct {
+	registry         resolver.BackendRegistry
+	mu               sync.Mutex
+	metadataRequests int
+	tarballRequests  int
+	requestsByKind   map[string]int
+}
+
+type dependencyEditMemoBackend struct {
+	owner     *dependencyEditMemoBackends
+	inner     resolver.RegistryBackend
+	mu        sync.Mutex
+	metadata  map[string]addRegistryMetadataMemo
+	artifacts map[string]addRegistryArtifactMemo
+}
+
+type addRegistryMetadataMemo struct {
+	metadata *resolver.RegistryPackageMetadata
 	err      error
 }
 
-type addTarballMemo struct {
+type addRegistryArtifactMemo struct {
 	body []byte
 	err  error
 }
 
-func newDependencyEditMemoClient(inner resolver.NPMRegistryClient) *dependencyEditMemoClient {
-	return &dependencyEditMemoClient{inner: inner, metadata: map[string]addMetadataMemo{}, tarballs: map[string]addTarballMemo{}}
+func newDependencyEditMemoBackends(backends resolver.BackendRegistry) *dependencyEditMemoBackends {
+	owner := &dependencyEditMemoBackends{
+		registry:       resolver.BackendRegistry{},
+		requestsByKind: map[string]int{},
+	}
+	for source, backend := range backends {
+		owner.registry[source] = &dependencyEditMemoBackend{
+			owner:     owner,
+			inner:     backend,
+			metadata:  map[string]addRegistryMetadataMemo{},
+			artifacts: map[string]addRegistryArtifactMemo{},
+		}
+	}
+	return owner
 }
 
-func (client *dependencyEditMemoClient) PackageMetadata(ctx context.Context, name string) (*resolver.PackageMetadata, error) {
-	client.mu.Lock()
-	if memo, ok := client.metadata[name]; ok {
-		client.mu.Unlock()
+func (backends *dependencyEditMemoBackends) Registry() resolver.BackendRegistry {
+	return backends.registry
+}
+
+func (backends *dependencyEditMemoBackends) RequestCounts() (int, int) {
+	backends.mu.Lock()
+	defer backends.mu.Unlock()
+	return backends.metadataRequests, backends.tarballRequests
+}
+
+func (backends *dependencyEditMemoBackends) RequestsByKind() map[string]int {
+	backends.mu.Lock()
+	defer backends.mu.Unlock()
+	requests := make(map[string]int, len(backends.requestsByKind))
+	for kind, count := range backends.requestsByKind {
+		requests[kind] = count
+	}
+	return requests
+}
+
+func (backend *dependencyEditMemoBackend) Source() string {
+	return backend.inner.Source()
+}
+
+func (backend *dependencyEditMemoBackend) Host() string {
+	return backend.inner.Host()
+}
+
+func (backend *dependencyEditMemoBackend) Metadata(ctx context.Context, name string) (*resolver.RegistryPackageMetadata, error) {
+	backend.mu.Lock()
+	if memo, ok := backend.metadata[name]; ok {
+		backend.mu.Unlock()
 		return memo.metadata, memo.err
 	}
-	client.mu.Unlock()
-	client.mu.Lock()
-	client.metadataRequests++
-	client.mu.Unlock()
-	metadata, err := client.inner.PackageMetadata(ctx, name)
-	client.mu.Lock()
-	client.metadata[name] = addMetadataMemo{metadata: metadata, err: err}
-	client.mu.Unlock()
+	backend.mu.Unlock()
+
+	backend.owner.mu.Lock()
+	backend.owner.metadataRequests++
+	backend.owner.requestsByKind[backend.Source()+".metadata"]++
+	backend.owner.mu.Unlock()
+	metadata, err := backend.inner.Metadata(ctx, name)
+
+	backend.mu.Lock()
+	backend.metadata[name] = addRegistryMetadataMemo{metadata: metadata, err: err}
+	backend.mu.Unlock()
 	return metadata, err
 }
 
-func (client *dependencyEditMemoClient) Tarball(ctx context.Context, url string) ([]byte, error) {
-	client.mu.Lock()
-	if memo, ok := client.tarballs[url]; ok {
-		client.mu.Unlock()
+func (backend *dependencyEditMemoBackend) FetchArtifact(ctx context.Context, artifact resolver.ArtifactDescriptor) ([]byte, error) {
+	key := artifact.Kind + "\x00" + artifact.URL + "\x00" + artifact.Integrity
+	backend.mu.Lock()
+	if memo, ok := backend.artifacts[key]; ok {
+		backend.mu.Unlock()
 		return append([]byte(nil), memo.body...), memo.err
 	}
-	client.mu.Unlock()
-	client.mu.Lock()
-	client.tarballRequests++
-	client.mu.Unlock()
-	body, err := client.inner.Tarball(ctx, url)
-	client.mu.Lock()
-	client.tarballs[url] = addTarballMemo{body: append([]byte(nil), body...), err: err}
-	client.mu.Unlock()
-	return body, err
-}
+	backend.mu.Unlock()
 
-func (client *dependencyEditMemoClient) RequestCounts() (int, int) {
-	client.mu.Lock()
-	defer client.mu.Unlock()
-	return client.metadataRequests, client.tarballRequests
+	backend.owner.mu.Lock()
+	backend.owner.tarballRequests++
+	backend.owner.requestsByKind[backend.Source()+".tarball"]++
+	backend.owner.mu.Unlock()
+	body, err := backend.inner.FetchArtifact(ctx, artifact)
+
+	backend.mu.Lock()
+	backend.artifacts[key] = addRegistryArtifactMemo{body: append([]byte(nil), body...), err: err}
+	backend.mu.Unlock()
+	return body, err
 }

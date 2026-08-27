@@ -2,9 +2,12 @@ package project
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/yuechen-li-dev/tspack/internal/authoring"
@@ -40,10 +43,14 @@ func TestParsePackageSpec(t *testing.T) {
 			t.Fatalf("ParsePackageSpec(%q) unexpectedly succeeded", invalid)
 		}
 	}
+	jsr, err := ParsePackageSpec("@std/path@^1", authoring.SourceJSR)
+	if err != nil || jsr.Identity.Source != "jsr" || jsr.Identity.Name != "@std/path" || jsr.ExplicitConstraint != "^1" {
+		t.Fatalf("JSR scoped package parse = %#v, %v", jsr, err)
+	}
 }
 
 func TestSelectAddConstraintPrefersStableAndPreservesExplicitIntent(t *testing.T) {
-	metadata := &resolver.PackageMetadata{Versions: map[string]resolver.PackageVersion{
+	metadata := &resolver.RegistryPackageMetadata{Versions: map[string]resolver.RegistryPackageVersion{
 		"4.17.21":      {Version: "4.17.21"},
 		"5.0.0-beta.1": {Version: "5.0.0-beta.1"},
 	}}
@@ -62,7 +69,7 @@ func TestSelectAddConstraintPrefersStableAndPreservesExplicitIntent(t *testing.T
 	if err != nil || written != "4.17.21" || selected != "4.17.21" {
 		t.Fatalf("explicit exact selection = %q, %q, %v", written, selected, err)
 	}
-	prereleaseOnly := &resolver.PackageMetadata{Versions: map[string]resolver.PackageVersion{
+	prereleaseOnly := &resolver.RegistryPackageMetadata{Versions: map[string]resolver.RegistryPackageVersion{
 		"1.0.0-beta.1": {Version: "1.0.0-beta.1"},
 	}}
 	if _, _, err := selectAddConstraint(prereleaseOnly, ""); err == nil {
@@ -129,6 +136,302 @@ export default define(
 	}
 }
 
+func TestRunAddDependencyJSRUsesBackendProjectionAndSharedRequestMemo(t *testing.T) {
+	frontendPath := addFrontendPath(t)
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "manifest.tsx")
+	original := `import { Package, Workspace, define } from "tspack/manifest";
+export default define(<Workspace name="demo"><Package name="app" version="1.0.0" kind="app" /></Workspace>);
+`
+	if err := os.WriteFile(manifestPath, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	jsrClient := addJSRRegistryClient("@std/path", "1.1.6", nil)
+	options := DefaultOptions(root)
+	options.FrontendCLIPath = frontendPath
+	options.ResolverBackends = resolver.BackendRegistry{
+		resolver.SourceJSR: resolver.NewJSRBackend(jsrClient),
+	}
+
+	result := RunAddDependency(AddDependencyRequest{
+		Project:     options,
+		PackageSpec: "@std/path",
+		Source:      authoring.SourceJSR,
+	})
+	if hasErrors(result.Diagnostics) {
+		t.Fatalf("JSR add failed: %#v", result.Diagnostics)
+	}
+	if result.Source != "jsr" || result.Package != "@std/path" || result.WrittenConstraint != "^1.1.6" || result.SelectedVersion != "1.1.6" {
+		t.Fatalf("unexpected JSR add result: %#v", result)
+	}
+	if result.Performance.RegistryMetadataRequests != 1 || result.Performance.RegistryTarballRequests != 1 {
+		t.Fatalf("request counts = %#v", result.Performance)
+	}
+	if result.Performance.RegistryRequests["jsr.metadata"] != 1 || result.Performance.RegistryRequests["jsr.tarball"] != 1 {
+		t.Fatalf("source request attribution = %#v", result.Performance.RegistryRequests)
+	}
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(manifestBytes, []byte(`dep(jsr("@std/path", "^1.1.6")`)) {
+		t.Fatalf("unexpected projected manifest:\n%s", manifestBytes)
+	}
+	locked, diagnostics, err := lockfile.LoadFile(options.LockfilePath)
+	if err != nil || hasErrors(diagnostics) {
+		t.Fatalf("load lockfile: %v %#v", err, diagnostics)
+	}
+	if len(locked.Packages) != 1 || locked.Packages[0].ID != "jsr:@std/path@1.1.6" {
+		t.Fatalf("lock packages = %#v", locked.Packages)
+	}
+	if jsrClient.packageMetaCalls != 1 || len(jsrClient.tarCalls) != 1 {
+		t.Fatalf("JSR client calls: metadata=%d tarballs=%d", jsrClient.packageMetaCalls, len(jsrClient.tarCalls))
+	}
+
+	manifestBeforeNoop := append([]byte(nil), manifestBytes...)
+	lockBeforeNoop, _ := os.ReadFile(options.LockfilePath)
+	second := RunAddDependency(AddDependencyRequest{
+		Project:     options,
+		PackageSpec: "@std/path",
+		Source:      authoring.SourceJSR,
+	})
+	if hasErrors(second.Diagnostics) || !second.AlreadyPresent || second.ManifestChanged || second.LockChanged {
+		t.Fatalf("second JSR add = %#v", second)
+	}
+	manifestAfterNoop, _ := os.ReadFile(manifestPath)
+	lockAfterNoop, _ := os.ReadFile(options.LockfilePath)
+	if !bytes.Equal(manifestBeforeNoop, manifestAfterNoop) || !bytes.Equal(lockBeforeNoop, lockAfterNoop) {
+		t.Fatal("no-op JSR add rewrote project files")
+	}
+	if jsrClient.packageMetaCalls != 1 || len(jsrClient.tarCalls) != 1 {
+		t.Fatalf("no-op JSR add made registry requests: metadata=%d tarballs=%d", jsrClient.packageMetaCalls, len(jsrClient.tarCalls))
+	}
+}
+
+func TestRunAddDependencyKeepsSameNameRegistrySourcesDistinct(t *testing.T) {
+	frontendPath := addFrontendPath(t)
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "manifest.tsx")
+	original := `import { Package, Workspace, define } from "tspack/manifest";
+export default define(<Workspace name="demo"><Package name="app" version="1.0.0" kind="app" /></Workspace>);
+`
+	if err := os.WriteFile(manifestPath, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	npmClient := addRegistryClient("@scope/foo", "1.0.0")
+	jsrClient := addJSRRegistryClient("@scope/foo", "2.0.0", nil)
+	options := DefaultOptions(root)
+	options.FrontendCLIPath = frontendPath
+	options.ResolverClient = npmClient
+	options.ResolverBackends = resolver.BackendRegistry{
+		resolver.SourceNPM: resolver.NewNPMBackend(npmClient),
+		resolver.SourceJSR: resolver.NewJSRBackend(jsrClient),
+	}
+
+	npmResult := RunAddDependency(AddDependencyRequest{Project: options, PackageSpec: "@scope/foo"})
+	if hasErrors(npmResult.Diagnostics) {
+		t.Fatalf("npm add failed: %#v", npmResult.Diagnostics)
+	}
+	jsrResult := RunAddDependency(AddDependencyRequest{Project: options, PackageSpec: "@scope/foo", Source: authoring.SourceJSR})
+	if hasErrors(jsrResult.Diagnostics) {
+		t.Fatalf("JSR collision add failed: %#v", jsrResult.Diagnostics)
+	}
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(manifestBytes, []byte(`npm("@scope/foo", "^1.0.0")`)) ||
+		!bytes.Contains(manifestBytes, []byte(`jsr("@scope/foo", "^2.0.0")`)) ||
+		!bytes.Contains(manifestBytes, []byte(`key: "jsr:@scope/foo"`)) {
+		t.Fatalf("source collision was not projected distinctly:\n%s", manifestBytes)
+	}
+	locked, diagnostics, err := lockfile.LoadFile(options.LockfilePath)
+	if err != nil || hasErrors(diagnostics) {
+		t.Fatalf("load lockfile: %v %#v", err, diagnostics)
+	}
+	packageIDs := map[string]bool{}
+	for _, pkg := range locked.Packages {
+		packageIDs[pkg.ID] = true
+	}
+	if !packageIDs["npm:@scope/foo@1.0.0"] || !packageIDs["jsr:@scope/foo@2.0.0"] {
+		t.Fatalf("source-qualified lock packages = %#v", locked.Packages)
+	}
+
+	replaced := RunAddDependency(AddDependencyRequest{
+		Project:     options,
+		PackageSpec: "@scope/foo@^2",
+		Source:      authoring.SourceJSR,
+	})
+	if hasErrors(replaced.Diagnostics) || !replaced.DeclarationChanged || replaced.PreviousConstraint != "^2.0.0" || replaced.WrittenConstraint != "^2" {
+		t.Fatalf("source-qualified replacement = %#v", replaced)
+	}
+	manifestBytes, err = os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(manifestBytes, []byte(`npm("@scope/foo", "^1.0.0")`)) ||
+		!bytes.Contains(manifestBytes, []byte(`jsr("@scope/foo", "^2")`)) {
+		t.Fatalf("JSR replacement touched the wrong source:\n%s", manifestBytes)
+	}
+}
+
+func TestRunAddDependencyJSRUsesNormalMixedTransitiveUpdate(t *testing.T) {
+	frontendPath := addFrontendPath(t)
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "manifest.tsx")
+	original := `import { Package, Workspace, define } from "tspack/manifest";
+export default define(<Workspace name="demo"><Package name="app" version="1.0.0" kind="app" /></Workspace>);
+`
+	if err := os.WriteFile(manifestPath, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	jsrClient := addJSRRegistryClient("@demo/root", "1.2.0", map[string]string{
+		"@jsr/demo__child": "^2",
+		"left-pad":         "^1",
+	})
+	mergeFakeRegistry(jsrClient, addJSRRegistryClient("@demo/child", "2.1.0", nil))
+	npmClient := addRegistryClient("left-pad", "1.3.0")
+	options := DefaultOptions(root)
+	options.FrontendCLIPath = frontendPath
+	options.ResolverClient = npmClient
+	options.ResolverBackends = resolver.BackendRegistry{
+		resolver.SourceNPM: resolver.NewNPMBackend(npmClient),
+		resolver.SourceJSR: resolver.NewJSRBackend(jsrClient),
+	}
+
+	result := RunAddDependency(AddDependencyRequest{
+		Project:     options,
+		PackageSpec: "@demo/root",
+		Source:      authoring.SourceJSR,
+	})
+	if hasErrors(result.Diagnostics) {
+		t.Fatalf("mixed-transitive JSR add failed: %#v", result.Diagnostics)
+	}
+	locked, diagnostics, err := lockfile.LoadFile(options.LockfilePath)
+	if err != nil || hasErrors(diagnostics) {
+		t.Fatalf("load lockfile: %v %#v", err, diagnostics)
+	}
+	wanted := map[string]bool{
+		"jsr:@demo/root@1.2.0":  false,
+		"jsr:@demo/child@2.1.0": false,
+		"npm:left-pad@1.3.0":    false,
+	}
+	for _, pkg := range locked.Packages {
+		if _, ok := wanted[pkg.ID]; ok {
+			wanted[pkg.ID] = true
+		}
+	}
+	for packageID, found := range wanted {
+		if !found {
+			t.Fatalf("mixed source lock is missing %s: %#v", packageID, locked.Packages)
+		}
+	}
+	if result.Performance.RegistryMetadataRequests != 3 || result.Performance.RegistryTarballRequests != 3 {
+		t.Fatalf("mixed request counts = %#v", result.Performance)
+	}
+}
+
+func TestRunAddDependencyDoesNotSearchOtherRegistries(t *testing.T) {
+	frontendPath := addFrontendPath(t)
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "manifest.tsx")
+	original := `import { Package, Workspace, define } from "tspack/manifest";
+export default define(<Workspace name="demo"><Package name="app" version="1.0.0" kind="app" /></Workspace>);
+`
+	if err := os.WriteFile(manifestPath, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	npmClient := &fakeClient{
+		meta:    map[string]*resolver.PackageMetadata{},
+		metaErr: map[string]error{"@only/jsr": errors.New("npm package not found")},
+		tar:     map[string][]byte{},
+	}
+	jsrClient := addJSRRegistryClient("@only/jsr", "1.0.0", nil)
+	options := DefaultOptions(root)
+	options.FrontendCLIPath = frontendPath
+	options.ResolverClient = npmClient
+	options.ResolverBackends = resolver.BackendRegistry{
+		resolver.SourceNPM: resolver.NewNPMBackend(npmClient),
+		resolver.SourceJSR: resolver.NewJSRBackend(jsrClient),
+	}
+
+	result := RunAddDependency(AddDependencyRequest{Project: options, PackageSpec: "@only/jsr"})
+	if !addHasDiagnosticCode(result.Diagnostics, "TSPACK_ADD_METADATA_FETCH_FAILED") {
+		t.Fatalf("default npm failure diagnostics = %#v", result.Diagnostics)
+	}
+	if npmClient.packageMetaCalls != 1 || jsrClient.packageMetaCalls != 0 {
+		t.Fatalf("registry auto-search occurred: npm=%d jsr=%d", npmClient.packageMetaCalls, jsrClient.packageMetaCalls)
+	}
+}
+
+func TestDependencyEditMemoBackendsKeepSourceQualifiedMetadata(t *testing.T) {
+	npmClient := addRegistryClient("@scope/foo", "1.0.0")
+	jsrClient := addJSRRegistryClient("@scope/foo", "2.0.0", nil)
+	memo := newDependencyEditMemoBackends(resolver.BackendRegistry{
+		resolver.SourceNPM: resolver.NewNPMBackend(npmClient),
+		resolver.SourceJSR: resolver.NewJSRBackend(jsrClient),
+	})
+	npmBackend, _ := memo.Registry().Backend(resolver.SourceNPM)
+	jsrBackend, _ := memo.Registry().Backend(resolver.SourceJSR)
+	for iteration := 0; iteration < 2; iteration++ {
+		if _, err := npmBackend.Metadata(context.Background(), "@scope/foo"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := jsrBackend.Metadata(context.Background(), "@scope/foo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	metadataRequests, artifactRequests := memo.RequestCounts()
+	if metadataRequests != 2 || artifactRequests != 0 {
+		t.Fatalf("memo request counts = %d, %d", metadataRequests, artifactRequests)
+	}
+	requestsByKind := memo.RequestsByKind()
+	if requestsByKind["npm.metadata"] != 1 || requestsByKind["jsr.metadata"] != 1 {
+		t.Fatalf("source-qualified memo attribution = %#v", requestsByKind)
+	}
+	if npmClient.packageMetaCalls != 1 || jsrClient.packageMetaCalls != 1 {
+		t.Fatalf("source caches crossed: npm=%d jsr=%d", npmClient.packageMetaCalls, jsrClient.packageMetaCalls)
+	}
+}
+
+func TestRunAddDependencyJSRDryRunSelectsWithoutWritingArtifacts(t *testing.T) {
+	frontendPath := addFrontendPath(t)
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "manifest.tsx")
+	original := `import { Package, Workspace, define } from "tspack/manifest";
+export default define(<Workspace name="demo"><Package name="app" version="1.0.0" kind="app" /></Workspace>);
+`
+	if err := os.WriteFile(manifestPath, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	jsrClient := addJSRRegistryClient("@std/path", "1.1.6", nil)
+	options := DefaultOptions(root)
+	options.FrontendCLIPath = frontendPath
+	options.ResolverBackends = resolver.BackendRegistry{
+		resolver.SourceJSR: resolver.NewJSRBackend(jsrClient),
+	}
+
+	result := RunAddDependency(AddDependencyRequest{
+		Project:     options,
+		PackageSpec: "@std/path",
+		Source:      authoring.SourceJSR,
+		DryRun:      true,
+	})
+	if hasErrors(result.Diagnostics) || !result.ManifestChanged || result.LockChanged || result.SelectedVersion != "1.1.6" {
+		t.Fatalf("JSR dry run = %#v", result)
+	}
+	after, _ := os.ReadFile(manifestPath)
+	if !bytes.Equal([]byte(original), after) {
+		t.Fatal("JSR dry run wrote manifest")
+	}
+	if _, err := os.Stat(options.LockfilePath); !os.IsNotExist(err) {
+		t.Fatal("JSR dry run wrote lockfile")
+	}
+	if jsrClient.packageMetaCalls != 1 || len(jsrClient.tarCalls) != 0 {
+		t.Fatalf("JSR dry-run requests: metadata=%d tarballs=%d", jsrClient.packageMetaCalls, len(jsrClient.tarCalls))
+	}
+}
+
 func TestRunAddDependencyDryRunWritesNothingAndWorkspaceAmbiguityFails(t *testing.T) {
 	frontendPath := addFrontendPath(t)
 	root := t.TempDir()
@@ -167,6 +470,21 @@ export default define(<Workspace name="demo"><Package name="one" version="1.0.0"
 	ambiguous := RunAddDependency(AddDependencyRequest{Project: multiOptions, PackageSpec: "zod", DryRun: true})
 	if !addHasDiagnosticCode(ambiguous.Diagnostics, "TSPACK_ADD_PACKAGE_TARGET_AMBIGUOUS") {
 		t.Fatalf("ambiguity diagnostics = %#v", ambiguous.Diagnostics)
+	}
+	jsrClient := addJSRRegistryClient("@std/path", "1.1.6", nil)
+	multiOptions.ResolverBackends = resolver.BackendRegistry{
+		resolver.SourceJSR: resolver.NewJSRBackend(jsrClient),
+	}
+	targeted := RunAddDependency(AddDependencyRequest{
+		Project:       multiOptions,
+		PackageSpec:   "@std/path",
+		Source:        authoring.SourceJSR,
+		TargetPackage: "two",
+		Optional:      true,
+		DryRun:        true,
+	})
+	if hasErrors(targeted.Diagnostics) || targeted.TargetPackage != "two" || !targeted.Optional || !targeted.ManifestChanged {
+		t.Fatalf("targeted optional JSR dry run = %#v", targeted)
 	}
 }
 
@@ -208,7 +526,7 @@ func TestRunAddDependencyBoundsDevToolAndSourceSemantics(t *testing.T) {
 	}
 	unsupportedSource := RunAddDependency(AddDependencyRequest{
 		PackageSpec: "lodash",
-		Source:      &authoring.PackageSource{Kind: "jsr"},
+		Source:      authoring.SourceKind("banana"),
 	})
 	if !addHasDiagnosticCode(unsupportedSource.Diagnostics, "TSPACK_ADD_SOURCE_UNSUPPORTED") {
 		t.Fatalf("source diagnostics = %#v", unsupportedSource.Diagnostics)
@@ -307,5 +625,38 @@ func addRegistryClient(name string, version string) *fakeClient {
 			},
 		},
 		tar: map[string][]byte{url: body},
+	}
+}
+
+func addJSRRegistryClient(name string, version string, dependencies map[string]string) *fakeClient {
+	parts := strings.Split(strings.TrimPrefix(name, "@"), "/")
+	compatibilityName := "@jsr/" + parts[0] + "__" + parts[1]
+	body := tarball(compatibilityName, version, dependencies)
+	url := "https://example.invalid/" + strings.ReplaceAll(compatibilityName, "/", "-") + "-" + version + ".tgz"
+	integrity := "sha512-" + base64.StdEncoding.EncodeToString(sha512sum(body))
+	return &fakeClient{
+		meta: map[string]*resolver.PackageMetadata{
+			compatibilityName: {
+				Name: compatibilityName,
+				Versions: map[string]resolver.PackageVersion{
+					version: {
+						Name:         compatibilityName,
+						Version:      version,
+						Dependencies: dependencies,
+						Dist:         resolver.PackageDist{Tarball: url, Integrity: integrity},
+					},
+				},
+			},
+		},
+		tar: map[string][]byte{url: body},
+	}
+}
+
+func mergeFakeRegistry(destination *fakeClient, source *fakeClient) {
+	for name, metadata := range source.meta {
+		destination.meta[name] = metadata
+	}
+	for url, body := range source.tar {
+		destination.tar[url] = body
 	}
 }

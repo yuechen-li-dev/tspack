@@ -51,14 +51,15 @@ type removeJSONReport struct {
 }
 
 type dependencyEditJSONPerformance struct {
-	ManifestLoadMs           float64 `json:"manifestLoadMs"`
-	MetadataSelectionMs      float64 `json:"metadataSelectionMs"`
-	SemanticEditMs           float64 `json:"semanticEditMs"`
-	ProjectionMs             float64 `json:"projectionMs"`
-	UpdateMs                 float64 `json:"updateMs"`
-	TotalMs                  float64 `json:"totalMs"`
-	RegistryMetadataRequests int     `json:"registryMetadataRequests"`
-	RegistryTarballRequests  int     `json:"registryTarballRequests"`
+	ManifestLoadMs           float64        `json:"manifestLoadMs"`
+	MetadataSelectionMs      float64        `json:"metadataSelectionMs"`
+	SemanticEditMs           float64        `json:"semanticEditMs"`
+	ProjectionMs             float64        `json:"projectionMs"`
+	UpdateMs                 float64        `json:"updateMs"`
+	TotalMs                  float64        `json:"totalMs"`
+	RegistryMetadataRequests int            `json:"registryMetadataRequests"`
+	RegistryTarballRequests  int            `json:"registryTarballRequests"`
+	RegistryRequests         map[string]int `json:"registryRequests,omitempty"`
 }
 
 type removeJSONDeclaration struct {
@@ -130,7 +131,7 @@ func parseRemoveCommandOptions(args []string) removeCommandOptions {
 		}
 	}
 	if options.PackageSpec == "" {
-		fmt.Fprintln(os.Stderr, "usage: tspack remove <package> [--source npm] [--kind dep|peer|tool|test] [--optional] [--package <name|path>] [--dry-run] [--json]")
+		fmt.Fprintln(os.Stderr, "usage: tspack remove <package> [--source npm|jsr] [--kind dep|peer|tool|test] [--optional] [--package <name|path>] [--dry-run] [--json]")
 		exit(1)
 	}
 	return options
@@ -224,6 +225,7 @@ func renderRemoveJSON(result project.RemoveDependencyResult) {
 			TotalMs:                  durationMilliseconds(result.Performance.Total),
 			RegistryMetadataRequests: result.Performance.RegistryMetadataRequests,
 			RegistryTarballRequests:  result.Performance.RegistryTarballRequests,
+			RegistryRequests:         result.Performance.RegistryRequests,
 		},
 		Diagnostics: append([]diag.Diagnostic{}, result.Diagnostics...),
 	}
@@ -259,6 +261,7 @@ func dependencyEditPerformanceJSON(performance project.AddDependencyPerformance)
 		TotalMs:                  durationMilliseconds(performance.Total),
 		RegistryMetadataRequests: performance.RegistryMetadataRequests,
 		RegistryTarballRequests:  performance.RegistryTarballRequests,
+		RegistryRequests:         performance.RegistryRequests,
 	}
 }
 

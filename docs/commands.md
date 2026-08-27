@@ -3,7 +3,7 @@
 | Command | Purpose | Mutates manifest/lock? | Notable non-goals | Details |
 |---|---|---|---|---|
 | `tspack init` | Scaffold a starter manifest and entry source for `library` or `app`. | **Yes (files)** / No | Does not install, update lock, sync, or build outputs. | `docs/init.md` |
-| `tspack add <package>` | Author an explicit native dependency through the dependency tape, project it into the owned manifest island, and run normal update resolution. | **Yes (manifest and lock)** | Does not mutate package.json authority, accept arbitrary npm install specs, or execute lifecycle scripts. | `docs/dev/m69c-add.md` |
+| `tspack add <package>` | Author an explicit npm or JSR dependency through the dependency tape, project it into the owned manifest island, and run normal mixed-source update resolution. | **Yes (manifest and lock)** | Does not mutate package.json authority, search registries automatically, accept arbitrary install specs, or execute lifecycle scripts. | `docs/dev/m70b-jsr-add.md` |
 | `tspack remove <package>` | Remove one editable native dependency declaration, reveal any lower-precedence winner, project the owned source edit, and run normal update resolution. | **Yes (manifest and lock)** | Does not delete concept/template declarations, mutate package.json authority, or force a package out of the resolved graph. | `docs/dev/m69d-remove.md` |
 | `tspack migrate` | Convert package.json metadata into a reviewable `manifest.migrated.tsx` draft and `tspack-migration.md` report, including package-lock evidence, source scan evidence, script classification, report-only RunTarget suggestions, and optional `--check` structural validation. Dry-run by default; `--write` creates files. | **Yes with `--write` (migration outputs only)** / No | `--check` validates the generated draft with the manifest frontend and Go IR validator, but does not overwrite `manifest.tsx`, mutate package.json, translate lockfiles to TSPack locks, mutate source imports, install, execute scripts, migrate npm scripts into active RunTargets, generate `ts-lock.toml`, or run update/sync/check. | `docs/migrate.md` |
 | `tspack adopt --check-annotations` | Check package.manifest.tsx annotation consistency against package.json and exit nonzero on errors or warnings. | No | CI-friendly read-only drift check; unannotated dependencies are notices and do not fail. | `docs/design/incremental-adoption.md` |
@@ -38,13 +38,14 @@
 
 - `tspack add lodash` selects the newest stable npm release, authors a caret constraint such as `^4.17.21`, and records the exact selected release in `ts-lock.toml` through the normal update path.
 - `tspack add lodash@^4` and `tspack add lodash@4.17.21` preserve the explicit constraint exactly.
-- `tspack add lodash --source npm` is equivalent to the default and makes the source-qualified identity explicit. Other registry sources are not implemented by M69.
-- Scoped forms such as `@scope/pkg` and `@scope/pkg@^3` are supported. Git, URL, file, workspace, and general npm install-spec syntax are rejected explicitly in M69c.
+- `tspack add lodash --source npm` is equivalent to the default and makes the source-qualified identity explicit. `tspack add @std/path --source jsr` selects JSR. Omitting `--source` always means npm; a failed npm lookup is never retried against JSR.
+- Scoped forms such as `@scope/pkg` and `@scope/pkg@^3` remain intact for either source. Git, URL, file, workspace, and general install-spec syntax are rejected explicitly.
 - `--optional` is orthogonal to the normal TSPack `dep` kind. `--kind peer` authors peer intent. Package selection accepts a stable package name or an exact workspace-relative package root; when run inside one package directory, that package is inferred if the mapping is unambiguous.
 - `--dry-run` performs metadata selection, semantic editing, and source projection planning without writing the manifest, lockfile, or store. `--json` exposes stable semantic result fields.
 - Repeating an unqualified or textually equivalent explicit add of the same editable declaration is a zero-registry, byte-for-byte no-op. A changed explicit spec replaces the matching editable declaration and is reported as a constraint change; a derived or concept-owned declaration is retained and shadowed by a new explicit declaration.
 - `--dev` is intentionally rejected: TSPack's `test` dependency kind remains reserved and has no native manifest helper or execution contract. `--tool` is also rejected for add because a usable tool requires both `tool(...)` dependency intent and a `<Tools>` selection, while the M69 projector owns only dependency islands. This avoids creating apparently installed but unusable tooling.
-- package.json-native incremental projects receive an authority diagnostic and should use `tspack npm install ...` until ownership is migrated.
+- npm and JSR declarations with the same logical name remain source-distinct. Replacement matches source-qualified identity, and removal requires `--source` when the name is ambiguous.
+- package.json-native incremental projects receive an authority diagnostic and should use `tspack npm install ...` for npm dependencies until ownership is migrated. TSPack does not invent a package.json representation for native JSR intent.
 
 ## `tspack remove`
 
@@ -61,7 +62,7 @@
 - On fresh machines or CI runners, if a required local store artifact is missing, sync hydrates it from the locked source before materialization.
 - Hydration is lock-driven, not resolver-driven: sync uses the locked package identity and verification data, does not pick newer versions, and does not rewrite `ts-lock.toml`.
 - If the artifact is already present and verifies locally, sync does not refetch it.
-- `tspack sync` may need network access when the local store is empty and a locked npm artifact must be downloaded.
+- `tspack sync` may need network access when the local store is empty and a locked npm or JSR artifact must be downloaded.
 - Cold materialization may print deterministic plain-text lines such as `materializing packages [12/20] react@19.2.7`.
 
 ## Runtime versions

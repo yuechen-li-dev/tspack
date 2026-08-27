@@ -79,7 +79,9 @@ Registry-backed edges enter the resolver through a source-keyed backend
 registry. npm and JSR adapters normalize metadata, transitive source identity,
 artifacts, integrity, and capabilities before the shared parallel resolver and
 store path. Workspace/path/git retain their distinct local semantics. See
-`docs/dev/m70a-registry-backends.md`.
+`docs/dev/m70a-registry-backends.md`. Add selects one typed backend before
+metadata lookup; npm is the default and there is no cross-registry discovery or
+fallback policy.
 
 Dependencies point down toward domain and infrastructure capabilities. Core
 packages must not import `internal/cli` or `internal/integrations`. Integrations
@@ -137,8 +139,9 @@ authoring edit, asks `internal/manifestedit` for a projection, performs a guarde
 atomic manifest write, and invokes the ordinary update operation. Remove
 classifies any unshadowed declaration before projection and classifies resolved
 lock persistence only after update. CLI code only parses flags and renders the
-typed result. Metadata and tarballs are memoized across edit preflight and
-update commit so the safety pass does not duplicate registry requests; remove
+typed result. Source-qualified backend metadata and artifacts are memoized
+across selection, edit preflight, and update commit so the safety pass does not
+duplicate registry requests or share cache entries across sources; remove
 does not query registry metadata merely to select a declaration.
 
 ## Cross-cutting services

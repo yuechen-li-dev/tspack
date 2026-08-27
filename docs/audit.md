@@ -12,6 +12,6 @@ Any advisory fails by default. `--audit-level low|moderate|high|critical` raises
 
 The report includes advisory IDs and aliases, locked versions, known fixed versions, references, and lock graph paths. OSV request, response, or schema failures produce `TSPACK_AUDIT_SERVICE_FAILED` and a nonzero exit. A failed scan is never described as clean.
 
-Use `tspack why <package>` to inspect a finding and `tspack update <dependency> --dry-run` to preview a bounded refresh. TSPack intentionally has no `audit fix`: remediation remains an explicit manifest/update decision.
+Use a source-qualified query such as `tspack why jsr:@std/path` when investigating a mixed graph, and use `tspack update <dependency> --dry-run` to preview a bounded refresh. An unqualified `why` query reports candidates when the same name exists in several sources. TSPack intentionally has no `audit fix`: remediation remains an explicit manifest/update decision.
 
 Set `TSPACK_OSV_API` only when testing against an OSV-compatible endpoint.

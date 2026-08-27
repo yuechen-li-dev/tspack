@@ -59,10 +59,7 @@ func runAddCommand(args []string) {
 	options := parseAddCommandOptions(args)
 	options.Paths.discoverDependencyRoot()
 	workingDirectory, _ := os.Getwd()
-	var source *authoring.PackageSource
-	if options.Source != "" {
-		source = &authoring.PackageSource{Kind: options.Source}
-	}
+	source := authoring.SourceKind(options.Source)
 	result := project.RunAddDependency(project.AddDependencyRequest{
 		Project:          options.Paths.Options,
 		PackageSpec:      options.PackageSpec,
@@ -119,7 +116,7 @@ func parseAddCommandOptions(args []string) addCommandOptions {
 		}
 	}
 	if options.PackageSpec == "" {
-		fmt.Fprintln(os.Stderr, "usage: tspack add <package> [--source npm] [--kind dep|peer] [--optional] [--package <name|path>] [--dry-run] [--json]")
+		fmt.Fprintln(os.Stderr, "usage: tspack add <package> [--source npm|jsr] [--kind dep|peer] [--optional] [--package <name|path>] [--dry-run] [--json]")
 		exit(1)
 	}
 	return options

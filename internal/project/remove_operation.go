@@ -12,7 +12,6 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 	"github.com/yuechen-li-dev/tspack/internal/manifestedit"
-	"github.com/yuechen-li-dev/tspack/internal/resolver"
 )
 
 // RemoveDependencyRequest describes removal of one editable authoring
@@ -64,6 +63,7 @@ type RemoveDependencyPerformance struct {
 	Total                    time.Duration
 	RegistryMetadataRequests int
 	RegistryTarballRequests  int
+	RegistryRequests         map[string]int
 }
 
 func ParseRemovePackageSelector(value string) (authoring.PackageIdentity, error) {
@@ -242,16 +242,13 @@ func RunRemoveDependency(request RemoveDependencyRequest) (result RemoveDependen
 	}
 
 	updateOptions := request.Project
-	registryClient := updateOptions.ResolverClient
-	if registryClient == nil {
-		registryClient = resolver.NewHTTPRegistryClient("")
-	}
-	memoClient := newDependencyEditMemoClient(registryClient)
-	updateOptions.ResolverClient = memoClient
+	memoBackends := newDependencyEditMemoBackends(addRegistryBackends(updateOptions))
+	updateOptions.ResolverBackends = memoBackends.Registry()
 	updateStarted := time.Now()
 	defer func() {
 		result.Performance.Update = time.Since(updateStarted)
-		result.Performance.RegistryMetadataRequests, result.Performance.RegistryTarballRequests = memoClient.RequestCounts()
+		result.Performance.RegistryMetadataRequests, result.Performance.RegistryTarballRequests = memoBackends.RequestCounts()
+		result.Performance.RegistryRequests = memoBackends.RequestsByKind()
 	}()
 	preflight := RunUpdate(UpdateRequest{Project: updateOptions, DryRun: true})
 	if hasErrors(preflight.Diagnostics) {
