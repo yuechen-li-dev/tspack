@@ -2,7 +2,6 @@ package cli
 
 import (
 	"encoding/json"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,10 +9,9 @@ import (
 
 func TestAdoptSecurityFixtureHuman(t *testing.T) {
 	repo := repoRoot(t)
-	bin := buildTspackBinary(t, repo)
 	root := filepath.Join(repo, "internal", "npmobserve", "testdata", "lifecycle-project")
 
-	cmd := exec.Command(bin, "adopt", "--security", "--root", root)
+	cmd := newInProcessCommand("adopt", "--security", "--root", root)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("adopt security failed: %v\n%s", err, string(out))
@@ -38,10 +36,9 @@ func TestAdoptSecurityFixtureHuman(t *testing.T) {
 
 func TestAdoptSecurityFixtureJSON(t *testing.T) {
 	repo := repoRoot(t)
-	bin := buildTspackBinary(t, repo)
 	root := filepath.Join(repo, "internal", "npmobserve", "testdata", "lock-scripts-project")
 
-	cmd := exec.Command(bin, "adopt", "--security", "--json", "--root", root)
+	cmd := newInProcessCommand("adopt", "--security", "--json", "--root", root)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("adopt security json failed: %v\n%s", err, string(out))
@@ -92,10 +89,9 @@ func TestAdoptSecurityFixtureJSON(t *testing.T) {
 
 func TestAdoptSecurityDogfoodProjectNoWrites(t *testing.T) {
 	repo := repoRoot(t)
-	bin := buildTspackBinary(t, repo)
 	root := copyDogfoodProject(t, repo)
 
-	cmd := exec.Command(bin, "adopt", "--security", "--root", root)
+	cmd := newInProcessCommand("adopt", "--security", "--root", root)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("adopt security dogfood failed: %v\n%s", err, string(out))

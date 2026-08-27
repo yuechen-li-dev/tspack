@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -154,14 +153,13 @@ type whyJSONReport struct {
 
 func TestCLIWhyJSON(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	bin := buildTspackBinary(t, repo)
 	root := setupWhyJSONWorkspace(t, repo)
 	lockfile := filepath.Join(root, "ts-lock.toml")
 
 	runWhyJSON := func(args ...string) (whyJSONReport, string, string, error) {
 		fullArgs := append([]string{"why"}, args...)
 		fullArgs = append(fullArgs, "--root", root, "--lockfile", lockfile)
-		cmd := exec.Command(bin, fullArgs...)
+		cmd := newInProcessCommand(fullArgs...)
 		cmd.Dir = repo
 		var stdout bytes.Buffer
 		var stderr bytes.Buffer
@@ -311,7 +309,7 @@ func TestCLIWhyJSON(t *testing.T) {
 		t.Fatalf("why json should be deterministic\nfirst: %s\nrepeat: %s", firstBytes, repeatBytes)
 	}
 
-	textCmd := exec.Command(bin, "why", "react", "--root", root, "--lockfile", lockfile)
+	textCmd := newInProcessCommand("why", "react", "--root", root, "--lockfile", lockfile)
 	textCmd.Dir = repo
 	var textStdout bytes.Buffer
 	var textStderr bytes.Buffer

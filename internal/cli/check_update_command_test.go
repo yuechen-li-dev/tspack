@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -350,9 +349,8 @@ process.stdout.write(JSON.stringify(out));`
 
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
-	bin := buildTspackBinary(t, repo)
 
-	cmd := exec.Command(bin, "check", "--root", root)
+	cmd := newInProcessCommand("check", "--root", root)
 	cmd.Dir = repo
 	out, err := cmd.CombinedOutput()
 	if err == nil {
@@ -366,7 +364,7 @@ process.stdout.write(JSON.stringify(out));`
 		t.Fatalf("missing indented details: %s", text)
 	}
 
-	jsonCmd := exec.Command(bin, "check", "--root", root, "--json")
+	jsonCmd := newInProcessCommand("check", "--root", root, "--json")
 	jsonCmd.Dir = repo
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
@@ -463,7 +461,6 @@ process.stdout.write(JSON.stringify(out));`
 	}
 	t.Cleanup(func() { _ = os.Remove(cliPath) })
 
-	binPath := buildTspackBinary(t, repo)
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
 		t.Fatal(err)
@@ -487,7 +484,7 @@ import "vite";
 		t.Fatal(err)
 	}
 
-	jsonCmd := exec.Command(binPath, "check", "--root", root, "--json")
+	jsonCmd := newInProcessCommand("check", "--root", root, "--json")
 	jsonCmd.Dir = repo
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
@@ -548,7 +545,7 @@ import "vite";
 		t.Fatalf("expected both boundary diagnostics in one JSON report: %+v", report.Diagnostics)
 	}
 
-	textCmd := exec.Command(binPath, "check", "--root", root)
+	textCmd := newInProcessCommand("check", "--root", root)
 	textCmd.Dir = repo
 	textOut, textErr := textCmd.CombinedOutput()
 	if textErr == nil {
@@ -576,7 +573,6 @@ const out={ok:true,ir:{format:1,workspace:{name:"ws"},packages:[{name:"app",vers
 process.stdout.write(JSON.stringify(out));`
 	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
 	t.Cleanup(func() { _ = os.Remove(cliPath) })
-	binPath := buildTspackBinary(t, repo)
 
 	root := t.TempDir()
 	_ = os.MkdirAll(filepath.Join(root, "src"), 0o755)
@@ -591,7 +587,7 @@ process.stdout.write(JSON.stringify(out));`
 	_ = os.WriteFile(lockfilePath, []byte(lockBody), 0o644)
 	before, _ := os.ReadFile(lockfilePath)
 
-	cmd := exec.Command(binPath, "check", "--root", root)
+	cmd := newInProcessCommand("check", "--root", root)
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil {
@@ -621,7 +617,6 @@ const out={ok:true,ir:{format:1,workspace:{name:"ws"},packages:[{name:"app",vers
 process.stdout.write(JSON.stringify(out));`
 	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
 	t.Cleanup(func() { _ = os.Remove(cliPath) })
-	binPath := buildTspackBinary(t, repo)
 
 	root := t.TempDir()
 	_ = os.MkdirAll(filepath.Join(root, "src"), 0o755)
@@ -635,7 +630,7 @@ process.stdout.write(JSON.stringify(out));`
 	lockBody := "[lock]\nformat = 1\ntool = \"tspack\"\n\n[[package]]\nid = \"npm:react@18.3.1\"\nname = \"react\"\nversion = \"18.3.1\"\nsource = \"npm\"\nintegrity = \"sha512-a\"\n\n[[package]]\nid = \"npm:react@19.2.6\"\nname = \"react\"\nversion = \"19.2.6\"\nsource = \"npm\"\nintegrity = \"sha512-b\"\n\n[[target]]\npackage = \"app\"\nname = \"core\"\nexport = \".\"\nentry = \"src/index.ts\"\nruntime = \"dist/index.js\"\ntypes = \"dist/index.d.ts\"\n"
 	_ = os.WriteFile(lockfilePath, []byte(lockBody), 0o644)
 
-	cmd := exec.Command(binPath, "check", "--root", root, "--json")
+	cmd := newInProcessCommand("check", "--root", root, "--json")
 	cmd.Dir = repo
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -676,10 +671,9 @@ process.stdout.write(JSON.stringify(out));`
 func TestCLICheckSummarizesNoisyWarningsWithRevealFlags(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	writeBasicFrontendStub(t, repo)
-	binPath := buildTspackBinary(t, repo)
 	root := writeNoisyCheckFixture(t)
 
-	defaultCmd := exec.Command(binPath, "check", "--root", root)
+	defaultCmd := newInProcessCommand("check", "--root", root)
 	defaultCmd.Dir = repo
 	defaultOutput, err := defaultCmd.CombinedOutput()
 	if err != nil {
@@ -711,7 +705,7 @@ func TestCLICheckSummarizesNoisyWarningsWithRevealFlags(t *testing.T) {
 		}
 	}
 
-	revealCmd := exec.Command(binPath, "check", "--root", root, "--show-conflicts", "--show-lifecycle")
+	revealCmd := newInProcessCommand("check", "--root", root, "--show-conflicts", "--show-lifecycle")
 	revealCmd.Dir = repo
 	revealOutput, err := revealCmd.CombinedOutput()
 	if err != nil {
@@ -732,7 +726,7 @@ func TestCLICheckSummarizesNoisyWarningsWithRevealFlags(t *testing.T) {
 			t.Fatalf("revealed output missing %q:\n%s", expected, revealText)
 		}
 	}
-	jsonCmd := exec.Command(binPath, "check", "--root", root, "--json")
+	jsonCmd := newInProcessCommand("check", "--root", root, "--json")
 	jsonCmd.Dir = repo
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -774,8 +768,7 @@ func TestCLICheckSummarizesNoisyWarningsWithRevealFlags(t *testing.T) {
 
 func TestCLICheckHelpIncludesNoisyWarningRevealFlags(t *testing.T) {
 	repo := filepath.Join("..", "..")
-	binPath := buildTspackBinary(t, repo)
-	cmd := exec.Command(binPath, "help")
+	cmd := newInProcessCommand("help")
 	cmd.Dir = repo
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -844,10 +837,9 @@ const out={ok:true,ir:{format:1,workspace:{name:"ws"},packages:[{name:"app",vers
 process.stdout.write(JSON.stringify(out));`
 	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
 	t.Cleanup(func() { _ = os.Remove(cliPath) })
-	binPath := buildTspackBinary(t, repo)
 	root := writeCLIPathUpdateFixture(t)
 
-	cmd := exec.Command(binPath, "update", "--root", root)
+	cmd := newInProcessCommand("update", "--root", root)
 	cmd.Dir = repo
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -866,7 +858,7 @@ process.stdout.write(JSON.stringify(out));`
 	}
 
 	quietRoot := writeCLIPathUpdateFixture(t)
-	cmd = exec.Command(binPath, "update", "--root", quietRoot, "--quiet")
+	cmd = newInProcessCommand("update", "--root", quietRoot, "--quiet")
 	cmd.Dir = repo
 	stdout.Reset()
 	stderr.Reset()
@@ -890,10 +882,9 @@ const out={ok:true,ir:{format:1,workspace:{name:"ws"},packages:[{name:"app",vers
 process.stdout.write(JSON.stringify(out));`
 	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
 	t.Cleanup(func() { _ = os.Remove(cliPath) })
-	binPath := buildTspackBinary(t, repo)
 	root := writeCLIPathUpdateFixture(t)
 
-	cmd := exec.Command(binPath, "update", "--root", root, "--dry-run")
+	cmd := newInProcessCommand("update", "--root", root, "--dry-run")
 	cmd.Dir = repo
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -922,10 +913,9 @@ const out={ok:true,ir:{format:1,workspace:{name:"ws"},packages:[{name:"app",vers
 process.stdout.write(JSON.stringify(out));`
 	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
 	t.Cleanup(func() { _ = os.Remove(cliPath) })
-	binPath := buildTspackBinary(t, repo)
 	root := writeCLIPathUpdateFixture(t)
 
-	cmd := exec.Command(binPath, "update", "local-dep", "--root", root)
+	cmd := newInProcessCommand("update", "local-dep", "--root", root)
 	cmd.Dir = repo
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -942,7 +932,7 @@ process.stdout.write(JSON.stringify(out));`
 	}
 
 	dryRoot := writeCLIPathUpdateFixture(t)
-	cmd = exec.Command(binPath, "update", "local-dep", "--root", dryRoot, "--dry-run")
+	cmd = newInProcessCommand("update", "local-dep", "--root", dryRoot, "--dry-run")
 	cmd.Dir = repo
 	stdout.Reset()
 	stderr.Reset()
@@ -1030,8 +1020,7 @@ process.stdout.write(JSON.stringify({ ok: true, ir: manifestIR, diagnostics: [] 
 		}
 	}
 
-	bin := buildTspackBinary(t, repo)
-	cmd := exec.Command(bin, "check", "--root", root, "--explain", "src/button.tsx")
+	cmd := newInProcessCommand("check", "--root", root, "--explain", "src/button.tsx")
 	cmd.Dir = repo
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1044,7 +1033,7 @@ process.stdout.write(JSON.stringify({ ok: true, ir: manifestIR, diagnostics: [] 
 		}
 	}
 
-	jsonCmd := exec.Command(bin, "check", "--root", root, "--explain", "src/button.tsx", "--json")
+	jsonCmd := newInProcessCommand("check", "--root", root, "--explain", "src/button.tsx", "--json")
 	jsonCmd.Dir = repo
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
@@ -1073,14 +1062,14 @@ process.stdout.write(JSON.stringify({ ok: true, ir: manifestIR, diagnostics: [] 
 		t.Fatalf("missing imports: %#v", report)
 	}
 
-	missing := exec.Command(bin, "check", "--root", root, "--explain", "src/missing.ts")
+	missing := newInProcessCommand("check", "--root", root, "--explain", "src/missing.ts")
 	missing.Dir = repo
 	missingOut, missingErr := missing.CombinedOutput()
 	if missingErr == nil || !strings.Contains(string(missingOut), "TSPACK_CHECK_EXPLAIN_FILE_NOT_FOUND") {
 		t.Fatalf("missing file diagnostic not surfaced: err=%v output=%s", missingErr, string(missingOut))
 	}
 
-	unsupported := exec.Command(bin, "check", "--root", root, "--explain", "README.md")
+	unsupported := newInProcessCommand("check", "--root", root, "--explain", "README.md")
 	unsupported.Dir = repo
 	unsupportedOut, unsupportedErr := unsupported.CombinedOutput()
 	if unsupportedErr == nil || !strings.Contains(string(unsupportedOut), "TSPACK_CHECK_EXPLAIN_UNSUPPORTED_FILE") {
@@ -1130,8 +1119,7 @@ process.stdout.write(JSON.stringify({ ok: true, ir: manifestIR, diagnostics: [] 
 		t.Fatal(err)
 	}
 
-	bin := buildTspackBinary(t, repo)
-	jsonCmd := exec.Command(bin, "check", "--root", root, "--json")
+	jsonCmd := newInProcessCommand("check", "--root", root, "--json")
 	jsonCmd.Dir = repo
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
@@ -1166,7 +1154,7 @@ process.stdout.write(JSON.stringify({ ok: true, ir: manifestIR, diagnostics: [] 
 		t.Fatalf("expected type boundary diagnostic in json report: %+v", report.Diagnostics)
 	}
 
-	textCmd := exec.Command(bin, "check", "--root", root)
+	textCmd := newInProcessCommand("check", "--root", root)
 	textCmd.Dir = repo
 	textOut, textErr := textCmd.CombinedOutput()
 	if textErr == nil {
@@ -1177,7 +1165,7 @@ process.stdout.write(JSON.stringify({ ok: true, ir: manifestIR, diagnostics: [] 
 		t.Fatalf("missing type boundary text details: %s", text)
 	}
 
-	explainCmd := exec.Command(bin, "check", "--root", root, "--explain", "src/index.ts")
+	explainCmd := newInProcessCommand("check", "--root", root, "--explain", "src/index.ts")
 	explainCmd.Dir = repo
 	explainOut, explainErr := explainCmd.CombinedOutput()
 	if explainErr != nil {
@@ -1190,7 +1178,7 @@ process.stdout.write(JSON.stringify({ ok: true, ir: manifestIR, diagnostics: [] 
 		}
 	}
 
-	explainJSONCmd := exec.Command(bin, "check", "--root", root, "--explain", "src/index.ts", "--json")
+	explainJSONCmd := newInProcessCommand("check", "--root", root, "--explain", "src/index.ts", "--json")
 	explainJSONCmd.Dir = repo
 	explainJSONOut, explainJSONErr := explainJSONCmd.CombinedOutput()
 	if explainJSONErr != nil {

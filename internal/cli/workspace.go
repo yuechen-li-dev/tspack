@@ -1,15 +1,13 @@
 package cli
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/manifestfrontend"
 	"github.com/yuechen-li-dev/tspack/internal/nodecmd"
 	"github.com/yuechen-li-dev/tspack/internal/version"
 )
@@ -41,37 +39,20 @@ func loadManifestPathForRun(root string, manifestPath string) *manifest.Manifest
 		failRun("TSPACK_VERSION_TOO_OLD", fmt.Sprintf("installed %s; project requires %s or newer", requirement.Current, requirement.Minimum))
 	}
 	cliPath := manifestFrontendCLIPath()
-	cmd, err := nodecmd.Command(cliPath, manifestPath)
+	parsed, err := manifestfrontend.Execute(cliPath, manifestPath)
 	if err != nil {
 		if nodecmd.IsNotFound(err) {
 			failRun(nodecmd.DiagnosticCode, nodecmd.MessageBody())
 		}
 		failRun("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", err.Error())
 	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	runErr := cmd.Run()
-	var parsed struct {
-		Ok          bool              `json:"ok"`
-		IR          any               `json:"ir"`
-		Diagnostics []diag.Diagnostic `json:"diagnostics"`
-	}
-	parseErr := json.Unmarshal(stdout.Bytes(), &parsed)
-	if runErr != nil && parseErr != nil {
-		failRun("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", runErr.Error()+": "+stderr.String())
-	}
-	if parseErr != nil {
-		failRun("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", "failed to parse manifest frontend output")
-	}
-	if !parsed.Ok {
+	if !parsed.OK {
 		if len(parsed.Diagnostics) > 0 {
 			failRun(parsed.Diagnostics[0].Code, parsed.Diagnostics[0].Message)
 		}
 		failRun("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", "manifest frontend returned failure without diagnostics")
 	}
-	irBytes, _ := json.Marshal(parsed.IR)
-	ir, diags := manifest.LoadBytes(manifestPath, irBytes)
+	ir, diags := manifest.LoadBytes(manifestPath, parsed.IR)
 	if len(diags) > 0 {
 		failRun(diags[0].Code, diags[0].Message)
 	}

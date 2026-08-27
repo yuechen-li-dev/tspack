@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -143,9 +142,7 @@ process.stdout.write(JSON.stringify(out));`
 	_ = os.WriteFile(filepath.Join(fixtureRoot, "dist", "index.js"), []byte("x\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(fixtureRoot, "dist", "index.d.ts"), []byte("x\n"), 0o644)
 
-	binPath := buildTspackBinary(t, repo)
-
-	cmd := exec.Command(binPath, "check", "--root", fixtureRoot)
+	cmd := newInProcessCommand("check", "--root", fixtureRoot)
 	cmd.Dir = repo
 	cmd.Env = append(os.Environ(), "TSPACK_EXPECT_MANIFEST="+filepath.Join(fixtureRoot, "manifest.tsx"))
 	out, err := cmd.CombinedOutput()
@@ -155,7 +152,7 @@ process.stdout.write(JSON.stringify(out));`
 
 	explicit := filepath.Join(fixtureRoot, "explicit-manifest.tsx")
 	_ = os.WriteFile(explicit, []byte("export default {}\n"), 0o644)
-	cmd = exec.Command(binPath, "check", "--root", fixtureRoot, "--manifest", explicit)
+	cmd = newInProcessCommand("check", "--root", fixtureRoot, "--manifest", explicit)
 	cmd.Dir = repo
 	cmd.Env = append(os.Environ(), "TSPACK_EXPECT_MANIFEST="+explicit)
 	out, err = cmd.CombinedOutput()
@@ -423,7 +420,6 @@ const out={ok:true,ir:{format:1,workspace:{name:"ws"},packages:[{name:"app",vers
 process.stdout.write(JSON.stringify(out));`
 	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
 	t.Cleanup(func() { _ = os.Remove(cliPath) })
-	binPath := buildTspackBinary(t, repo)
 
 	root := t.TempDir()
 	_ = os.MkdirAll(filepath.Join(root, "src"), 0o755)
@@ -433,7 +429,7 @@ process.stdout.write(JSON.stringify(out));`
 	_ = os.WriteFile(filepath.Join(root, "dist", "index.js"), []byte("export const x = 1\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "dist", "index.d.ts"), []byte("export declare const x: number\n"), 0o644)
 
-	cmd := exec.Command(binPath, "check", "--root", root, "--json")
+	cmd := newInProcessCommand("check", "--root", root, "--json")
 	cmd.Dir = repo
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -483,12 +479,11 @@ const out={ok:true,ir:{format:1,workspace:{name:"ws"},packages:[{name:"app",vers
 process.stdout.write(JSON.stringify(out));`
 	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
 	t.Cleanup(func() { _ = os.Remove(cliPath) })
-	binPath := buildTspackBinary(t, repo)
 
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
 
-	cmd := exec.Command(binPath, "check", "--root", root, "--json")
+	cmd := newInProcessCommand("check", "--root", root, "--json")
 	cmd.Dir = repo
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

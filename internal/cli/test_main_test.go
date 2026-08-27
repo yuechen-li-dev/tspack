@@ -9,9 +9,11 @@ import (
 	"testing"
 
 	"github.com/yuechen-li-dev/tspack/internal/cli/clitest"
+	"github.com/yuechen-li-dev/tspack/internal/manifestfrontend"
 )
 
 var testTspackBinary string
+var testFixtureBridgeDir string
 
 func runTestApp(t testing.TB, args ...string) clitest.Result {
 	t.Helper()
@@ -34,6 +36,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "create CLI test directory: %v\n", err)
 		os.Exit(1)
 	}
+	testFixtureBridgeDir = filepath.Join(tempDirectory, "manifest-frontend-fixture")
 	testTspackBinary = filepath.Join(tempDirectory, "tspack-test-bin")
 	if runtime.GOOS == "windows" {
 		testTspackBinary += ".exe"
@@ -47,6 +50,7 @@ func TestMain(m *testing.M) {
 	}
 
 	exitCode := m.Run()
+	manifestfrontend.CloseWorkers()
 	_ = os.RemoveAll(tempDirectory)
 	os.Exit(exitCode)
 }

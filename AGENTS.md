@@ -30,6 +30,9 @@ Any partial work must leave the codebase in a cleaner, more legible, and more di
 
 ## Architecture placement rules
 
+- Manifest frontend process execution belongs to internal/manifestfrontend. Reuse its process-local worker; do not add one-shot Node frontend calls in project or CLI code.
+- Batch equivalent real TypeScript validations into one compiler project, while keeping distinct compiler configurations and expected failures separate.
+
 - `cmd/` contains executable bootstrap only; command behavior belongs in `internal/cli`.
 - CLI parsing and presentation do not own project, resolution, lockfile, store, materialization, security, or audit semantics.
 - Core dependency direction flows from manifest and graph concepts toward project orchestration, then CLI; core packages never import CLI or integrations.

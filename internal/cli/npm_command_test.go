@@ -118,7 +118,7 @@ func skipPosixFakeNpmTestOnWindows(t *testing.T) {
 }
 
 func runTspackWithEnv(bin string, env []string, args ...string) (string, error) {
-	cmd := exec.Command(bin, args...)
+	cmd := newInProcessCommand(args...)
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	return string(out), err

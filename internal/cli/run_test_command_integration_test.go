@@ -1305,6 +1305,12 @@ func TestCLIRunRuntimeSwitchExplicitTargetsStayExplicitAcrossWorkspaceProfiles(t
 				t.Fatalf("workspace runtime %s changed explicit target runtimes: got %#v want %#v", profile, gotRuntimes, wantRuntimes)
 			}
 
+			// All profiles above prove that explicit runtimes survive manifest
+			// selection. Execute the identical child-tool matrix once; repeating
+			// it for each workspace default adds no process-boundary evidence.
+			if profile != "nodejs" {
+				return
+			}
 			runRuntimeSwitchTarget(t, repo, root, fakeBin, "bun-hello", "ready from fake bun")
 			assertShellCapture(t, filepath.Join(captureDir, "bun.txt"), "scripts/bun-hello.js from-bun")
 			runRuntimeSwitchTarget(t, repo, root, fakeBin, "deno-hello", "ready from fake deno")
@@ -1401,7 +1407,7 @@ func windowsBatchQuote(value string) string {
 
 func runRuntimeSwitchTarget(t *testing.T, repo string, root string, fakeBin string, target string, expectedOutput string) {
 	t.Helper()
-	cmd := exec.Command(testTspackBinary, "run", "--root", root, target, "--once")
+	cmd := newInProcessCommand("run", "--root", root, target, "--once")
 	cmd.Dir = repo
 	cmd.Env = append(os.Environ(), "PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	output, err := cmd.CombinedOutput()

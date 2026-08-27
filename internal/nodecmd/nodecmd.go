@@ -3,9 +3,11 @@ package nodecmd
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 const DiagnosticCode = "TSPACK_NODE_NOT_FOUND"
@@ -13,6 +15,8 @@ const DiagnosticCode = "TSPACK_NODE_NOT_FOUND"
 type NotFoundError struct {
 	Detail string
 }
+
+var locatedPaths sync.Map
 
 func (e NotFoundError) Error() string {
 	if strings.TrimSpace(e.Detail) != "" {
@@ -22,6 +26,16 @@ func (e NotFoundError) Error() string {
 }
 
 func Locate() (string, error) {
+	workingDirectory, _ := os.Getwd()
+	cacheKey := strings.Join([]string{
+		runtime.GOOS,
+		workingDirectory,
+		os.Getenv("PATH"),
+		os.Getenv("PATHEXT"),
+	}, "\x00")
+	if cached, ok := locatedPaths.Load(cacheKey); ok {
+		return cached.(string), nil
+	}
 	candidates := []string{"node"}
 	if runtime.GOOS == "windows" {
 		candidates = []string{"node.exe", "node.cmd", "node"}
@@ -29,6 +43,7 @@ func Locate() (string, error) {
 	for _, candidate := range candidates {
 		path, err := exec.LookPath(candidate)
 		if err == nil {
+			locatedPaths.Store(cacheKey, path)
 			return path, nil
 		}
 	}

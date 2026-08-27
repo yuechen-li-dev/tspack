@@ -1,16 +1,16 @@
 package project
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
+
 	"github.com/yuechen-li-dev/tspack/internal/bridge"
 	capmodel "github.com/yuechen-li-dev/tspack/internal/capability"
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/graph"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/manifestfrontend"
 	"github.com/yuechen-li-dev/tspack/internal/nodecmd"
 	"github.com/yuechen-li-dev/tspack/internal/resolver"
 	"github.com/yuechen-li-dev/tspack/internal/version"
@@ -90,7 +90,7 @@ func loadManifestIR(opts Options) (*manifest.ManifestIR, []diag.Diagnostic) {
 		details = append(details, bridge.BuildNeededDetails()...)
 		return nil, []diag.Diagnostic{errDiag("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", "manifest frontend CLI not found", details...)}
 	}
-	cmd, err := nodecmd.Command(cliPath, opts.ManifestPath)
+	parsed, err := manifestfrontend.Execute(cliPath, opts.ManifestPath)
 	if err != nil {
 		if nodecmd.IsNotFound(err) {
 			return nil, []diag.Diagnostic{{
@@ -100,35 +100,13 @@ func loadManifestIR(opts Options) (*manifest.ManifestIR, []diag.Diagnostic) {
 				Details:  nodecmd.GuidanceLines(),
 			}}
 		}
-		return nil, []diag.Diagnostic{errDiag("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", "failed to prepare manifest frontend command", err.Error())}
-	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	runErr := cmd.Run()
-	var parsed struct {
-		OK          bool              `json:"ok"`
-		IR          json.RawMessage   `json:"ir"`
-		Diagnostics []diag.Diagnostic `json:"diagnostics"`
-	}
-	parseErr := json.Unmarshal(stdout.Bytes(), &parsed)
-	if runErr != nil && (parseErr != nil || parsed.OK) {
 		details := append([]string{
 			"selected frontend path: " + cliPath,
-			"node execution error: " + runErr.Error(),
+			"node execution error: " + err.Error(),
+			"node stderr:",
+			err.Error(),
 		}, bridge.ResolutionDetails(resolution)...)
-		stdoutText := strings.TrimSpace(stdout.String())
-		if parseErr != nil && stdoutText != "" {
-			details = append(details, "node stdout:", stdoutText)
-		}
-		stderrText := strings.TrimSpace(stderr.String())
-		if stderrText != "" {
-			details = append(details, "node stderr:", stderrText)
-		}
 		return nil, []diag.Diagnostic{{Code: "TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", Severity: diag.SeverityError, Message: "manifest frontend failed", Details: details}}
-	}
-	if parseErr != nil {
-		return nil, []diag.Diagnostic{errDiag("TSPACK_PROJECT_MANIFEST_FRONTEND_FAILED", "invalid frontend JSON", parseErr.Error())}
 	}
 	if !parsed.OK {
 		if len(parsed.Diagnostics) == 0 {

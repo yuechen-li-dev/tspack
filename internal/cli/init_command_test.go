@@ -1094,6 +1094,7 @@ func TestInitAlongsideManifestEditorTypecheck(t *testing.T) {
 
 func TestTemplateManifestEditorTypecheck(t *testing.T) {
 	repo := repoRoot(t)
+	workspace := t.TempDir()
 
 	cases := []struct {
 		name string
@@ -1113,14 +1114,14 @@ func TestTemplateManifestEditorTypecheck(t *testing.T) {
 		},
 	}
 
+	manifestPaths := make([]string, 0, len(cases))
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			root := t.TempDir()
-			args := append([]string{}, tc.args...)
-			args[4] = root
-
-			cmd := exec.Command("go", args...)
+			root := filepath.Join(workspace, tc.name)
+			args := append([]string{}, tc.args[5:]...)
+			args = append([]string{"init", "--root", root}, args...)
+			cmd := newInProcessCommand(args...)
 			cmd.Dir = repo
 			out, err := cmd.CombinedOutput()
 			if err != nil {
@@ -1128,9 +1129,36 @@ func TestTemplateManifestEditorTypecheck(t *testing.T) {
 			}
 
 			assertGeneratedVSCodeSettings(t, root, "node_modules/typescript/lib")
-			runManifestEditorTypecheck(t, repo, root, "tsconfig.tspack.json")
+			manifestPaths = append(manifestPaths, filepath.Join(root, "manifest.tsx"))
 		})
 	}
+
+	files := append([]string(nil), manifestPaths...)
+	files = append(files,
+		filepath.Join(workspace, cases[0].name, ".tspack", "types", "tspack-manifest.d.ts"),
+		filepath.Join(workspace, cases[0].name, ".tspack", "types", "tspack-xtest.d.ts"),
+	)
+	config := map[string]any{
+		"compilerOptions": map[string]any{
+			"strict":           true,
+			"target":           "ES2022",
+			"module":           "ESNext",
+			"moduleResolution": "Bundler",
+			"jsx":              "preserve",
+			"noEmit":           true,
+			"types":            []string{},
+		},
+		"files": files,
+	}
+	configBytes, err := json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configName := "template-typecheck.json"
+	if err := os.WriteFile(filepath.Join(workspace, configName), configBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runManifestEditorTypecheck(t, repo, workspace, configName)
 }
 
 func TestPackageAnnotationManifestEditorTypecheck(t *testing.T) {

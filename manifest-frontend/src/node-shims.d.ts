@@ -15,6 +15,8 @@ declare const process: {
   env: Record<string, string | undefined>;
   platform: NodeJS.Platform;
   cwd(): string;
+  chdir(directory: string): void;
+  stdin: unknown;
   exit(code?: number): never;
   stdout: { write(chunk: string | Uint8Array): boolean };
   stderr: { write(chunk: string | Uint8Array): boolean };
@@ -48,3 +50,4 @@ declare module 'node:util';
 declare module 'node:perf_hooks';
 declare module 'node:crypto';
 declare module 'node:url';
+declare module 'node:readline';

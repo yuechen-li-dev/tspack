@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -37,9 +36,8 @@ func TestAuditCommandReportsLockedVulnerabilityAndThreshold(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "ts-lock.toml"), contents, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	bin := buildTspackBinary(t, repoRoot(t))
 
-	command := exec.Command(bin, "audit", "--root", root, "--audit-level", "high", "--json")
+	command := newInProcessCommand("audit", "--root", root, "--audit-level", "high", "--json")
 	command.Env = append(os.Environ(), "TSPACK_OSV_API="+server.URL)
 	output, err := command.Output()
 	if err != nil {
@@ -53,7 +51,7 @@ func TestAuditCommandReportsLockedVulnerabilityAndThreshold(t *testing.T) {
 		t.Fatalf("unexpected report: %#v", report)
 	}
 
-	command = exec.Command(bin, "audit", "--root", root, "--json")
+	command = newInProcessCommand("audit", "--root", root, "--json")
 	command.Env = append(os.Environ(), "TSPACK_OSV_API="+server.URL)
 	output, err = command.CombinedOutput()
 	if err == nil || !strings.Contains(string(output), "GHSA-test") {

@@ -6,17 +6,23 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
+
+var manifestFrontendBuild struct {
+	sync.Once
+	err    error
+	output []byte
+}
 
 func TestCompatHelpersFixtureCommands(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	ensureManifestFrontendCLI(t, repo)
-	bin := buildTspackBinary(t, repo)
 	root := t.TempDir()
 	copyFile(t, filepath.Join(repo, "examples", "compat-json-basic", "manifest.tsx"), filepath.Join(root, "manifest.tsx"))
 
-	listOut, err := runCompatHelperCommand(bin, root, "list")
+	listOut, err := runCompatHelperCommand("", root, "list")
 	if err != nil {
 		t.Fatalf("compat list failed: %v\n%s", err, listOut)
 	}
@@ -26,7 +32,7 @@ func TestCompatHelpersFixtureCommands(t *testing.T) {
 		}
 	}
 
-	diffOut, err := runCompatHelperCommand(bin, root, "diff")
+	diffOut, err := runCompatHelperCommand("", root, "diff")
 	if err == nil {
 		t.Fatalf("compat diff before write unexpectedly succeeded:\n%s", diffOut)
 	}
@@ -34,12 +40,12 @@ func TestCompatHelpersFixtureCommands(t *testing.T) {
 		t.Fatalf("compat diff did not show helper-authored JSON keys:\n%s", diffOut)
 	}
 
-	writeOut, err := runCompatHelperCommand(bin, root, "write")
+	writeOut, err := runCompatHelperCommand("", root, "write")
 	if err != nil {
 		t.Fatalf("compat write failed: %v\n%s", err, writeOut)
 	}
 
-	diffOut, err = runCompatHelperCommand(bin, root, "diff")
+	diffOut, err = runCompatHelperCommand("", root, "diff")
 	if err != nil {
 		t.Fatalf("compat diff after write failed: %v\n%s", err, diffOut)
 	}
@@ -67,16 +73,15 @@ func TestCompatHelpersFixtureCommands(t *testing.T) {
 func TestRepoRootManifestNarrowsManifestEditorTSConfig(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	ensureManifestFrontendCLI(t, repo)
-	bin := buildTspackBinary(t, repo)
 	root := t.TempDir()
 	copyFile(t, filepath.Join(repo, "manifest.tsx"), filepath.Join(root, "manifest.tsx"))
 
-	writeOut, err := runCompatHelperCommand(bin, root, "write")
+	writeOut, err := runCompatHelperCommand("", root, "write")
 	if err != nil {
 		t.Fatalf("compat write failed: %v\n%s", err, writeOut)
 	}
 
-	diffOut, err := runCompatHelperCommand(bin, root, "diff")
+	diffOut, err := runCompatHelperCommand("", root, "diff")
 	if err != nil {
 		t.Fatalf("compat diff after write failed: %v\n%s", err, diffOut)
 	}
@@ -148,16 +153,18 @@ func TestRepoRootManifestNarrowsManifestEditorTSConfig(t *testing.T) {
 
 func ensureManifestFrontendCLI(t *testing.T, repo string) {
 	t.Helper()
-	cmd := exec.Command("npm", "--prefix", "manifest-frontend", "run", "build")
-	cmd.Dir = repo
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build manifest frontend failed: %v\n%s", err, string(out))
+	manifestFrontendBuild.Do(func() {
+		cmd := exec.Command("npm", "--prefix", "manifest-frontend", "run", "build")
+		cmd.Dir = repo
+		manifestFrontendBuild.output, manifestFrontendBuild.err = cmd.CombinedOutput()
+	})
+	if manifestFrontendBuild.err != nil {
+		t.Fatalf("build manifest frontend failed: %v\n%s", manifestFrontendBuild.err, string(manifestFrontendBuild.output))
 	}
-
 }
 
-func runCompatHelperCommand(bin string, root string, subcommand string) (string, error) {
-	cmd := exec.Command(bin, "compat", subcommand, "--root", root)
+func runCompatHelperCommand(_ string, root string, subcommand string) (string, error) {
+	cmd := newInProcessCommand("compat", subcommand, "--root", root)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }

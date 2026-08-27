@@ -91,6 +91,14 @@ materialization, policy classification, or security-gate behavior.
 
 ## Manifest frontend boundary
 
+internal/manifestfrontend is the durable Go execution boundary. It owns the
+process-local Node worker, JSON-line protocol, request-scoped cwd and
+environment, one-shot compatibility fallback, shutdown, and structural
+counters. internal/project and internal/cli consume this boundary and validate
+normalized output in internal/manifest. Worker reuse amortizes Node and
+TypeScript module bootstrap only; each request rereads and reevaluates the
+manifest. Changed frontend artifacts invalidate worker reuse.
+
 The TypeScript package in `manifest-frontend` owns TSX evaluation and authoring
 types. Go discovers and invokes its built bridge through `internal/bridge` and
 `internal/nodecmd`, then validates the normalized result in `internal/manifest`.

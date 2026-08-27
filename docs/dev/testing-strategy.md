@@ -91,6 +91,27 @@ arbitrary sleeps. Keep timing-based waits only when timing or timeout behavior
 is the contract. Concurrency invariants normally need one focused proof and one
 small end-to-end smoke, not equivalent contention matrices at every layer.
 
+## Development lanes
+
+- Default Go correctness: go test ./...
+- Focused ownership: run the owning internal package, especially internal/cli
+  and internal/project for lifecycle changes.
+- Focused race: go test -race ./internal/resolver -count=1, plus another
+  concurrency owner only when its contract changed.
+- Frontend: build, manifest API typecheck, and test under manifest-frontend.
+- Release validation: Go, frontend, VS Code, compatibility, self-host, smoke,
+  and audit lanes together.
+
+Manifest frontend tests reuse one package-owned worker and close it from
+TestMain. Worker tests prove changed manifests are reevaluated and changed
+frontend artifacts invalidate reuse. Keep one-shot startup coverage for
+compatibility and failure diagnostics.
+
+Batch real TypeScript checks when cases share compiler options. Retain separate
+invocations for materially different configurations and expected failures.
+Wall-clock comparisons must separate package test elapsed from Go test-binary
+compile/link time; a no-test run diagnoses the latter.
+
 ## Review checklist
 
 For each new expensive test, answer:

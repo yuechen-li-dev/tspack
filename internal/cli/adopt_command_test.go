@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,10 +10,9 @@ import (
 
 func TestAdoptReportDogfoodProject(t *testing.T) {
 	repo := repoRoot(t)
-	bin := buildTspackBinary(t, repo)
 	root := copyDogfoodProject(t, repo)
 
-	cmd := exec.Command(bin, "adopt", "--report", "--root", root)
+	cmd := newInProcessCommand("adopt", "--report", "--root", root)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("adopt report failed: %v\n%s", err, string(out))
@@ -39,10 +37,9 @@ func TestAdoptReportDogfoodProject(t *testing.T) {
 
 func TestAdoptReportJSONDogfoodProject(t *testing.T) {
 	repo := repoRoot(t)
-	bin := buildTspackBinary(t, repo)
 	root := copyDogfoodProject(t, repo)
 
-	cmd := exec.Command(bin, "adopt", "--report", "--json", "--root", root)
+	cmd := newInProcessCommand("adopt", "--report", "--json", "--root", root)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("adopt report json failed: %v\n%s", err, string(out))
@@ -134,8 +131,6 @@ func assertNoGeneratedAdoptionFiles(t *testing.T, root string) {
 }
 
 func TestAdoptSuggestPackageCommandPrintsAndWritesNothing(t *testing.T) {
-	repo := repoRoot(t)
-	bin := buildTspackBinary(t, repo)
 	root := t.TempDir()
 	pkgRoot := filepath.Join(root, "packages", "ui")
 	if err := os.MkdirAll(pkgRoot, 0o755); err != nil {
@@ -147,7 +142,7 @@ func TestAdoptSuggestPackageCommandPrintsAndWritesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command(bin, "adopt", "--suggest-package", "packages/ui", "--root", root)
+	cmd := newInProcessCommand("adopt", "--suggest-package", "packages/ui", "--root", root)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("adopt suggest failed: %v\n%s", err, string(out))
@@ -175,10 +170,9 @@ func TestAdoptSuggestPackageCommandPrintsAndWritesNothing(t *testing.T) {
 
 func TestAdoptCheckAnnotationsReportsClassificationMismatch(t *testing.T) {
 	repo := repoRoot(t)
-	bin := buildTspackBinary(t, repo)
 	root := copyExampleProject(t, repo, "incremental-existing-monorepo")
 
-	cmd := exec.Command(bin, "adopt", "--check-annotations", "--root", root)
+	cmd := newInProcessCommand("adopt", "--check-annotations", "--root", root)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("adopt check annotations should fail on warning drift:\n%s", string(out))
@@ -197,7 +191,6 @@ func TestAdoptCheckAnnotationsReportsClassificationMismatch(t *testing.T) {
 
 func TestAdoptCheckAnnotationsJSONReportsRangeMismatch(t *testing.T) {
 	repo := repoRoot(t)
-	bin := buildTspackBinary(t, repo)
 	root := copyExampleProject(t, repo, "incremental-existing-monorepo")
 	packageJSONPath := filepath.Join(root, "packages", "ui", "package.json")
 	data, err := os.ReadFile(packageJSONPath)
@@ -209,7 +202,7 @@ func TestAdoptCheckAnnotationsJSONReportsRangeMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command(bin, "adopt", "--check-annotations", "--json", "--root", root)
+	cmd := newInProcessCommand("adopt", "--check-annotations", "--json", "--root", root)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("adopt check annotations json should fail on warning drift:\n%s", string(out))
@@ -233,9 +226,8 @@ func TestAdoptCheckAnnotationsJSONReportsRangeMismatch(t *testing.T) {
 
 func TestAdoptCheckAnnotationsNoAnnotationsAndNoticeOnlyExitZero(t *testing.T) {
 	repo := repoRoot(t)
-	bin := buildTspackBinary(t, repo)
 	noAnnotationRoot := copyDogfoodProject(t, repo)
-	cmd := exec.Command(bin, "adopt", "--check-annotations", "--root", noAnnotationRoot)
+	cmd := newInProcessCommand("adopt", "--check-annotations", "--root", noAnnotationRoot)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("no annotations should exit zero: %v\n%s", err, string(out))
@@ -263,7 +255,7 @@ export default annotatePackage(<PackageAnnotations name="@acme/ui" dependencies=
 	if err := os.WriteFile(filepath.Join(pkgRoot, "package.manifest.tsx"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd = exec.Command(bin, "adopt", "--check-annotations", "--root", noticeRoot)
+	cmd = newInProcessCommand("adopt", "--check-annotations", "--root", noticeRoot)
 	out, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("notice-only check should exit zero: %v\n%s", err, string(out))

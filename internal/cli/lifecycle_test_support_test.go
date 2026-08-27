@@ -154,7 +154,10 @@ func testManifestFrontendBridgeDir(t *testing.T) string {
 			return existing
 		}
 	}
-	frontend := filepath.Join(t.TempDir(), "manifest-frontend-bridges")
+	frontend := testFixtureBridgeDir
+	if frontend == "" {
+		frontend = filepath.Join(t.TempDir(), "manifest-frontend-bridges")
+	}
 	if err := os.MkdirAll(frontend, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -162,4 +165,41 @@ func testManifestFrontendBridgeDir(t *testing.T) string {
 	t.Setenv("TSPACK_MANIFEST_FRONTEND_CLI", "")
 	t.Setenv("TSPACK_MANIFEST_FRONTEND_BRIDGE_DIR", frontend)
 	return frontend
+}
+
+func writeManifestFrontendFixture(t *testing.T, irJSON string) {
+	t.Helper()
+	frontend := testManifestFrontendBridgeDir(t)
+	if err := os.MkdirAll(frontend, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	irPath := filepath.Join(frontend, "fixture-ir.json")
+	if err := os.WriteFile(irPath, []byte(irJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cliPath := filepath.Join(frontend, "cli.js")
+	if _, err := os.Stat(cliPath); err == nil {
+		return
+	}
+	stub := `import fs from "node:fs";
+import readline from "node:readline";
+const readResult = () => {
+  const source = fs.readFileSync(new URL("./fixture-ir.json", import.meta.url), "utf8");
+  const ir = Function("\"use strict\"; return (" + source + ");")();
+  return {ok:true,ir,diagnostics:[]};
+};
+if (process.argv[2] === "--stdio-worker") {
+  const lines = readline.createInterface({input:process.stdin});
+  for await (const line of lines) {
+    const request = JSON.parse(line);
+    process.chdir(request.directory);
+    process.stdout.write(JSON.stringify({id:request.id,result:readResult()}) + "\n");
+  }
+} else {
+  process.stdout.write(JSON.stringify(readResult()) + "\n");
+}
+`
+	if err := os.WriteFile(cliPath, []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
 }

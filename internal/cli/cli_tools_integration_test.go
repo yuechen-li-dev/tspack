@@ -480,12 +480,7 @@ func TestInspectHelpDoesNotRequireBridge(t *testing.T) {
 
 func writeRunFrontendStub(t *testing.T, irJSON string) {
 	t.Helper()
-	frontend := testManifestFrontendBridgeDir(t)
-	_ = os.MkdirAll(frontend, 0o755)
-	cliPath := filepath.Join(frontend, "cli.js")
-	stub := "#!/usr/bin/env node\nconst out={ok:true,ir:" + irJSON + ",diagnostics:[]};process.stdout.write(JSON.stringify(out));"
-	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
-	t.Cleanup(func() { _ = os.Remove(cliPath) })
+	writeManifestFrontendFixture(t, irJSON)
 }
 
 func TestCLIRunOnceSelectionAndErrors(t *testing.T) {
@@ -1517,13 +1512,7 @@ func pathWithNodeOnly(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("node is required for check command tests: %v", err)
 	}
-	pathDir := t.TempDir()
-	linkPath := filepath.Join(pathDir, "node")
-	if runtime.GOOS == "windows" {
-		linkPath = filepath.Join(pathDir, "node.exe")
-	}
-	copyFile(t, nodePath, linkPath)
-	return pathDir
+	return filepath.Dir(nodePath)
 }
 
 func readCapturedBiomeArgv(t *testing.T, capture string) []string {

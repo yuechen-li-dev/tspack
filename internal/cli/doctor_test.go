@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -548,23 +547,12 @@ func doctorPathWithNodeOnly(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("node is required for doctor runtime test: %v", err)
 	}
-	dir := t.TempDir()
-	linkPath := filepath.Join(dir, "node")
-	if runtime.GOOS == "windows" {
-		linkPath = filepath.Join(dir, "node.exe")
-	}
-	copyFile(t, nodePath, linkPath)
-	return dir
+	return filepath.Dir(nodePath)
 }
 
 func writeManifestStubWithIR(t *testing.T, repo string, irJSON string) {
 	t.Helper()
-	frontend := testManifestFrontendBridgeDir(t)
-	_ = os.MkdirAll(frontend, 0o755)
-	cliPath := filepath.Join(frontend, "cli.js")
-	stub := "#!/usr/bin/env node\nconst out={ok:true,ir:" + irJSON + ",diagnostics:[]};process.stdout.write(JSON.stringify(out));"
-	_ = os.WriteFile(cliPath, []byte(stub), 0o755)
-	t.Cleanup(func() { _ = os.Remove(cliPath) })
+	writeManifestFrontendFixture(t, irJSON)
 }
 
 func tempBiomeConfigFiles(t *testing.T) []string {
