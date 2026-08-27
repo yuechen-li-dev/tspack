@@ -211,7 +211,7 @@ func packRuntimeBaselineFixture(t *testing.T, name string) runtimeBaselinePackRe
 	if len(graphDiags) != 0 {
 		t.Fatalf("graph diagnostics: %#v", graphDiags)
 	}
-	result := Pack(root, g.Packages[0], Options{})
+	result := Pack(root, g.Packages[0], Options{OutputDir: t.TempDir()})
 	if len(result.Diagnostics) != 0 {
 		t.Fatalf("pack diagnostics: %#v", result.Diagnostics)
 	}

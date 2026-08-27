@@ -43,9 +43,20 @@ func main() {
 	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
 		fatalf("create output directory: %v", err)
 	}
-	if err := os.WriteFile(outPath, output, 0o644); err != nil {
+	if err := writeFileIfChanged(outPath, output, 0o644); err != nil {
 		fatalf("write %s: %v", outPath, err)
 	}
+}
+
+func writeFileIfChanged(path string, contents []byte, mode os.FileMode) error {
+	existing, err := os.ReadFile(path)
+	if err == nil && bytes.Equal(existing, contents) {
+		return nil
+	}
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.WriteFile(path, contents, mode)
 }
 
 func bundleBridgeEntrypoints(distDir string) string {

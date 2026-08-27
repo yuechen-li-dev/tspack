@@ -75,6 +75,15 @@ func TestExhaustiveHelpStillIncludesFlags(t *testing.T) {
 	assertContainsAll(t, text, "Usage:", "--show-conflicts", "--show-lifecycle", "tspack check [--root .]")
 }
 
+func TestExhaustiveHelpDoesNotAdvertiseReservedPythonSupport(t *testing.T) {
+	text := strings.ToLower(runTSPackForHelpTest(t, "help", "all"))
+	for _, term := range []string{"python", "pypi", "uv"} {
+		if strings.Contains(text, term) {
+			t.Fatalf("CLI help advertises reserved %q support:\n%s", term, text)
+		}
+	}
+}
+
 func TestInitNextStepHints(t *testing.T) {
 	cases := []struct {
 		name string

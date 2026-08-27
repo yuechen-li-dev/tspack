@@ -142,7 +142,16 @@ packages. See `docs/dev/testing-strategy.md` for the evidence hierarchy.
 
 Generated files are changed through their owner generator or compatibility
 writer. `compat diff`, generator tests, frontend type checks, and embedded-surface
-tests are the drift gates.
+tests are the drift gates. Generators compare desired and existing bytes before
+writing so an unchanged generation pass does not churn timestamps or invalidate
+tool caches.
+
+The complete Go source roots are `cmd`, `internal`, and `tools`. Repository-root
+`go test ./...` is not the normal validation command because `dist` can contain
+large generated release and benchmark workspaces that Go package discovery will
+scan. Use `go test ./cmd/... ./internal/... ./tools/...`; this preserves the Go
+package architecture without coupling correctness latency to generated output
+volume.
 
 ## Where a new feature goes
 

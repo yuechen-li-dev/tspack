@@ -67,7 +67,7 @@ Use `go run ./cmd/tspack` from a source checkout, or replace it with a bootstrap
 | `tspack run frontend-build --root .` | Runs the manifest frontend build RunTarget. | May create ignored build output. | Manual/release validation. |
 | `tspack run frontend-typecheck --root .` | Runs manifest API typechecking. | Read-only except tool caches. | Manual/release validation. |
 | `tspack run frontend-test --root .` | Runs manifest frontend tests. | Read-only except test/tool caches. | Manual/release validation. |
-| `tspack run go-test --root .` | Runs `go test ./...`. | Read-only except Go test/cache behavior. | Manual/release validation. |
+| `tspack run go-test --root .` | Runs `go test ./cmd/... ./internal/... ./tools/...`. | Read-only except Go test/cache behavior. | Manual/release validation. |
 | `./scripts/self-host-smoke.sh --release` | Runs routine smoke plus the release build script. | May create ignored release artifacts. | Optional release gate/manual. |
 
 Routine local dogfood:

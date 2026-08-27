@@ -2,12 +2,14 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 var manifestFrontendBuild struct {
@@ -154,12 +156,127 @@ func TestRepoRootManifestNarrowsManifestEditorTSConfig(t *testing.T) {
 func ensureManifestFrontendCLI(t *testing.T, repo string) {
 	t.Helper()
 	manifestFrontendBuild.Do(func() {
+		current, err := manifestFrontendCLIIsCurrent(repo)
+		if err != nil {
+			manifestFrontendBuild.err = err
+			return
+		}
+		if current {
+			return
+		}
+
 		cmd := exec.Command("npm", "--prefix", "manifest-frontend", "run", "build")
 		cmd.Dir = repo
 		manifestFrontendBuild.output, manifestFrontendBuild.err = cmd.CombinedOutput()
 	})
 	if manifestFrontendBuild.err != nil {
 		t.Fatalf("build manifest frontend failed: %v\n%s", manifestFrontendBuild.err, string(manifestFrontendBuild.output))
+	}
+}
+
+func manifestFrontendCLIIsCurrent(repo string) (bool, error) {
+	frontendRoot := filepath.Join(repo, "manifest-frontend")
+	outputInfo, err := os.Stat(filepath.Join(frontendRoot, "dist", "cli.js"))
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	inputs := []string{
+		filepath.Join(frontendRoot, "src"),
+		filepath.Join(frontendRoot, "package.json"),
+		filepath.Join(frontendRoot, "package-lock.json"),
+		filepath.Join(frontendRoot, "tsconfig.json"),
+	}
+	for _, input := range inputs {
+		inputInfo, statErr := os.Stat(input)
+		if os.IsNotExist(statErr) {
+			continue
+		}
+		if statErr != nil {
+			return false, statErr
+		}
+		if !inputInfo.IsDir() {
+			if inputInfo.ModTime().After(outputInfo.ModTime()) {
+				return false, nil
+			}
+			continue
+		}
+
+		walkErr := filepath.WalkDir(input, func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			info, infoErr := entry.Info()
+			if infoErr != nil {
+				return infoErr
+			}
+			if info.ModTime().After(outputInfo.ModTime()) {
+				return errManifestFrontendSourceIsNewer
+			}
+			return nil
+		})
+		if errors.Is(walkErr, errManifestFrontendSourceIsNewer) {
+			return false, nil
+		}
+		if walkErr != nil {
+			return false, walkErr
+		}
+	}
+	return true, nil
+}
+
+var errManifestFrontendSourceIsNewer = errors.New("manifest frontend source is newer than compiled CLI")
+
+func TestManifestFrontendCurrentCheckAvoidsUnchangedRebuilds(t *testing.T) {
+	repo := t.TempDir()
+	frontendRoot := filepath.Join(repo, "manifest-frontend")
+	sourcePath := filepath.Join(frontendRoot, "src", "index.ts")
+	outputPath := filepath.Join(frontendRoot, "dist", "cli.js")
+	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sourcePath, []byte("export {};\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outputPath, []byte("export {};\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	baseTime := time.Now().Add(-time.Hour).Truncate(time.Second)
+	if err := os.Chtimes(sourcePath, baseTime, baseTime); err != nil {
+		t.Fatal(err)
+	}
+	outputTime := baseTime.Add(time.Minute)
+	if err := os.Chtimes(outputPath, outputTime, outputTime); err != nil {
+		t.Fatal(err)
+	}
+	current, err := manifestFrontendCLIIsCurrent(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !current {
+		t.Fatal("unchanged manifest frontend should reuse compiled CLI")
+	}
+
+	newerTime := outputTime.Add(time.Minute)
+	if err := os.Chtimes(sourcePath, newerTime, newerTime); err != nil {
+		t.Fatal(err)
+	}
+	current, err = manifestFrontendCLIIsCurrent(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current {
+		t.Fatal("newer manifest frontend source should require rebuild")
 	}
 }
 

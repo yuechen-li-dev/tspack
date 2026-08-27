@@ -3,7 +3,7 @@
 ## Required automated tests
 
 ```bash
-go test ./...
+go test ./cmd/... ./internal/... ./tools/...
 cd manifest-frontend && npm test
 ```
 

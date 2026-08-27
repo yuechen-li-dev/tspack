@@ -35,7 +35,7 @@ If the manifest frontend cannot be found, `TSPACK_PROJECT_MANIFEST_FRONTEND_FAIL
 
 ## Windows local test path
 
-For Windows triage and broad local validation, prefer a package-by-package Go sweep before a single broad `go test ./...` run:
+For Windows triage and broad local validation, use the explicit Go source roots. Do not use repository-root `./...`: generated `dist` workspaces can make package discovery pathologically slow.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\Run-GoTestMatrix.ps1
@@ -43,7 +43,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\Run-GoTestMatrix.ps1
 
 The matrix runner:
 
-- lists `go list ./...` packages
+- lists `go list ./cmd/... ./internal/... ./tools/...` packages
 - runs each package with `go test <pkg> -count=1 -timeout 180s -v`
 - prints `PASS`, `FAIL`, or `TIMEOUT` with duration
 - writes per-package stdout/stderr logs plus a JSON summary under `.tmp/go-test-matrix`
@@ -51,15 +51,17 @@ The matrix runner:
 Recommended local tiers:
 
 ```powershell
-# Fast Go
-go test ./cmd/tspack ./internal/... -count=1
+# Cached broad Go
+go test ./cmd/... ./internal/... ./tools/...
+
+# Forced test execution with the build cache retained
+go test ./cmd/... ./internal/... ./tools/... -count=1 -timeout 420s
 
 # Focused Windows-heavy coverage
-go test ./cmd/tspack -run 'Run|Target|Tool|Bin|Shim|Path|Windows|Inspect|Test|Help|Init|Template|Ready' -count=1 -timeout 120s
+go test ./internal/cli -run 'Run|Target|Tool|Bin|Shim|Path|Windows|Inspect|Test|Help|Init|Template|Ready' -count=1 -timeout 120s
 go test ./internal/... -run 'Store|Materialize|Sync|Tar|Path|Symlink|Windows|Tool|Bin|Shim|ProjectIR|Ecosystem' -count=1 -timeout 120s
 
-# Full Go
-go test ./... -timeout 300s
+# Cold Go uses the same roots with a new temporary GOCACHE.
 ```
 
 Environment notes for Windows developers:

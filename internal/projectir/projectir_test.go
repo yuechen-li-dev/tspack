@@ -1,8 +1,6 @@
 package projectir
 
 import (
-	"os/exec"
-	"strings"
 	"testing"
 
 	"github.com/yuechen-li-dev/tspack/internal/ecosystem"
@@ -160,20 +158,5 @@ func TestProjectIRPyPIFixtureDoesNotChangeProductGuardrails(t *testing.T) {
 
 	if _, ok := ecosystem.DescriptorForPackageSource("pypi"); ok {
 		t.Fatalf("pypi source must not map to a production package-source descriptor")
-	}
-}
-
-func TestProjectIRPackageOwnershipDoesNotAdvertisePythonInCLIHelp(t *testing.T) {
-	command := exec.Command("go", "run", "../../cmd/tspack", "help", "all")
-	output, err := command.CombinedOutput()
-	if err != nil {
-		t.Fatalf("help command failed: %v\n%s", err, string(output))
-	}
-
-	help := strings.ToLower(string(output))
-	for _, term := range []string{"python", "pypi", "uv"} {
-		if strings.Contains(help, term) {
-			t.Fatalf("CLI help advertises reserved %q support:\n%s", term, string(output))
-		}
 	}
 }

@@ -21,7 +21,7 @@ try {
         New-Item -ItemType Directory -Path $OutputDir | Out-Null
     }
 
-    $packages = go list ./...
+    $packages = go list ./cmd/... ./internal/... ./tools/...
     $results = @()
 
     foreach ($package in $packages) {

@@ -22,7 +22,7 @@ npm --prefix manifest-frontend run typecheck:manifest-api
 npm --prefix manifest-frontend test
 npm --prefix extensions/tspack-vscode test
 npm --prefix extensions/tspack-vscode run compile
-go test ./...
+go test ./cmd/... ./internal/... ./tools/...
 ./scripts/build-release.sh
 go run ./cmd/tspack --help
 go run ./cmd/tspack --version

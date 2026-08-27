@@ -93,14 +93,32 @@ small end-to-end smoke, not equivalent contention matrices at every layer.
 
 ## Development lanes
 
-- Default Go correctness: go test ./...
-- Focused ownership: run the owning internal package, especially internal/cli
-  and internal/project for lifecycle changes.
-- Focused race: go test -race ./internal/resolver -count=1, plus another
+The repository's Go source roots are `cmd`, `internal`, and `tools`. Use those
+roots explicitly. Do not use repository-root `./...` for the normal lane:
+generated `dist` benchmark and release trees can contain hundreds of thousands
+of files, and the Go package-pattern walk descends into them before it can
+return cached test results.
+
+- Focused ownership: `go test ./internal/cli`, `go test ./internal/project`, or
+  the other owning package.
+- Broad developer correctness:
+  `go test ./cmd/... ./internal/... ./tools/...`.
+- Forced test execution:
+  `go test ./cmd/... ./internal/... ./tools/... -count=1 -timeout 420s`.
+  This bypasses successful test-result reuse while retaining Go's build cache.
+- Cold toolchain/reproducibility: set `GOCACHE` to a new temporary directory and
+  run the forced-test command. Do not clear the user's normal build cache.
+- Focused race: `go test -race ./internal/resolver -count=1`, plus another
   concurrency owner only when its contract changed.
-- Frontend: build, manifest API typecheck, and test under manifest-frontend.
-- Release validation: Go, frontend, VS Code, compatibility, self-host, smoke,
-  and audit lanes together.
+- Frontend: build, manifest API typecheck, and test under `manifest-frontend`.
+- Release validation: broad Go correctness, forced or cold Go validation when
+  required, frontend, VS Code, compatibility, self-host, smoke, and audit lanes
+  together.
+
+Go's normal successful-test cache is a correctness feature. Source, compiler,
+flag, environment, and observed file-input changes invalidate the relevant
+actions. `-count=1` is useful when deliberate re-execution is the evidence; it
+must not be the ritual default for every edit.
 
 Manifest frontend tests reuse one package-owned worker and close it from
 TestMain. Worker tests prove changed manifests are reevaluated and changed
@@ -111,6 +129,11 @@ Batch real TypeScript checks when cases share compiler options. Retain separate
 invocations for materially different configurations and expected failures.
 Wall-clock comparisons must separate package test elapsed from Go test-binary
 compile/link time; a no-test run diagnoses the latter.
+
+Test and generator output belongs in `t.TempDir`, another explicit temporary
+directory, or an owned generated output root. Tests must not rewrite shared
+fixture inputs. Generators must preserve an existing file when the desired
+bytes are unchanged.
 
 ## Review checklist
 

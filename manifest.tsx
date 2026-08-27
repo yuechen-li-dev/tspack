@@ -138,7 +138,7 @@ export default define(
 					{
 						name: "go-test",
 						runtime: "system",
-						command: ["sh", "-c", "go test ./... && echo TSPACK_READY"],
+						command: ["sh", "-c", "go test ./cmd/... ./internal/... ./tools/... && echo TSPACK_READY"],
 						url: "",
 						cwd: "workspace",
 						ready: { kind: "stdout-match", pattern: "TSPACK_READY", stream: "stdout" },

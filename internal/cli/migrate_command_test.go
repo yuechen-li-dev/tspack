@@ -808,7 +808,7 @@ process.stdout.write(JSON.stringify({ ok: true, ir, diagnostics: [] }));
 func migrateCommandWithValidationFrontend(t *testing.T, args ...string) *exec.Cmd {
 	t.Helper()
 
-	cmd := exec.Command("go", args...)
+	cmd := exec.Command(testTspackBinary, args...)
 	cmd.Dir = repoRootForMigrateTest(t)
 	cmd.Env = append(os.Environ(), migrateValidationFrontendEnv(t))
 	return cmd
@@ -823,7 +823,7 @@ func TestMigrateCheckDryRunSuccessWritesNothing(t *testing.T) {
   "scripts":{"dev":"vite","postinstall":"node postinstall.js"}
 }`)
 
-	cmd := migrateCommandWithValidationFrontend(t, "run", "./cmd/tspack", "migrate", "--root", root, "--check")
+	cmd := migrateCommandWithValidationFrontend(t, "migrate", "--root", root, "--check")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("check dry-run failed: %v\n%s", err, string(output))
@@ -844,7 +844,7 @@ func TestMigrateCheckWriteSuccessReportValidation(t *testing.T) {
 	root := t.TempDir()
 	writePackageJSON(t, root, `{"name":"check-write","version":"1.0.0","devDependencies":{"typescript":"^5.9.0"}}`)
 
-	cmd := migrateCommandWithValidationFrontend(t, "run", "./cmd/tspack", "migrate", "--root", root, "--write", "--check")
+	cmd := migrateCommandWithValidationFrontend(t, "migrate", "--root", root, "--write", "--check")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("check write failed: %v\n%s", err, string(output))
@@ -863,7 +863,7 @@ func TestMigrateCheckFailureBlocksWrite(t *testing.T) {
 	root := t.TempDir()
 	writePackageJSON(t, root, `{"name":"bad check","version":"1.0.0"}`)
 
-	cmd := migrateCommandWithValidationFrontend(t, "run", "./cmd/tspack", "migrate", "--root", root, "--write", "--check")
+	cmd := migrateCommandWithValidationFrontend(t, "migrate", "--root", root, "--write", "--check")
 	output, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("expected validation failure:\n%s", string(output))
@@ -898,7 +898,7 @@ func TestMigrateCheckOutputCollisionFailsBeforeValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := migrateCommandWithValidationFrontend(t, "run", "./cmd/tspack", "migrate", "--root", root, "--write", "--check")
+	cmd := migrateCommandWithValidationFrontend(t, "migrate", "--root", root, "--write", "--check")
 	output, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("expected collision failure:\n%s", string(output))
@@ -935,7 +935,7 @@ func TestMigratePhase8aScopedFixtureCheckRerun(t *testing.T) {
   "files": ["dist", "README.md", "LICENSE"]
 }`)
 
-	checkCmd := migrateCommandWithValidationFrontend(t, "run", "./cmd/tspack", "migrate", "--check", "--root", root)
+	checkCmd := migrateCommandWithValidationFrontend(t, "migrate", "--check", "--root", root)
 	checkOutput, err := checkCmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("phase 8a migrate --check failed: %v\n%s", err, string(checkOutput))
@@ -947,7 +947,7 @@ func TestMigratePhase8aScopedFixtureCheckRerun(t *testing.T) {
 		}
 	}
 
-	writeCmd := migrateCommandWithValidationFrontend(t, "run", "./cmd/tspack", "migrate", "--write", "--check", "--root", root)
+	writeCmd := migrateCommandWithValidationFrontend(t, "migrate", "--write", "--check", "--root", root)
 	writeOutput, err := writeCmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("phase 8a migrate --write --check failed: %v\n%s", err, string(writeOutput))
