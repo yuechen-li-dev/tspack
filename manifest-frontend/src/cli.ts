@@ -1,10 +1,12 @@
 import path from 'node:path';
 import readline from 'node:readline';
-import { parsePackageManifestFile, parseWorkspace } from './index.js';
+import { analyzeDependencySource, parsePackageManifestFile, parseWorkspace } from './index.js';
 
 type WorkerRequest = {
   id: number;
+  operation?: 'parse' | 'analyze-dependencies';
   manifestPath: string;
+  packageName?: string;
   directory: string;
   environment: string[];
 };
@@ -38,7 +40,9 @@ async function runWorker(): Promise<void> {
       id = request.id;
       replaceEnvironment(request.environment);
       process.chdir(request.directory);
-      const result = parseManifest(request.manifestPath);
+      const result = request.operation === 'analyze-dependencies'
+        ? analyzeDependencySource(request.manifestPath, request.packageName)
+        : parseManifest(request.manifestPath);
       process.stdout.write(`${JSON.stringify({ id, result })}\n`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -50,6 +54,16 @@ async function runWorker(): Promise<void> {
 async function main(): Promise<void> {
   if (process.argv[2] === '--stdio-worker') {
     await runWorker();
+    return;
+  }
+  if (process.argv[2] === '--analyze-dependencies') {
+    const manifestPath = process.argv[3];
+    if (!manifestPath) {
+      process.stderr.write('usage: node dist/cli.js --analyze-dependencies <manifest.tsx> [package-name]\n');
+      process.exit(2);
+    }
+    const result = analyzeDependencySource(manifestPath, process.argv[4]);
+    process.stdout.write(`${JSON.stringify(result)}\n`);
     return;
   }
   const manifestPath = process.argv[2];

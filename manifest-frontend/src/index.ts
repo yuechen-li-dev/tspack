@@ -40,6 +40,47 @@ type AuthoringContext = {
   declarationDefaults?: Record<string, unknown>;
 };
 
+export type DependencyIslandStatus =
+  | 'OwnedCanonical'
+  | 'OwnedRecognized'
+  | 'UserDynamic'
+  | 'Ambiguous'
+  | 'Unsupported'
+  | 'Absent';
+
+export type SourceRange = {
+  start: number;
+  end: number;
+};
+
+export type DependencyIslandElement = SourceRange & {
+  fullStart: number;
+};
+
+export type DependencySourceAnalysis = {
+  status: DependencyIslandStatus;
+  authority?: 'native' | 'annotation';
+  manifestPath: string;
+  packageName?: string;
+  island?: SourceRange & {
+    contentStart: number;
+    contentEnd: number;
+    elements: DependencyIslandElement[];
+  };
+  insertion?: {
+    offset: number;
+    multiline: boolean;
+    attributeIndent: string;
+    closingIndent: string;
+  };
+  manifestImport?: {
+    contentStart: number;
+    contentEnd: number;
+    names: string[];
+  };
+  diagnostics: Diagnostic[];
+};
+
 const ALLOWED_IMPORT = 'tspack/manifest';
 const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'annotatePackage', 'defineDeps', 'npm', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service', 'json']);
 const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'PackageAnnotations', 'Policies', 'Targets', 'RunTargets', 'SkyrimTarget', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy', 'CompatFiles', 'JsonFile']);
@@ -314,6 +355,252 @@ function manifestEditorTsConfig(options: unknown, diags: Diagnostic[], file: str
     include: validated.include,
     exclude: validated.exclude,
   };
+}
+
+export function analyzeDependencySource(
+  filePath: string,
+  requestedPackageName?: string,
+): DependencySourceAnalysis {
+  const normalizedPath = path.resolve(filePath);
+  const sourceText = fs.readFileSync(normalizedPath, 'utf8');
+  const sourceFile = ts.createSourceFile(
+    normalizedPath,
+    sourceText,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const manifestImport = analyzeManifestImport(sourceFile, sourceText);
+  const candidates: Array<{
+    node: ts.JsxOpeningLikeElement;
+    packageName?: string;
+    authority: 'native' | 'annotation';
+  }> = [];
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+      if (node.tagName.getText(sourceFile) === 'Package' || node.tagName.getText(sourceFile) === 'PackageAnnotations') {
+        candidates.push({
+          node,
+          packageName: jsxStringAttribute(node, 'name'),
+          authority: node.tagName.getText(sourceFile) === 'PackageAnnotations' ? 'annotation' : 'native',
+        });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+
+  const matching = requestedPackageName
+    ? candidates.filter((candidate) => candidate.packageName === requestedPackageName)
+    : candidates;
+  if (matching.length > 1) {
+    return dependencyAnalysisFailure(
+      'Ambiguous',
+      normalizedPath,
+      requestedPackageName,
+      'TSPACK_MANIFEST_DEPENDENCY_ISLAND_AMBIGUOUS',
+      'Several package dependency surfaces match this projection request. Select one package explicitly.',
+    );
+  }
+  if (matching.length === 0) {
+    return dependencyAnalysisFailure(
+      'Unsupported',
+      normalizedPath,
+      requestedPackageName,
+      'TSPACK_MANIFEST_DEPENDENCY_ISLAND_NOT_FOUND',
+      'No structurally recognizable Package or PackageAnnotations element matches this projection request.',
+    );
+  }
+
+  const candidate = matching[0];
+  const dependencyAttributes = jsxAttributes(candidate.node, 'dependencies');
+  if (dependencyAttributes.length > 1) {
+    return dependencyAnalysisFailure(
+      'Ambiguous',
+      normalizedPath,
+      candidate.packageName,
+      'TSPACK_MANIFEST_DEPENDENCY_ISLAND_AMBIGUOUS',
+      'The selected package has several dependency attributes. TSPack will not guess which source surface owns the declaration.',
+    );
+  }
+  const dependencies = dependencyAttributes[0];
+  if (!dependencies) {
+    const offset = ts.isJsxSelfClosingElement(candidate.node)
+      ? candidate.node.getEnd() - 2
+      : candidate.node.getEnd() - 1;
+    const lineStart = sourceText.lastIndexOf('\n', offset - 1) + 1;
+    const closingIndent = sourceText.slice(lineStart, offset).match(/^\s*/)?.[0] ?? '';
+    const multiline = sourceText.slice(candidate.node.getStart(sourceFile), offset).includes('\n');
+    return {
+      status: 'Absent',
+      authority: candidate.authority,
+      manifestPath: normalizedPath,
+      packageName: candidate.packageName,
+      insertion: {
+        offset: utf8Offset(sourceText, multiline ? lineStart : offset),
+        multiline,
+        attributeIndent: multiline ? closingIndent + detectIndentUnit(sourceText) : '',
+        closingIndent,
+      },
+      ...(manifestImport ? { manifestImport } : {}),
+      diagnostics: [],
+    };
+  }
+  if (!dependencies.initializer || !ts.isJsxExpression(dependencies.initializer) || !dependencies.initializer.expression) {
+    return dynamicDependencyAnalysis(normalizedPath, candidate.packageName);
+  }
+  const dependencyObject = dependencies.initializer.expression;
+  if (!ts.isObjectLiteralExpression(dependencyObject)) {
+    return dynamicDependencyAnalysis(normalizedPath, candidate.packageName);
+  }
+  const valuesProperties = dependencyObject.properties.filter((property): property is ts.PropertyAssignment => {
+    return ts.isPropertyAssignment(property) && property.name.getText(sourceFile) === 'values';
+  });
+  if (valuesProperties.length > 1) {
+    return dependencyAnalysisFailure(
+      'Ambiguous',
+      normalizedPath,
+      candidate.packageName,
+      'TSPACK_MANIFEST_DEPENDENCY_ISLAND_AMBIGUOUS',
+      'The selected dependency object has several values properties. TSPack will not guess which array owns the declaration.',
+    );
+  }
+  const valuesProperty = valuesProperties[0];
+  if (!valuesProperty || !ts.isArrayLiteralExpression(valuesProperty.initializer)) {
+    return dynamicDependencyAnalysis(normalizedPath, candidate.packageName);
+  }
+
+  const values = valuesProperty.initializer;
+  const openBracket = values.getFirstToken(sourceFile);
+  const closeBracket = values.getLastToken(sourceFile);
+  if (!openBracket || !closeBracket) {
+    return dependencyAnalysisFailure(
+      'Unsupported',
+      normalizedPath,
+      candidate.packageName,
+      'TSPACK_MANIFEST_DEPENDENCY_PROJECTION_UNSAFE',
+      'The dependency values array has no stable source range.',
+    );
+  }
+  const elements = values.elements.map((element) => ({
+    start: utf8Offset(sourceText, element.getStart(sourceFile)),
+    end: utf8Offset(sourceText, element.getEnd()),
+    fullStart: utf8Offset(sourceText, element.getFullStart()),
+  }));
+  return {
+    status: 'OwnedCanonical',
+    authority: candidate.authority,
+    manifestPath: normalizedPath,
+    packageName: candidate.packageName,
+    island: {
+      start: utf8Offset(sourceText, dependencies.getStart(sourceFile)),
+      end: utf8Offset(sourceText, dependencies.getEnd()),
+      contentStart: utf8Offset(sourceText, openBracket.getEnd()),
+      contentEnd: utf8Offset(sourceText, closeBracket.getStart(sourceFile)),
+      elements,
+    },
+    ...(manifestImport ? { manifestImport } : {}),
+    diagnostics: [],
+  };
+}
+
+function analyzeManifestImport(
+  sourceFile: ts.SourceFile,
+  sourceText: string,
+): DependencySourceAnalysis['manifestImport'] {
+  const declarations = sourceFile.statements.filter((statement): statement is ts.ImportDeclaration => {
+    return ts.isImportDeclaration(statement)
+      && ts.isStringLiteral(statement.moduleSpecifier)
+      && statement.moduleSpecifier.text === ALLOWED_IMPORT;
+  });
+  if (declarations.length !== 1) {
+    return undefined;
+  }
+  const namedBindings = declarations[0].importClause?.namedBindings;
+  if (!namedBindings || !ts.isNamedImports(namedBindings)) {
+    return undefined;
+  }
+  const openBrace = namedBindings.getFirstToken(sourceFile);
+  const closeBrace = namedBindings.getLastToken(sourceFile);
+  if (!openBrace || !closeBrace) {
+    return undefined;
+  }
+  return {
+    contentStart: utf8Offset(sourceText, openBrace.getEnd()),
+    contentEnd: utf8Offset(sourceText, closeBrace.getStart(sourceFile)),
+    names: namedBindings.elements.map((element) => element.name.text),
+  };
+}
+
+function jsxAttribute(node: ts.JsxOpeningLikeElement, name: string): ts.JsxAttribute | undefined {
+  return jsxAttributes(node, name)[0];
+}
+
+function jsxAttributes(node: ts.JsxOpeningLikeElement, name: string): ts.JsxAttribute[] {
+  const attributes: ts.JsxAttribute[] = [];
+  for (const property of node.attributes.properties) {
+    if (ts.isJsxAttribute(property) && property.name.getText() === name) {
+      attributes.push(property);
+    }
+  }
+  return attributes;
+}
+
+function jsxStringAttribute(node: ts.JsxOpeningLikeElement, name: string): string | undefined {
+  const attribute = jsxAttribute(node, name);
+  if (attribute?.initializer && ts.isStringLiteral(attribute.initializer)) {
+    return attribute.initializer.text;
+  }
+  return undefined;
+}
+
+function dynamicDependencyAnalysis(manifestPath: string, packageName?: string): DependencySourceAnalysis {
+  return dependencyAnalysisFailure(
+    'UserDynamic',
+    manifestPath,
+    packageName,
+    'TSPACK_MANIFEST_DEPENDENCIES_DYNAMIC',
+    'Package dependencies are not a literal { values: [...] } surface. TSPack can execute supported manifests without claiming this source is safely editable.',
+  );
+}
+
+function dependencyAnalysisFailure(
+  status: DependencyIslandStatus,
+  manifestPath: string,
+  packageName: string | undefined,
+  code: string,
+  message: string,
+): DependencySourceAnalysis {
+  return {
+    status,
+    manifestPath,
+    ...(packageName ? { packageName } : {}),
+    diagnostics: [{
+      code,
+      severity: 'error',
+      message,
+      file: manifestPath,
+    }],
+  };
+}
+
+function utf8Offset(sourceText: string, utf16Offset: number): number {
+  return Buffer.byteLength(sourceText.slice(0, utf16Offset), 'utf8');
+}
+
+function detectIndentUnit(sourceText: string): string {
+  const indents = sourceText.match(/^[\t ]+(?=\S)/gm) ?? [];
+  if (indents.some((indent) => indent.startsWith('\t'))) {
+    return '\t';
+  }
+  let smallest = Number.POSITIVE_INFINITY;
+  for (const indent of indents) {
+    if (indent.length > 0 && indent.length < smallest) {
+      smallest = indent.length;
+    }
+  }
+  return Number.isFinite(smallest) ? ' '.repeat(smallest) : '  ';
 }
 
 function validateSkyrimTargetSyntax(

@@ -26,6 +26,58 @@ type Result struct {
 	Diagnostics []diag.Diagnostic `json:"diagnostics"`
 }
 
+type DependencyIslandStatus string
+
+const (
+	DependencyIslandOwnedCanonical  DependencyIslandStatus = "OwnedCanonical"
+	DependencyIslandOwnedRecognized DependencyIslandStatus = "OwnedRecognized"
+	DependencyIslandUserDynamic     DependencyIslandStatus = "UserDynamic"
+	DependencyIslandAmbiguous       DependencyIslandStatus = "Ambiguous"
+	DependencyIslandUnsupported     DependencyIslandStatus = "Unsupported"
+	DependencyIslandAbsent          DependencyIslandStatus = "Absent"
+)
+
+type SourceRange struct {
+	Start int `json:"start"`
+	End   int `json:"end"`
+}
+
+type DependencyIslandElement struct {
+	SourceRange
+	FullStart int `json:"fullStart"`
+}
+
+type DependencyIsland struct {
+	SourceRange
+	ContentStart int                       `json:"contentStart"`
+	ContentEnd   int                       `json:"contentEnd"`
+	Elements     []DependencyIslandElement `json:"elements"`
+}
+
+type DependencyInsertion struct {
+	Offset          int    `json:"offset"`
+	Multiline       bool   `json:"multiline"`
+	AttributeIndent string `json:"attributeIndent"`
+	ClosingIndent   string `json:"closingIndent"`
+}
+
+type ManifestImport struct {
+	ContentStart int      `json:"contentStart"`
+	ContentEnd   int      `json:"contentEnd"`
+	Names        []string `json:"names"`
+}
+
+type DependencySourceAnalysis struct {
+	Status         DependencyIslandStatus `json:"status"`
+	Authority      string                 `json:"authority,omitempty"`
+	ManifestPath   string                 `json:"manifestPath"`
+	PackageName    string                 `json:"packageName,omitempty"`
+	Island         *DependencyIsland      `json:"island,omitempty"`
+	Insertion      *DependencyInsertion   `json:"insertion,omitempty"`
+	ManifestImport *ManifestImport        `json:"manifestImport,omitempty"`
+	Diagnostics    []diag.Diagnostic      `json:"diagnostics"`
+}
+
 type Statistics struct {
 	WorkerStarts   int
 	WorkerRequests int
@@ -37,15 +89,17 @@ type Statistics struct {
 
 type request struct {
 	ID           int      `json:"id"`
+	Operation    string   `json:"operation,omitempty"`
 	ManifestPath string   `json:"manifestPath"`
+	PackageName  string   `json:"packageName,omitempty"`
 	Directory    string   `json:"directory"`
 	Environment  []string `json:"environment"`
 }
 
 type response struct {
-	ID     int    `json:"id"`
-	Result Result `json:"result"`
-	Error  string `json:"error,omitempty"`
+	ID     int             `json:"id"`
+	Result json.RawMessage `json:"result"`
+	Error  string          `json:"error,omitempty"`
 }
 
 type worker struct {
@@ -73,21 +127,47 @@ func Execute(frontendPath string, manifestPath string) (Result, error) {
 	return result, err
 }
 
+func AnalyzeDependencies(frontendPath string, manifestPath string, packageName string) (DependencySourceAnalysis, error) {
+	started := time.Now()
+	payload, err := executeRaw(frontendPath, manifestPath, "analyze-dependencies", packageName)
+	recordDuration(time.Since(started))
+	if err != nil {
+		return DependencySourceAnalysis{}, err
+	}
+	var analysis DependencySourceAnalysis
+	if err := json.Unmarshal(payload, &analysis); err != nil {
+		return DependencySourceAnalysis{}, fmt.Errorf("invalid dependency source analysis: %w", err)
+	}
+	return analysis, nil
+}
+
 func executeWithWorker(frontendPath string, manifestPath string) (Result, error) {
-	nodePath, err := nodecmd.Locate()
+	payload, err := executeRaw(frontendPath, manifestPath, "", "")
 	if err != nil {
 		return Result{}, err
+	}
+	var result Result
+	if err := json.Unmarshal(payload, &result); err != nil {
+		return Result{}, fmt.Errorf("invalid manifest frontend result: %w", err)
+	}
+	return result, nil
+}
+
+func executeRaw(frontendPath string, manifestPath string, operation string, packageName string) (json.RawMessage, error) {
+	nodePath, err := nodecmd.Locate()
+	if err != nil {
+		return nil, err
 	}
 	frontendContents, err := os.ReadFile(frontendPath)
 	if err != nil {
-		return Result{}, err
+		return nil, err
 	}
 	if !bytes.Contains(frontendContents, []byte("--stdio-worker")) {
-		return executeOneShot(nodePath, frontendPath, manifestPath)
+		return executeOneShotRaw(nodePath, frontendPath, manifestPath, operation, packageName)
 	}
 	workerKey, err := executionKey(nodePath, frontendPath)
 	if err != nil {
-		return Result{}, err
+		return nil, err
 	}
 
 	manager.Lock()
@@ -101,7 +181,7 @@ func executeWithWorker(frontendPath string, manifestPath string) (Result, error)
 	}
 	manager.Unlock()
 	if err == nil {
-		result, workerErr := current.execute(manifestPath)
+		result, workerErr := current.execute(manifestPath, operation, packageName)
 		if workerErr == nil {
 			manager.Lock()
 			manager.requests++
@@ -115,7 +195,7 @@ func executeWithWorker(frontendPath string, manifestPath string) (Result, error)
 		manager.Unlock()
 		_ = current.close()
 	}
-	return executeOneShot(nodePath, frontendPath, manifestPath)
+	return executeOneShotRaw(nodePath, frontendPath, manifestPath, operation, packageName)
 }
 
 func executionKey(nodePath string, frontendPath string) (string, error) {
@@ -176,64 +256,93 @@ func startWorker(nodePath string, frontendPath string) (*worker, error) {
 	return current, nil
 }
 
-func (current *worker) execute(manifestPath string) (Result, error) {
+func (current *worker) execute(manifestPath string, operation string, packageName string) (json.RawMessage, error) {
 	current.mutex.Lock()
 	defer current.mutex.Unlock()
 
 	directory, err := os.Getwd()
 	if err != nil {
-		return Result{}, err
+		return nil, err
 	}
 	current.nextID++
 	payload, err := json.Marshal(request{
 		ID:           current.nextID,
+		Operation:    operation,
 		ManifestPath: manifestPath,
+		PackageName:  packageName,
 		Directory:    directory,
 		Environment:  os.Environ(),
 	})
 	if err != nil {
-		return Result{}, err
+		return nil, err
 	}
 	if _, err := current.stdin.Write(append(payload, '\n')); err != nil {
-		return Result{}, err
+		return nil, err
 	}
 	line, err := current.stdout.ReadBytes('\n')
 	if err != nil {
-		return Result{}, fmt.Errorf("manifest frontend worker stopped: %w: %s", err, strings.TrimSpace(current.stderr.String()))
+		return nil, fmt.Errorf("manifest frontend worker stopped: %w: %s", err, strings.TrimSpace(current.stderr.String()))
 	}
 	var reply response
 	if err := json.Unmarshal(line, &reply); err != nil {
-		return Result{}, fmt.Errorf("invalid manifest frontend worker response: %w", err)
+		return nil, fmt.Errorf("invalid manifest frontend worker response: %w", err)
 	}
 	if reply.ID != current.nextID {
-		return Result{}, fmt.Errorf("manifest frontend worker response id %d, want %d", reply.ID, current.nextID)
+		return nil, fmt.Errorf("manifest frontend worker response id %d, want %d", reply.ID, current.nextID)
 	}
 	if reply.Error != "" {
-		return Result{}, fmt.Errorf("manifest frontend worker: %s", reply.Error)
+		return nil, fmt.Errorf("manifest frontend worker: %s", reply.Error)
 	}
-	return reply.Result, nil
+	return append(json.RawMessage(nil), reply.Result...), nil
 }
 
 func executeOneShot(nodePath string, frontendPath string, manifestPath string) (Result, error) {
+	payload, err := executeOneShotRaw(nodePath, frontendPath, manifestPath, "", "")
+	if err != nil {
+		return Result{}, err
+	}
+	var result Result
+	if err := json.Unmarshal(payload, &result); err != nil {
+		return Result{}, err
+	}
+	return result, nil
+}
+
+func executeOneShotRaw(nodePath string, frontendPath string, manifestPath string, operation string, packageName string) (json.RawMessage, error) {
 	manager.Lock()
 	manager.oneshots++
 	manager.Unlock()
 
-	command := exec.Command(nodePath, frontendPath, manifestPath)
+	arguments := []string{frontendPath, manifestPath}
+	if operation == "analyze-dependencies" {
+		arguments = []string{frontendPath, "--analyze-dependencies", manifestPath}
+		if packageName != "" {
+			arguments = append(arguments, packageName)
+		}
+	}
+	command := exec.Command(nodePath, arguments...)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
 	runErr := command.Run()
-	var result Result
-	parseErr := json.Unmarshal(stdout.Bytes(), &result)
-	if runErr != nil && (parseErr != nil || result.OK) {
-		return Result{}, fmt.Errorf("manifest frontend failed: %w: %s", runErr, strings.TrimSpace(stderr.String()))
+	validJSON := json.Valid(stdout.Bytes())
+	if runErr != nil {
+		if !validJSON {
+			return nil, fmt.Errorf("manifest frontend failed: %w: %s", runErr, strings.TrimSpace(stderr.String()))
+		}
+		if operation == "analyze-dependencies" {
+			return nil, fmt.Errorf("manifest frontend failed: %w: %s", runErr, strings.TrimSpace(stderr.String()))
+		}
+		var result Result
+		if err := json.Unmarshal(stdout.Bytes(), &result); err != nil || result.OK {
+			return nil, fmt.Errorf("manifest frontend failed: %w: %s", runErr, strings.TrimSpace(stderr.String()))
+		}
 	}
-	if parseErr != nil {
-		return Result{}, fmt.Errorf("invalid manifest frontend JSON: %w", parseErr)
+	if !validJSON {
+		return nil, fmt.Errorf("invalid manifest frontend JSON")
 	}
-	return result, nil
+	return append(json.RawMessage(nil), stdout.Bytes()...), nil
 }
 
 func (current *worker) close() error {
