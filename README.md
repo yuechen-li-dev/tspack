@@ -37,6 +37,7 @@ TSPack delegates npm package operations to real npm and does not manage Node.js 
 tspack init --kind library --name my-package
 # init also writes tsconfig.tspack.json and local manifest/xTest editor types.
 tspack add lodash
+tspack remove lodash
 tspack update
 tspack check
 tspack check --format
@@ -59,7 +60,7 @@ tspack help commands
 
 - `manifest.tsx` / `package.manifest.tsx` project contracts.
 - Deterministic `ts-lock.toml` lockfiles.
-- First-class `tspack add` through semantic authoring IR and source-preserving manifest projection.
+- First-class `tspack add` and `tspack remove` through semantic authoring IR and source-preserving manifest projection.
 - `update`, `sync`, and content-addressed store population.
 - `check` and read-only `check --format` validation.
 - Blocked-by-default dependency lifecycle security policy.

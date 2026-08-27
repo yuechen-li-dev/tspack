@@ -119,6 +119,25 @@ func TestRemoveUnshadowsPreviousDeclaration(t *testing.T) {
 	}
 }
 
+func TestRemoveUnshadowsEquivalentDeclarationByProvenance(t *testing.T) {
+	concept := testDeclaration("concept", "^4", LayerConcept, 0, OriginConcept)
+	explicit := testDeclaration("explicit", "^4", LayerExplicit, 0, OriginExplicitUserOperation)
+
+	result, err := Remove(
+		PackageIR{Declarations: []DependencyDeclaration{concept, explicit}},
+		DeclarationSelector{ID: "explicit", EditableOnly: true},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasChange(result.Changes, ChangeUnshadowed, "concept") {
+		t.Fatalf("equivalent declaration provenance was not unshadowed: %#v", result.Changes)
+	}
+	if len(result.After.Effective) != 1 || result.After.Effective[0].Source.Range != "^4" {
+		t.Fatalf("effective value changed while provenance unshadowed: %#v", result.After.Effective)
+	}
+}
+
 func TestAddDefaultsToExplicitEditableUserLayer(t *testing.T) {
 	concept := testDeclaration("concept", "^1", LayerConcept, 0, OriginConcept)
 	added := DependencyDeclaration{

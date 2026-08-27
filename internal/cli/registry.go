@@ -24,6 +24,7 @@ var commandHandlers = map[string]func([]string){
 	"npm":              runNpmCommand,
 	"outdated":         runOutdatedCommand,
 	"pack":             runPackCommand,
+	"remove":           runRemoveCommand,
 	"run":              runRunCommand,
 	"scenario":         runScenarioCommand,
 	"skyrim":           runSkyrimFixtureCommand,

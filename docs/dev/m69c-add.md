@@ -97,6 +97,6 @@ Human output reports package, source, kind, selected exact version, written
 constraint, changed files, and shadowed origins. `--json` exposes durable
 semantic fields without AST ranges or tape internals.
 
-M69d remove remains future work. M69e still includes tool/dev selection,
-additional source selection, richer diff polish, and any target-specific
-authoring controls. JSR and compiler work remain out of scope.
+M69d remove is complete. M69e still includes tool/dev selection, additional
+source selection, richer diff polish, and any target-specific authoring
+controls. JSR and compiler work remain out of scope.

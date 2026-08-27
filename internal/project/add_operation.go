@@ -165,7 +165,7 @@ func RunAddDependency(request AddDependencyRequest) AddDependencyResult {
 	if client == nil {
 		client = resolver.NewHTTPRegistryClient("")
 	}
-	client = newAddMemoClient(client)
+	client = newDependencyEditMemoClient(client)
 	metadata, metadataErr := client.PackageMetadata(context.Background(), identity.Name)
 	if metadataErr != nil {
 		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_ADD_METADATA_FETCH_FAILED", "failed to fetch npm package metadata", identity.Name, metadataErr.Error()))
@@ -443,11 +443,13 @@ func addDiagnostic(code string, message string, details ...string) diag.Diagnost
 	return diag.Diagnostic{Code: code, Severity: diag.SeverityError, Message: message, Details: details}
 }
 
-type addMemoClient struct {
-	inner    resolver.NPMRegistryClient
-	mu       sync.Mutex
-	metadata map[string]addMetadataMemo
-	tarballs map[string]addTarballMemo
+type dependencyEditMemoClient struct {
+	inner            resolver.NPMRegistryClient
+	mu               sync.Mutex
+	metadata         map[string]addMetadataMemo
+	tarballs         map[string]addTarballMemo
+	metadataRequests int
+	tarballRequests  int
 }
 
 type addMetadataMemo struct {
@@ -460,16 +462,19 @@ type addTarballMemo struct {
 	err  error
 }
 
-func newAddMemoClient(inner resolver.NPMRegistryClient) *addMemoClient {
-	return &addMemoClient{inner: inner, metadata: map[string]addMetadataMemo{}, tarballs: map[string]addTarballMemo{}}
+func newDependencyEditMemoClient(inner resolver.NPMRegistryClient) *dependencyEditMemoClient {
+	return &dependencyEditMemoClient{inner: inner, metadata: map[string]addMetadataMemo{}, tarballs: map[string]addTarballMemo{}}
 }
 
-func (client *addMemoClient) PackageMetadata(ctx context.Context, name string) (*resolver.PackageMetadata, error) {
+func (client *dependencyEditMemoClient) PackageMetadata(ctx context.Context, name string) (*resolver.PackageMetadata, error) {
 	client.mu.Lock()
 	if memo, ok := client.metadata[name]; ok {
 		client.mu.Unlock()
 		return memo.metadata, memo.err
 	}
+	client.mu.Unlock()
+	client.mu.Lock()
+	client.metadataRequests++
 	client.mu.Unlock()
 	metadata, err := client.inner.PackageMetadata(ctx, name)
 	client.mu.Lock()
@@ -478,16 +483,25 @@ func (client *addMemoClient) PackageMetadata(ctx context.Context, name string) (
 	return metadata, err
 }
 
-func (client *addMemoClient) Tarball(ctx context.Context, url string) ([]byte, error) {
+func (client *dependencyEditMemoClient) Tarball(ctx context.Context, url string) ([]byte, error) {
 	client.mu.Lock()
 	if memo, ok := client.tarballs[url]; ok {
 		client.mu.Unlock()
 		return append([]byte(nil), memo.body...), memo.err
 	}
 	client.mu.Unlock()
+	client.mu.Lock()
+	client.tarballRequests++
+	client.mu.Unlock()
 	body, err := client.inner.Tarball(ctx, url)
 	client.mu.Lock()
 	client.tarballs[url] = addTarballMemo{body: append([]byte(nil), body...), err: err}
 	client.mu.Unlock()
 	return body, err
+}
+
+func (client *dependencyEditMemoClient) RequestCounts() (int, int) {
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	return client.metadataRequests, client.tarballRequests
 }

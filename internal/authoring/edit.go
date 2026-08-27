@@ -71,23 +71,27 @@ func Add(ir PackageIR, declaration DependencyDeclaration) EditResult {
 }
 
 func Remove(ir PackageIR, selector DeclarationSelector) (EditResult, error) {
-	before := Build(ir.Declarations)
-	matches := matchingDeclarationIndexes(ir.Declarations, selector)
+	declarations := append([]DependencyDeclaration(nil), ir.Declarations...)
+	for index := range declarations {
+		normalizeDeclaration(&declarations[index], index)
+	}
+	before := Build(declarations)
+	matches := matchingDeclarationIndexes(declarations, selector)
 	if len(matches) == 0 {
 		return EditResult{}, DeclarationNotFoundError{}
 	}
 	if len(matches) > 1 {
-		declarations := make([]DependencyDeclaration, 0, len(matches))
+		matchedDeclarations := make([]DependencyDeclaration, 0, len(matches))
 		for _, index := range matches {
-			declarations = append(declarations, ir.Declarations[index])
+			matchedDeclarations = append(matchedDeclarations, declarations[index])
 		}
-		return EditResult{}, AmbiguousRemovalError{Matches: declarations}
+		return EditResult{}, AmbiguousRemovalError{Matches: matchedDeclarations}
 	}
 
-	removed := ir.Declarations[matches[0]]
-	afterDeclarations := make([]DependencyDeclaration, 0, len(ir.Declarations)-1)
-	afterDeclarations = append(afterDeclarations, ir.Declarations[:matches[0]]...)
-	afterDeclarations = append(afterDeclarations, ir.Declarations[matches[0]+1:]...)
+	removed := declarations[matches[0]]
+	afterDeclarations := make([]DependencyDeclaration, 0, len(declarations)-1)
+	afterDeclarations = append(afterDeclarations, declarations[:matches[0]]...)
+	afterDeclarations = append(afterDeclarations, declarations[matches[0]+1:]...)
 	after := Build(afterDeclarations)
 	return buildEditResult(before, after, []AuthoringChange{{Kind: ChangeRemoved, Declaration: removed}}), nil
 }

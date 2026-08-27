@@ -274,21 +274,18 @@ The intended canonical target is a TSPack-owned dependency declaration island
 using the existing `defineDeps` plus package `dependencies.values` syntax. The
 frontend now accepts `dependencyDeclaration` defaults on `Package` and
 per-dependency `declaration` metadata, which gives generated templates a safe
-way to state provenance. M69b still needs a source-preserving projector for a
-clearly delimited owned island, including idempotence and diff tests.
+way to state provenance. M69b subsequently added the source-preserving
+projector for that owned island.
 
 Roadmap status:
 
-- M69b canonical projection: enabled, not implemented;
-- M69c `tspack add`: semantic add/edit result complete, CLI and projection
-  remain;
-- M69d `tspack remove`: selector, ambiguity, remove, remains-required, and
-  unshadow semantics complete; CLI and projection remain;
+- M69b canonical projection: complete;
+- M69c `tspack add`: complete;
+- M69d `tspack remove`: complete;
 - M69e ergonomics: not started.
 
-No `add` or `remove` command is exposed yet because doing so without a safe
-source projector would either rewrite arbitrary user code or pretend an IR-only
-change persisted.
+`add` and `remove` now expose the semantic edit model through the M69b guarded
+source projector and normal update path.
 
 ## Deferred M70+ directions
 

@@ -124,13 +124,16 @@ authoring precedence, and lockfiles do not contain authoring history. Concept,
 template, package-manifest, and compatibility producers converge on the same
 declaration vocabulary. See `docs/dev/m69a-authoring-ir.md` for the full model.
 
-`tspack add` enters this boundary as a typed `project.AddDependencyRequest`.
-Project orchestration selects package/source/constraint policy, applies the pure
+`tspack add` and `tspack remove` enter this boundary as typed
+`project.AddDependencyRequest` and `project.RemoveDependencyRequest` values.
+Project orchestration selects the package and declaration, applies the pure
 authoring edit, asks `internal/manifestedit` for a projection, performs a guarded
-atomic manifest write, and invokes the ordinary update operation. CLI code only
-parses flags and renders the typed result. Metadata and tarballs are memoized
-across add preflight and update commit so the safety pass does not duplicate
-registry requests.
+atomic manifest write, and invokes the ordinary update operation. Remove
+classifies any unshadowed declaration before projection and classifies resolved
+lock persistence only after update. CLI code only parses flags and renders the
+typed result. Metadata and tarballs are memoized across edit preflight and
+update commit so the safety pass does not duplicate registry requests; remove
+does not query registry metadata merely to select a declaration.
 
 ## Cross-cutting services
 

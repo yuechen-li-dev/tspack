@@ -4,6 +4,7 @@
 |---|---|---|---|---|
 | `tspack init` | Scaffold a starter manifest and entry source for `library` or `app`. | **Yes (files)** / No | Does not install, update lock, sync, or build outputs. | `docs/init.md` |
 | `tspack add <package>` | Author an explicit native dependency through the dependency tape, project it into the owned manifest island, and run normal update resolution. | **Yes (manifest and lock)** | Does not mutate package.json authority, accept arbitrary npm install specs, or execute lifecycle scripts. | `docs/dev/m69c-add.md` |
+| `tspack remove <package>` | Remove one editable native dependency declaration, reveal any lower-precedence winner, project the owned source edit, and run normal update resolution. | **Yes (manifest and lock)** | Does not delete concept/template declarations, mutate package.json authority, or force a package out of the resolved graph. | `docs/dev/m69d-remove.md` |
 | `tspack migrate` | Convert package.json metadata into a reviewable `manifest.migrated.tsx` draft and `tspack-migration.md` report, including package-lock evidence, source scan evidence, script classification, report-only RunTarget suggestions, and optional `--check` structural validation. Dry-run by default; `--write` creates files. | **Yes with `--write` (migration outputs only)** / No | `--check` validates the generated draft with the manifest frontend and Go IR validator, but does not overwrite `manifest.tsx`, mutate package.json, translate lockfiles to TSPack locks, mutate source imports, install, execute scripts, migrate npm scripts into active RunTargets, generate `ts-lock.toml`, or run update/sync/check. | `docs/migrate.md` |
 | `tspack adopt --check-annotations` | Check package.manifest.tsx annotation consistency against package.json and exit nonzero on errors or warnings. | No | CI-friendly read-only drift check; unannotated dependencies are notices and do not fail. | `docs/design/incremental-adoption.md` |
 | `tspack adopt --suggest-package <package-root>` | Print a dry-run `package.manifest.tsx` annotation suggestion for an existing package.json package. | No | Advisory only; writes no manifest, mutates no package.json, and generates no lockfile. | `docs/design/incremental-adoption.md` |
@@ -41,6 +42,15 @@
 - `--dry-run` performs metadata selection, semantic editing, and source projection planning without writing the manifest, lockfile, or store. `--json` exposes stable semantic result fields.
 - Repeating an unqualified add of the same editable declaration is a byte-for-byte no-op. An explicit spec replaces the matching editable declaration; a derived or concept-owned declaration is retained and shadowed by a new explicit declaration.
 - package.json-native incremental projects receive an authority diagnostic and should use `tspack npm install ...` until ownership is migrated.
+
+## `tspack remove`
+
+- `tspack remove lodash` removes one owned, editable declaration from the selected native package. It does not interpret `lodash@^4` as an uninstall query and does not force matching lock entries out of the graph.
+- The command rebuilds the authoring tape before source projection. If an explicit override shadowed a concept or template declaration, that lower declaration becomes effective again and is reported with its provenance.
+- Package-local direct truth and resolved truth are separate. A declaration can disappear while the artifact remains locked transitively or because another workspace package still requires it.
+- Several editable matches are an error. `--optional` can select an optional declaration, and `--package <name>` is required when several native packages are editable.
+- Derived/concept-only and repeated removals are no-op operations. Incremental package.json authority is denied with guidance to use `tspack npm uninstall`.
+- `--dry-run` performs selection, semantic removal, tape rebuilding, and source projection without writing manifest, lock, or store state. Resolved status is reported only after a committed update or when reading unchanged no-op state. `--json` exposes the semantic fields without raw tape or AST data.
 
 ## `tspack sync`
 

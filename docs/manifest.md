@@ -230,6 +230,23 @@ sets the independent optional bit. Multiple native packages require
 `--package <name>`. Annotation manifests and alongside/package.json-native
 projects remain non-editable because package.json retains authority.
 
+### Removing authored dependencies
+
+`tspack remove <package>` removes the selected owned, editable authoring
+declaration. The dependency tape is rebuilt before any source write. If a
+lower-precedence concept or template declaration was shadowed, it becomes the
+effective declaration again; the projector removes only the selected element
+from the package's owned `dependencies.values` island.
+
+Removal does not mean forced graph deletion. The selected package can stop
+declaring a dependency while the same artifact remains in `ts-lock.toml`
+through another workspace package or a transitive edge. Repeated removal and a
+match that exists only as concept/template/derived provenance are no-op
+operations. Use `--package <name>` in multi-package workspaces and
+`--optional` when optional semantics are needed to disambiguate editable
+declarations. package.json-native projects keep npm authority and must use
+`tspack npm uninstall` instead.
+
 Without the explicit keys in the dependency-alias example above, the manifest frontend preserves the property alias fallback. Because the dependency identity derived from the npm package is `@biomejs/biome` or `react-dom`, Go IR validation reports `TSPACK_IR_UNKNOWN_DEPENDENCY_REF` if the alias and dependency identity do not match. `tspack migrate` follows this rule automatically: generated declarations get `key` whenever the TypeScript identifier differs from the npm package name, while packages such as `typescript` do not get noisy key options.
 
 ## Publish include conventions

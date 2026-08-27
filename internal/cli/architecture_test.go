@@ -117,8 +117,8 @@ func TestCommandRegistryIsExplicit(t *testing.T) {
 	want := []string{
 		"add", "adopt", "artifact", "audit", "bench", "build", "check", "compat",
 		"doctor", "doom", "format", "how", "init", "inspect", "lint",
-		"materialize-tree", "migrate", "npm", "outdated", "pack", "run",
-		"scenario", "skyrim", "sync", "test", "update", "why",
+		"materialize-tree", "migrate", "npm", "outdated", "pack", "remove",
+		"run", "scenario", "skyrim", "sync", "test", "update", "why",
 	}
 	got := make([]string, 0, len(commandHandlers))
 	for name := range commandHandlers {
@@ -132,7 +132,9 @@ func TestCommandRegistryIsExplicit(t *testing.T) {
 
 func TestLifecycleCommandsHaveDedicatedHandlers(t *testing.T) {
 	want := map[string]string{
+		"add":      "runAddCommand",
 		"check":    "runCheckCommand",
+		"remove":   "runRemoveCommand",
 		"update":   "runUpdateCommand",
 		"sync":     "runSyncCommand",
 		"pack":     "runPackCommand",

@@ -2,9 +2,9 @@
 
 ## Status
 
-M69b introduces a syntax-aware, source-preserving dependency projector. It
-does not add a public `tspack add` or `tspack remove` command. The completed
-path is:
+M69b introduced the syntax-aware, source-preserving dependency projector later
+used by the public M69c `tspack add` and M69d `tspack remove` commands. Its
+completed path is:
 
 ```text
 manifest frontend AST analysis
