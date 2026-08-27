@@ -33,6 +33,49 @@ func TestPutTarballAndGetVerify(t *testing.T) {
 	}
 }
 
+func TestRegistryEndpointObservationsMergeDeterministicallyForSameContent(t *testing.T) {
+	storeValue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact := makeTarball(t, map[string]string{"package/package.json": `{"name":"a","version":"1.0.0"}`})
+	put := func(endpoint string) StoreRef {
+		ref, diagnostics := storeValue.PutArtifact(Artifact{
+			ID:      "npm:a@1.0.0",
+			Kind:    ArtifactNPMTarball,
+			Bytes:   artifact,
+			Name:    "a",
+			Version: "1.0.0",
+			Source:  "npm",
+			Metadata: PackageMetadata{
+				Name:             "a",
+				Version:          "1.0.0",
+				Source:           "npm",
+				PackageID:        "npm:a@1.0.0",
+				RegistryEndpoint: endpoint,
+				ArtifactHost:     "artifacts.example",
+			},
+		})
+		if len(diagnostics) != 0 {
+			t.Fatalf("put %s: %#v", endpoint, diagnostics)
+		}
+		return ref
+	}
+	put("https://registry-b.example")
+	ref := put("https://registry-a.example")
+	body, err := os.ReadFile(ref.MetadataPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var metadata PackageMetadata
+	if err := json.Unmarshal(body, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if len(metadata.Provenance) != 2 || metadata.Provenance[0].RegistryEndpoint != "https://registry-a.example" || metadata.Provenance[1].RegistryEndpoint != "https://registry-b.example" {
+		t.Fatalf("endpoint provenance is not deterministic: %#v", metadata.Provenance)
+	}
+}
+
 func TestTarballRelativePathStripsTopLevelOnWindowsSafeSemantics(t *testing.T) {
 	rel, skip, err := tarballRelativePath("package/package.json")
 	if err != nil || skip || rel != "package.json" {

@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
@@ -75,6 +76,88 @@ func TestUpdateThenSyncWithFakeRegistryPopulatesStore(t *testing.T) {
 	after, _ := os.ReadFile(opts.LockfilePath)
 	if !bytes.Equal(before, after) {
 		t.Fatalf("sync mutated lockfile")
+	}
+}
+
+func TestDeclaredMirrorFallbackProvenanceThenOfflineStoreSync(t *testing.T) {
+	root := t.TempDir()
+	artifact := fakeRegistryTarball(t, "dep-a", "1.0.0", nil)
+	var primaryRequests atomic.Int32
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		primaryRequests.Add(1)
+		http.Error(w, "mirror unavailable", http.StatusServiceUnavailable)
+	}))
+	defer primary.Close()
+	var fallbackRequests atomic.Int32
+	var fallback *httptest.Server
+	fallback = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fallbackRequests.Add(1)
+		switch r.URL.Path {
+		case "/dep-a":
+			_ = json.NewEncoder(w).Encode(resolver.PackageMetadata{Name: "dep-a", Versions: map[string]resolver.PackageVersion{"1.0.0": {Name: "dep-a", Version: "1.0.0", Dist: resolver.PackageDist{Tarball: fallback.URL + "/dep-a.tgz", Integrity: fakeIntegrity(artifact)}}}})
+		case "/dep-a.tgz":
+			_, _ = w.Write(artifact)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer fallback.Close()
+
+	ir := minimalRegistryPolicyIR(map[string]any{
+		"allowedSources":   []string{"npm"},
+		"requireIntegrity": true,
+		"sources": []map[string]any{{
+			"kind":      "npm",
+			"endpoints": []map[string]any{{"url": primary.URL}, {"url": fallback.URL}},
+		}},
+	})
+	irPath := writeIR(t, root, ir)
+	opts := DefaultOptions(root)
+	opts.ManifestIRPath = irPath
+	update := Update(opts)
+	if hasErrors(update.Diagnostics) {
+		t.Fatalf("mirror fallback update failed: %#v", update.Diagnostics)
+	}
+	locked, _, err := lockfile.LoadFile(opts.LockfilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(locked.Packages) != 1 || locked.Packages[0].MetadataEndpoint != fallback.URL || locked.Packages[0].RegistryEndpoint != fallback.URL || locked.Packages[0].Source != resolver.SourceNPM {
+		t.Fatalf("semantic identity/provenance mismatch: %#v", locked.Packages)
+	}
+	if primaryRequests.Load() != 1 || fallbackRequests.Load() != 2 {
+		t.Fatalf("unexpected deterministic request counts primary=%d fallback=%d", primaryRequests.Load(), fallbackRequests.Load())
+	}
+	outdated := Outdated(opts)
+	if hasErrors(outdated.Diagnostics) {
+		t.Fatalf("policy-aware outdated failed: %#v", outdated.Diagnostics)
+	}
+	if primaryRequests.Load() != 2 || fallbackRequests.Load() != 3 {
+		t.Fatalf("outdated did not reuse ordered endpoint policy primary=%d fallback=%d", primaryRequests.Load(), fallbackRequests.Load())
+	}
+
+	ir["registryPolicy"].(map[string]any)["offline"] = true
+	writeIR(t, root, ir)
+	primary.Close()
+	fallback.Close()
+	syncResult := Sync(opts, false, false)
+	if hasErrors(syncResult.Diagnostics) {
+		t.Fatalf("offline store sync failed: %#v", syncResult.Diagnostics)
+	}
+	mustExist(t, filepath.Join(root, "node_modules", "dep-a", "package.json"))
+}
+
+func minimalRegistryPolicyIR(policy map[string]any) map[string]any {
+	return map[string]any{
+		"format":         1,
+		"workspace":      map[string]any{"name": "ws"},
+		"registryPolicy": policy,
+		"packages": []map[string]any{{
+			"name": "app", "version": "1.0.0", "kind": "library",
+			"dependencies": []map[string]any{{"key": "dep-a", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "dep-a", "range": "1.0.0"}}},
+			"targets":      []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "src/index.ts", "types": "dist/index.d.ts", "deps": []string{"dep-a"}, "peers": []string{}}},
+			"tools":        []string{}, "boundaries": []any{}, "publish": map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}},
+		}},
 	}
 }
 

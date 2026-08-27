@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/yuechen-li-dev/tspack/internal/capability"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
@@ -26,9 +27,14 @@ type RegistryBackend interface {
 	Host() string
 }
 
+type ArtifactProvenanceProvider interface {
+	ArtifactProvenance(ArtifactDescriptor) (endpoint string, host string)
+}
+
 type RegistryPackageMetadata struct {
 	Identity PackageIdentity
 	Versions map[string]RegistryPackageVersion
+	Endpoint string
 }
 
 type PackageIdentity struct {
@@ -59,9 +65,13 @@ type DependencyRequirement struct {
 }
 
 type ArtifactDescriptor struct {
-	Kind      string
-	URL       string
-	Integrity string
+	Kind        string
+	URL         string
+	Integrity   string
+	Endpoint    string
+	Host        string
+	PackageName string
+	Version     string
 }
 
 type BackendRegistry map[string]RegistryBackend
@@ -124,7 +134,7 @@ func (backend *npmBackend) Metadata(ctx context.Context, name string) (*Registry
 			Version:             rawVersion.Version,
 			Dependencies:        dependencies,
 			PeerRequirements:    peerRequirements,
-			Artifact:            ArtifactDescriptor{Kind: "tarball", URL: rawVersion.Dist.Tarball, Integrity: rawVersion.Dist.Integrity},
+			Artifact:            ArtifactDescriptor{Kind: "tarball", URL: rawVersion.Dist.Tarball, Integrity: rawVersion.Dist.Integrity, PackageName: name, Version: version},
 			ArtifactPackageName: rawVersion.Name,
 			Capabilities:        capability.FromPackageJSONScripts(rawVersion.Scripts),
 		}
@@ -250,7 +260,7 @@ func (backend *jsrBackend) Metadata(ctx context.Context, name string) (*Registry
 			Version:             rawVersion.Version,
 			Dependencies:        dependencies,
 			PeerRequirements:    peerRequirements,
-			Artifact:            ArtifactDescriptor{Kind: "tarball", URL: rawVersion.Dist.Tarball, Integrity: rawVersion.Dist.Integrity},
+			Artifact:            ArtifactDescriptor{Kind: "tarball", URL: rawVersion.Dist.Tarball, Integrity: rawVersion.Dist.Integrity, PackageName: name, Version: version},
 			ArtifactPackageName: rawVersion.Name,
 		}
 	}
@@ -308,4 +318,181 @@ func registryClientHost(client NPMRegistryClient) string {
 		return ""
 	}
 	return parsed.Host
+}
+
+type endpointClient struct {
+	endpoint RegistryEndpoint
+	client   *HTTPRegistryClient
+}
+
+type fallbackRegistryBackend struct {
+	source             string
+	clients            []endpointClient
+	recordProvenance   bool
+	provenanceMu       sync.Mutex
+	artifactProvenance map[string]artifactEndpointProvenance
+}
+
+type artifactEndpointProvenance struct {
+	endpoint string
+	host     string
+}
+
+func NewFallbackRegistryBackend(source string, clients []endpointClient, recordProvenance bool) RegistryBackend {
+	return &fallbackRegistryBackend{
+		source:             source,
+		clients:            append([]endpointClient(nil), clients...),
+		recordProvenance:   recordProvenance,
+		artifactProvenance: map[string]artifactEndpointProvenance{},
+	}
+}
+
+func (backend *fallbackRegistryBackend) Source() string { return backend.source }
+
+func (backend *fallbackRegistryBackend) Host() string {
+	if len(backend.clients) == 0 {
+		return ""
+	}
+	return registryClientHost(backend.clients[0].client)
+}
+
+func (backend *fallbackRegistryBackend) Metadata(ctx context.Context, name string) (*RegistryPackageMetadata, error) {
+	attempts := make([]string, 0, len(backend.clients))
+	for index, candidate := range backend.clients {
+		var adapted RegistryBackend
+		if backend.source == SourceJSR {
+			adapted = NewJSRBackend(candidate.client)
+		} else {
+			adapted = NewNPMBackend(candidate.client)
+		}
+		metadata, err := adapted.Metadata(ctx, name)
+		if err == nil {
+			selectedEndpoint := strings.TrimRight(candidate.endpoint.URL, "/")
+			if backend.recordProvenance {
+				metadata.Endpoint = selectedEndpoint
+			}
+			for version, packageVersion := range metadata.Versions {
+				packageVersion.Artifact.Endpoint = selectedEndpoint
+				if backend.recordProvenance {
+					if parsed, parseErr := url.Parse(packageVersion.Artifact.URL); parseErr == nil {
+						packageVersion.Artifact.Host = parsed.Hostname()
+					}
+				}
+				metadata.Versions[version] = packageVersion
+			}
+			return metadata, nil
+		}
+		attempts = append(attempts, fmt.Sprintf("%d. %s: %s", index+1, RedactURL(candidate.endpoint.URL), redactError(err)))
+		if !fallbackWorthy(err, candidate.endpoint.FallbackOnNotFound) {
+			return nil, fmt.Errorf("registry endpoint failed closed (%s): %w", strings.Join(attempts, "; "), err)
+		}
+	}
+	return nil, fmt.Errorf("TSPACK_REGISTRY_FALLBACK_EXHAUSTED: %s", strings.Join(attempts, "; "))
+}
+
+func (backend *fallbackRegistryBackend) FetchArtifact(ctx context.Context, artifact ArtifactDescriptor) ([]byte, error) {
+	selectedIndex := -1
+	for index, candidate := range backend.clients {
+		if strings.TrimRight(candidate.endpoint.URL, "/") == artifact.Endpoint {
+			selectedIndex = index
+			body, err := candidate.client.Tarball(ctx, artifact.URL)
+			if err == nil || !fallbackWorthy(err, false) {
+				if err == nil {
+					backend.recordArtifactProvenance(artifact, candidate.endpoint.URL, artifact.URL)
+				}
+				return body, err
+			}
+			break
+		}
+	}
+	if selectedIndex < 0 {
+		return nil, fmt.Errorf("TSPACK_REGISTRY_ENDPOINT_DENIED: artifact endpoint is not in the declared chain")
+	}
+	attempts := []string{"1. " + RedactURL(artifact.Endpoint) + ": artifact unavailable"}
+	for index := selectedIndex + 1; index < len(backend.clients); index++ {
+		candidate := backend.clients[index]
+		var adapted RegistryBackend
+		if backend.source == SourceJSR {
+			adapted = NewJSRBackend(candidate.client)
+		} else {
+			adapted = NewNPMBackend(candidate.client)
+		}
+		metadata, err := adapted.Metadata(ctx, artifact.PackageName)
+		if err != nil {
+			attempts = append(attempts, fmt.Sprintf("%d. %s: %s", len(attempts)+1, RedactURL(candidate.endpoint.URL), redactError(err)))
+			if fallbackWorthy(err, candidate.endpoint.FallbackOnNotFound) {
+				continue
+			}
+			return nil, fmt.Errorf("registry artifact fallback failed closed (%s): %w", strings.Join(attempts, "; "), err)
+		}
+		version, ok := metadata.Versions[artifact.Version]
+		if !ok {
+			if candidate.endpoint.FallbackOnNotFound {
+				attempts = append(attempts, fmt.Sprintf("%d. %s: version %s absent", len(attempts)+1, RedactURL(candidate.endpoint.URL), artifact.Version))
+				continue
+			}
+			return nil, fmt.Errorf("registry artifact fallback failed closed: version %s absent at %s", artifact.Version, RedactURL(candidate.endpoint.URL))
+		}
+		if artifact.Integrity != "" && version.Artifact.Integrity != artifact.Integrity {
+			return nil, fmt.Errorf("TSPACK_REGISTRY_TRUST_FAILED: fallback endpoint advertised different integrity for %s:%s@%s", backend.source, artifact.PackageName, artifact.Version)
+		}
+		body, fetchErr := candidate.client.Tarball(ctx, version.Artifact.URL)
+		if fetchErr == nil {
+			backend.recordArtifactProvenance(artifact, candidate.endpoint.URL, version.Artifact.URL)
+			return body, nil
+		}
+		attempts = append(attempts, fmt.Sprintf("%d. %s: %s", len(attempts)+1, RedactURL(candidate.endpoint.URL), redactError(fetchErr)))
+		if !fallbackWorthy(fetchErr, false) {
+			return nil, fmt.Errorf("registry artifact fallback failed closed (%s): %w", strings.Join(attempts, "; "), fetchErr)
+		}
+	}
+	return nil, fmt.Errorf("TSPACK_REGISTRY_FALLBACK_EXHAUSTED: %s", strings.Join(attempts, "; "))
+}
+
+func (backend *fallbackRegistryBackend) recordArtifactProvenance(artifact ArtifactDescriptor, endpoint string, artifactURL string) {
+	host := ""
+	if parsed, err := url.Parse(artifactURL); err == nil {
+		host = parsed.Hostname()
+	}
+	backend.provenanceMu.Lock()
+	backend.artifactProvenance[artifactProvenanceKey(artifact)] = artifactEndpointProvenance{endpoint: strings.TrimRight(endpoint, "/"), host: host}
+	backend.provenanceMu.Unlock()
+}
+
+func (backend *fallbackRegistryBackend) ArtifactProvenance(artifact ArtifactDescriptor) (string, string) {
+	backend.provenanceMu.Lock()
+	defer backend.provenanceMu.Unlock()
+	provenance := backend.artifactProvenance[artifactProvenanceKey(artifact)]
+	return provenance.endpoint, provenance.host
+}
+
+func artifactProvenanceKey(artifact ArtifactDescriptor) string {
+	return artifact.PackageName + "\x00" + artifact.Version + "\x00" + artifact.URL
+}
+
+func fallbackWorthy(err error, allowNotFound bool) bool {
+	text := strings.ToLower(err.Error())
+	if strings.Contains(text, "status=401") || strings.Contains(text, "status=403") || strings.Contains(text, "decode failed") {
+		return false
+	}
+	if strings.Contains(text, "not found") || strings.Contains(text, "status=404") {
+		return allowNotFound
+	}
+	if strings.Contains(text, "status=5") || strings.Contains(text, "timeout") || strings.Contains(text, "connection") || strings.Contains(text, "eof") {
+		return true
+	}
+	return false
+}
+
+func redactError(err error) string {
+	if err == nil {
+		return ""
+	}
+	words := strings.Fields(err.Error())
+	for index, word := range words {
+		if strings.Contains(word, "://") {
+			words[index] = RedactURL(strings.Trim(word, "(),;"))
+		}
+	}
+	return strings.Join(words, " ")
 }

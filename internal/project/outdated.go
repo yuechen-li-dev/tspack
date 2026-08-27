@@ -67,6 +67,23 @@ func Outdated(opts Options) Result {
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
 	}
+	policy := resolverSourcePolicy(ir)
+	for _, pkg := range g.AllPackages() {
+		for _, dependency := range pkg.AllDependencies() {
+			if dependency.Source.Kind != resolver.SourceNPM && dependency.Source.Kind != resolver.SourceJSR {
+				continue
+			}
+			if !policy.Allows(dependency.Source.Kind) {
+				out = append(out, errDiag("TSPACK_SOURCE_POLICY_DENIED", "dependency source is denied by registry source policy", "source: "+dependency.Source.Kind, "package: "+dependency.Source.Kind+":"+dependency.Source.Package, "policy origin: manifest RegistryPolicy"))
+			}
+			if policy.Offline {
+				out = append(out, errDiag("TSPACK_REGISTRY_OFFLINE_MISS", "outdated requires registry metadata but source policy is offline-only", "package: "+dependency.Source.Kind+":"+dependency.Source.Package))
+			}
+		}
+	}
+	if hasErrors(out) {
+		return Result{Diagnostics: out}
+	}
 	var lf *lockfile.Lockfile
 	if _, err := os.Stat(opts.LockfilePath); err == nil {
 		loaded, d, e := lockfile.LoadFile(opts.LockfilePath)
@@ -80,6 +97,19 @@ func Outdated(opts Options) Result {
 		out = append(out, diag.Diagnostic{Code: "TSPACK_OUTDATED_LOCKFILE_MISSING", Severity: diag.SeverityWarning, Message: "lockfile is missing"})
 	}
 	client := opts.ResolverClient
+	if hasDeclaredSourcePolicy(ir) {
+		backends := opts.ResolverBackends
+		if len(backends) == 0 {
+			var backendErr error
+			backends, backendErr = sourcePolicyBackends(policy, opts.Perf)
+			if backendErr != nil {
+				return Result{Diagnostics: append(out, errDiag("TSPACK_SOURCE_POLICY_INVALID", "invalid registry source policy", backendErr.Error()))}
+			}
+		}
+		if backend, ok := backends.Backend(resolver.SourceNPM); ok {
+			client = registryBackendMetadataClient{backend: backend}
+		}
+	}
 	if client == nil {
 		client = resolver.NewHTTPRegistryClient("")
 	}

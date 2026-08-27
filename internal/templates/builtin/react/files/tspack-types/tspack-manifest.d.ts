@@ -417,6 +417,26 @@ declare module 'tspack/manifest' {
     rows: UpdatePolicyRow[];
   };
 
+  export type RegistryEndpoint = {
+    url: string;
+    tokenEnv?: string;
+    fallbackOnNotFound?: boolean;
+    allowedArtifactHosts?: string[];
+  };
+
+  export type RegistryPolicyProps = {
+    allowedSources?: Array<'npm' | 'jsr'>;
+    offline?: boolean;
+    requireIntegrity?: boolean;
+    requireAuditCoverage?: boolean;
+    children?: ManifestNode;
+  };
+
+  export type RegistrySourceProps = {
+    kind: 'npm' | 'jsr';
+    endpoints: RegistryEndpoint[];
+  };
+
   export type CompatFilesProps = {
     children?: ManifestNode;
   };
@@ -500,6 +520,8 @@ declare module 'tspack/manifest' {
   export const Publish: ManifestComponent<PublishProps>;
   export const Security: ManifestComponent<SecurityProps>;
   export const UpdatePolicy: ManifestComponent<UpdatePolicyProps>;
+  export const RegistryPolicy: ManifestComponent<RegistryPolicyProps>;
+  export const RegistrySource: ManifestComponent<RegistrySourceProps>;
   export const CompatFiles: ManifestComponent<CompatFilesProps>;
   export const JsonFile: ManifestComponent<JsonFileProps>;
 

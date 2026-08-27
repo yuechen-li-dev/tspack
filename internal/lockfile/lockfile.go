@@ -31,6 +31,9 @@ type LockHeader struct {
 
 type Package struct {
 	ID, Name, Version, Source, Integrity, Repo, Rev, TreeHash, Path, Workspace, Hash string
+	RegistryEndpoint                                                                 string       `toml:"registry_endpoint,omitempty"`
+	MetadataEndpoint                                                                 string       `toml:"metadata_endpoint,omitempty"`
+	ArtifactHost                                                                     string       `toml:"artifact_host,omitempty"`
 	Capabilities                                                                     []Capability `toml:"capability,omitempty"`
 }
 type Capability struct {

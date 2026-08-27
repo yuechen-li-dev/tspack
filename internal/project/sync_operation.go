@@ -21,7 +21,7 @@ func Sync(opts Options, clean bool, force bool) Result {
 			_ = perfSession.Close()
 		}()
 	}
-	_, g, out := loadManifestAndGraph(opts)
+	ir, g, out := loadManifestAndGraph(opts)
 	_ = g
 	lf, d, e := lockfile.LoadFile(opts.LockfilePath)
 	if os.IsNotExist(e) {
@@ -32,18 +32,23 @@ func Sync(opts Options, clean bool, force bool) Result {
 	}
 	out = append(out, d...)
 	out = append(out, lockfile.CheckGraphConsistency(g, lf).Diagnostics...)
+	out = append(out, sourcePolicyLockDiagnostics(ir, lf)...)
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
 	}
 	opts.ResolverClient = instrumentRegistryClient(opts.ResolverClient, perfSession, resolver.SourceNPM)
 	if opts.ResolverBackends == nil {
-		opts.ResolverBackends = resolver.BackendRegistry{
-			resolver.SourceNPM: resolver.NewNPMBackend(opts.ResolverClient),
-			resolver.SourceJSR: resolver.NewJSRBackend(instrumentRegistryClient(
-				resolver.NewHTTPRegistryClient("https://npm.jsr.io"),
-				perfSession,
-				resolver.SourceJSR,
-			)),
+		if opts.ResolverClient != nil && !hasDeclaredSourcePolicy(ir) {
+			opts.ResolverBackends = resolver.BackendRegistry{
+				resolver.SourceNPM: resolver.NewNPMBackend(opts.ResolverClient),
+				resolver.SourceJSR: resolver.NewJSRBackend(instrumentRegistryClient(resolver.NewHTTPRegistryClient(resolver.DefaultJSREndpoint), perfSession, resolver.SourceJSR)),
+			}
+		} else {
+			var backendErr error
+			opts.ResolverBackends, backendErr = sourcePolicyBackends(resolverSourcePolicy(ir), perfSession)
+			if backendErr != nil {
+				return Result{Diagnostics: append(out, errDiag("TSPACK_SOURCE_POLICY_INVALID", "invalid registry source policy", backendErr.Error()))}
+			}
 		}
 	}
 	st, err := store.Open(opts.StoreRoot)
@@ -51,7 +56,7 @@ func Sync(opts Options, clean bool, force bool) Result {
 		return Result{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_SYNC_STORE_ARTIFACT_MISSING", "failed to open store", err.Error())}}
 	}
 	stopHydrate := perfSession.StartPhase("sync.hydrate_store")
-	out = append(out, ensureStoreArtifactsForLock(context.Background(), opts, st, lf)...)
+	out = append(out, ensureStoreArtifactsForLock(context.Background(), opts, st, lf, resolverSourcePolicy(ir))...)
 	stopHydrate()
 	if hasErrors(out) {
 		diag.SortDiagnostics(out)

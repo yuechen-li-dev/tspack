@@ -18,12 +18,33 @@ import (
 )
 
 type ManifestIR struct {
-	Format       int          `json:"format"`
-	Workspace    Workspace    `json:"workspace"`
-	Security     Security     `json:"security,omitempty"`
-	UpdatePolicy UpdatePolicy `json:"updatePolicy,omitempty"`
-	Packages     []Package    `json:"packages"`
-	CompatFiles  []CompatFile `json:"compatFiles,omitempty"`
+	Format         int            `json:"format"`
+	Workspace      Workspace      `json:"workspace"`
+	Security       Security       `json:"security,omitempty"`
+	UpdatePolicy   UpdatePolicy   `json:"updatePolicy,omitempty"`
+	RegistryPolicy RegistryPolicy `json:"registryPolicy,omitempty"`
+	Packages       []Package      `json:"packages"`
+	CompatFiles    []CompatFile   `json:"compatFiles,omitempty"`
+}
+
+type RegistryPolicy struct {
+	AllowedSources       []string               `json:"allowedSources,omitempty"`
+	Offline              bool                   `json:"offline,omitempty"`
+	RequireIntegrity     bool                   `json:"requireIntegrity,omitempty"`
+	RequireAuditCoverage bool                   `json:"requireAuditCoverage,omitempty"`
+	Sources              []RegistrySourcePolicy `json:"sources,omitempty"`
+}
+
+type RegistrySourcePolicy struct {
+	Kind      string                   `json:"kind"`
+	Endpoints []RegistryEndpointPolicy `json:"endpoints"`
+}
+
+type RegistryEndpointPolicy struct {
+	URL                  string   `json:"url"`
+	TokenEnv             string   `json:"tokenEnv,omitempty"`
+	FallbackOnNotFound   bool     `json:"fallbackOnNotFound,omitempty"`
+	AllowedArtifactHosts []string `json:"allowedArtifactHosts,omitempty"`
 }
 
 type CompatFile struct {
@@ -499,6 +520,7 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 	if len(ir.Packages) == 0 && len(ir.CompatFiles) == 0 {
 		add("TSPACK_IR_NO_PACKAGES", "at least one package or root compatibility declaration is required")
 	}
+	validateRegistryPolicy(add, ir.RegistryPolicy)
 
 	seenCompatPaths := map[string]struct{}{}
 	for index, compatFile := range ir.CompatFiles {
@@ -798,6 +820,61 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 	}
 	diag.SortDiagnostics(out)
 	return out
+}
+
+func validateRegistryPolicy(add func(string, string, ...string), policy RegistryPolicy) {
+	seenAllowed := map[string]bool{}
+	for index, source := range policy.AllowedSources {
+		if source != "npm" && source != "jsr" {
+			add("TSPACK_SOURCE_POLICY_INVALID", fmt.Sprintf("registryPolicy.allowedSources[%d] must be npm or jsr", index))
+		}
+		if seenAllowed[source] {
+			add("TSPACK_SOURCE_POLICY_INVALID", "registryPolicy.allowedSources contains duplicate source: "+source)
+		}
+		seenAllowed[source] = true
+	}
+	seenSources := map[string]bool{}
+	for sourceIndex, source := range policy.Sources {
+		prefix := fmt.Sprintf("registryPolicy.sources[%d]", sourceIndex)
+		if source.Kind != "npm" && source.Kind != "jsr" {
+			add("TSPACK_SOURCE_POLICY_INVALID", prefix+".kind must be npm or jsr")
+		}
+		if seenSources[source.Kind] {
+			add("TSPACK_SOURCE_POLICY_INVALID", "registryPolicy contains duplicate source: "+source.Kind)
+		}
+		seenSources[source.Kind] = true
+		if len(source.Endpoints) == 0 {
+			add("TSPACK_SOURCE_POLICY_INVALID", prefix+".endpoints must not be empty")
+		}
+		for endpointIndex, endpoint := range source.Endpoints {
+			endpointPrefix := fmt.Sprintf("%s.endpoints[%d]", prefix, endpointIndex)
+			parsed, err := url.Parse(endpoint.URL)
+			if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.User != nil {
+				add("TSPACK_SOURCE_POLICY_INVALID", endpointPrefix+".url must be an HTTP(S) URL without embedded credentials")
+			}
+			if parsed != nil && hasSensitiveRegistryQuery(parsed) {
+				add("TSPACK_SOURCE_POLICY_INVALID", endpointPrefix+".url must not contain credential-bearing query parameters; use tokenEnv")
+			}
+			if endpoint.TokenEnv != "" && !envNameRe.MatchString(endpoint.TokenEnv) {
+				add("TSPACK_SOURCE_POLICY_INVALID", endpointPrefix+".tokenEnv must be an environment variable name")
+			}
+			for hostIndex, host := range endpoint.AllowedArtifactHosts {
+				if strings.TrimSpace(host) == "" || strings.ContainsAny(host, "/:@?") {
+					add("TSPACK_SOURCE_POLICY_INVALID", fmt.Sprintf("%s.allowedArtifactHosts[%d] must be a hostname", endpointPrefix, hostIndex))
+				}
+			}
+		}
+	}
+}
+
+func hasSensitiveRegistryQuery(parsed *url.URL) bool {
+	for key := range parsed.Query() {
+		lower := strings.ToLower(key)
+		if strings.Contains(lower, "token") || strings.Contains(lower, "secret") || strings.Contains(lower, "auth") || strings.Contains(lower, "key") {
+			return true
+		}
+	}
+	return false
 }
 
 func preparePackageAuthoring(

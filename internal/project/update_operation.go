@@ -52,7 +52,7 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 			progress.Step("updating target dependency: %s", updateOpts.Query)
 		}
 	}
-	_, g, out := loadManifestAndGraph(opts)
+	ir, g, out := loadManifestAndGraph(opts)
 	out = append(out, check.CheckPackage(check.CheckOptions{RootDir: opts.RootDir, Graph: g}).Diagnostics...)
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
@@ -87,9 +87,18 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 	client = instrumentRegistryClient(client, perfSession, resolver.SourceNPM)
 	backends := opts.ResolverBackends
 	if backends == nil {
-		backends = resolver.BackendRegistry{
-			resolver.SourceNPM: resolver.NewNPMBackend(client),
-			resolver.SourceJSR: resolver.NewJSRBackend(instrumentRegistryClient(resolver.NewHTTPRegistryClient("https://npm.jsr.io"), perfSession, resolver.SourceJSR)),
+		if opts.ResolverClient != nil && !hasDeclaredSourcePolicy(ir) {
+			backends = resolver.BackendRegistry{
+				resolver.SourceNPM: resolver.NewNPMBackend(client),
+				resolver.SourceJSR: resolver.NewJSRBackend(instrumentRegistryClient(resolver.NewHTTPRegistryClient(resolver.DefaultJSREndpoint), perfSession, resolver.SourceJSR)),
+			}
+		} else {
+			var backendErr error
+			backends, backendErr = sourcePolicyBackends(resolverSourcePolicy(ir), perfSession)
+			if backendErr != nil {
+				out = append(out, errDiag("TSPACK_SOURCE_POLICY_INVALID", "invalid registry source policy", backendErr.Error()))
+				return Result{Diagnostics: out, UpdateTarget: targetResult}
+			}
 		}
 	}
 	var (
@@ -153,6 +162,7 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 		OnPreparedPackage:     func(key string) { perfSession.RecordPreparedPackage() },
 		OnCommittedPackage:    func(id string) { perfSession.RecordCommittedPackage() },
 		OnResolverWorkerError: func(key string) { perfSession.RecordResolveWorkerError() },
+		SourcePolicy:          resolverSourcePolicy(ir),
 	}
 	perfSession.SetResolveController(string(resolveControllerMode), resolveJobs, defaultResolveControllerHostBudget(resolveJobs))
 	if registryClient, ok := client.(*resolver.HTTPRegistryClient); ok {
@@ -434,9 +444,9 @@ func storeArtifactCapture(st *store.Store, perfSession *perf.Session) func(pkg l
 		return nil
 	}
 	return func(pkg lockfile.Package, artifact []byte) error {
-		if pkg.Hash != "" && st.Has(pkg.Hash) {
+		alreadyPresent := pkg.Hash != "" && st.Has(pkg.Hash)
+		if alreadyPresent {
 			perfSession.RecordArtifactAlreadyInStore()
-			return nil
 		}
 		artifactKind := store.ArtifactRegistryTarball
 		if pkg.Source == resolver.SourceNPM {
@@ -452,18 +462,23 @@ func storeArtifactCapture(st *store.Store, perfSession *perf.Session) func(pkg l
 			Kind:      artifactKind,
 			Bytes:     artifact,
 			Metadata: store.PackageMetadata{
-				Name:         pkg.Name,
-				Version:      pkg.Version,
-				Source:       pkg.Source,
-				PackageID:    pkg.ID,
-				Integrity:    pkg.Integrity,
-				Capabilities: append([]lockfile.Capability(nil), pkg.Capabilities...),
+				Name:             pkg.Name,
+				Version:          pkg.Version,
+				Source:           pkg.Source,
+				PackageID:        pkg.ID,
+				Integrity:        pkg.Integrity,
+				RegistryEndpoint: pkg.RegistryEndpoint,
+				MetadataEndpoint: pkg.MetadataEndpoint,
+				ArtifactHost:     pkg.ArtifactHost,
+				Capabilities:     append([]lockfile.Capability(nil), pkg.Capabilities...),
 			},
 		})
 		if len(diags) > 0 {
 			return fmt.Errorf("%s", diags[0].Message)
 		}
-		perfSession.RecordArtifactCaptured()
+		if !alreadyPresent {
+			perfSession.RecordArtifactCaptured()
+		}
 		return nil
 	}
 }

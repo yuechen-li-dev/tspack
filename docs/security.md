@@ -1,5 +1,14 @@
 # Security and capability policy (M14)
 
+## Registry endpoint trust
+
+Explicit registry policy can require advertised integrity, constrain artifact
+hosts, require complete audit coverage, and reference bearer tokens by
+environment-variable name. Values are never written to manifest or lock, are
+not sent to cross-host artifacts, and secret URL components are redacted.
+Integrity and locked-content divergence fail closed without fallback. See
+[`docs/dev/m70d-source-policy.md`](dev/m70d-source-policy.md).
+
 ## Core principle: fetch is not execute
 
 TSPack fetches package metadata/content and records deterministic lockfile truth.

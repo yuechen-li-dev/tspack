@@ -117,13 +117,16 @@ type WhyJSONReachability struct {
 }
 
 type WhyJSONLockPackage struct {
-	ID           string                        `json:"id"`
-	Name         string                        `json:"name,omitempty"`
-	Version      string                        `json:"version,omitempty"`
-	Source       string                        `json:"source,omitempty"`
-	Hash         string                        `json:"hash,omitempty"`
-	Capabilities []WhyJSONCapability           `json:"capabilities,omitempty"`
-	Usage        *packageidentity.PackageUsage `json:"usage,omitempty"`
+	ID               string                        `json:"id"`
+	Name             string                        `json:"name,omitempty"`
+	Version          string                        `json:"version,omitempty"`
+	Source           string                        `json:"source,omitempty"`
+	Hash             string                        `json:"hash,omitempty"`
+	RegistryEndpoint string                        `json:"registryEndpoint,omitempty"`
+	MetadataEndpoint string                        `json:"metadataEndpoint,omitempty"`
+	ArtifactHost     string                        `json:"artifactHost,omitempty"`
+	Capabilities     []WhyJSONCapability           `json:"capabilities,omitempty"`
+	Usage            *packageidentity.PackageUsage `json:"usage,omitempty"`
 }
 
 type WhyJSONCapability struct {

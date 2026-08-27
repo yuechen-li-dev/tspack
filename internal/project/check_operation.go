@@ -4,6 +4,8 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/check"
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/resolver"
 	"github.com/yuechen-li-dev/tspack/internal/securityevidence"
 	"os"
 	"path/filepath"
@@ -25,6 +27,7 @@ func Check(opts Options) Result {
 			out = append(out, lockfile.CheckGraphConsistency(g, lf).Diagnostics...)
 			out = append(out, lockfile.CheckVersionConflicts(lf).Diagnostics...)
 			out = append(out, lockfile.CheckRequirements(lf).Diagnostics...)
+			out = append(out, sourcePolicyLockDiagnostics(ir, lf)...)
 			out = append(out, lifecycleCapabilityDiagnostics(lf, lifecycleAcknowledgementSet(ir), lifecycleCategoryAcknowledgements(ir))...)
 		}
 	} else if os.IsNotExist(err) {
@@ -32,6 +35,45 @@ func Check(opts Options) Result {
 	}
 	diag.SortDiagnostics(out)
 	return Result{Diagnostics: out}
+}
+
+func sourcePolicyLockDiagnostics(ir *manifest.ManifestIR, lf *lockfile.Lockfile) []diag.Diagnostic {
+	if ir == nil || lf == nil || !hasDeclaredSourcePolicy(ir) {
+		return nil
+	}
+	policy := resolverSourcePolicy(ir)
+	declaredEndpoints := map[string]map[string]bool{}
+	for _, source := range ir.RegistryPolicy.Sources {
+		declaredEndpoints[source.Kind] = map[string]bool{}
+		for _, endpoint := range source.Endpoints {
+			declaredEndpoints[source.Kind][strings.TrimRight(endpoint.URL, "/")] = true
+		}
+	}
+	var out []diag.Diagnostic
+	for _, pkg := range lf.Packages {
+		if pkg.Source != resolver.SourceNPM && pkg.Source != resolver.SourceJSR {
+			continue
+		}
+		if !policy.Allows(pkg.Source) {
+			out = append(out, diag.Diagnostic{Code: "TSPACK_SOURCE_POLICY_DENIED", Severity: diag.SeverityError, Message: "lockfile contains a package from a denied semantic source", Details: []string{"package: " + pkg.ID, "policy origin: manifest RegistryPolicy", "Run `tspack update` after allowing the source or removing the dependency."}})
+			continue
+		}
+		if policy.RequireAuditCoverage && pkg.Source == resolver.SourceJSR {
+			out = append(out, diag.Diagnostic{Code: "TSPACK_REGISTRY_TRUST_FAILED", Severity: diag.SeverityError, Message: "source policy requires vulnerability audit coverage unavailable for JSR", Details: []string{"package: " + pkg.ID, "coverage: unsupported-ecosystem", "OSV has no JSR ecosystem mapping; allow partial coverage or remove the JSR package."}})
+		}
+		allowed, endpointRestricted := declaredEndpoints[pkg.Source]
+		if !endpointRestricted {
+			continue
+		}
+		if pkg.RegistryEndpoint == "" {
+			out = append(out, diag.Diagnostic{Code: "TSPACK_REGISTRY_PROVENANCE_MISSING", Severity: diag.SeverityWarning, Message: "locked registry package predates endpoint provenance", Details: []string{"package: " + pkg.ID, "Run `tspack update` to validate the package through the declared endpoint policy."}})
+			continue
+		}
+		if !allowed[strings.TrimRight(pkg.RegistryEndpoint, "/")] {
+			out = append(out, diag.Diagnostic{Code: "TSPACK_REGISTRY_ENDPOINT_DENIED", Severity: diag.SeverityError, Message: "locked package provenance uses an endpoint denied by current policy", Details: []string{"package: " + pkg.ID, "endpoint: " + resolver.RedactURL(pkg.RegistryEndpoint)}})
+		}
+	}
+	return out
 }
 
 func CheckExplain(opts Options, requestedFile string) Result {

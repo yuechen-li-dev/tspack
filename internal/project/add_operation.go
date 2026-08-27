@@ -200,6 +200,15 @@ func RunAddDependency(request AddDependencyRequest) (result AddDependencyResult)
 	result.ManifestPath = manifestPath
 
 	identity := parsed.Identity
+	policy := resolverSourcePolicy(ir)
+	if !policy.Allows(identity.Source) {
+		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_SOURCE_POLICY_DENIED", "dependency source is denied by registry source policy", "source: "+identity.Source, "package: "+identity.Key(), "policy origin: manifest RegistryPolicy"))
+		return result
+	}
+	if policy.Offline {
+		result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_REGISTRY_OFFLINE_MISS", "add requires registry metadata but source policy is offline-only", "package: "+identity.Key()))
+		return result
+	}
 
 	editable := editableDeclarations(*target.DependencyAuthoring, identity)
 	if len(editable) > 1 {
@@ -213,7 +222,16 @@ func RunAddDependency(request AddDependencyRequest) (result AddDependencyResult)
 		return result
 	}
 
-	memoBackends := newDependencyEditMemoBackends(addRegistryBackends(request.Project))
+	registryBackends := addRegistryBackends(request.Project)
+	if hasDeclaredSourcePolicy(ir) && len(request.Project.ResolverBackends) == 0 {
+		var policyErr error
+		registryBackends, policyErr = sourcePolicyBackends(policy, nil)
+		if policyErr != nil {
+			result.Diagnostics = append(result.Diagnostics, addDiagnostic("TSPACK_SOURCE_POLICY_INVALID", "invalid registry source policy", policyErr.Error()))
+			return result
+		}
+	}
+	memoBackends := newDependencyEditMemoBackends(registryBackends)
 	defer func() {
 		result.Performance.RegistryMetadataRequests, result.Performance.RegistryTarballRequests = memoBackends.RequestCounts()
 		result.Performance.RegistryRequests = memoBackends.RequestsByKind()

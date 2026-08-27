@@ -39,6 +39,32 @@ function withTemporaryManifest(
 }
 
 describe('manifest frontend parser', () => {
+  it('maps registry source policy without changing dependency identity', () => {
+    withTemporaryManifest('tmp-registry-policy-', `import { define } from "tspack/manifest";
+export default define(<Workspace name="ws">
+  <RegistryPolicy allowedSources={["npm", "jsr"]} requireIntegrity={true}>
+    <RegistrySource kind="npm" endpoints={[{url:"https://npm.company.example",tokenEnv:"NPM_TOKEN"},{url:"https://registry.npmjs.org"}]} />
+  </RegistryPolicy>
+  <Package name="app" version="1.0.0" kind="app" />
+</Workspace>);`, (manifestPath) => {
+      const result = parseManifestFile(manifestPath);
+      expect(result.ok).toBe(true);
+      expect(result.ir?.registryPolicy).toEqual({
+        allowedSources: ['npm', 'jsr'],
+        offline: false,
+        requireAuditCoverage: false,
+        requireIntegrity: true,
+        sources: [{
+          kind: 'npm',
+          endpoints: [
+            { url: 'https://npm.company.example', tokenEnv: 'NPM_TOKEN' },
+            { url: 'https://registry.npmjs.org' },
+          ],
+        }],
+      });
+    });
+  });
+
   it('parses an additive static Skyrim target without changing ordinary manifests', () => {
     withTemporaryManifest('tmp-skyrim-valid-', `import { define } from "tspack/manifest";
 export default define(<Workspace name="ws"><Package name="mod" version="1.0.0" kind="tool"><SkyrimTarget

@@ -140,6 +140,16 @@ func renderWhyExplanation(result *why.Result) {
 
 func printWhyPackageUsage(lockPackages []why.LockPackageRef) {
 	for _, lockPackage := range lockPackages {
+		if lockPackage.RegistryEndpoint != "" {
+			fmt.Printf("package provenance %s:\n", lockPackage.ID)
+			fmt.Printf("  fetched from: %s\n", lockPackage.RegistryEndpoint)
+			if lockPackage.MetadataEndpoint != "" {
+				fmt.Printf("  metadata from: %s\n", lockPackage.MetadataEndpoint)
+			}
+			if lockPackage.ArtifactHost != "" {
+				fmt.Printf("  artifact host: %s\n", lockPackage.ArtifactHost)
+			}
+		}
 		if lockPackage.Usage == nil || lockPackage.Usage.Import.Specifier == lockPackage.Name {
 			continue
 		}
@@ -449,12 +459,15 @@ func buildWhyJSONReport(opts project.Options, whyOpts project.WhyOptions, result
 
 func buildWhyJSONLockPackage(lockPackage why.LockPackageRef) WhyJSONLockPackage {
 	jsonPackage := WhyJSONLockPackage{
-		ID:      lockPackage.ID,
-		Name:    lockPackage.Name,
-		Version: lockPackage.Version,
-		Source:  lockPackage.Source,
-		Hash:    lockPackage.Hash,
-		Usage:   lockPackage.Usage,
+		ID:               lockPackage.ID,
+		Name:             lockPackage.Name,
+		Version:          lockPackage.Version,
+		Source:           lockPackage.Source,
+		Hash:             lockPackage.Hash,
+		RegistryEndpoint: lockPackage.RegistryEndpoint,
+		MetadataEndpoint: lockPackage.MetadataEndpoint,
+		ArtifactHost:     lockPackage.ArtifactHost,
+		Usage:            lockPackage.Usage,
 	}
 	for _, capability := range lockPackage.Capabilities {
 		jsonPackage.Capabilities = append(jsonPackage.Capabilities, WhyJSONCapability{

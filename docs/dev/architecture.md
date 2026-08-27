@@ -1,5 +1,12 @@
 # TSPack architecture
 
+Registry resolution distinguishes package semantic identity (`npm`/`jsr` plus
+name), concrete endpoint identity, and trust policy. Requirement Tape selects
+the semantic requirement. Project orchestration constructs a deterministic
+policy-bound endpoint chain consumed by `internal/resolver`; endpoints never
+enter requirement precedence or package IDs. See
+`docs/dev/m70d-source-policy.md`.
+
 This map is the practical answer to “where should this code live?” The filesystem
 is intended to expose the dependency direction without requiring knowledge of
 the project history.

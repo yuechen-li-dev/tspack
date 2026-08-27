@@ -22,6 +22,7 @@ export type ManifestIr = {
   workspace: { name: string; runtime: RuntimeProfile };
   security?: Record<string, unknown>;
   updatePolicy?: Record<string, unknown>;
+  registryPolicy?: Record<string, unknown>;
   compatFiles?: Array<Record<string, unknown>>;
   packages: Array<Record<string, unknown>>;
   packageAnnotations?: Array<Record<string, unknown>>;
@@ -83,7 +84,7 @@ export type DependencySourceAnalysis = {
 
 const ALLOWED_IMPORT = 'tspack/manifest';
 const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'annotatePackage', 'defineDeps', 'npm', 'jsr', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service', 'json']);
-const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'PackageAnnotations', 'Policies', 'Targets', 'RunTargets', 'SkyrimTarget', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy', 'CompatFiles', 'JsonFile']);
+const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'PackageAnnotations', 'Policies', 'Targets', 'RunTargets', 'SkyrimTarget', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy', 'RegistryPolicy', 'RegistrySource', 'CompatFiles', 'JsonFile']);
 const APPROVED_PROPERTY_HELPERS = new Set(['TsConfig.manifestEditor', 'VSCode.settings', 'VSCode.extensions']);
 const DEFAULT_MANIFEST_EDITOR_INCLUDE = [
   'manifest.tsx',
@@ -795,12 +796,14 @@ function jsxToRootDoc(root: unknown, diags: Diagnostic[], file: string): Interna
   const packagesNode = children.find((c: any) => c.__tag === 'Packages');
   const securityNode = children.find((c: any) => c.__tag === 'Security');
   const updatePolicyNode = children.find((c: any) => c.__tag === 'UpdatePolicy');
+  const registryPolicyNode = children.find((c: any) => c.__tag === 'RegistryPolicy');
   const compatFilesNode = children.find((c: any) => c.__tag === 'CompatFiles');
   const baseIr = {
     format: 1 as const,
     workspace: { name: r?.name ?? 'workspace', runtime: runtimeProfile(r?.runtime, diags, file) },
     ...(securityNode ? { security: mapSecurity(securityNode) } : {}),
     ...(updatePolicyNode ? { updatePolicy: mapUpdatePolicy(updatePolicyNode) } : {}),
+    ...(registryPolicyNode ? { registryPolicy: mapRegistryPolicy(registryPolicyNode) } : {}),
     ...(compatFilesNode ? { compatFiles: mapCompatFiles(compatFilesNode, diags, file) } : {}),
   };
   if (packagesNode && inlinePackages.length > 0) {
@@ -911,6 +914,22 @@ function mapPackageAnnotation(p: any): Record<string, unknown> {
     manifestPath: context.sourcePath,
     dependencies: mapDependencies(values),
     dependencyAuthoring: mapDependencyAuthoring(values, context),
+  };
+}
+
+function mapRegistryPolicy(policy: any): Record<string, unknown> {
+  const sources = policy.__children
+    ?.filter((child: any) => child.__tag === 'RegistrySource')
+    .map((source: any) => ({
+      kind: source.kind,
+      endpoints: source.endpoints ?? [],
+    })) ?? [];
+  return {
+    ...(policy.allowedSources !== undefined ? { allowedSources: policy.allowedSources } : {}),
+    offline: policy.offline ?? false,
+    requireIntegrity: policy.requireIntegrity ?? false,
+    requireAuditCoverage: policy.requireAuditCoverage ?? false,
+    sources,
   };
 }
 

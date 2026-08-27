@@ -1,5 +1,11 @@
 # Command inventory (M32)
 
+Registry-aware lifecycle commands read project `<RegistryPolicy>` before
+network work. `update` and `add` fail offline; `sync` is network-free when the
+lock/store are complete; `check` validates locked source/endpoint evidence; and
+`why` displays recorded provenance. There is no global registry-management
+command.
+
 | Command | Purpose | Mutates manifest/lock? | Notable non-goals | Details |
 |---|---|---|---|---|
 | `tspack init` | Scaffold a starter manifest and entry source for `library` or `app`. | **Yes (files)** / No | Does not install, update lock, sync, or build outputs. | `docs/init.md` |

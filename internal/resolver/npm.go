@@ -57,6 +57,7 @@ type ResolverOptions struct {
 	OnPreparedPackage     func(key string)
 	OnCommittedPackage    func(id string)
 	OnResolverWorkerError func(key string)
+	SourcePolicy          SourcePolicy
 }
 
 type ResolveRequest struct {
@@ -110,6 +111,7 @@ type resolverState struct {
 	requirementOrder          int
 	selectedSlots             map[string]string
 	peerRequirementsByPackage map[string][]requirements.PackageRequirement
+	existingPackages          map[string]lockfile.Package
 }
 
 type metadataMemoEntry struct {
@@ -169,6 +171,10 @@ func ResolveNPM(ctx context.Context, opts ResolverOptions, req ResolveRequest) R
 		result.Diagnostics = append(result.Diagnostics, dErr("TSPACK_RESOLVE_INTERNAL_ERROR", "resolver requires graph"))
 		return result
 	}
+	if opts.SourcePolicy.Offline {
+		result.Diagnostics = append(result.Diagnostics, dErr("TSPACK_REGISTRY_OFFLINE_MISS", "update requires registry metadata but source policy is offline-only", "Use `tspack sync` with a populated lock and store, or disable offline mode for update."))
+		return result
+	}
 	backends := opts.Backends
 	if backends == nil {
 		backends = BackendRegistry{}
@@ -211,6 +217,7 @@ func ResolveNPM(ctx context.Context, opts ResolverOptions, req ResolveRequest) R
 		backends:                  backends,
 		selectedSlots:             map[string]string{},
 		peerRequirementsByPackage: map[string][]requirements.PackageRequirement{},
+		existingPackages:          lockPackagesByID(req.ExistingLock),
 	}
 
 	frontier := make([]resolveWorkItem, 0)
@@ -318,6 +325,27 @@ func (r *resolverState) resolveFrontier(ctx context.Context, frontier []resolveW
 	normalized := normalizeWorkItems(frontier)
 	if len(normalized) == 0 {
 		return nil, false
+	}
+	for _, request := range normalized {
+		if r.opts.SourcePolicy.Allows(request.source) {
+			continue
+		}
+		origin := r.opts.SourcePolicy.Origin
+		if origin == "" {
+			origin = "manifest RegistryPolicy"
+		}
+		r.result.Diagnostics = append(r.result.Diagnostics, diag.Diagnostic{
+			Code:     "TSPACK_SOURCE_POLICY_DENIED",
+			Severity: diag.SeverityError,
+			Message:  "registry package source is denied by source policy",
+			Details: []string{
+				"source: " + request.source,
+				"package: " + request.source + ":" + request.name,
+				"policy origin: " + origin,
+				"Allow the source in <RegistryPolicy allowedSources={...}> or remove the dependency.",
+			},
+		})
+		return nil, true
 	}
 	if r.opts.OnResolveFrontier != nil {
 		r.opts.OnResolveFrontier(len(normalized))
@@ -522,6 +550,21 @@ func (r *resolverState) prepareGroups(ctx context.Context, normalized []resolveW
 
 func (r *resolverState) prepareGroup(ctx context.Context, group resolveWorkGroup) preparedPackage {
 	prepared := preparedPackage{groupKey: group.key}
+	if !r.opts.SourcePolicy.Allows(group.source) {
+		origin := r.opts.SourcePolicy.Origin
+		if origin == "" {
+			origin = "manifest RegistryPolicy"
+		}
+		prepared.failure = prepareFailure(
+			"TSPACK_SOURCE_POLICY_DENIED",
+			"registry package source is denied by source policy",
+			"source: "+group.source,
+			"package: "+group.source+":"+group.name,
+			"policy origin: "+origin,
+			"Allow the source in <RegistryPolicy allowedSources={...}> or remove the dependency.",
+		)
+		return prepared
+	}
 
 	backend, ok := r.backends.Backend(group.source)
 	if !ok {
@@ -531,7 +574,12 @@ func (r *resolverState) prepareGroup(ctx context.Context, group resolveWorkGroup
 	meta, err := r.packageMetadata(ctx, backend, group.name)
 	if err != nil {
 		code := sourceDiagnosticCode(group.source, "METADATA_ERROR")
-		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+		errorText := strings.ToLower(err.Error())
+		if strings.Contains(err.Error(), "TSPACK_REGISTRY_FALLBACK_EXHAUSTED") {
+			code = "TSPACK_REGISTRY_FALLBACK_EXHAUSTED"
+		} else if strings.Contains(err.Error(), "TSPACK_REGISTRY_AUTH_FAILED") || strings.Contains(errorText, "status=401") || strings.Contains(errorText, "status=403") {
+			code = "TSPACK_REGISTRY_AUTH_FAILED"
+		} else if strings.Contains(errorText, "not found") {
 			code = sourceDiagnosticCode(group.source, "PACKAGE_NOT_FOUND")
 		}
 		if errorsFromCancellation(err) {
@@ -612,6 +660,20 @@ func (r *resolverState) prepareSelectedPackageUncached(ctx context.Context, grou
 		r.recordResolverWorkerError(groupKey)
 		return prepared
 	}
+	artifactEndpoint := pv.Artifact.Endpoint
+	artifactHost := pv.Artifact.Host
+	if provenance, ok := backend.(ArtifactProvenanceProvider); ok {
+		if endpoint, host := provenance.ArtifactProvenance(pv.Artifact); endpoint != "" {
+			artifactEndpoint = endpoint
+			artifactHost = host
+		}
+	}
+
+	if r.opts.SourcePolicy.RequireIntegrity && strings.TrimSpace(pv.Artifact.Integrity) == "" {
+		prepared.failure = prepareFailure("TSPACK_REGISTRY_TRUST_FAILED", "source policy requires registry artifact integrity", id, "endpoint: "+RedactURL(pv.Artifact.Endpoint))
+		r.recordResolverWorkerError(groupKey)
+		return prepared
+	}
 
 	if pv.Artifact.Integrity != "" {
 		ok, code := verifyIntegrity(body, pv.Artifact.Integrity)
@@ -640,14 +702,38 @@ func (r *resolverState) prepareSelectedPackageUncached(ctx context.Context, grou
 	}
 
 	hash := sha256.Sum256(body)
+	resolvedHash := "sha256:" + hex.EncodeToString(hash[:])
+	if existing, ok := r.existingPackages[id]; ok && existing.Hash != "" && existing.Hash != resolvedHash {
+		prepared.failure = prepareFailure(
+			"TSPACK_REGISTRY_TRUST_FAILED",
+			"registry endpoint returned divergent bytes for an already locked package version",
+			id,
+			"locked hash: "+existing.Hash,
+			"resolved hash: "+resolvedHash,
+			"endpoint: "+RedactURL(pv.Artifact.Endpoint),
+		)
+		r.recordResolverWorkerError(groupKey)
+		return prepared
+	}
+	registryEndpoint := ""
+	metadataEndpoint := ""
+	lockedArtifactHost := ""
+	if r.opts.SourcePolicy.RecordProvenance {
+		registryEndpoint = artifactEndpoint
+		metadataEndpoint = pv.Artifact.Endpoint
+		lockedArtifactHost = artifactHost
+	}
 	pkg := lockfile.Package{
-		ID:           id,
-		Name:         pv.Identity.Name,
-		Version:      pv.Version,
-		Source:       pv.Identity.Source,
-		Integrity:    pv.Artifact.Integrity,
-		Hash:         "sha256:" + hex.EncodeToString(hash[:]),
-		Capabilities: append([]lockfile.Capability(nil), pv.Capabilities...),
+		ID:               id,
+		Name:             pv.Identity.Name,
+		Version:          pv.Version,
+		Source:           pv.Identity.Source,
+		Integrity:        pv.Artifact.Integrity,
+		Hash:             resolvedHash,
+		Capabilities:     append([]lockfile.Capability(nil), pv.Capabilities...),
+		RegistryEndpoint: registryEndpoint,
+		MetadataEndpoint: metadataEndpoint,
+		ArtifactHost:     lockedArtifactHost,
 	}
 
 	if r.opts.OnArtifactResolved != nil {
@@ -679,6 +765,17 @@ func (r *resolverState) prepareSelectedPackageUncached(ctx context.Context, grou
 		r.opts.OnPreparedPackage(groupKey)
 	}
 	return prepared
+}
+
+func lockPackagesByID(lf *lockfile.Lockfile) map[string]lockfile.Package {
+	out := map[string]lockfile.Package{}
+	if lf == nil {
+		return out
+	}
+	for _, pkg := range lf.Packages {
+		out[pkg.ID] = pkg
+	}
+	return out
 }
 
 func (r *resolverState) applyRequirementControllers(frontier []resolveWorkItem) []resolveWorkItem {

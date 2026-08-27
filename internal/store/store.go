@@ -53,6 +53,9 @@ type PackageMetadata struct {
 	Provenance           []PackageProvenance   `json:"provenance,omitempty"`
 	Hash                 string                `json:"hash"`
 	Integrity            string                `json:"integrity,omitempty"`
+	RegistryEndpoint     string                `json:"registryEndpoint,omitempty"`
+	MetadataEndpoint     string                `json:"metadataEndpoint,omitempty"`
+	ArtifactHost         string                `json:"artifactHost,omitempty"`
 	Capabilities         []lockfile.Capability `json:"capabilities,omitempty"`
 	Dependencies         map[string]string     `json:"dependencies,omitempty"`
 	OptionalDependencies map[string]string     `json:"optionalDependencies,omitempty"`
@@ -65,11 +68,14 @@ type PackageMetadata struct {
 // PackageMetadata identity fields remain for compatibility with existing store
 // readers.
 type PackageProvenance struct {
-	Name      string `json:"name"`
-	Version   string `json:"version"`
-	Source    string `json:"source"`
-	PackageID string `json:"packageId,omitempty"`
-	Integrity string `json:"integrity,omitempty"`
+	Name             string `json:"name"`
+	Version          string `json:"version"`
+	Source           string `json:"source"`
+	PackageID        string `json:"packageId,omitempty"`
+	Integrity        string `json:"integrity,omitempty"`
+	RegistryEndpoint string `json:"registryEndpoint,omitempty"`
+	MetadataEndpoint string `json:"metadataEndpoint,omitempty"`
+	ArtifactHost     string `json:"artifactHost,omitempty"`
 }
 
 type Artifact struct {
@@ -165,11 +171,14 @@ func mergeStoredProvenance(metadataPath string, current PackageMetadata) Package
 		if provenance.Source == "" || provenance.Name == "" {
 			return
 		}
-		key := provenance.Source + "\x00" + provenance.Name + "\x00" + provenance.Version
+		key := provenance.Source + "\x00" + provenance.Name + "\x00" + provenance.Version + "\x00" + provenance.MetadataEndpoint + "\x00" + provenance.RegistryEndpoint + "\x00" + provenance.ArtifactHost
 		previous, found := byIdentity[key]
 		if found {
 			previous.PackageID = preferredMetadataValue(previous.PackageID, provenance.PackageID)
 			previous.Integrity = preferredMetadataValue(previous.Integrity, provenance.Integrity)
+			previous.RegistryEndpoint = preferredMetadataValue(previous.RegistryEndpoint, provenance.RegistryEndpoint)
+			previous.MetadataEndpoint = preferredMetadataValue(previous.MetadataEndpoint, provenance.MetadataEndpoint)
+			previous.ArtifactHost = preferredMetadataValue(previous.ArtifactHost, provenance.ArtifactHost)
 			byIdentity[key] = previous
 			return
 		}
@@ -208,6 +217,9 @@ func mergeStoredProvenance(metadataPath string, current PackageMetadata) Package
 	merged.Source = canonical.Source
 	merged.PackageID = canonical.PackageID
 	merged.Integrity = canonical.Integrity
+	merged.RegistryEndpoint = canonical.RegistryEndpoint
+	merged.MetadataEndpoint = canonical.MetadataEndpoint
+	merged.ArtifactHost = canonical.ArtifactHost
 	if len(provenance) > 1 {
 		merged.Provenance = provenance
 	} else {
@@ -228,11 +240,14 @@ func preferredMetadataValue(left, right string) string {
 
 func packageMetadataProvenance(metadata PackageMetadata) PackageProvenance {
 	return PackageProvenance{
-		Name:      metadata.Name,
-		Version:   metadata.Version,
-		Source:    metadata.Source,
-		PackageID: metadata.PackageID,
-		Integrity: metadata.Integrity,
+		Name:             metadata.Name,
+		Version:          metadata.Version,
+		Source:           metadata.Source,
+		PackageID:        metadata.PackageID,
+		Integrity:        metadata.Integrity,
+		RegistryEndpoint: metadata.RegistryEndpoint,
+		MetadataEndpoint: metadata.MetadataEndpoint,
+		ArtifactHost:     metadata.ArtifactHost,
 	}
 }
 
@@ -243,7 +258,7 @@ func packageMetadataMatchesProvenance(metadata PackageMetadata, provenance Packa
 }
 
 func provenanceIdentityKey(provenance PackageProvenance) string {
-	return provenance.Source + "\x00" + provenance.Name + "\x00" + provenance.Version + "\x00" + provenance.PackageID + "\x00" + provenance.Integrity
+	return provenance.Source + "\x00" + provenance.Name + "\x00" + provenance.Version + "\x00" + provenance.PackageID + "\x00" + provenance.Integrity + "\x00" + provenance.MetadataEndpoint + "\x00" + provenance.RegistryEndpoint + "\x00" + provenance.ArtifactHost
 }
 
 func (s *Store) lockArtifact(hash string) func() {

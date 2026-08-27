@@ -46,6 +46,8 @@ type DeclarationReason struct {
 type ReachabilityRef struct{ PackageName, TargetName, Reason string }
 type LockPackageRef struct {
 	ID, Name, Version, Source, Hash string
+	RegistryEndpoint, ArtifactHost  string
+	MetadataEndpoint                string
 	Capabilities                    []CapabilityRef
 	Usage                           *packageidentity.PackageUsage
 }
@@ -431,7 +433,7 @@ func lockPackageRefsByID(lf *lockfile.Lockfile, acknowledgements []manifest.Ackn
 }
 
 func lockPackageRef(pkg lockfile.Package, acknowledgements []manifest.AcknowledgedCapability, rootDir string) LockPackageRef {
-	ref := LockPackageRef{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, Hash: pkg.Hash}
+	ref := LockPackageRef{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, Hash: pkg.Hash, RegistryEndpoint: pkg.RegistryEndpoint, MetadataEndpoint: pkg.MetadataEndpoint, ArtifactHost: pkg.ArtifactHost}
 	if usage, err := packageidentity.NodeUsage(packageidentity.PackageIdentity{Source: pkg.Source, Name: pkg.Name}); err == nil {
 		ref.Usage = &usage
 	}

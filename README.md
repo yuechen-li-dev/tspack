@@ -63,6 +63,7 @@ tspack help commands
 - Deterministic `ts-lock.toml` lockfiles.
 - Mixed npm + JSR resolution through source-qualified registry backends, with no Deno requirement.
 - First-class npm-default and explicit `--source jsr` add/remove through semantic authoring IR and source-preserving manifest projection; registries are never auto-searched.
+- Declarative registry source policy with source allowlists, ordered npm-compatible mirrors/fallback, endpoint-scoped environment credentials, trust checks, endpoint provenance, and offline store reuse.
 - `update`, `sync`, and content-addressed store population.
 - `check` and read-only `check --format` validation.
 - Blocked-by-default dependency lifecycle security policy.

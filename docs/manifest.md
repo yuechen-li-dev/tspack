@@ -1,5 +1,14 @@
 # Manifest (M1 subset)
 
+## Registry source policy
+
+Workspace manifests may declare `<RegistryPolicy>` and child
+`<RegistrySource>` elements to allow semantic sources, select an ordered mirror
+chain, require integrity/audit coverage, or enable store-only offline mode.
+Endpoints do not change package identity. See
+[`docs/dev/m70d-source-policy.md`](dev/m70d-source-policy.md) for syntax and
+failure rules.
+
 `manifest.tsx` is a **typed document**, not an executable TypeScript program.
 TSPack parses/analyzes AST and never executes user manifest code. Manifest TSX is TSPack DSL syntax, not React component code.
 

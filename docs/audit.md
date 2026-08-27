@@ -1,5 +1,10 @@
 # Vulnerability audit
 
+Registry source policy and vulnerability findings are separate signals. The
+default permits unsupported coverage (currently JSR) while reporting it
+honestly. `requireAuditCoverage={true}` makes `tspack check` reject a lock whose
+source lacks an audit ecosystem mapping.
+
 `tspack audit` checks the exact npm package name/version pairs in `ts-lock.toml` against the OSV.dev vulnerability database. For mixed locks it reports the whole locked package count, the checked npm count, per-source coverage, and whether coverage is complete. Audit is read-only: it does not execute lifecycle scripts, inspect mutable `node_modules`, change the manifest or lockfile, or attempt automatic remediation.
 
 Coverage statuses are semantic rather than optimistic:

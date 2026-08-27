@@ -36,8 +36,11 @@ func instrumentRegistryClient(client resolver.NPMRegistryClient, session *perf.S
 	}
 	if httpClient, ok := client.(*resolver.HTTPRegistryClient); ok {
 		return &resolver.HTTPRegistryClient{
-			BaseURL: httpClient.BaseURL,
-			Client:  httpClient.Client,
+			BaseURL:              httpClient.BaseURL,
+			Client:               httpClient.Client,
+			Authorization:        httpClient.Authorization,
+			AuthorizationEnv:     httpClient.AuthorizationEnv,
+			AllowedArtifactHosts: append([]string(nil), httpClient.AllowedArtifactHosts...),
 			Observe: func(kind string, requestURL string, status int, err error) {
 				host := ""
 				parsed, parseErr := url.Parse(requestURL)
