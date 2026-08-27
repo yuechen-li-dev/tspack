@@ -35,6 +35,7 @@ type Explanation struct {
 	ReachableFrom, NotReachableFrom                                          []ReachabilityRef
 	LockPackages                                                             []LockPackageRef
 	LockEdges                                                                []LockEdgeRef
+	Requirements                                                             []RequirementRef
 	DirectProject                                                            *bool
 }
 type DeclarationReason struct {
@@ -64,6 +65,12 @@ type CapabilityRef struct {
 type LockEdgeRef struct {
 	From, To, Kind string
 	Optional       bool
+	Reference      string
+}
+
+type RequirementRef struct {
+	Origin, Kind, Constraint, Status, Target, Reference, SelectedVersion string
+	Controlling, Optional                                                bool
 }
 
 type ReversePath struct {
@@ -117,6 +124,7 @@ func Analyze(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, opts Options) Resul
 				}
 			}
 			addDependencyLockDetails(&e, lf, p, d.Source.Kind, d.Source.Package, opts.AcknowledgedCapabilities, opts.RootDir)
+			e.Requirements = matchingRequirements(lf, q, d.Source.Kind, d.Source.Package)
 			out.Explanations = append(out.Explanations, e)
 		}
 		if t, ok := p.Target(q); ok {
@@ -146,7 +154,44 @@ func Analyze(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, opts Options) Resul
 				}
 			}
 			dedupeLockEdges(&e)
+			e.Requirements = matchingRequirements(lf, q, lp.Source, lp.Name)
 			e.DirectProject = &direct
+			out.Explanations = append(out.Explanations, e)
+		}
+	}
+	if len(out.Explanations) == 0 && lf != nil {
+		for _, edge := range lf.Edges {
+			if edge.Reference != q {
+				continue
+			}
+			for _, pkg := range lf.Packages {
+				if pkg.ID != edge.To {
+					continue
+				}
+				out.Explanations = append(out.Explanations, Explanation{
+					Query:               q,
+					DependencyKey:       q,
+					ExternalPackageName: pkg.Name,
+					Kind:                edge.Kind,
+					MatchType:           "alias-reference",
+					LockPackages:        []LockPackageRef{lockPackageRef(pkg, opts.AcknowledgedCapabilities, opts.RootDir)},
+					LockEdges:           []LockEdgeRef{LockEdgeRef(edge)},
+				})
+			}
+		}
+	}
+	if len(out.Explanations) == 0 {
+		requirementMatches := matchingRequirements(lf, q, "", "")
+		if len(requirementMatches) > 0 {
+			e := Explanation{Query: q, MatchType: "requirement", Requirements: requirementMatches}
+			for _, pkg := range lf.Packages {
+				for _, requirement := range requirementMatches {
+					if pkg.Source+":"+pkg.Name == requirement.Target && pkg.Version == requirement.SelectedVersion {
+						e.LockPackages = append(e.LockPackages, lockPackageRef(pkg, opts.AcknowledgedCapabilities, opts.RootDir))
+					}
+				}
+			}
+			sortLockPackages(e.LockPackages)
 			out.Explanations = append(out.Explanations, e)
 		}
 	}
@@ -167,6 +212,39 @@ func Analyze(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, opts Options) Resul
 		return a.TargetName < b.TargetName
 	})
 	diag.SortDiagnostics(out.Diagnostics)
+	return out
+}
+
+func matchingRequirements(lf *lockfile.Lockfile, query string, source string, name string) []RequirementRef {
+	if lf == nil {
+		return nil
+	}
+	out := []RequirementRef{}
+	for _, requirement := range lf.Requirements {
+		target := requirement.TargetSource + ":" + requirement.TargetName
+		if source != "" || name != "" {
+			if requirement.TargetSource != source || requirement.TargetName != name {
+				continue
+			}
+		} else if query != requirement.Reference && query != requirement.TargetName && query != target {
+			continue
+		}
+		origin := requirement.PackageID
+		if origin == "" {
+			origin = requirement.RequiringPackage
+		}
+		out = append(out, RequirementRef{
+			Origin:          origin,
+			Kind:            requirement.Kind,
+			Constraint:      requirement.Constraint,
+			Status:          requirement.Status,
+			Target:          target,
+			Reference:       requirement.Reference,
+			SelectedVersion: requirement.SelectedVersion,
+			Controlling:     requirement.Controlling,
+			Optional:        requirement.Optional,
+		})
+	}
 	return out
 }
 

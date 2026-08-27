@@ -7,6 +7,8 @@
 - Target name (`react`)
 - Package name where it is declared in the manifest
 - Lock package ID (`npm:vue@3.4.0`)
+- Local npm alias/reference (`foo` for semantic target `npm:bar`)
+- Source-qualified requirement slot (`npm:react`, `jsr:@scope/pkg`)
 
 Transitive packages can exist only in `ts-lock.toml` and may not be manifest dependency keys. Use the lock package ID form for those packages:
 
@@ -25,6 +27,9 @@ tspack why npm:@scope/pkg@1.2.3
 - Reachability from targets and non-reachability from other targets
 - Lock package matches and lock edges (direct target/tool edges and transitive package edges)
 - Lock edge lines are deduplicated for readability while keeping deterministic ordering.
+- Shared-slot requirement rows show origin, kind, constraint, selected version,
+  controlling state, and compatibility classification. Alias rows distinguish
+  local reference spelling from semantic package identity.
 - Lock edges shown under a declaration are scoped to the relevant root edge(s) for that declaration and the reachable transitive lock edges below those roots. A declaration for `react@19` should not print transitive edges that are only reachable from a different declaration resolving `react@18`.
 
 

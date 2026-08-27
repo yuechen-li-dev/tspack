@@ -17,7 +17,15 @@ Non-goals: resolver, npm/git fetching, update/sync CLI flows, store, `node_modul
 - `[lock]` header with `format=1`, `tool="tspack"`.
 - `[[package]]` entries for source-pinned packages.
 - `[[edge]]` entries connecting source graph nodes to resolved package ids.
+- optional `[[requirement]]` entries preserving shared-slot intent,
+  provenance, precedence outcome, and compatibility classification.
 - `[[target]]` entries for target outputs.
+
+M70x keeps `format=1` and adds requirement/reference fields additively. An edge
+`reference` is the local materialization spelling for an npm alias; its `to`
+package ID remains the semantic source-qualified target. Requirement rows make
+offline `why` and `check` reproducible without treating losing requirements as
+installed packages.
 
 ## Package capabilities
 

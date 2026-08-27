@@ -52,6 +52,7 @@ type materializationPlanEntry struct {
 	PackageName string
 	PackageHash string
 	Destination string
+	Aliased     bool
 }
 
 func buildMaterializationPlan(lf *lockfile.Lockfile, nmRoot string, mode LinkMode) materializationPlan {
@@ -96,7 +97,7 @@ func buildMaterializationPlan(lf *lockfile.Lockfile, nmRoot string, mode LinkMod
 		if !ok {
 			continue
 		}
-		appendMaterializationPlanEntries(&entries, pkgs, edgesByFrom, pkg, nmRoot, state)
+		appendMaterializationPlanEntries(&entries, pkgs, edgesByFrom, pkg, edgeMaterializationName(edge, pkg), nmRoot, state)
 	}
 
 	sort.SliceStable(entries, func(i, j int) bool {
@@ -147,8 +148,15 @@ func materializationPlanCollisionDiagnostics(plan materializationPlan) []diag.Di
 			}
 			details = append(details, "Compatibility/materialization names must be unique within each node_modules directory.")
 
+			code := "TSPACK_MATERIALIZE_IMPORT_COLLISION"
+			for index := start; index < end; index++ {
+				if plan.entries[index].Aliased {
+					code = "TSPACK_ALIAS_REFERENCE_COLLISION"
+					break
+				}
+			}
 			diagnostics = append(diagnostics, diag.Diagnostic{
-				Code:     "TSPACK_MATERIALIZE_IMPORT_COLLISION",
+				Code:     code,
 				Severity: diag.SeverityError,
 				File:     plan.entries[start].Destination,
 				Message:  "source-qualified packages map to the same materialization path",
@@ -163,8 +171,7 @@ func materializationPlanCollisionDiagnostics(plan materializationPlan) []diag.Di
 	return diagnostics
 }
 
-func appendMaterializationPlanEntries(entries *[]materializationPlanEntry, pkgs map[string]lockfile.Package, edgesByFrom map[string][]lockfile.Edge, pkg lockfile.Package, parentNodeModules string, state *materializeState) {
-	installName := materializedPackageName(pkg)
+func appendMaterializationPlanEntries(entries *[]materializationPlanEntry, pkgs map[string]lockfile.Package, edgesByFrom map[string][]lockfile.Edge, pkg lockfile.Package, installName string, parentNodeModules string, state *materializeState) {
 	dest, err := safePackagePath(parentNodeModules, installName)
 	if err != nil {
 		return
@@ -181,6 +188,7 @@ func appendMaterializationPlanEntries(entries *[]materializationPlanEntry, pkgs 
 		PackageName: installName,
 		PackageHash: hash,
 		Destination: filepath.ToSlash(dest),
+		Aliased:     installName != materializedPackageName(pkg),
 	})
 
 	cycleLeaf := state.containsPackage(pkg.ID)
@@ -193,11 +201,14 @@ func appendMaterializationPlanEntries(entries *[]materializationPlanEntry, pkgs 
 
 	childNM := filepath.Join(dest, "node_modules")
 	for _, edge := range edgesByFrom[pkg.ID] {
+		if edge.Kind == "peer" || edge.Kind == "optionalPeer" {
+			continue
+		}
 		dep, ok := pkgs[edge.To]
 		if !ok {
 			continue
 		}
-		appendMaterializationPlanEntries(entries, pkgs, edgesByFrom, dep, childNM, state)
+		appendMaterializationPlanEntries(entries, pkgs, edgesByFrom, dep, edgeMaterializationName(edge, dep), childNM, state)
 	}
 }
 

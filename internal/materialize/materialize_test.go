@@ -86,6 +86,79 @@ func TestMaterializeDirectDependencyRootEdge(t *testing.T) {
 	mustExist(t, filepath.Join(workspace, "node_modules", "@jsr", "luca__flag", "package.json"))
 }
 
+func TestMaterializeNPMAliasAtReferenceName(t *testing.T) {
+	workspace := t.TempDir()
+	contentStore, _ := store.Open(t.TempDir())
+	parentHash := putPkg(t, contentStore, "npm:parent@1.0.0", "parent")
+	barHash := putPkg(t, contentStore, "npm:bar@2.1.0", "bar")
+	locked := &lockfile.Lockfile{
+		Packages: []lockfile.Package{
+			{ID: "npm:parent@1.0.0", Name: "parent", Source: "npm", Hash: parentHash},
+			{ID: "npm:bar@2.1.0", Name: "bar", Source: "npm", Hash: barHash},
+		},
+		Edges: []lockfile.Edge{
+			{From: "app:target:core", To: "npm:parent@1.0.0", Kind: "runtime"},
+			{From: "npm:parent@1.0.0", To: "npm:bar@2.1.0", Kind: "runtime", Reference: "foo"},
+		},
+	}
+	result := NodeModulesMaterializer{}.Materialize(context.Background(), Request{WorkspaceRoot: workspace, Lock: locked, Store: contentStore, Options: Options{LinkMode: LinkModeCopy}})
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("alias materialization diagnostics: %#v", result.Diagnostics)
+	}
+	mustExist(t, filepath.Join(workspace, "node_modules", "parent", "node_modules", "foo", "package.json"))
+	if _, err := os.Stat(filepath.Join(workspace, "node_modules", "parent", "node_modules", "bar")); !os.IsNotExist(err) {
+		t.Fatalf("semantic target should materialize under alias reference, stat error = %v", err)
+	}
+}
+
+func TestMaterializeMultipleAliasesForOneSemanticTarget(t *testing.T) {
+	workspace := t.TempDir()
+	contentStore, _ := store.Open(t.TempDir())
+	parentHash := putPkg(t, contentStore, "npm:parent@1.0.0", "parent")
+	barHash := putPkg(t, contentStore, "npm:bar@2.1.0", "bar")
+	locked := &lockfile.Lockfile{
+		Packages: []lockfile.Package{
+			{ID: "npm:parent@1.0.0", Name: "parent", Source: "npm", Hash: parentHash},
+			{ID: "npm:bar@2.1.0", Name: "bar", Source: "npm", Hash: barHash},
+		},
+		Edges: []lockfile.Edge{
+			{From: "app:target:core", To: "npm:parent@1.0.0", Kind: "runtime"},
+			{From: "npm:parent@1.0.0", To: "npm:bar@2.1.0", Kind: "runtime", Reference: "foo"},
+			{From: "npm:parent@1.0.0", To: "npm:bar@2.1.0", Kind: "runtime", Reference: "baz"},
+		},
+	}
+	result := NodeModulesMaterializer{}.Materialize(context.Background(), Request{WorkspaceRoot: workspace, Lock: locked, Store: contentStore, Options: Options{LinkMode: LinkModeCopy}})
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("multiple alias diagnostics: %#v", result.Diagnostics)
+	}
+	mustExist(t, filepath.Join(workspace, "node_modules", "parent", "node_modules", "foo", "package.json"))
+	mustExist(t, filepath.Join(workspace, "node_modules", "parent", "node_modules", "baz", "package.json"))
+}
+
+func TestMaterializeRejectsAliasReferenceCollisionBeforeMutation(t *testing.T) {
+	workspace := t.TempDir()
+	contentStore, _ := store.Open(t.TempDir())
+	firstHash := putPkg(t, contentStore, "npm:first@1.0.0", "first")
+	secondHash := putPkg(t, contentStore, "npm:second@1.0.0", "second")
+	locked := &lockfile.Lockfile{
+		Packages: []lockfile.Package{
+			{ID: "npm:first@1.0.0", Name: "first", Source: "npm", Hash: firstHash},
+			{ID: "npm:second@1.0.0", Name: "second", Source: "npm", Hash: secondHash},
+		},
+		Edges: []lockfile.Edge{
+			{From: "app:target:core", To: "npm:first@1.0.0", Kind: "runtime", Reference: "shared"},
+			{From: "app:target:core", To: "npm:second@1.0.0", Kind: "runtime", Reference: "shared"},
+		},
+	}
+	result := NodeModulesMaterializer{}.Materialize(context.Background(), Request{WorkspaceRoot: workspace, Lock: locked, Store: contentStore, Options: Options{LinkMode: LinkModeCopy}})
+	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "TSPACK_ALIAS_REFERENCE_COLLISION" {
+		t.Fatalf("alias collision diagnostics: %#v", result.Diagnostics)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "node_modules")); !os.IsNotExist(err) {
+		t.Fatalf("alias collision mutated filesystem, stat error = %v", err)
+	}
+}
+
 func TestMaterializeRegistryNameCollisionUsesDistinctNodeNames(t *testing.T) {
 	workspace := t.TempDir()
 	contentStore, _ := store.Open(t.TempDir())

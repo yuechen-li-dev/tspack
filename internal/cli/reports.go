@@ -77,7 +77,20 @@ type WhyJSONExplanation struct {
 	NotReachableFrom    []WhyJSONReachability `json:"notReachableFrom,omitempty"`
 	LockPackages        []WhyJSONLockPackage  `json:"lockPackages,omitempty"`
 	LockEdges           []WhyJSONLockEdge     `json:"lockEdges,omitempty"`
+	Requirements        []WhyJSONRequirement  `json:"requirements,omitempty"`
 	DirectProject       *bool                 `json:"directProject,omitempty"`
+}
+
+type WhyJSONRequirement struct {
+	Origin          string `json:"origin,omitempty"`
+	Kind            string `json:"kind"`
+	Constraint      string `json:"constraint"`
+	Status          string `json:"status"`
+	Target          string `json:"target"`
+	Reference       string `json:"reference,omitempty"`
+	SelectedVersion string `json:"selectedVersion,omitempty"`
+	Controlling     bool   `json:"controlling"`
+	Optional        bool   `json:"optional,omitempty"`
 }
 
 type WhyJSONSource struct {
@@ -129,10 +142,11 @@ type WhyJSONCapability struct {
 }
 
 type WhyJSONLockEdge struct {
-	From     string `json:"from"`
-	To       string `json:"to"`
-	Kind     string `json:"kind"`
-	Optional bool   `json:"optional"`
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Kind      string `json:"kind"`
+	Optional  bool   `json:"optional"`
+	Reference string `json:"reference,omitempty"`
 }
 
 type WhyJSONReversePath struct {

@@ -47,7 +47,7 @@
 - Repeating an unqualified or textually equivalent explicit add of the same editable declaration is a zero-registry, byte-for-byte no-op. A changed explicit spec replaces the matching editable declaration and is reported as a constraint change; a derived or concept-owned declaration is retained and shadowed by a new explicit declaration.
 - `--dev` is intentionally rejected: TSPack's `test` dependency kind remains reserved and has no native manifest helper or execution contract. `--tool` is also rejected for add because a usable tool requires both `tool(...)` dependency intent and a `<Tools>` selection, while the M69 projector owns only dependency islands. This avoids creating apparently installed but unusable tooling.
 - npm and JSR declarations with the same logical name remain source-distinct. Replacement matches source-qualified identity, and removal requires `--source` when the name is ambiguous.
-- True npm alias constraints and transitive registry peer satisfaction are not supported by this workflow. `@jsr/scope__package` metadata-key normalization is a JSR compatibility mapping, not general npm alias support.
+- Registry npm aliases and transitive registry peers are normalized by the M70x requirement IR. `tspack add` does not add new direct-alias syntax; aliases encountered in registry metadata retain local reference spelling while resolution uses semantic target identity.
 - package.json-native incremental projects receive an authority diagnostic and should use `tspack npm install ...` for npm dependencies until ownership is migrated. TSPack does not invent a package.json representation for native JSR intent.
 
 ## `tspack remove`
@@ -70,6 +70,12 @@
 - Before writing `node_modules`, sync rejects semantic packages that map to the same destination with `TSPACK_MATERIALIZE_IMPORT_COLLISION`; it never silently chooses or overwrites one source.
 
 ## `tspack why` and package usage
+
+`why <reference|package|source:package>` also prints the deterministic
+requirement tape for a shared environment slot: origin, semantic target,
+constraint, classification, controlling state, and selected version. Alias
+queries explain that the local reference points to a different semantic npm
+target. `why --json` exposes explicit requirement DTO fields.
 
 A source-qualified registry query retains semantic package identity. For JSR
 lock packages, human and JSON output also explain the npm-compat materialization

@@ -82,6 +82,13 @@ sources as coverage unknown. JSR's npm-compatible name is not submitted as npm
 vulnerability identity. Linked repositories or registry provenance are useful
 review evidence but do not prove that an npm advisory applies to a JSR package.
 
+Requirement overrides do not change audit identity. Audit checks the selected
+source-qualified lock package only; a losing peer/runtime requirement is not an
+installed artifact. `why` and `check` retain incompatible requirement
+provenance so reviewers can see when explicit policy selected a newer or older
+version than a package requested. npm alias reference spelling never replaces
+the semantic npm target submitted to vulnerability checks.
+
 The content store may deduplicate identical bytes, but its metadata retains a
 deterministic set of every source-qualified package provenance for that hash.
 The lockfile remains authoritative graph provenance; content deduplication does

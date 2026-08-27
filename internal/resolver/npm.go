@@ -22,6 +22,8 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/graph"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/packageidentity"
+	"github.com/yuechen-li-dev/tspack/internal/requirements"
 )
 
 type ResolveMode string
@@ -79,8 +81,11 @@ type PackageVersion struct {
 	Dependencies         map[string]string `json:"dependencies"`
 	OptionalDependencies map[string]string `json:"optionalDependencies"`
 	PeerDependencies     map[string]string `json:"peerDependencies"`
-	Dist                 PackageDist       `json:"dist"`
-	Scripts              map[string]string `json:"scripts"`
+	PeerDependenciesMeta map[string]struct {
+		Optional bool `json:"optional"`
+	} `json:"peerDependenciesMeta"`
+	Dist    PackageDist       `json:"dist"`
+	Scripts map[string]string `json:"scripts"`
 }
 
 type PackageDist struct {
@@ -89,18 +94,22 @@ type PackageDist struct {
 }
 
 type resolverState struct {
-	opts        ResolverOptions
-	result      *ResolveResult
-	seenPkg     map[string]bool
-	graph       *graph.WorkspaceGraph
-	controller  ResolveOccupancyController
-	hostMap     map[string]int
-	backends    BackendRegistry
-	frontierSeq int
-	metaMu      sync.Mutex
-	meta        map[string]*metadataMemoEntry
-	prepMu      sync.Mutex
-	prep        map[string]*preparedMemoEntry
+	opts                      ResolverOptions
+	result                    *ResolveResult
+	seenPkg                   map[string]bool
+	graph                     *graph.WorkspaceGraph
+	controller                ResolveOccupancyController
+	hostMap                   map[string]int
+	backends                  BackendRegistry
+	frontierSeq               int
+	metaMu                    sync.Mutex
+	meta                      map[string]*metadataMemoEntry
+	prepMu                    sync.Mutex
+	prep                      map[string]*preparedMemoEntry
+	requirementFacts          []requirements.PackageRequirement
+	requirementOrder          int
+	selectedSlots             map[string]string
+	peerRequirementsByPackage map[string][]requirements.PackageRequirement
 }
 
 type metadataMemoEntry struct {
@@ -115,12 +124,14 @@ type preparedMemoEntry struct {
 }
 
 type resolveWorkItem struct {
-	source   string
-	name     string
-	rng      string
-	from     string
-	kind     string
-	optional bool
+	source    string
+	name      string
+	rng       string
+	from      string
+	kind      string
+	optional  bool
+	reference string
+	slot      string
 }
 
 type resolveWorkGroup struct {
@@ -137,6 +148,7 @@ type preparedPackage struct {
 	packageID  string
 	packageDef lockfile.Package
 	transitive []resolveWorkItem
+	peers      []DependencyRequirement
 	failure    *preparedFailure
 	cancelled  bool
 }
@@ -190,13 +202,15 @@ func ResolveNPM(ctx context.Context, opts ResolverOptions, req ResolveRequest) R
 	}
 
 	state := &resolverState{
-		opts:       opts,
-		result:     &result,
-		seenPkg:    map[string]bool{},
-		graph:      req.Graph,
-		controller: NewResolveOccupancyController(opts.ResolveControllerMode, resolveJobs, opts.ResolveHostBudget),
-		hostMap:    backendHostMap(backends),
-		backends:   backends,
+		opts:                      opts,
+		result:                    &result,
+		seenPkg:                   map[string]bool{},
+		graph:                     req.Graph,
+		controller:                NewResolveOccupancyController(opts.ResolveControllerMode, resolveJobs, opts.ResolveHostBudget),
+		hostMap:                   backendHostMap(backends),
+		backends:                  backends,
+		selectedSlots:             map[string]string{},
+		peerRequirementsByPackage: map[string][]requirements.PackageRequirement{},
 	}
 
 	frontier := make([]resolveWorkItem, 0)
@@ -206,10 +220,10 @@ func ResolveNPM(ctx context.Context, opts ResolverOptions, req ResolveRequest) R
 			from := fmt.Sprintf("%s:target:%s", pkg.Name, target.Name)
 			for _, dep := range target.AllowedRuntimeDependencies() {
 				selectedRuntimeDependencies[dep.Key] = true
-				frontier = state.enqueueDirectRequest(ctx, frontier, dep, from, dependencyEdgeKind(dep))
+				frontier = state.enqueueSharedDirectRequest(ctx, frontier, dep, from, dependencyEdgeKind(dep), requirements.KindProjectExplicit)
 			}
 			for _, dep := range target.AllowedPeerDependencies() {
-				frontier = state.enqueueDirectRequest(ctx, frontier, dep, from, "peer")
+				frontier = state.enqueueSharedDirectRequest(ctx, frontier, dep, from, "peer", requirements.KindPeer)
 			}
 		}
 		for _, dep := range pkg.AllDependencies() {
@@ -219,12 +233,13 @@ func ResolveNPM(ctx context.Context, opts ResolverOptions, req ResolveRequest) R
 			if dep.Kind != graph.DependencyKindDep && dep.Kind != graph.DependencyKindRuntime {
 				continue
 			}
-			frontier = state.enqueueDirectRequest(ctx, frontier, dep, fmt.Sprintf("%s:dependency", pkg.Name), dependencyEdgeKind(dep))
+			frontier = state.enqueueSharedDirectRequest(ctx, frontier, dep, fmt.Sprintf("%s:dependency", pkg.Name), dependencyEdgeKind(dep), requirements.KindProjectExplicit)
 		}
 		for _, dep := range pkg.ToolDependencies() {
 			frontier = state.enqueueDirectRequest(ctx, frontier, dep, fmt.Sprintf("%s:tool", pkg.Name), "tool")
 		}
 	}
+	frontier = state.applyRequirementControllers(frontier)
 
 	for len(frontier) > 0 {
 		nextFrontier, fatal := state.resolveFrontier(ctx, frontier, resolveJobs)
@@ -233,6 +248,10 @@ func ResolveNPM(ctx context.Context, opts ResolverOptions, req ResolveRequest) R
 		}
 		frontier = nextFrontier
 	}
+	if !hasErrorDiagnostics(result.Diagnostics) {
+		state.stabilizePeerRequirements(ctx, resolveJobs)
+	}
+	state.finalizeRequirementTape()
 
 	result.Lock = mustNormalizeLock(result.Lock)
 	diag.SortDiagnostics(result.Diagnostics)
@@ -260,6 +279,39 @@ func (r *resolverState) enqueueDirectRequest(ctx context.Context, frontier []res
 		optional: dep.Optional,
 	})
 	return frontier
+}
+
+func (r *resolverState) enqueueSharedDirectRequest(ctx context.Context, frontier []resolveWorkItem, dep *graph.DependencyNode, from, edgeKind string, requirementKind requirements.Kind) []resolveWorkItem {
+	if _, ok := r.backends.Backend(dep.Source.Kind); !ok {
+		r.resolveNonNPMDependency(ctx, dep, from, edgeKind)
+		return frontier
+	}
+	requirement := requirements.PackageRequirement{
+		ID:         fmt.Sprintf("direct:%s:%s:%06d", from, dep.Key, r.requirementOrder),
+		Target:     packageidentity.PackageIdentity{Source: dep.Source.Kind, Name: dep.Source.Package},
+		Reference:  dep.Key,
+		Constraint: dep.Source.Range,
+		Kind:       requirementKind,
+		Optional:   dep.Optional,
+		Origin: requirements.Origin{
+			RequiringPackage: dep.Package.Name,
+			DependencyKey:    dep.Key,
+			Source:           "manifest",
+		},
+		Scope: requirements.Scope{Environment: "workspace"},
+		Order: r.requirementOrder,
+	}
+	r.requirementOrder++
+	r.requirementFacts = append(r.requirementFacts, requirement)
+	return append(frontier, resolveWorkItem{
+		source:   dep.Source.Kind,
+		name:     dep.Source.Package,
+		rng:      dep.Source.Range,
+		from:     from,
+		kind:     edgeKind,
+		optional: dep.Optional,
+		slot:     requirements.SlotKey(requirement),
+	})
 }
 
 func (r *resolverState) resolveFrontier(ctx context.Context, frontier []resolveWorkItem, resolveJobs int) ([]resolveWorkItem, bool) {
@@ -291,12 +343,22 @@ func (r *resolverState) resolveFrontier(ctx context.Context, frontier []resolveW
 			continue
 		}
 
+		if strings.HasPrefix(request.from, "workspace:peer:") {
+			r.removeEdgesFrom(request.from)
+		}
 		r.result.Lock.Edges = append(r.result.Lock.Edges, lockfile.Edge{
-			From:     request.from,
-			To:       prepared.packageID,
-			Kind:     request.kind,
-			Optional: request.optional,
+			From:      request.from,
+			To:        prepared.packageID,
+			Kind:      request.kind,
+			Optional:  request.optional,
+			Reference: request.reference,
 		})
+		if request.slot != "" {
+			r.selectedSlots[request.slot] = prepared.packageDef.Version
+			if prepared.packageDef.Version == "" {
+				r.selectedSlots[request.slot] = packageVersionFromID(prepared.packageID)
+			}
+		}
 
 		if r.seenPkg[prepared.packageID] {
 			continue
@@ -308,9 +370,20 @@ func (r *resolverState) resolveFrontier(ctx context.Context, frontier []resolveW
 			r.opts.OnCommittedPackage(prepared.packageID)
 		}
 		nextFrontier = append(nextFrontier, prepared.transitive...)
+		r.appendPeerRequirements(prepared.packageID, prepared.peers)
 	}
 
 	return nextFrontier, fatal
+}
+
+func (r *resolverState) removeEdgesFrom(from string) {
+	kept := r.result.Lock.Edges[:0]
+	for _, edge := range r.result.Lock.Edges {
+		if edge.From != from {
+			kept = append(kept, edge)
+		}
+	}
+	r.result.Lock.Edges = kept
 }
 
 func normalizeWorkItems(frontier []resolveWorkItem) []resolveWorkItem {
@@ -588,22 +661,318 @@ func (r *resolverState) prepareSelectedPackageUncached(ctx context.Context, grou
 	transitive := make([]resolveWorkItem, 0, len(pv.Dependencies))
 	for _, dep := range pv.Dependencies {
 		transitive = append(transitive, resolveWorkItem{
-			source:   dep.Identity.Source,
-			name:     dep.Identity.Name,
-			rng:      dep.Constraint,
-			from:     id,
-			kind:     dep.Kind,
-			optional: dep.Optional,
+			source:    dep.Identity.Source,
+			name:      dep.Identity.Name,
+			rng:       dep.Constraint,
+			from:      id,
+			kind:      dep.Kind,
+			optional:  dep.Optional,
+			reference: dep.Reference,
 		})
 	}
 
 	prepared.packageID = id
 	prepared.packageDef = pkg
 	prepared.transitive = transitive
+	prepared.peers = append([]DependencyRequirement(nil), pv.PeerRequirements...)
 	if r.opts.OnPreparedPackage != nil {
 		r.opts.OnPreparedPackage(groupKey)
 	}
 	return prepared
+}
+
+func (r *resolverState) applyRequirementControllers(frontier []resolveWorkItem) []resolveWorkItem {
+	tape := requirements.Build(r.requirementFacts)
+	controllers := map[string]requirements.PackageRequirement{}
+	for _, controller := range tape.Controllers() {
+		controllers[requirements.SlotKey(controller)] = controller
+	}
+	out := make([]resolveWorkItem, 0, len(frontier))
+	for _, request := range frontier {
+		if request.slot == "" {
+			out = append(out, request)
+			continue
+		}
+		controller, ok := controllers[request.slot]
+		if !ok {
+			continue
+		}
+		request.source = controller.Target.Source
+		request.name = controller.Target.Name
+		request.rng = controller.Constraint
+		out = append(out, request)
+	}
+	return out
+}
+
+func (r *resolverState) appendPeerRequirements(packageID string, peers []DependencyRequirement) {
+	if _, exists := r.peerRequirementsByPackage[packageID]; exists {
+		return
+	}
+	packageRequirements := []requirements.PackageRequirement{}
+	for _, peer := range peers {
+		requirement := requirements.PackageRequirement{
+			ID:         fmt.Sprintf("peer:%s:%s:%06d", packageID, peer.Reference, r.requirementOrder),
+			Target:     packageidentity.PackageIdentity{Source: peer.Identity.Source, Name: peer.Identity.Name},
+			Reference:  peer.Reference,
+			Constraint: peer.Constraint,
+			Kind:       requirements.KindPeer,
+			Optional:   peer.Optional,
+			Origin: requirements.Origin{
+				PackageID:     packageID,
+				DependencyKey: peer.Reference,
+				Source:        "registry-metadata",
+			},
+			Scope: requirements.Scope{Environment: "workspace"},
+			Order: r.requirementOrder,
+		}
+		r.requirementOrder++
+		r.requirementFacts = append(r.requirementFacts, requirement)
+		packageRequirements = append(packageRequirements, requirement)
+	}
+	r.peerRequirementsByPackage[packageID] = packageRequirements
+}
+
+func (r *resolverState) stabilizePeerRequirements(ctx context.Context, resolveJobs int) {
+	r.resolvePeerRequirements(ctx, resolveJobs)
+	r.reconcilePeerEnvironmentEdges()
+	r.pruneUnreachablePackages()
+	r.recomputeSelectedSlots()
+}
+
+func (r *resolverState) resolvePeerRequirements(ctx context.Context, resolveJobs int) {
+	for iteration := 0; iteration <= len(r.requirementFacts)+1; iteration++ {
+		tape := requirements.Build(r.requirementFacts)
+		frontier := []resolveWorkItem{}
+		for _, controller := range tape.Controllers() {
+			if controller.Kind != requirements.KindPeer {
+				continue
+			}
+			slot := requirements.SlotKey(controller)
+			if selectedVersionSatisfies(r.selectedSlots[slot], controller.Constraint) {
+				continue
+			}
+			frontier = append(frontier, resolveWorkItem{
+				source:    controller.Target.Source,
+				name:      controller.Target.Name,
+				rng:       controller.Constraint,
+				from:      peerEnvironmentRoot(controller),
+				kind:      "peer",
+				optional:  controller.Optional,
+				reference: controller.Reference,
+				slot:      slot,
+			})
+		}
+		if len(frontier) == 0 {
+			return
+		}
+
+		factsBefore := len(r.requirementFacts)
+		for len(frontier) > 0 {
+			next, fatal := r.resolveFrontier(ctx, frontier, resolveJobs)
+			if fatal {
+				return
+			}
+			frontier = next
+		}
+		if factsBefore == len(r.requirementFacts) {
+			return
+		}
+	}
+}
+
+func (r *resolverState) reconcilePeerEnvironmentEdges() {
+	controllers := map[string]requirements.PackageRequirement{}
+	for _, controller := range requirements.Build(r.requirementFacts).Controllers() {
+		controllers[requirements.SlotKey(controller)] = controller
+	}
+	packages := map[string]lockfile.Package{}
+	for _, pkg := range r.result.Lock.Packages {
+		packages[pkg.ID] = pkg
+	}
+	kept := r.result.Lock.Edges[:0]
+	for _, edge := range r.result.Lock.Edges {
+		if !strings.HasPrefix(edge.From, "workspace:peer:") {
+			kept = append(kept, edge)
+			continue
+		}
+		pkg, ok := packages[edge.To]
+		if !ok {
+			continue
+		}
+		requirement := requirements.PackageRequirement{
+			Target: packageidentity.PackageIdentity{Source: pkg.Source, Name: pkg.Name},
+			Scope:  requirements.Scope{Environment: "workspace"},
+		}
+		controller, ok := controllers[requirements.SlotKey(requirement)]
+		if !ok || controller.Kind != requirements.KindPeer || !selectedVersionSatisfies(pkg.Version, controller.Constraint) {
+			continue
+		}
+		kept = append(kept, edge)
+	}
+	r.result.Lock.Edges = kept
+}
+
+func (r *resolverState) pruneUnreachablePackages() map[string]bool {
+	packageIDs := map[string]bool{}
+	for _, pkg := range r.result.Lock.Packages {
+		packageIDs[pkg.ID] = true
+	}
+	reachable := map[string]bool{}
+	frontier := []string{}
+	for _, edge := range r.result.Lock.Edges {
+		if !packageIDs[edge.From] && packageIDs[edge.To] && !reachable[edge.To] {
+			reachable[edge.To] = true
+			frontier = append(frontier, edge.To)
+		}
+	}
+	for len(frontier) > 0 {
+		current := frontier[0]
+		frontier = frontier[1:]
+		for _, edge := range r.result.Lock.Edges {
+			if edge.From != current || !packageIDs[edge.To] || reachable[edge.To] {
+				continue
+			}
+			reachable[edge.To] = true
+			frontier = append(frontier, edge.To)
+		}
+	}
+	packages := r.result.Lock.Packages[:0]
+	for _, pkg := range r.result.Lock.Packages {
+		if reachable[pkg.ID] {
+			packages = append(packages, pkg)
+		}
+	}
+	r.result.Lock.Packages = packages
+	edges := r.result.Lock.Edges[:0]
+	for _, edge := range r.result.Lock.Edges {
+		if !reachable[edge.To] {
+			continue
+		}
+		if packageIDs[edge.From] && !reachable[edge.From] {
+			continue
+		}
+		edges = append(edges, edge)
+	}
+	r.result.Lock.Edges = edges
+	return reachable
+}
+
+func (r *resolverState) recomputeSelectedSlots() {
+	r.selectedSlots = map[string]string{}
+	packages := map[string]lockfile.Package{}
+	for _, pkg := range r.result.Lock.Packages {
+		packages[pkg.ID] = pkg
+	}
+	knownSlots := map[string]bool{}
+	for _, requirement := range r.requirementFacts {
+		knownSlots[requirements.SlotKey(requirement)] = true
+	}
+	for _, edge := range r.result.Lock.Edges {
+		if _, fromPackage := packages[edge.From]; fromPackage {
+			continue
+		}
+		pkg, ok := packages[edge.To]
+		if !ok {
+			continue
+		}
+		requirement := requirements.PackageRequirement{
+			Target: packageidentity.PackageIdentity{Source: pkg.Source, Name: pkg.Name},
+			Scope:  requirements.Scope{Environment: "workspace"},
+		}
+		slot := requirements.SlotKey(requirement)
+		if knownSlots[slot] {
+			r.selectedSlots[slot] = pkg.Version
+		}
+	}
+}
+
+func (r *resolverState) finalizeRequirementTape() {
+	classified := requirements.Build(r.requirementFacts).Classify(r.selectedSlots)
+	r.result.Lock.Requirements = make([]lockfile.Requirement, 0, len(classified.Entries))
+	for _, entry := range classified.Entries {
+		shadowedBy := ""
+		if entry.ShadowedBy != nil {
+			shadowedBy = entry.ShadowedBy.ID
+		}
+		requirement := entry.Requirement
+		r.result.Lock.Requirements = append(r.result.Lock.Requirements, lockfile.Requirement{
+			ID:               requirement.ID,
+			Scope:            requirement.Scope.Key(),
+			TargetSource:     requirement.Target.Source,
+			TargetName:       requirement.Target.Name,
+			Reference:        requirement.Reference,
+			Constraint:       requirement.Constraint,
+			Kind:             string(requirement.Kind),
+			RequiringPackage: requirement.Origin.RequiringPackage,
+			PackageID:        requirement.Origin.PackageID,
+			DependencyKey:    requirement.Origin.DependencyKey,
+			OriginSource:     requirement.Origin.Source,
+			Order:            requirement.Order,
+			Optional:         requirement.Optional,
+			Controlling:      entry.Controlling,
+			ShadowedBy:       shadowedBy,
+			Status:           string(entry.Status),
+			SelectedVersion:  entry.SelectedVersion,
+		})
+		if entry.Status == requirements.StatusOverriddenIncompatible && requirement.Kind == requirements.KindPeer {
+			r.result.Diagnostics = append(r.result.Diagnostics, diag.Diagnostic{
+				Code:     "TSPACK_PEER_REQUIREMENT_OVERRIDDEN",
+				Severity: diag.SeverityWarning,
+				Message:  fmt.Sprintf("%s requests peer %s %s, but the selected environment version is %s", requirementOriginLabel(requirement), requirement.Target.Key(), requirement.Constraint, entry.SelectedVersion),
+				Details: []string{
+					"requirement: " + requirement.ID,
+					"target: " + requirement.Target.Key(),
+					"constraint: " + requirement.Constraint,
+					"selectedVersion: " + entry.SelectedVersion,
+					"controllingRequirement: " + shadowedBy,
+				},
+			})
+		}
+	}
+}
+
+func peerEnvironmentRoot(requirement requirements.PackageRequirement) string {
+	return "workspace:peer:" + requirement.Target.Source + ":" + requirement.Target.Name
+}
+
+func selectedVersionSatisfies(version string, constraint string) bool {
+	if version == "" {
+		return false
+	}
+	wanted, err := semver.NewConstraint(constraint)
+	if err != nil {
+		return false
+	}
+	selected, err := semver.NewVersion(version)
+	return err == nil && wanted.Check(selected)
+}
+
+func packageVersionFromID(id string) string {
+	separator := strings.LastIndex(id, "@")
+	if separator < 0 {
+		return ""
+	}
+	return id[separator+1:]
+}
+
+func requirementOriginLabel(requirement requirements.PackageRequirement) string {
+	if requirement.Origin.PackageID != "" {
+		return requirement.Origin.PackageID
+	}
+	if requirement.Origin.RequiringPackage != "" {
+		return requirement.Origin.RequiringPackage
+	}
+	return requirement.ID
+}
+
+func hasErrorDiagnostics(diagnostics []diag.Diagnostic) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == diag.SeverityError {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *resolverState) packageMetadata(ctx context.Context, backend RegistryBackend, name string) (*RegistryPackageMetadata, error) {

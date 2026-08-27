@@ -2177,6 +2177,11 @@ func TestTargetedUpdatePreservesUnrelatedPeerResolvedMultiVersionEntries(t *test
 		lockfile.Edge{From: "npm:react-dom@19.2.7", To: "npm:react@19.2.7", Kind: "peer"},
 		lockfile.Edge{From: "npm:react-dom@19.2.7", To: "npm:scheduler@0.27.0", Kind: "runtime"},
 	)
+	lockBefore.Requirements = append(lockBefore.Requirements, lockfile.Requirement{
+		ID:    "peer:npm:react-dom@19.2.7:react",
+		Scope: "workspace", TargetSource: "npm", TargetName: "react", Reference: "react", Constraint: "^19.2.7", Kind: "peer",
+		PackageID: "npm:react-dom@19.2.7", Order: 100, Status: "shadowed-compatible", SelectedVersion: "19.2.7",
+	})
 	beforeBytes, marshalErr := lockfile.Marshal(lockBefore)
 	if marshalErr != nil {
 		t.Fatalf("marshal augmented lockfile: %v", marshalErr)
@@ -2210,6 +2215,9 @@ func TestTargetedUpdatePreservesUnrelatedPeerResolvedMultiVersionEntries(t *test
 		if !lockContainsPackage(lockAfter, id) {
 			t.Fatalf("targeted update removed non-selected package %s", id)
 		}
+	}
+	if !lockContainsRequirement(lockAfter, "peer:npm:react-dom@19.2.7:react") {
+		t.Fatalf("targeted update did not preserve unrelated peer requirement: %#v", lockAfter.Requirements)
 	}
 }
 
@@ -2270,6 +2278,15 @@ func lockPackageKeySet(lf *lockfile.Lockfile) map[string]bool {
 func lockContainsPackage(lf *lockfile.Lockfile, id string) bool {
 	for _, pkg := range lf.Packages {
 		if pkg.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func lockContainsRequirement(lf *lockfile.Lockfile, id string) bool {
+	for _, requirement := range lf.Requirements {
+		if requirement.ID == id {
 			return true
 		}
 	}

@@ -332,6 +332,28 @@ func TestWhySourceQualifiedQueryDoesNotCrossRegistryCollision(t *testing.T) {
 	}
 }
 
+func TestWhyShowsRequirementTapeAndAliasReference(t *testing.T) {
+	lock := buildLock()
+	lock.Requirements = []lockfile.Requirement{
+		{ID: "old", Scope: "workspace", TargetSource: "npm", TargetName: "react", Reference: "react", Constraint: "^18", Kind: "peer", PackageID: "npm:old-widget@1.0.0", Order: 1, ShadowedBy: "project", Status: "overridden-incompatible", SelectedVersion: "19.1.0"},
+		{ID: "project", Scope: "workspace", TargetSource: "npm", TargetName: "react", Reference: "react", Constraint: "^19", Kind: "project-explicit", RequiringPackage: "app", Order: 2, Controlling: true, Status: "controlling", SelectedVersion: "19.1.0"},
+	}
+	lock.Packages = append(lock.Packages, lockfile.Package{ID: "npm:bar@2.1.0", Name: "bar", Version: "2.1.0", Source: "npm"})
+	lock.Edges = append(lock.Edges, lockfile.Edge{From: "npm:alias-user@1.0.0", To: "npm:bar@2.1.0", Kind: "runtime", Reference: "foo"})
+
+	react := Analyze(buildGraph(t), lock, Options{Query: "npm:react"})
+	if len(react.Explanations) == 0 || len(react.Explanations[0].Requirements) != 2 {
+		t.Fatalf("react requirements = %#v", react.Explanations)
+	}
+	alias := Analyze(buildGraph(t), lock, Options{Query: "foo"})
+	if len(alias.Explanations) != 1 || alias.Explanations[0].MatchType != "alias-reference" {
+		t.Fatalf("alias requirements = %#v", alias.Explanations)
+	}
+	if alias.Explanations[0].ExternalPackageName != "bar" || alias.Explanations[0].DependencyKey != "foo" {
+		t.Fatalf("alias explanation = %#v", alias.Explanations[0])
+	}
+}
+
 func TestReverseWhyMatrix(t *testing.T) {
 	scopedGraph := buildScopedGraph(t)
 	scopedLock := buildScopedLock()

@@ -18,10 +18,11 @@ const (
 )
 
 type Lockfile struct {
-	Lock     LockHeader `toml:"lock"`
-	Packages []Package  `toml:"package,omitempty"`
-	Edges    []Edge     `toml:"edge,omitempty"`
-	Targets  []Target   `toml:"target,omitempty"`
+	Lock         LockHeader    `toml:"lock"`
+	Packages     []Package     `toml:"package,omitempty"`
+	Edges        []Edge        `toml:"edge,omitempty"`
+	Requirements []Requirement `toml:"requirement,omitempty"`
+	Targets      []Target      `toml:"target,omitempty"`
 }
 type LockHeader struct {
 	Format            int    `toml:"format"`
@@ -41,6 +42,14 @@ type Capability struct {
 type Edge struct {
 	From, To, Kind string
 	Optional       bool
+	Reference      string
+}
+type Requirement struct {
+	ID, Scope, TargetSource, TargetName, Reference, Constraint, Kind string
+	RequiringPackage, PackageID, DependencyKey, OriginSource         string
+	Order                                                            int
+	Optional, Controlling                                            bool
+	ShadowedBy, Status, SelectedVersion                              string
 }
 type Target struct{ Package, Name, Export, Entry, Runtime, Types string }
 
@@ -48,14 +57,19 @@ type ConsistencyResult struct{ Diagnostics []diag.Diagnostic }
 
 type VersionConflictResult struct{ Diagnostics []diag.Diagnostic }
 
+type RequirementCheckResult struct{ Diagnostics []diag.Diagnostic }
+
 type Diff struct {
-	PackagesAdded, PackagesRemoved []Package
-	PackagesChanged                []PackageChange
-	EdgesAdded, EdgesRemoved       []Edge
-	TargetsAdded, TargetsRemoved   []Target
-	TargetsChanged                 []TargetChange
+	PackagesAdded, PackagesRemoved         []Package
+	PackagesChanged                        []PackageChange
+	RequirementsAdded, RequirementsRemoved []Requirement
+	RequirementsChanged                    []RequirementChange
+	EdgesAdded, EdgesRemoved               []Edge
+	TargetsAdded, TargetsRemoved           []Target
+	TargetsChanged                         []TargetChange
 }
 type PackageChange struct{ Old, New Package }
+type RequirementChange struct{ Old, New Requirement }
 type TargetChange struct{ Old, New Target }
 
 func Marshal(lf *Lockfile) ([]byte, error) {
@@ -191,6 +205,40 @@ func CheckVersionConflicts(lf *Lockfile) VersionConflictResult {
 	return out
 }
 
+func CheckRequirements(lf *Lockfile) RequirementCheckResult {
+	out := RequirementCheckResult{}
+	if lf == nil {
+		return out
+	}
+	for _, requirement := range lf.Requirements {
+		if requirement.Status != "overridden-incompatible" {
+			continue
+		}
+		code := "TSPACK_REQUIREMENT_OVERRIDDEN"
+		if requirement.Kind == "peer" {
+			code = "TSPACK_PEER_REQUIREMENT_OVERRIDDEN"
+		}
+		origin := requirement.PackageID
+		if origin == "" {
+			origin = requirement.RequiringPackage
+		}
+		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{
+			Code:     code,
+			Severity: diag.SeverityWarning,
+			Message:  "selected package version overrides an incompatible requirement",
+			Details: []string{
+				"origin: " + origin,
+				"target: " + requirement.TargetSource + ":" + requirement.TargetName,
+				"constraint: " + requirement.Constraint,
+				"selectedVersion: " + requirement.SelectedVersion,
+				"controllingRequirement: " + requirement.ShadowedBy,
+			},
+		})
+	}
+	diag.SortDiagnostics(out.Diagnostics)
+	return out
+}
+
 func DiffLockfiles(old, next *Lockfile) Diff {
 	d := Diff{}
 	o, n := normalize(old), normalize(next)
@@ -213,7 +261,30 @@ func DiffLockfiles(old, next *Lockfile) Diff {
 			d.PackagesRemoved = append(d.PackagesRemoved, p)
 		}
 	}
-	kE := func(e Edge) string { return e.From + "|" + e.To + "|" + e.Kind + "|" + boolStr(e.Optional) }
+	omRequirements := map[string]Requirement{}
+	nmRequirements := map[string]Requirement{}
+	for _, requirement := range o.Requirements {
+		omRequirements[requirement.ID] = requirement
+	}
+	for _, requirement := range n.Requirements {
+		nmRequirements[requirement.ID] = requirement
+	}
+	for id, requirement := range nmRequirements {
+		oldRequirement, exists := omRequirements[id]
+		if !exists {
+			d.RequirementsAdded = append(d.RequirementsAdded, requirement)
+		} else if !reflect.DeepEqual(oldRequirement, requirement) {
+			d.RequirementsChanged = append(d.RequirementsChanged, RequirementChange{Old: oldRequirement, New: requirement})
+		}
+	}
+	for id, requirement := range omRequirements {
+		if _, exists := nmRequirements[id]; !exists {
+			d.RequirementsRemoved = append(d.RequirementsRemoved, requirement)
+		}
+	}
+	kE := func(e Edge) string {
+		return e.From + "|" + e.To + "|" + e.Kind + "|" + boolStr(e.Optional) + "|" + e.Reference
+	}
 	oe, ne := map[string]Edge{}, map[string]Edge{}
 	for _, e := range o.Edges {
 		oe[kE(e)] = e
@@ -254,6 +325,9 @@ func DiffLockfiles(old, next *Lockfile) Diff {
 	sort.SliceStable(d.PackagesAdded, func(i, j int) bool { return d.PackagesAdded[i].ID < d.PackagesAdded[j].ID })
 	sort.SliceStable(d.PackagesRemoved, func(i, j int) bool { return d.PackagesRemoved[i].ID < d.PackagesRemoved[j].ID })
 	sort.SliceStable(d.PackagesChanged, func(i, j int) bool { return d.PackagesChanged[i].Old.ID < d.PackagesChanged[j].Old.ID })
+	sort.SliceStable(d.RequirementsAdded, func(i, j int) bool { return d.RequirementsAdded[i].ID < d.RequirementsAdded[j].ID })
+	sort.SliceStable(d.RequirementsRemoved, func(i, j int) bool { return d.RequirementsRemoved[i].ID < d.RequirementsRemoved[j].ID })
+	sort.SliceStable(d.RequirementsChanged, func(i, j int) bool { return d.RequirementsChanged[i].Old.ID < d.RequirementsChanged[j].Old.ID })
 	sort.SliceStable(d.EdgesAdded, func(i, j int) bool { return kE(d.EdgesAdded[i]) < kE(d.EdgesAdded[j]) })
 	sort.SliceStable(d.EdgesRemoved, func(i, j int) bool { return kE(d.EdgesRemoved[i]) < kE(d.EdgesRemoved[j]) })
 	sort.SliceStable(d.TargetsAdded, func(i, j int) bool { return kT(d.TargetsAdded[i]) < kT(d.TargetsAdded[j]) })
@@ -326,11 +400,28 @@ func validate(file string, lf *Lockfile) []diag.Diagnostic {
 		if _, ok := ids[e.To]; !ok {
 			out = append(out, errD("TSPACK_LOCK_UNKNOWN_PACKAGE_REF", "edge to unknown package", e.To))
 		}
-		k := e.From + "|" + e.To + "|" + e.Kind + "|" + boolStr(e.Optional)
+		k := e.From + "|" + e.To + "|" + e.Kind + "|" + boolStr(e.Optional) + "|" + e.Reference
 		if _, ok := seenE[k]; ok {
 			out = append(out, errD("TSPACK_LOCK_DUPLICATE_EDGE", "duplicate edge", k))
 		}
 		seenE[k] = struct{}{}
+	}
+	seenRequirements := map[string]struct{}{}
+	for _, requirement := range lf.Requirements {
+		if requirement.ID == "" || requirement.Scope == "" || requirement.TargetSource == "" || requirement.TargetName == "" || requirement.Constraint == "" || requirement.Kind == "" || requirement.Status == "" {
+			out = append(out, errD("TSPACK_LOCK_INVALID_REQUIREMENT", "requirement requires id/scope/target/constraint/kind/status", requirement.ID))
+			continue
+		}
+		if requirement.TargetSource != "npm" && requirement.TargetSource != "jsr" {
+			out = append(out, errD("TSPACK_LOCK_INVALID_REQUIREMENT", "requirement target source is not supported", requirement.ID, requirement.TargetSource))
+		}
+		if !validRequirementKind(requirement.Kind) || !validRequirementStatus(requirement.Status) {
+			out = append(out, errD("TSPACK_LOCK_INVALID_REQUIREMENT", "requirement kind or status is invalid", requirement.ID, requirement.Kind, requirement.Status))
+		}
+		if _, exists := seenRequirements[requirement.ID]; exists {
+			out = append(out, errD("TSPACK_LOCK_DUPLICATE_REQUIREMENT", "duplicate requirement id", requirement.ID))
+		}
+		seenRequirements[requirement.ID] = struct{}{}
 	}
 	tk, ek := map[string]struct{}{}, map[string]struct{}{}
 	for _, t := range lf.Targets {
@@ -366,6 +457,7 @@ func normalize(lf *Lockfile) *Lockfile {
 	n := *lf
 	n.Packages = append([]Package(nil), lf.Packages...)
 	n.Edges = append([]Edge(nil), lf.Edges...)
+	n.Requirements = append([]Requirement(nil), lf.Requirements...)
 	n.Targets = append([]Target(nil), lf.Targets...)
 	for i := range n.Packages {
 		n.Packages[i].Capabilities = append([]Capability(nil), n.Packages[i].Capabilities...)
@@ -402,7 +494,26 @@ func normalize(lf *Lockfile) *Lockfile {
 		if a.Kind != b.Kind {
 			return a.Kind < b.Kind
 		}
+		if a.Reference != b.Reference {
+			return a.Reference < b.Reference
+		}
 		return !a.Optional && b.Optional
+	})
+	sort.SliceStable(n.Requirements, func(i, j int) bool {
+		a, b := n.Requirements[i], n.Requirements[j]
+		if a.Scope != b.Scope {
+			return a.Scope < b.Scope
+		}
+		if a.TargetSource != b.TargetSource {
+			return a.TargetSource < b.TargetSource
+		}
+		if a.TargetName != b.TargetName {
+			return a.TargetName < b.TargetName
+		}
+		if a.Order != b.Order {
+			return a.Order < b.Order
+		}
+		return a.ID < b.ID
 	})
 	sort.SliceStable(n.Targets, func(i, j int) bool {
 		a, b := n.Targets[i], n.Targets[j]
@@ -419,6 +530,22 @@ func errD(c, m string, details ...string) diag.Diagnostic {
 func validEdgeKind(k string) bool {
 	switch k {
 	case "runtime", "dep", "peer", "optionalPeer", "tool", "type", "test", "workspace":
+		return true
+	}
+	return false
+}
+
+func validRequirementKind(kind string) bool {
+	switch kind {
+	case "transitive-runtime", "transitive-optional", "peer", "package-explicit", "project-explicit", "override":
+		return true
+	}
+	return false
+}
+
+func validRequirementStatus(status string) bool {
+	switch status {
+	case "pending", "controlling", "satisfied", "shadowed-compatible", "overridden-incompatible", "optional-unsatisfied", "invalid":
 		return true
 	}
 	return false

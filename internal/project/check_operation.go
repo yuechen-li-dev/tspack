@@ -24,6 +24,7 @@ func Check(opts Options) Result {
 			out = append(out, d...)
 			out = append(out, lockfile.CheckGraphConsistency(g, lf).Diagnostics...)
 			out = append(out, lockfile.CheckVersionConflicts(lf).Diagnostics...)
+			out = append(out, lockfile.CheckRequirements(lf).Diagnostics...)
 			out = append(out, lifecycleCapabilityDiagnostics(lf, lifecycleAcknowledgementSet(ir), lifecycleCategoryAcknowledgements(ir))...)
 		}
 	} else if os.IsNotExist(err) {

@@ -5,9 +5,10 @@
 M70c separates TSPack package truth from Node compatibility spelling and closes
 the collision, optional-edge, lifecycle, store-provenance, audit-coverage, and
 explanation seams that could be closed without redesigning the dependency
-solver. This is **meaningful progression**, not a claim that every registry
-metadata form is supported: transitive registry peer requirements and true npm
-alias specifications remain isolated blockers.
+solver. M70c originally ended in **meaningful progression** with transitive
+registry peers and true npm aliases as isolated blockers. M70x subsequently
+closed those blockers with an SSA-like requirement tape; see
+`docs/dev/m70x-requirement-tape.md`.
 
 The governing rule is:
 
@@ -28,16 +29,16 @@ lockfile, or `why` package truth.
 | Runtime/materialization identity | Derived locally by the materializer | Explicit Node usage mapping and pre-write collision detection |
 | Import specifier | Documented but not returned as a typed result | `PackageUsage.Import` is reusable by add and why |
 | Dependency edge source | Runtime/optional compatibility keys were partly normalized | Ordinary JSR metadata keys route to npm; `@jsr/` keys route to JSR |
-| Peer dependencies | Registry response type decoded them, adapters ignored them | Still unresolved; no transitive registry-peer claim is made |
+| Peer dependencies | Registry response type decoded them, adapters ignored them | Closed by M70x source-qualified environment requirements |
 | Optional dependencies | Preserved optionality, with limited cross-source proof | Source-qualified npm, JSR-to-JSR, and JSR-to-npm cases are covered |
-| Aliases | `@jsr/scope__pkg` dependency keys were treated as JSR names | Strict compatibility-key mapping is covered; true `npm:` alias values remain unsupported |
+| Aliases | `@jsr/scope__pkg` dependency keys were treated as JSR names | M70c covered compatibility keys; M70x adds true npm reference/target aliases |
 | Exports/subpath exports | Relied on compatibility tarball `package.json` | Metadata remains preserved verbatim; no TSPack export rewrite was added |
 | Types | Compatibility artifacts carried declarations | Existing NodeNext real-package proof retained |
 | Lifecycle/capability metadata | npm captured scripts; JSR returned no capabilities | Controlled scripted JSR metadata proves compatibility scripts do not become capabilities |
 | Audit ecosystem identity | npm checked; JSR had a textual not-checked row | Typed checked/unsupported/unknown coverage and whole-lock completeness |
 | Why/how presentation | `why` retained source identity but did not explain imports | `why` carries semantic, materialization, and Node import usage; `how` remains diagnostic-code help |
 | Check/diagnostics | Source and lock checks existed | Materialization collision has a source-qualified structured diagnostic; audit remains a separate network command |
-| Lockfile presentation | Source-qualified package IDs already existed | No format change; compatibility aliases remain absent from package identity |
+| Lockfile presentation | Source-qualified package IDs already existed | M70x keeps package identity unchanged and adds deterministic requirement/reference evidence |
 | Store provenance | Content deduplicated by hash, with one overwriteable metadata identity | Identical content retains a deterministic set of source-qualified provenances |
 
 ## Identity model
@@ -124,19 +125,11 @@ Compatibility names with no separator, empty components, extra separators, or
 nested path shapes fail with an error that names the source-qualified parent.
 Underscores that do not make the `__` separator ambiguous round-trip normally.
 
-Two limitations remain explicit:
-
-1. The registry response model decodes `peerDependencies`, but registry
-   backends do not yet emit or satisfy transitive peer requirements. A root
-   `peer(...)` declaration is supported, but it is not a substitute for
-   transitive registry-peer semantics. TSPack therefore does not claim to
-   diagnose or satisfy JSR-to-npm, JSR-to-JSR, or npm-to-JSR registry peers.
-2. True npm alias constraints such as `npm:real-package@^1` are not parsed into
-   semantic source, name, and constraint. The supported `@jsr/...` dependency
-   key mapping is a compatibility-name mapping, not general npm alias support.
-
-These blockers must be solved source-qualified: an `npm:foo` peer must never be
-satisfied by `jsr:foo` merely because the logical text matches.
+At M70c close these were the two explicit limitations: registry peers were
+decoded but not emitted, and true npm alias constraints were not parsed into
+reference, source, name, and constraint. M70x closes both source-qualified; an
+`npm:foo` peer cannot be satisfied by `jsr:foo` merely because the logical text
+matches.
 
 ## Exports, types, and module modes
 
@@ -244,9 +237,8 @@ Controlled tests cover:
 - identical content with distinct npm/JSR store provenance;
 - mixed audit coverage and source-qualified `why` usage.
 
-Transitive registry peers and true npm aliases are absent from this successful
-matrix because they remain the named blocker, not because they were silently
-treated as working.
+Transitive registry peers and true npm aliases were absent from the original
+M70c matrix. Their deterministic fake-registry coverage belongs to M70x.
 
 ## Performance and request behavior
 
@@ -278,11 +270,11 @@ not make a compatibility name authoritative, satisfy peers across sources by
 name, or treat mirror/fallback selection as permission to change semantic
 identity. No mirror or fallback policy is implemented by M70c.
 
-## Remaining blocker and outcome
+## M70x closeout
 
-M70c ends in **Outcome B — meaningful progression**. Identity normalization,
-truthful Node usage, optional-source preservation, lifecycle isolation, audit
-coverage, collision protection, and store provenance are implemented. The next
-blocker is narrow and evidenced: registry `peerDependencies` and true npm alias
-constraints need a source-qualified dependency-spec/satisfaction design before
-their cross-registry behavior can be claimed safely.
+M70c originally ended in **Outcome B — meaningful progression**. M70x supplies
+the missing source-qualified dependency-spec/satisfaction design: peers lower
+to environment requirements, npm aliases lower to reference plus semantic
+target, conflicts use explicit tape precedence, and materialization collisions
+fail before mutation. The M70c blocker is therefore closed without adding
+global constraint solving.

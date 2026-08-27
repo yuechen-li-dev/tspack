@@ -34,6 +34,29 @@ func TestParseAndMarshal(t *testing.T) {
 	}
 }
 
+func TestRequirementAndAliasReferenceRoundTrip(t *testing.T) {
+	input := &Lockfile{
+		Lock:     LockHeader{Format: FormatVersion, Tool: ToolName},
+		Packages: []Package{{ID: "npm:bar@2.1.0", Name: "bar", Version: "2.1.0", Source: "npm", Hash: "sha256:test"}},
+		Edges:    []Edge{{From: "npm:parent@1.0.0", To: "npm:bar@2.1.0", Kind: "runtime", Reference: "foo"}},
+		Requirements: []Requirement{{
+			ID: "peer:parent:foo", Scope: "workspace", TargetSource: "npm", TargetName: "bar", Reference: "foo", Constraint: "^2", Kind: "peer",
+			PackageID: "npm:parent@1.0.0", Order: 3, Controlling: true, Status: "controlling", SelectedVersion: "2.1.0",
+		}},
+	}
+	body, err := Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, diagnostics := Parse("ts-lock.toml", body)
+	if len(diagnostics) != 0 {
+		t.Fatalf("parse diagnostics: %#v\n%s", diagnostics, body)
+	}
+	if len(parsed.Requirements) != 1 || parsed.Requirements[0].TargetName != "bar" || parsed.Edges[0].Reference != "foo" {
+		t.Fatalf("round trip lost requirement/reference: %#v\n%s", parsed, body)
+	}
+}
+
 func TestCapabilityRoundTripAndDiff(t *testing.T) {
 	lf := &Lockfile{Lock: LockHeader{Format: 1, Tool: "tspack"}, Packages: []Package{{ID: "npm:a@1", Name: "a", Source: "npm", Version: "1", Integrity: "x", Capabilities: []Capability{{Kind: "lifecycleScript", Script: "postinstall", Command: "node postinstall.js"}, {Kind: "lifecycleScript", Script: "install", Command: "node install.js"}}}}}
 	b, err := Marshal(lf)
@@ -130,10 +153,10 @@ integrity = "sha512-test"
 }
 
 func TestDiff(t *testing.T) {
-	a := &Lockfile{Lock: LockHeader{Format: 1}, Packages: []Package{{ID: "npm:a@1", Name: "a", Source: "npm", Version: "1", Integrity: "x"}}, Targets: []Target{{Package: "p", Name: "a", Export: "./a", Entry: "src/a.ts", Runtime: "dist/a.js", Types: "dist/a.d.ts"}}}
-	b := &Lockfile{Lock: LockHeader{Format: 1}, Packages: []Package{{ID: "npm:a@2", Name: "a", Source: "npm", Version: "2", Integrity: "x"}}, Targets: []Target{{Package: "p", Name: "a", Export: "./a", Entry: "src/b.ts", Runtime: "dist/a.js", Types: "dist/a.d.ts"}}, Edges: []Edge{{From: "x", To: "npm:a@2", Kind: "dep"}}}
+	a := &Lockfile{Lock: LockHeader{Format: 1}, Packages: []Package{{ID: "npm:a@1", Name: "a", Source: "npm", Version: "1", Integrity: "x"}}, Requirements: []Requirement{{ID: "peer", Constraint: "^1"}}, Targets: []Target{{Package: "p", Name: "a", Export: "./a", Entry: "src/a.ts", Runtime: "dist/a.js", Types: "dist/a.d.ts"}}}
+	b := &Lockfile{Lock: LockHeader{Format: 1}, Packages: []Package{{ID: "npm:a@2", Name: "a", Source: "npm", Version: "2", Integrity: "x"}}, Requirements: []Requirement{{ID: "peer", Constraint: "^2"}, {ID: "project", Constraint: "^2"}}, Targets: []Target{{Package: "p", Name: "a", Export: "./a", Entry: "src/b.ts", Runtime: "dist/a.js", Types: "dist/a.d.ts"}}, Edges: []Edge{{From: "x", To: "npm:a@2", Kind: "dep"}}}
 	d := DiffLockfiles(a, b)
-	if len(d.PackagesAdded) != 1 || len(d.PackagesRemoved) != 1 || len(d.TargetsChanged) != 1 || len(d.EdgesAdded) != 1 {
+	if len(d.PackagesAdded) != 1 || len(d.PackagesRemoved) != 1 || len(d.RequirementsAdded) != 1 || len(d.RequirementsChanged) != 1 || len(d.TargetsChanged) != 1 || len(d.EdgesAdded) != 1 {
 		t.Fatal("unexpected diff")
 	}
 }
@@ -257,5 +280,25 @@ func TestLockfileRejectsReservedPyPISource(t *testing.T) {
 	_, diags := Parse("ts-lock.toml", lf)
 	if !hasLockDiagnosticCode(diags, "TSPACK_LOCK_INVALID_SOURCE") {
 		t.Fatalf("expected reserved pypi source to be rejected: %#v", diags)
+	}
+}
+
+func TestCheckRequirementsReportsIncompatiblePeerAsWarning(t *testing.T) {
+	result := CheckRequirements(&Lockfile{Requirements: []Requirement{{
+		ID:              "old-widget",
+		TargetSource:    "npm",
+		TargetName:      "react",
+		Constraint:      "^18",
+		Kind:            "peer",
+		PackageID:       "npm:old-widget@1.0.0",
+		ShadowedBy:      "project",
+		Status:          "overridden-incompatible",
+		SelectedVersion: "19.1.0",
+	}}})
+	if len(result.Diagnostics) != 1 {
+		t.Fatalf("diagnostics = %#v", result.Diagnostics)
+	}
+	if result.Diagnostics[0].Code != "TSPACK_PEER_REQUIREMENT_OVERRIDDEN" || result.Diagnostics[0].Severity != diag.SeverityWarning {
+		t.Fatalf("diagnostic = %#v", result.Diagnostics[0])
 	}
 }

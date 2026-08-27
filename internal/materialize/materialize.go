@@ -192,12 +192,13 @@ func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) R
 			out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_EDGE_UNKNOWN_PACKAGE", Severity: diag.SeverityError, Message: "edge points to unknown package", Details: []string{e.From, e.To}})
 			continue
 		}
-		if _, err := safePackagePath(nmRoot, materializedPackageName(pkg)); err != nil {
+		installName := edgeMaterializationName(e, pkg)
+		if _, err := safePackagePath(nmRoot, installName); err != nil {
 			out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_INVALID_PACKAGE_NAME", Severity: diag.SeverityError, Message: err.Error(), Details: []string{pkg.ID, pkg.Name}})
 			continue
 		}
 		rootVisible[pkg.ID] = pkg
-		materializePkg(req, &out, pkgs, edgesByFrom, pkg, nmRoot, state, observer)
+		materializePkg(req, &out, pkgs, edgesByFrom, pkg, installName, nmRoot, state, observer)
 	}
 	if len(out.Diagnostics) == 0 {
 		if err := pruneNodeModulesRoot(nmRoot, plan.rootVisible); err != nil {
@@ -226,7 +227,8 @@ func collectRootEdges(edges []lockfile.Edge) []lockfile.Edge {
 	for _, e := range edges {
 		if strings.Contains(e.From, ":target:") ||
 			strings.HasSuffix(e.From, ":dependency") ||
-			strings.HasSuffix(e.From, ":tool") {
+			strings.HasSuffix(e.From, ":tool") ||
+			strings.HasPrefix(e.From, "workspace:peer:") {
 			out = append(out, e)
 		}
 	}
@@ -372,8 +374,8 @@ func (s *materializeState) pathWith(pkgID string) string {
 	return strings.Join(path, " -> ")
 }
 
-func materializePkg(req Request, out *Result, pkgs map[string]lockfile.Package, edgesByFrom map[string][]lockfile.Edge, pkg lockfile.Package, parentNodeModules string, state *materializeState, observer *materializeObserver) {
-	dest, err := safePackagePath(parentNodeModules, materializedPackageName(pkg))
+func materializePkg(req Request, out *Result, pkgs map[string]lockfile.Package, edgesByFrom map[string][]lockfile.Edge, pkg lockfile.Package, installName string, parentNodeModules string, state *materializeState, observer *materializeObserver) {
+	dest, err := safePackagePath(parentNodeModules, installName)
 	if err != nil {
 		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_INVALID_DESTINATION", Severity: diag.SeverityError, Message: err.Error(), Details: []string{pkg.ID}})
 		return
@@ -439,12 +441,15 @@ func materializePkg(req Request, out *Result, pkgs map[string]lockfile.Package, 
 
 	childNM := filepath.Join(dest, "node_modules")
 	for _, edge := range edgesByFrom[pkg.ID] {
+		if edge.Kind == "peer" || edge.Kind == "optionalPeer" {
+			continue
+		}
 		dep, ok := pkgs[edge.To]
 		if !ok {
 			out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_EDGE_UNKNOWN_PACKAGE", Severity: diag.SeverityError, Message: "edge points to unknown package", Details: []string{edge.From, edge.To}})
 			continue
 		}
-		materializePkg(req, out, pkgs, edgesByFrom, dep, childNM, state, observer)
+		materializePkg(req, out, pkgs, edgesByFrom, dep, edgeMaterializationName(edge, dep), childNM, state, observer)
 	}
 }
 
@@ -466,13 +471,13 @@ func buildMaterializePlan(rootEdges []lockfile.Edge, pkgs map[string]lockfile.Pa
 		if !ok {
 			continue
 		}
-		appendMaterializePlan(&plan, pkgs, edgesByFrom, pkg, nmRoot, state)
+		appendMaterializePlan(&plan, pkgs, edgesByFrom, pkg, edgeMaterializationName(edge, pkg), nmRoot, state)
 	}
 	return plan
 }
 
-func appendMaterializePlan(plan *[]lockfile.Package, pkgs map[string]lockfile.Package, edgesByFrom map[string][]lockfile.Edge, pkg lockfile.Package, parentNodeModules string, state *materializeState) {
-	dest, err := safePackagePath(parentNodeModules, materializedPackageName(pkg))
+func appendMaterializePlan(plan *[]lockfile.Package, pkgs map[string]lockfile.Package, edgesByFrom map[string][]lockfile.Edge, pkg lockfile.Package, installName string, parentNodeModules string, state *materializeState) {
+	dest, err := safePackagePath(parentNodeModules, installName)
 	if err != nil {
 		return
 	}
@@ -492,12 +497,22 @@ func appendMaterializePlan(plan *[]lockfile.Package, pkgs map[string]lockfile.Pa
 
 	childNM := filepath.Join(dest, "node_modules")
 	for _, edge := range edgesByFrom[pkg.ID] {
+		if edge.Kind == "peer" || edge.Kind == "optionalPeer" {
+			continue
+		}
 		dep, ok := pkgs[edge.To]
 		if !ok {
 			continue
 		}
-		appendMaterializePlan(plan, pkgs, edgesByFrom, dep, childNM, state)
+		appendMaterializePlan(plan, pkgs, edgesByFrom, dep, edgeMaterializationName(edge, dep), childNM, state)
 	}
+}
+
+func edgeMaterializationName(edge lockfile.Edge, pkg lockfile.Package) string {
+	if strings.TrimSpace(edge.Reference) != "" {
+		return edge.Reference
+	}
+	return materializedPackageName(pkg)
 }
 
 func safePackagePath(base, name string) (string, error) {

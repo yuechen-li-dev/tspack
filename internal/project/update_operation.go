@@ -172,8 +172,10 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 		progress.Step("computing lockfile diff...")
 	}
 	d := lockfile.DiffLockfiles(old, res.Lock)
-	if updateOpts.Query != "" && !lockDiffHasPackageChanges(d) {
-		progress.Step("%s is already at wanted version; no lockfile changes.", updateOpts.Query)
+	packageChanges := lockDiffHasPackageChanges(d)
+	requirementChanges := lockDiffHasRequirementChanges(d)
+	if updateOpts.Query != "" && !packageChanges {
+		progress.Step("%s is already at wanted version; no package changes.", updateOpts.Query)
 	}
 	if dryRun {
 		summary := UpdateDiffSummary{
@@ -186,24 +188,26 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 			summary.Unchanged = 0
 		}
 		progress.Step("dry run complete")
-		return Result{Diagnostics: out, LockDiff: &d, DryRun: &UpdateDryRunResult{Changed: lockDiffHasPackageChanges(d), Summary: summary}, UpdateTarget: targetResult}
+		return Result{Diagnostics: out, LockDiff: &d, DryRun: &UpdateDryRunResult{Changed: packageChanges || requirementChanges, Summary: summary}, UpdateTarget: targetResult}
 	}
-	if updateOpts.Query != "" && !lockDiffHasPackageChanges(d) {
+	if updateOpts.Query != "" && !packageChanges && !requirementChanges {
 		return Result{Diagnostics: out, LockDiff: &d, UpdateTarget: targetResult}
 	}
-	progress.Step("populating store...")
-	// Resolution above remains deterministic and serial. Only artifact fetch/copy/extract
-	// store population runs with bounded parallelism, and results are applied back to
-	// the lockfile in package order before deterministic lockfile output is written.
-	stopStorePopulation := perfSession.StartPhase("update.store_population")
-	populateResult := populateStoreParallel(context.Background(), st, client, opts.RootDir, res.Lock.Packages, storeJobs, progress, perfSession)
-	stopStorePopulation()
-	out = append(out, populateResult.Diagnostics...)
-	for _, populated := range populateResult.Packages {
-		res.Lock.Packages[populated.Index].Hash = populated.Hash
-	}
-	if hasErrors(out) {
-		return Result{Diagnostics: out, UpdateTarget: targetResult}
+	if packageChanges || updateOpts.Query == "" {
+		progress.Step("populating store...")
+		// Resolution above remains deterministic and serial. Only artifact fetch/copy/extract
+		// store population runs with bounded parallelism, and results are applied back to
+		// the lockfile in package order before deterministic lockfile output is written.
+		stopStorePopulation := perfSession.StartPhase("update.store_population")
+		populateResult := populateStoreParallel(context.Background(), st, client, opts.RootDir, res.Lock.Packages, storeJobs, progress, perfSession)
+		stopStorePopulation()
+		out = append(out, populateResult.Diagnostics...)
+		for _, populated := range populateResult.Packages {
+			res.Lock.Packages[populated.Index].Hash = populated.Hash
+		}
+		if hasErrors(out) {
+			return Result{Diagnostics: out, UpdateTarget: targetResult}
+		}
 	}
 	progress.Step("writing lockfile...")
 	stopLockfileWrite := perfSession.StartPhase("update.lockfile_write")
@@ -229,7 +233,15 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 }
 
 func lockDiffHasPackageChanges(diff lockfile.Diff) bool {
-	return len(diff.PackagesAdded) > 0 || len(diff.PackagesRemoved) > 0 || len(diff.PackagesChanged) > 0
+	return len(diff.PackagesAdded) > 0 ||
+		len(diff.PackagesRemoved) > 0 ||
+		len(diff.PackagesChanged) > 0
+}
+
+func lockDiffHasRequirementChanges(diff lockfile.Diff) bool {
+	return len(diff.RequirementsAdded) > 0 ||
+		len(diff.RequirementsRemoved) > 0 ||
+		len(diff.RequirementsChanged) > 0
 }
 
 func directNPMPackageNames(g *graph.WorkspaceGraph) []string {
@@ -635,6 +647,7 @@ func preserveNonSelectedTargetedLockEntries(old, next *lockfile.Lockfile, select
 	}
 
 	merged.Edges = preserveNonSelectedEdges(old, merged.Edges, selectedClosure)
+	merged.Requirements = preserveNonSelectedRequirements(old, merged.Requirements, selectedClosure, selectedNames)
 	return normalizeLockfile(merged)
 }
 
@@ -715,7 +728,37 @@ func lockEdgeKey(edge lockfile.Edge) string {
 	if edge.Optional {
 		optional = "1"
 	}
-	return edge.From + "|" + edge.To + "|" + edge.Kind + "|" + optional
+	return edge.From + "|" + edge.To + "|" + edge.Kind + "|" + optional + "|" + edge.Reference
+}
+
+func preserveNonSelectedRequirements(old *lockfile.Lockfile, next []lockfile.Requirement, selectedClosure map[string]bool, selectedNames map[string]bool) []lockfile.Requirement {
+	oldByID := map[string]lockfile.Requirement{}
+	for _, requirement := range old.Requirements {
+		oldByID[requirement.ID] = requirement
+	}
+	kept := make([]lockfile.Requirement, 0, len(next)+len(old.Requirements))
+	seen := map[string]bool{}
+	for _, requirement := range next {
+		if selectedNames[requirement.TargetName] || selectedClosure[requirement.PackageID] {
+			kept = append(kept, requirement)
+			seen[requirement.ID] = true
+			continue
+		}
+		if oldRequirement, exists := oldByID[requirement.ID]; exists {
+			kept = append(kept, oldRequirement)
+		} else {
+			kept = append(kept, requirement)
+		}
+		seen[requirement.ID] = true
+	}
+	for _, requirement := range old.Requirements {
+		if seen[requirement.ID] || selectedNames[requirement.TargetName] || selectedClosure[requirement.PackageID] {
+			continue
+		}
+		kept = append(kept, requirement)
+		seen[requirement.ID] = true
+	}
+	return kept
 }
 
 func cloneLockfile(lf *lockfile.Lockfile) *lockfile.Lockfile {
@@ -728,6 +771,7 @@ func cloneLockfile(lf *lockfile.Lockfile) *lockfile.Lockfile {
 		clone.Packages = append(clone.Packages, clonePackage(pkg))
 	}
 	clone.Edges = append([]lockfile.Edge(nil), lf.Edges...)
+	clone.Requirements = append([]lockfile.Requirement(nil), lf.Requirements...)
 	clone.Targets = append([]lockfile.Target(nil), lf.Targets...)
 	return &clone
 }

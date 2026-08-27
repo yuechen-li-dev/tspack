@@ -105,10 +105,11 @@ spelling remains a Node/TypeScript detail, not a legal replacement for
 JSR compatibility dependency keys are normalized by source: `@jsr/...` keys
 refer to JSR packages and ordinary keys refer to npm packages, including in
 optional dependency metadata. Malformed or ambiguous compatibility names fail
-instead of becoming authoring identity. This is not general npm alias support:
-true npm alias constraints such as `npm:real-package@^1` remain unsupported.
-Likewise, root `peer(...)` authoring is supported, but transitive registry peer
-requirements are not yet normalized or satisfied across sources.
+instead of becoming authoring identity. npm registry alias constraints such as
+`"local-name": "npm:real-package@^1"` are normalized as a local reference plus
+the semantic `npm:real-package` target; resolution and audit use the target,
+while Node materialization uses the reference. Root `peer(...)` authoring and
+transitive registry peers use source-qualified workspace environment slots.
 
 ```tsx
 import {

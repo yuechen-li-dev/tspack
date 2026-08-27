@@ -95,6 +95,10 @@ func renderWhyExplanation(result *why.Result) {
 				fmt.Printf("lock package %s\n", lockPackage.ID)
 			}
 		}
+		if explanation.MatchType == "alias-reference" && len(explanation.LockPackages) > 0 {
+			lockPackage := explanation.LockPackages[0]
+			fmt.Printf("%s is a local alias for %s:%s\n", explanation.DependencyKey, lockPackage.Source, lockPackage.Name)
+		}
 		if explanation.TargetName != "" {
 			fmt.Printf("target %s in package %s\n", explanation.TargetName, explanation.PackageName)
 		}
@@ -112,6 +116,19 @@ func renderWhyExplanation(result *why.Result) {
 		}
 		printWhyCapabilities(explanation.LockPackages)
 		printWhyPackageUsage(explanation.LockPackages)
+		if len(explanation.Requirements) > 0 {
+			fmt.Println("requirements:")
+			for _, requirement := range explanation.Requirements {
+				controller := ""
+				if requirement.Controlling {
+					controller = " controlling"
+				}
+				fmt.Printf("  %s  %s  %s  %s%s\n", requirement.Origin, requirement.Kind, requirement.Constraint, requirement.Status, controller)
+				if requirement.Reference != "" && requirement.Reference != strings.TrimPrefix(requirement.Target, "npm:") {
+					fmt.Printf("    %s is a local reference for %s\n", requirement.Reference, requirement.Target)
+				}
+			}
+		}
 		if len(explanation.LockEdges) > 0 {
 			fmt.Println("lock edges:")
 			for _, edge := range explanation.LockEdges {
@@ -466,10 +483,11 @@ func buildWhyJSONReversePath(reversePath why.ReversePath) WhyJSONReversePath {
 	}
 	for _, edge := range reversePath.Edges {
 		jsonPath.Edges = append(jsonPath.Edges, WhyJSONLockEdge{
-			From:     edge.From,
-			To:       edge.To,
-			Kind:     edge.Kind,
-			Optional: edge.Optional,
+			From:      edge.From,
+			To:        edge.To,
+			Kind:      edge.Kind,
+			Optional:  edge.Optional,
+			Reference: edge.Reference,
 		})
 	}
 	return jsonPath
@@ -521,10 +539,24 @@ func buildWhyJSONExplanation(explanation why.Explanation) WhyJSONExplanation {
 	}
 	for _, edge := range explanation.LockEdges {
 		jsonExplanation.LockEdges = append(jsonExplanation.LockEdges, WhyJSONLockEdge{
-			From:     edge.From,
-			To:       edge.To,
-			Kind:     edge.Kind,
-			Optional: edge.Optional,
+			From:      edge.From,
+			To:        edge.To,
+			Kind:      edge.Kind,
+			Optional:  edge.Optional,
+			Reference: edge.Reference,
+		})
+	}
+	for _, requirement := range explanation.Requirements {
+		jsonExplanation.Requirements = append(jsonExplanation.Requirements, WhyJSONRequirement{
+			Origin:          requirement.Origin,
+			Kind:            requirement.Kind,
+			Constraint:      requirement.Constraint,
+			Status:          requirement.Status,
+			Target:          requirement.Target,
+			Reference:       requirement.Reference,
+			SelectedVersion: requirement.SelectedVersion,
+			Controlling:     requirement.Controlling,
+			Optional:        requirement.Optional,
 		})
 	}
 

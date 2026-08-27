@@ -15,7 +15,8 @@ the project history.
 | `internal/manifestedit` | Syntax-qualified owned dependency islands, deterministic dependency rendering, and source-edit planning over M69a semantic edits | core domain + manifest frontend boundary |
 | `internal/manifest`, `manifesttypes` | Normalized manifest IR and the small public declaration type vocabulary | core domain |
 | `internal/graph`, `projectir`, `ecosystem` | Semantic workspace/dependency models and ecosystem-neutral project evidence | core domain |
-| `internal/resolver`, `lockfile` | Resolution and deterministic lockfile truth | core domain + infrastructure boundary |
+| `internal/requirements` | SSA-like dependency-intent IR, shared-slot precedence, shadowing, and compatibility classification | core domain |
+| `internal/resolver`, `lockfile` | Version resolution and deterministic selected/requirement lock truth | core domain + infrastructure boundary |
 | `internal/store`, `materialize`, `pack` | Artifact persistence, verified materialization, and package production | infrastructure |
 | `internal/check`, `boundary`, `typesurface`, `importscan` | Static project validation and source-boundary analysis | cross-cutting validation |
 | `internal/audit`, `capability`, `installscript`, `securityevidence` | Vulnerability, lifecycle capability, and security evidence services | cross-cutting security/audit |
@@ -93,12 +94,11 @@ by a runtime/compiler resolver. For Node, `jsr:@std/path` maps to
 materializer validates the complete destination plan before filesystem writes
 and rejects two semantic packages that map to one path.
 
-Runtime and optional registry dependency maps are normalized into
-source-qualified requirements by the backend. Transitive registry
-`peerDependencies` and true npm alias constraints are not yet normalized and
-must not be represented as working until the resolver has source-qualified peer
-satisfaction and alias-spec semantics. See
-`docs/dev/m70c-cross-registry-semantics.md`.
+Runtime, optional, and peer registry metadata are normalized into
+source-qualified facts. Shared environment facts flow through the M70x
+requirement tape before the existing version selector. npm alias values retain
+their local reference separately from semantic target identity. See
+`docs/dev/m70x-requirement-tape.md`.
 
 Dependencies point down toward domain and infrastructure capabilities. Core
 packages must not import `internal/cli` or `internal/integrations`. Integrations

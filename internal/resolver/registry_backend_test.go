@@ -3,6 +3,7 @@ package resolver
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -62,6 +63,215 @@ func TestResolveMixedNPMAndJSRGraphKeepsSourceIdentity(t *testing.T) {
 	}
 	if !bytes.Equal(firstBytes, secondBytes) {
 		t.Fatalf("mixed lock output is not deterministic:\nfirst:\n%s\nsecond:\n%s", firstBytes, secondBytes)
+	}
+}
+
+func TestRequirementTapeProjectOverrideControlsTransitivePeers(t *testing.T) {
+	client := newRegistryFixture()
+	addRegistryFixture(client, "old-widget", "1.0.0", nil)
+	addRegistryFixture(client, "new-widget", "1.0.0", nil)
+	addRegistryFixture(client, "react", "18.3.0", nil)
+	addRegistryFixture(client, "react", "19.1.0", nil)
+	setFixturePeers(client, "old-widget", "1.0.0", map[string]string{"react": "^18"}, nil)
+	setFixturePeers(client, "new-widget", "1.0.0", map[string]string{"react": "^19"}, nil)
+
+	dependencies := []manifest.DependencyIntent{
+		{Key: "old-widget", Kind: "dep", Source: manifest.Source{Kind: SourceNPM, Package: "old-widget", Range: "1.0.0"}},
+		{Key: "new-widget", Kind: "dep", Source: manifest.Source{Kind: SourceNPM, Package: "new-widget", Range: "1.0.0"}},
+		{Key: "react", Kind: "dep", Source: manifest.Source{Kind: SourceNPM, Package: "react", Range: "^19.1"}},
+	}
+	result := Resolve(context.Background(), ResolverOptions{
+		Mode: ResolveModeUpdate,
+		Backends: BackendRegistry{
+			SourceNPM: NewNPMBackend(client),
+		},
+	}, ResolveRequest{Graph: graphForDeps(dependencies, nil, []string{"old-widget", "new-widget", "react"})})
+
+	assertHasPackage(t, result.Lock, "npm:react@19.1.0")
+	mustCode(t, result, "TSPACK_PEER_REQUIREMENT_OVERRIDDEN")
+	assertRequirementStatus(t, result.Lock, "npm", "react", "^18", "overridden-incompatible", false)
+	assertRequirementStatus(t, result.Lock, "npm", "react", "^19", "shadowed-compatible", false)
+	assertRequirementStatus(t, result.Lock, "npm", "react", "^19.1", "controlling", true)
+	for _, edge := range result.Lock.Edges {
+		if edge.From == "npm:old-widget@1.0.0" && edge.To == "npm:react@19.1.0" {
+			t.Fatalf("transitive peer became an ownership edge: %#v", edge)
+		}
+	}
+	firstLock, err := lockfile.Marshal(result.Lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.metaDelay["old-widget"] = 20 * time.Millisecond
+	client.metaDelay["new-widget"] = time.Millisecond
+	client.metaDelay["react"] = 10 * time.Millisecond
+	second := Resolve(context.Background(), ResolverOptions{
+		Mode:     ResolveModeUpdate,
+		Backends: BackendRegistry{SourceNPM: NewNPMBackend(client)},
+	}, ResolveRequest{Graph: graphForDeps(dependencies, nil, []string{"old-widget", "new-widget", "react"})})
+	secondLock, err := lockfile.Marshal(second.Lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(firstLock, secondLock) {
+		t.Fatalf("requirement lock changed with metadata completion order:\nfirst:\n%s\nsecond:\n%s", firstLock, secondLock)
+	}
+
+	withoutOverride := Resolve(context.Background(), ResolverOptions{
+		Mode:     ResolveModeUpdate,
+		Backends: BackendRegistry{SourceNPM: NewNPMBackend(client)},
+	}, ResolveRequest{Graph: graphForDeps(dependencies[:2], nil, []string{"old-widget", "new-widget"})})
+	assertHasPackage(t, withoutOverride.Lock, "npm:react@18.3.0")
+	assertRequirementStatus(t, withoutOverride.Lock, "npm", "react", "^18", "controlling", true)
+	assertRequirementStatus(t, withoutOverride.Lock, "npm", "react", "^19", "overridden-incompatible", false)
+}
+
+func TestTransitivePeerCreatesEnvironmentSelectionWithoutChildOwnership(t *testing.T) {
+	client := newRegistryFixture()
+	addRegistryFixture(client, "widget", "1.0.0", nil)
+	addRegistryFixture(client, "react", "19.1.0", nil)
+	setFixturePeers(client, "widget", "1.0.0", map[string]string{"react": "^19"}, nil)
+	dependency := manifest.DependencyIntent{Key: "widget", Kind: "dep", Source: manifest.Source{Kind: SourceNPM, Package: "widget", Range: "1.0.0"}}
+	result := Resolve(context.Background(), ResolverOptions{
+		Mode:     ResolveModeUpdate,
+		Backends: BackendRegistry{SourceNPM: NewNPMBackend(client)},
+	}, ResolveRequest{Graph: graphForDeps([]manifest.DependencyIntent{dependency}, nil, []string{"widget"})})
+
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("diagnostics: %#v", result.Diagnostics)
+	}
+	assertHasPackage(t, result.Lock, "npm:react@19.1.0")
+	assertRequirementStatus(t, result.Lock, "npm", "react", "^19", "controlling", true)
+	assertHasEdge(t, result.Lock, "workspace:peer:npm:react", "npm:react@19.1.0", "peer", false)
+	for _, edge := range result.Lock.Edges {
+		if edge.From == "npm:widget@1.0.0" && edge.To == "npm:react@19.1.0" {
+			t.Fatalf("peer became nested ownership: %#v", edge)
+		}
+	}
+}
+
+func TestJSRPeersRemainSourceQualifiedAcrossNPMAndJSR(t *testing.T) {
+	npmClient := newRegistryFixture()
+	jsrClient := newRegistryFixture()
+	addRegistryFixture(npmClient, "react", "19.1.0", nil)
+	addRegistryFixture(jsrClient, "@jsr/scope__parent", "1.0.0", nil)
+	addRegistryFixture(jsrClient, "@jsr/scope__peer", "2.0.0", nil)
+	addRegistryFixture(jsrClient, "@jsr/scope__react", "19.1.0", nil)
+	setFixturePeers(jsrClient, "@jsr/scope__parent", "1.0.0", map[string]string{
+		"react":            "^19",
+		"@jsr/scope__peer": "^2",
+	}, nil)
+	dependencies := []manifest.DependencyIntent{
+		{Key: "parent", Kind: "dep", Source: manifest.Source{Kind: SourceJSR, Package: "@scope/parent", Range: "1.0.0"}},
+		{Key: "jsr-react", Kind: "dep", Source: manifest.Source{Kind: SourceJSR, Package: "@scope/react", Range: "19.1.0"}},
+	}
+	result := Resolve(context.Background(), ResolverOptions{
+		Mode: ResolveModeUpdate,
+		Backends: BackendRegistry{
+			SourceNPM: NewNPMBackend(npmClient),
+			SourceJSR: NewJSRBackend(jsrClient),
+		},
+	}, ResolveRequest{Graph: graphForDeps(dependencies, nil, []string{"parent", "jsr-react"})})
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("diagnostics: %#v", result.Diagnostics)
+	}
+	assertHasPackage(t, result.Lock, "npm:react@19.1.0")
+	assertHasPackage(t, result.Lock, "jsr:@scope/react@19.1.0")
+	assertHasPackage(t, result.Lock, "jsr:@scope/peer@2.0.0")
+	assertRequirementStatus(t, result.Lock, SourceNPM, "react", "^19", "controlling", true)
+	assertRequirementStatus(t, result.Lock, SourceJSR, "@scope/peer", "^2", "controlling", true)
+}
+
+func TestNPMSourcePackageCanExposeJSRPeerThroughNormalizedBackendMetadata(t *testing.T) {
+	parentArtifact := tarFor("npm-parent", "1.0.0", nil, nil, nil)
+	parentBackend := &staticRegistryBackend{
+		source: SourceNPM,
+		metadata: map[string]*RegistryPackageMetadata{
+			"npm-parent": {
+				Identity: PackageIdentity{Source: SourceNPM, Name: "npm-parent"},
+				Versions: map[string]RegistryPackageVersion{
+					"1.0.0": {
+						Identity:            PackageIdentity{Source: SourceNPM, Name: "npm-parent"},
+						Version:             "1.0.0",
+						Artifact:            ArtifactDescriptor{Kind: "tarball", URL: "parent.tgz"},
+						ArtifactPackageName: "npm-parent",
+						PeerRequirements: []DependencyRequirement{{
+							Identity:   PackageIdentity{Source: SourceJSR, Name: "@scope/peer"},
+							Reference:  "@jsr/scope__peer",
+							Constraint: "^2",
+							Kind:       "peer",
+						}},
+					},
+				},
+			},
+		},
+		artifacts: map[string][]byte{"parent.tgz": parentArtifact},
+	}
+	jsrClient := newRegistryFixture()
+	addRegistryFixture(jsrClient, "@jsr/scope__peer", "2.0.0", nil)
+	dependency := manifest.DependencyIntent{Key: "parent", Kind: "dep", Source: manifest.Source{Kind: SourceNPM, Package: "npm-parent", Range: "1.0.0"}}
+	result := Resolve(context.Background(), ResolverOptions{
+		Mode: ResolveModeUpdate,
+		Backends: BackendRegistry{
+			SourceNPM: parentBackend,
+			SourceJSR: NewJSRBackend(jsrClient),
+		},
+	}, ResolveRequest{Graph: graphForDeps([]manifest.DependencyIntent{dependency}, nil, []string{"parent"})})
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("diagnostics: %#v", result.Diagnostics)
+	}
+	assertHasPackage(t, result.Lock, "jsr:@scope/peer@2.0.0")
+	assertRequirementStatus(t, result.Lock, SourceJSR, "@scope/peer", "^2", "controlling", true)
+}
+
+func TestOptionalPeerFailureIsVisibleButNonFatal(t *testing.T) {
+	client := newRegistryFixture()
+	addRegistryFixture(client, "widget", "1.0.0", nil)
+	setFixturePeers(client, "widget", "1.0.0", map[string]string{"missing-peer": "^1"}, map[string]bool{"missing-peer": true})
+	dependency := manifest.DependencyIntent{Key: "widget", Kind: "dep", Source: manifest.Source{Kind: SourceNPM, Package: "widget", Range: "1.0.0"}}
+	result := Resolve(context.Background(), ResolverOptions{
+		Mode:     ResolveModeUpdate,
+		Backends: BackendRegistry{SourceNPM: NewNPMBackend(client)},
+	}, ResolveRequest{Graph: graphForDeps([]manifest.DependencyIntent{dependency}, nil, []string{"widget"})})
+	if hasErrorDiagnostics(result.Diagnostics) {
+		t.Fatalf("optional peer was fatal: %#v", result.Diagnostics)
+	}
+	assertRequirementStatus(t, result.Lock, SourceNPM, "missing-peer", "^1", "optional-unsatisfied", true)
+}
+
+func TestRegistryAliasSeparatesReferenceFromSemanticTarget(t *testing.T) {
+	client := newRegistryFixture()
+	addRegistryFixture(client, "parent", "1.0.0", map[string]string{"foo": "npm:bar@^2"})
+	addRegistryFixture(client, "bar", "2.1.0", nil)
+	dependency := manifest.DependencyIntent{Key: "parent", Kind: "dep", Source: manifest.Source{Kind: SourceNPM, Package: "parent", Range: "1.0.0"}}
+	result := Resolve(context.Background(), ResolverOptions{
+		Mode:     ResolveModeUpdate,
+		Backends: BackendRegistry{SourceNPM: NewNPMBackend(client)},
+	}, ResolveRequest{Graph: graphForDeps([]manifest.DependencyIntent{dependency}, nil, []string{"parent"})})
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("diagnostics: %#v", result.Diagnostics)
+	}
+	assertHasPackage(t, result.Lock, "npm:bar@2.1.0")
+	for _, edge := range result.Lock.Edges {
+		if edge.From == "npm:parent@1.0.0" && edge.To == "npm:bar@2.1.0" {
+			if edge.Reference != "foo" {
+				t.Fatalf("alias edge reference = %q, want foo", edge.Reference)
+			}
+			return
+		}
+	}
+	t.Fatal("missing alias edge to semantic npm:bar target")
+}
+
+func TestParseScopedNPMAlias(t *testing.T) {
+	identity, constraint, err := parseNPMAlias("npm:@scope/bar@^2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.Source != SourceNPM || identity.Name != "@scope/bar" || constraint != "^2" {
+		t.Fatalf("parsed alias = %#v %q", identity, constraint)
+	}
+	if _, _, err := parseNPMAlias("npm:bar@"); err == nil {
+		t.Fatal("expected empty alias constraint to fail")
 	}
 }
 
@@ -268,6 +478,30 @@ func assertOptionalRequirement(t *testing.T, requirements []DependencyRequiremen
 	t.Fatalf("missing optional requirement %s:%s %s in %#v", source, name, constraint, requirements)
 }
 
+func setFixturePeers(client *fakeClient, name string, version string, peers map[string]string, optional map[string]bool) {
+	packageVersion := client.meta[name].Versions[version]
+	packageVersion.PeerDependencies = peers
+	packageVersion.PeerDependenciesMeta = map[string]struct {
+		Optional bool `json:"optional"`
+	}{}
+	for peerName, isOptional := range optional {
+		packageVersion.PeerDependenciesMeta[peerName] = struct {
+			Optional bool `json:"optional"`
+		}{Optional: isOptional}
+	}
+	client.meta[name].Versions[version] = packageVersion
+}
+
+func assertRequirementStatus(t *testing.T, lock *lockfile.Lockfile, source string, name string, constraint string, status string, controlling bool) {
+	t.Helper()
+	for _, requirement := range lock.Requirements {
+		if requirement.TargetSource == source && requirement.TargetName == name && requirement.Constraint == constraint && requirement.Status == status && requirement.Controlling == controlling {
+			return
+		}
+	}
+	t.Fatalf("missing requirement %s:%s %s status=%s controlling=%t in %#v", source, name, constraint, status, controlling, lock.Requirements)
+}
+
 func TestJSRResolverReportsNotFoundAndIntegrityFailures(t *testing.T) {
 	jsrClient := newRegistryFixture()
 	dependency := manifest.DependencyIntent{
@@ -331,19 +565,47 @@ func newRegistryFixture() *fakeClient {
 	}
 }
 
+type staticRegistryBackend struct {
+	source    string
+	metadata  map[string]*RegistryPackageMetadata
+	artifacts map[string][]byte
+}
+
+func (backend *staticRegistryBackend) Source() string {
+	return backend.source
+}
+
+func (backend *staticRegistryBackend) Metadata(_ context.Context, name string) (*RegistryPackageMetadata, error) {
+	metadata, ok := backend.metadata[name]
+	if !ok {
+		return nil, fmt.Errorf("not found: %s", name)
+	}
+	return metadata, nil
+}
+
+func (backend *staticRegistryBackend) FetchArtifact(_ context.Context, artifact ArtifactDescriptor) ([]byte, error) {
+	body, ok := backend.artifacts[artifact.URL]
+	if !ok {
+		return nil, fmt.Errorf("not found: %s", artifact.URL)
+	}
+	return body, nil
+}
+
+func (backend *staticRegistryBackend) Host() string {
+	return "registry.example"
+}
+
 func addRegistryFixture(client *fakeClient, name string, version string, dependencies map[string]string) {
 	artifactURL := "https://registry.example/" + name + "-" + version + ".tgz"
 	artifact := tarFor(name, version, dependencies, nil, nil)
-	client.meta[name] = &PackageMetadata{
-		Name: name,
-		Versions: map[string]PackageVersion{
-			version: {
-				Name:         name,
-				Version:      version,
-				Dependencies: dependencies,
-				Dist:         PackageDist{Tarball: artifactURL},
-			},
-		},
+	if client.meta[name] == nil {
+		client.meta[name] = &PackageMetadata{Name: name, Versions: map[string]PackageVersion{}}
+	}
+	client.meta[name].Versions[version] = PackageVersion{
+		Name:         name,
+		Version:      version,
+		Dependencies: dependencies,
+		Dist:         PackageDist{Tarball: artifactURL},
 	}
 	client.tar[artifactURL] = artifact
 }

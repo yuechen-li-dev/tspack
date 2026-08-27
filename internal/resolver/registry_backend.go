@@ -44,6 +44,7 @@ type RegistryPackageVersion struct {
 	Identity            PackageIdentity
 	Version             string
 	Dependencies        []DependencyRequirement
+	PeerRequirements    []DependencyRequirement
 	Artifact            ArtifactDescriptor
 	ArtifactPackageName string
 	Capabilities        []lockfile.Capability
@@ -51,6 +52,7 @@ type RegistryPackageVersion struct {
 
 type DependencyRequirement struct {
 	Identity   PackageIdentity
+	Reference  string
 	Constraint string
 	Kind       string
 	Optional   bool
@@ -101,12 +103,27 @@ func (backend *npmBackend) Metadata(ctx context.Context, name string) (*Registry
 		Versions: make(map[string]RegistryPackageVersion, len(raw.Versions)),
 	}
 	for version, rawVersion := range raw.Versions {
-		dependencies := normalizeNPMDependencies(rawVersion.Dependencies, false)
-		dependencies = append(dependencies, normalizeNPMDependencies(rawVersion.OptionalDependencies, true)...)
+		dependencies, normalizeErr := normalizeNPMDependencies(rawVersion.Dependencies, false, nil)
+		if normalizeErr != nil {
+			return nil, fmt.Errorf("normalize dependencies for npm:%s@%s: %w", name, version, normalizeErr)
+		}
+		optionalDependencies, normalizeErr := normalizeNPMDependencies(rawVersion.OptionalDependencies, true, nil)
+		if normalizeErr != nil {
+			return nil, fmt.Errorf("normalize optional dependencies for npm:%s@%s: %w", name, version, normalizeErr)
+		}
+		dependencies = append(dependencies, optionalDependencies...)
+		peerRequirements, normalizeErr := normalizeNPMDependencies(rawVersion.PeerDependencies, false, rawVersion.PeerDependenciesMeta)
+		if normalizeErr != nil {
+			return nil, fmt.Errorf("normalize peer dependencies for npm:%s@%s: %w", name, version, normalizeErr)
+		}
+		for index := range peerRequirements {
+			peerRequirements[index].Kind = "peer"
+		}
 		metadata.Versions[version] = RegistryPackageVersion{
 			Identity:            identity,
 			Version:             rawVersion.Version,
 			Dependencies:        dependencies,
+			PeerRequirements:    peerRequirements,
 			Artifact:            ArtifactDescriptor{Kind: "tarball", URL: rawVersion.Dist.Tarball, Integrity: rawVersion.Dist.Integrity},
 			ArtifactPackageName: rawVersion.Name,
 			Capabilities:        capability.FromPackageJSONScripts(rawVersion.Scripts),
@@ -119,17 +136,52 @@ func (backend *npmBackend) FetchArtifact(ctx context.Context, artifact ArtifactD
 	return backend.client.Tarball(ctx, artifact.URL)
 }
 
-func normalizeNPMDependencies(dependencies map[string]string, optional bool) []DependencyRequirement {
+func normalizeNPMDependencies(dependencies map[string]string, optional bool, peerMeta map[string]struct {
+	Optional bool `json:"optional"`
+}) ([]DependencyRequirement, error) {
 	out := make([]DependencyRequirement, 0, len(dependencies))
 	for _, dependency := range sortedDeps(dependencies) {
+		identity := PackageIdentity{Source: SourceNPM, Name: dependency.name}
+		constraint := dependency.rng
+		if strings.HasPrefix(constraint, "npm:") {
+			aliasIdentity, aliasConstraint, err := parseNPMAlias(constraint)
+			if err != nil {
+				return nil, err
+			}
+			identity = aliasIdentity
+			constraint = aliasConstraint
+		}
+		dependencyOptional := optional
+		if metadata, ok := peerMeta[dependency.name]; ok && metadata.Optional {
+			dependencyOptional = true
+		}
 		out = append(out, DependencyRequirement{
-			Identity:   PackageIdentity{Source: SourceNPM, Name: dependency.name},
-			Constraint: dependency.rng,
+			Identity:   identity,
+			Reference:  dependency.name,
+			Constraint: constraint,
 			Kind:       "runtime",
-			Optional:   optional,
+			Optional:   dependencyOptional,
 		})
 	}
-	return out
+	return out, nil
+}
+
+func parseNPMAlias(value string) (PackageIdentity, string, error) {
+	spec := strings.TrimPrefix(value, "npm:")
+	name := spec
+	constraint := "*"
+	separator := strings.LastIndex(spec, "@")
+	if separator > 0 {
+		name = spec[:separator]
+		constraint = spec[separator+1:]
+	}
+	if strings.TrimSpace(name) == "" || strings.TrimSpace(constraint) == "" {
+		return PackageIdentity{}, "", fmt.Errorf("invalid npm alias %q", value)
+	}
+	if strings.HasPrefix(name, "@") && !strings.Contains(name, "/") {
+		return PackageIdentity{}, "", fmt.Errorf("invalid scoped npm alias %q", value)
+	}
+	return PackageIdentity{Source: SourceNPM, Name: name}, constraint, nil
 }
 
 type jsrBackend struct {
@@ -183,10 +235,21 @@ func (backend *jsrBackend) Metadata(ctx context.Context, name string) (*Registry
 			optionalDependencies[index].Optional = true
 		}
 		dependencies = append(dependencies, optionalDependencies...)
+		peerRequirements, normalizeErr := normalizeJSRDependencies(rawVersion.PeerDependencies)
+		if normalizeErr != nil {
+			return nil, fmt.Errorf("normalize peer dependencies for jsr:%s@%s: %w", name, version, normalizeErr)
+		}
+		for index := range peerRequirements {
+			peerRequirements[index].Kind = "peer"
+			if metadata, ok := rawVersion.PeerDependenciesMeta[peerRequirements[index].Reference]; ok {
+				peerRequirements[index].Optional = metadata.Optional
+			}
+		}
 		metadata.Versions[version] = RegistryPackageVersion{
 			Identity:            identity,
 			Version:             rawVersion.Version,
 			Dependencies:        dependencies,
+			PeerRequirements:    peerRequirements,
 			Artifact:            ArtifactDescriptor{Kind: "tarball", URL: rawVersion.Dist.Tarball, Integrity: rawVersion.Dist.Integrity},
 			ArtifactPackageName: rawVersion.Name,
 		}
@@ -206,16 +269,25 @@ func normalizeJSRDependencies(dependencies map[string]string) ([]DependencyRequi
 	out := make([]DependencyRequirement, 0, len(dependencies))
 	for _, dependency := range sortedDeps(dependencies) {
 		identity := PackageIdentity{Source: SourceNPM, Name: dependency.name}
+		constraint := dependency.rng
 		if strings.HasPrefix(dependency.name, "@jsr/") {
 			logicalName, err := logicalJSRName(dependency.name)
 			if err != nil {
 				return nil, err
 			}
 			identity = PackageIdentity{Source: SourceJSR, Name: logicalName}
+		} else if strings.HasPrefix(constraint, "npm:") {
+			aliasIdentity, aliasConstraint, err := parseNPMAlias(constraint)
+			if err != nil {
+				return nil, err
+			}
+			identity = aliasIdentity
+			constraint = aliasConstraint
 		}
 		out = append(out, DependencyRequirement{
 			Identity:   identity,
-			Constraint: dependency.rng,
+			Reference:  dependency.name,
+			Constraint: constraint,
 			Kind:       "runtime",
 		})
 	}
