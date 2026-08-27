@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/yuechen-li-dev/tspack/internal/authoring"
 )
 
 func TestBuiltinRegistry(t *testing.T) {
@@ -98,9 +100,17 @@ func TestMergeBuiltinAppFragments(t *testing.T) {
 }
 
 func TestMergeDuplicateAndConflicts(t *testing.T) {
-	duplicate := []Fragment{{Name: "a", Manifest: ManifestContributions{Dependencies: []DependencyContribution{dep("x", "^1")}}}, {Name: "b", Manifest: ManifestContributions{Dependencies: []DependencyContribution{dep("x", "^1")}}}}
-	if _, err := Merge(duplicate); err != nil {
+	duplicate := []Fragment{
+		{Name: "a", Manifest: ManifestContributions{Dependencies: []DependencyContribution{dep("x", "^1")}}},
+		{Name: "b", Manifest: ManifestContributions{Dependencies: []DependencyContribution{dep("x", "^1"), dep("y", "^1")}}},
+	}
+	merged, err := Merge(duplicate)
+	if err != nil {
 		t.Fatalf("identical duplicate should merge: %v", err)
+	}
+	assertDep(t, merged.Manifest.Dependencies, "y")
+	if len(merged.DependencyAuthoring) != 3 {
+		t.Fatalf("merged concept authoring declarations = %#v", merged.DependencyAuthoring)
 	}
 	cases := [][]Fragment{
 		{{Name: "a", Manifest: ManifestContributions{Dependencies: []DependencyContribution{dep("x", "^1")}}}, {Name: "b", Manifest: ManifestContributions{Dependencies: []DependencyContribution{dep("x", "^2")}}}},
@@ -116,6 +126,40 @@ func TestMergeDuplicateAndConflicts(t *testing.T) {
 		if _, err := Merge(fragments); err == nil {
 			t.Fatalf("expected conflict for %#v", fragments)
 		}
+	}
+}
+
+func TestDependencyDeclarationsPreserveConceptLoadOrderAndShadowing(t *testing.T) {
+	conceptA := Fragment{
+		Name: "concept-a",
+		Manifest: ManifestContributions{
+			Dependencies: []DependencyContribution{dep("foo", "^1")},
+		},
+	}
+	conceptB := Fragment{
+		Name: "concept-b",
+		Manifest: ManifestContributions{
+			Dependencies: []DependencyContribution{dep("foo", "^2")},
+		},
+	}
+
+	resolution := authoring.Build(DependencyDeclarations([]Fragment{conceptA, conceptB}))
+	if len(resolution.Entries) != 2 {
+		t.Fatalf("entries = %d, want 2", len(resolution.Entries))
+	}
+	if resolution.Entries[0].Declaration.Origin.Name != "concept-b" {
+		t.Fatalf("lower-priority first tape entry = %#v", resolution.Entries[0].Declaration.Origin)
+	}
+	if resolution.Entries[1].Declaration.Origin.Name != "concept-a" || !resolution.Entries[1].Effective {
+		t.Fatalf("first-listed concept should win: %#v", resolution.Entries)
+	}
+	if got := resolution.Effective[0].Source.Range; got != "^1" {
+		t.Fatalf("effective range = %q, want ^1", got)
+	}
+
+	reversed := authoring.Build(DependencyDeclarations([]Fragment{conceptB, conceptA}))
+	if got := reversed.Effective[0].Source.Range; got != "^2" {
+		t.Fatalf("reversed first-listed concept range = %q, want ^2", got)
 	}
 }
 

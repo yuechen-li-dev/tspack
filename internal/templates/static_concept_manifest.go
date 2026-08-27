@@ -69,6 +69,12 @@ export default define(
       name="%s"
       version="0.1.0"
       kind="app"
+      dependencyDeclaration={{
+        origin: { kind: "template", name: "static" },
+        layer: "template",
+        authority: "generated",
+        editability: "generated",
+      }}
       dependencies={{ values: [vite, typescript, biome] }}
     >
       <Policies types={types} boundaries={boundaries} />

@@ -165,25 +165,30 @@ func renderGenericDependencyConstants(b *strings.Builder, name string, deps []co
 	b.WriteString("const " + name + " = defineDeps({\n")
 	for _, dep := range deps {
 		identifier := dependencyIdentifier(dep.Name)
-		keySuffix := ""
-		if identifier != dep.Name {
-			keySuffix = fmt.Sprintf(", { key: %q }", dep.Name)
+		dependencyHelper := helper
+		if dependencyHelper == "npm" {
+			dependencyHelper = "dep"
 		}
-		if helper == "tool" || helper == "peer" {
-			if keySuffix != "" {
-				b.WriteString(fmt.Sprintf("  %s: %s(npm(%q, %q), {\n", identifier, helper, dep.Name, dep.Range))
-				b.WriteString(fmt.Sprintf("    key: %q,\n", dep.Name))
-				b.WriteString("  }),\n")
-			} else {
-				b.WriteString(fmt.Sprintf("  %s: %s(npm(%q, %q)),\n", identifier, helper, dep.Name, dep.Range))
-			}
-		} else {
-			if keySuffix != "" {
-				b.WriteString(fmt.Sprintf("  %s: dep(npm(%q, %q), { key: %q }),\n", identifier, dep.Name, dep.Range, dep.Name))
-			} else {
-				b.WriteString(fmt.Sprintf("  %s: dep(npm(%q, %q)),\n", identifier, dep.Name, dep.Range))
-			}
+		b.WriteString(fmt.Sprintf("  %s: %s(npm(%q, %q)", identifier, dependencyHelper, dep.Name, dep.Range))
+		hasKey := identifier != dep.Name
+		if !hasKey && dep.DeclaredBy == "" {
+			b.WriteString("),\n")
+			continue
 		}
+		b.WriteString(", {\n")
+		if hasKey {
+			b.WriteString(fmt.Sprintf("    key: %q,\n", dep.Name))
+		}
+		if dep.DeclaredBy != "" {
+			b.WriteString("    declaration: {\n")
+			b.WriteString(fmt.Sprintf("      origin: { kind: \"concept\", name: %q },\n", dep.DeclaredBy))
+			b.WriteString("      layer: \"concept\",\n")
+			b.WriteString(fmt.Sprintf("      layerOrder: %d,\n", dep.DeclarationOrder))
+			b.WriteString("      authority: \"generated\",\n")
+			b.WriteString("      editability: \"concept-owned\",\n")
+			b.WriteString("    },\n")
+		}
+		b.WriteString("  }),\n")
 	}
 	b.WriteString("});\n\n")
 }

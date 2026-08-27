@@ -14,6 +14,14 @@ function golden(...parts: string[]): string {
   return fs.readFileSync(path.join(root, 'fixtures', ...parts, 'manifest.ir.golden.json'), 'utf8').trim();
 }
 
+function legacyProjection(ir: unknown): unknown {
+  const projected = structuredClone(ir) as { packages?: Array<Record<string, unknown>> };
+  for (const pkg of projected.packages ?? []) {
+    delete pkg.dependencyAuthoring;
+  }
+  return projected;
+}
+
 function withTemporaryManifest(
   prefix: string,
   contents: string,
@@ -62,25 +70,25 @@ export default define(<Workspace name="ws"><Package name="mod" version="1.0.0" k
   it('parses minimal-library', () => {
     const result = parseManifestFile(fixture('valid', 'minimal-library'));
     expect(result.ok).toBe(true);
-    expect(JSON.stringify(result.ir)).toBe(golden('valid', 'minimal-library'));
+    expect(JSON.stringify(legacyProjection(result.ir))).toBe(golden('valid', 'minimal-library'));
   });
 
   it('parses machinalayout-like', () => {
     const result = parseManifestFile(fixture('valid', 'machinalayout-like'));
     expect(result.ok).toBe(true);
-    expect(JSON.stringify(result.ir)).toBe(golden('valid', 'machinalayout-like'));
+    expect(JSON.stringify(legacyProjection(result.ir))).toBe(golden('valid', 'machinalayout-like'));
   });
 
   it('parses git-dep', () => {
     const result = parseManifestFile(fixture('valid', 'git-dep'));
     expect(result.ok).toBe(true);
-    expect(JSON.stringify(result.ir)).toBe(golden('valid', 'git-dep'));
+    expect(JSON.stringify(legacyProjection(result.ir))).toBe(golden('valid', 'git-dep'));
   });
 
   it('parses run targets', () => {
     const result = parseManifestFile(fixture('valid', 'm22-run-target'));
     expect(result.ok).toBe(true);
-    expect(JSON.stringify(result.ir)).toBe(golden('valid', 'm22-run-target'));
+    expect(JSON.stringify(legacyProjection(result.ir))).toBe(golden('valid', 'm22-run-target'));
   });
 
 
@@ -124,8 +132,8 @@ export default define(
     expect(omitted.ir?.workspace.runtime).toBe('nodejs');
     expect(explicit.ir?.workspace.runtime).toBe('nodejs');
     expect(omitted.ir).toEqual(explicit.ir);
-    expect(JSON.stringify(omitted.ir)).toBe(golden('valid', 'runtime-baseline-omitted'));
-    expect(JSON.stringify(explicit.ir)).toBe(golden('valid', 'runtime-baseline-nodejs'));
+    expect(JSON.stringify(legacyProjection(omitted.ir))).toBe(golden('valid', 'runtime-baseline-omitted'));
+    expect(JSON.stringify(legacyProjection(explicit.ir))).toBe(golden('valid', 'runtime-baseline-nodejs'));
   });
 
   it('rejects invalid workspace runtime profiles', () => {
@@ -181,6 +189,53 @@ export default define(
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+
+  it('emits ordered dependency authoring declarations with provenance', () => {
+    withTemporaryManifest(
+      'tmp-dependency-authoring-',
+      `import { define, defineDeps, dep, npm, tool } from "tspack/manifest";
+const deps = defineDeps({
+  react: dep(npm("react", "^19"), {
+    declaration: {
+      origin: { kind: "concept", name: "react.app", ref: "react" },
+      layer: "concept",
+      layerOrder: 2,
+    },
+  }),
+  typescript: tool(npm("typescript", "^5.9")),
+});
+export default define(
+  <Workspace name="ws">
+    <Package name="app" version="1.0.0" kind="app" dependencies={{ values: [deps.react, deps.typescript] }} />
+  </Workspace>,
+);`,
+      (manifestPath) => {
+        const result = parseManifestFile(manifestPath);
+        expect(result.ok).toBe(true);
+        const pkg = result.ir?.packages[0] as Record<string, any>;
+        const declarations = pkg.dependencyAuthoring.declarations;
+        expect(declarations).toHaveLength(2);
+        expect(declarations[0]).toMatchObject({
+          identity: { source: 'npm', name: 'react' },
+          constraint: '^19',
+          kind: 'dep',
+          origin: { kind: 'concept', name: 'react.app', sourcePath: 'manifest.tsx', ref: 'react' },
+          layer: 'concept',
+          layerOrder: 2,
+          order: 0,
+          editability: 'concept-owned',
+        });
+        expect(declarations[1]).toMatchObject({
+          identity: { source: 'npm', name: 'typescript' },
+          origin: { kind: 'project-manifest', sourcePath: 'manifest.tsx' },
+          layer: 'project',
+          order: 1,
+          editability: 'editable',
+        });
+        expect(pkg.dependencies[0]).not.toHaveProperty('declaration');
+      },
+    );
   });
 
 

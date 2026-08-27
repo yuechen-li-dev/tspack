@@ -2930,6 +2930,64 @@ func TestLoadManifestIRChecksMinimumVersionBeforeFrontend(t *testing.T) {
 	}
 }
 
+func TestLoadManifestIRProjectsFrontendAuthoringTapeIntoGraphDependencies(t *testing.T) {
+	dir := t.TempDir()
+	writeManifestTestFile(t, filepath.Join(dir, "manifest.tsx"), `import { define, defineDeps, dep, npm } from "tspack/manifest";
+const deps = defineDeps({
+  conceptReact: dep(npm("react", "^18"), {
+    key: "react",
+    declaration: {
+      id: "concept-react",
+      origin: { kind: "concept", name: "react.app" },
+      layer: "concept",
+      editability: "concept-owned",
+    },
+  }),
+  userReact: dep(npm("react", "^19"), {
+    key: "react",
+    declaration: {
+      id: "user-react",
+      origin: { kind: "explicit-user-operation", name: "tspack add" },
+      layer: "explicit",
+    },
+  }),
+});
+export default define(
+  <Workspace name="authoring-test">
+    <Package name="app" version="1.0.0" kind="app" dependencies={{ values: [deps.conceptReact, deps.userReact] }} />
+  </Workspace>,
+);`)
+	frontendPath, err := filepath.Abs(filepath.Join("..", "..", "manifest-frontend", "dist", "cli.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := DefaultOptions(dir)
+	opts.FrontendCLIPath = frontendPath
+
+	ir, graphValue, diagnostics := loadManifestAndGraph(opts)
+	if len(diagnostics) > 0 {
+		t.Fatalf("load diagnostics = %#v", diagnostics)
+	}
+	pkg := ir.Packages[0]
+	if pkg.DependencyTape == nil || len(pkg.DependencyTape.Entries) != 2 {
+		t.Fatalf("dependency tape = %#v", pkg.DependencyTape)
+	}
+	if pkg.DependencyTape.Entries[0].ShadowedBy == nil || pkg.DependencyTape.Entries[0].ShadowedBy.ID != "user-react" {
+		t.Fatalf("shadow provenance = %#v", pkg.DependencyTape.Entries)
+	}
+	if len(pkg.Dependencies) != 1 || pkg.Dependencies[0].Source.Range != "^19" {
+		t.Fatalf("effective manifest dependencies = %#v", pkg.Dependencies)
+	}
+	graphPackage, ok := graphValue.Package("app")
+	if !ok {
+		t.Fatal("graph package app was not built")
+	}
+	dependency, ok := graphPackage.Dependency("react")
+	if !ok || dependency.Source.Range != "^19" {
+		t.Fatalf("graph dependency = %#v", dependency)
+	}
+}
+
 func writeManifestFixture(t *testing.T, dir string) {
 	t.Helper()
 	writeManifestTestFile(t, filepath.Join(dir, "manifest.tsx"), "export default {};\n")

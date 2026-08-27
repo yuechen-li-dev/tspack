@@ -6,9 +6,18 @@ import (
 )
 
 func Merge(fragments []Fragment) (*MergedConceptIR, error) {
-	merger := &mergeState{ir: &MergedConceptIR{Projections: ProjectionContributions{Objects: map[string]map[string]string{}}}, owners: map[string]string{}, priority: map[string]int{}}
+	merger := &mergeState{
+		ir: &MergedConceptIR{
+			DependencyAuthoring: DependencyDeclarations(fragments),
+			Projections:         ProjectionContributions{Objects: map[string]map[string]string{}},
+		},
+		owners:   map[string]string{},
+		priority: map[string]int{},
+	}
 	for index, fragment := range fragments {
 		merger.priority[fragment.Name] = index
+	}
+	for _, fragment := range fragments {
 		if err := merger.add(fragment); err != nil {
 			return nil, err
 		}
@@ -132,9 +141,24 @@ func (m *mergeState) addDeps(path, concept, kind string, values []DependencyCont
 		if err := m.crossKindDependencyConflict(value.Name, kind, concept); err != nil {
 			return err
 		}
-		if err := addUnique(m, path+"."+value.Name, concept, value.Name, value, target); err != nil {
-			return err
+		duplicate := false
+		for _, existing := range *target {
+			if existing.Name != value.Name {
+				continue
+			}
+			if existing.Range == value.Range && existing.Source == value.Source {
+				duplicate = true
+				break
+			}
+			return m.conflict(path+"."+value.Name, concept, "different contribution")
 		}
+		if duplicate {
+			continue
+		}
+		value.DeclaredBy = concept
+		value.DeclarationOrder = len(m.priority) - m.priority[concept]
+		*target = append(*target, value)
+		m.owners["owner."+path+"."+value.Name] = concept
 	}
 	return nil
 }

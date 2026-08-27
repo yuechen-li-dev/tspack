@@ -73,6 +73,12 @@ export default define(
       version="0.1.0"
       kind="library"
       license="MIT"
+      dependencyDeclaration={{
+        origin: { kind: "template", name: "react-library" },
+        layer: "template",
+        authority: "generated",
+        editability: "generated",
+      }}
       dependencies={{
         values: [
           deps.react,

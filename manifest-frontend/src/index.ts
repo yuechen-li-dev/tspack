@@ -33,6 +33,12 @@ type ParseMode = 'root' | 'package';
 type DocMode = 'single' | 'split' | 'package' | 'annotation';
 type PackageRow = { name: string; root: string; manifest: string };
 type InternalDoc = { mode: DocMode; ir: ManifestIr; rows?: PackageRow[] };
+type AuthoringContext = {
+  originKind: 'project-manifest' | 'package-manifest';
+  sourcePath: string;
+  layer: 'project' | 'package';
+  declarationDefaults?: Record<string, unknown>;
+};
 
 const ALLOWED_IMPORT = 'tspack/manifest';
 const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'annotatePackage', 'defineDeps', 'npm', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service', 'json']);
@@ -137,7 +143,10 @@ export function parseWorkspace(rootManifestPath: string): ManifestParseResult {
       diags.push({ code: 'TSPACK_MANIFEST_PACKAGE_NAME_MISMATCH', severity: 'error', message: `package manifest name must match row.name (${row.name})`, file: path.resolve(packageManifestPath) });
       continue;
     }
-    mergedPackages.push({ ...pkg, root: slashPath(row.root) });
+    mergedPackages.push({
+      ...withDependencyAuthoringSourcePath(pkg, slashPath(row.manifest)),
+      root: slashPath(row.root),
+    });
   }
 
   const sorted = sortDiagnostics(diags);
@@ -511,7 +520,15 @@ function jsxToRootDoc(root: unknown, diags: Diagnostic[], file: string): Interna
   if (packagesNode) {
     return { mode: 'split', ir: { ...baseIr, packages: [] }, rows: (packagesNode.rows as PackageRow[]) ?? [] };
   }
-  return { mode: 'single', ir: { ...baseIr, packages: inlinePackages.map((p: any) => mapPackage(p, false)) } };
+  const context: AuthoringContext = {
+    originKind: 'project-manifest',
+    sourcePath: 'manifest.tsx',
+    layer: 'project',
+  };
+  return {
+    mode: 'single',
+    ir: { ...baseIr, packages: inlinePackages.map((p: any) => mapPackage(p, false, context)) },
+  };
 }
 
 
@@ -591,18 +608,47 @@ function jsxToPackageAnnotationDoc(root: unknown, diags: Diagnostic[], file: str
 }
 
 function mapPackageAnnotation(p: any): Record<string, unknown> {
+  const values = p.dependencies?.values ?? [];
+  const context: AuthoringContext = {
+    originKind: 'package-manifest',
+    sourcePath: 'package.manifest.tsx',
+    layer: 'package',
+    ...(p.dependencyDeclaration !== undefined
+      ? { declarationDefaults: p.dependencyDeclaration as Record<string, unknown> }
+      : {}),
+  };
   return {
     name: p.name,
-    dependencies: mapDependencies(p.dependencies?.values ?? []),
+    dependencies: mapDependencies(values),
+    dependencyAuthoring: mapDependencyAuthoring(values, context),
   };
 }
 
 function jsxToPackageDoc(root: unknown): InternalDoc {
   const p = root as any;
-  return { mode: 'package', ir: { format: 1, workspace: { name: 'workspace', runtime: 'nodejs' }, packages: [mapPackage(p, false)] } };
+  const context: AuthoringContext = {
+    originKind: 'package-manifest',
+    sourcePath: 'package.manifest.tsx',
+    layer: 'package',
+  };
+  return {
+    mode: 'package',
+    ir: {
+      format: 1,
+      workspace: { name: 'workspace', runtime: 'nodejs' },
+      packages: [mapPackage(p, false, context)],
+    },
+  };
 }
 
-function mapPackage(p: any, includeRoot: boolean): Record<string, unknown> {
+function mapPackage(p: any, includeRoot: boolean, context: AuthoringContext): Record<string, unknown> {
+  const dependencyValues = p.dependencies?.values ?? [];
+  const authoringContext = {
+    ...context,
+    ...(p.dependencyDeclaration !== undefined
+      ? { declarationDefaults: p.dependencyDeclaration as Record<string, unknown> }
+      : {}),
+  };
   return {
     name: p.name,
     version: p.version,
@@ -612,7 +658,8 @@ function mapPackage(p: any, includeRoot: boolean): Record<string, unknown> {
     ...(p.compiler !== undefined ? { compiler: compilerIdentity(p.compiler) } : {}),
     ...(p.compilerPath !== undefined ? { compilerPath: p.compilerPath } : {}),
 	...(p.devBackend !== undefined ? { devBackend: p.devBackend } : {}),
-    dependencies: mapDependencies(p.dependencies?.values ?? []),
+    dependencies: mapDependencies(dependencyValues),
+    dependencyAuthoring: mapDependencyAuthoring(dependencyValues, authoringContext),
     targets: mapTargets(p.__children?.find((x: any) => x.__tag === 'Targets')?.rows ?? []),
     ...(p.__children?.find((x: any) => x.__tag === 'RunTargets') ? { runTargets: p.__children?.find((x: any) => x.__tag === 'RunTargets')?.rows ?? [] } : {}),
     ...(p.__children?.find((x: any) => x.__tag === 'SkyrimTarget') ? { skyrim: mapSkyrimTarget(p.__children?.find((x: any) => x.__tag === 'SkyrimTarget')) } : {}),
@@ -629,9 +676,89 @@ function mapDependencies(values: any[]): any[] {
       return value;
     }
 
-    const { __key: _key, ...dependency } = value;
+    const { __key: _key, declaration: _declaration, ...dependency } = value;
     return dependency;
   });
+}
+
+function mapDependencyAuthoring(values: any[], context: AuthoringContext): Record<string, unknown> {
+  return {
+    declarations: values.map((value, order) => mapDependencyDeclaration(value, order, context)),
+  };
+}
+
+function mapDependencyDeclaration(value: any, order: number, context: AuthoringContext): Record<string, unknown> {
+  const metadata = {
+    ...(context.declarationDefaults ?? {}),
+    ...(value?.declaration ?? {}),
+  };
+  const source = value?.source ?? {};
+  const sourceName = source.package ?? source.name ?? source.ref ?? source.path ?? source.repo ?? '';
+  const origin = metadata.origin ?? {
+    kind: context.originKind,
+    sourcePath: context.sourcePath,
+  };
+  const originKind = origin.kind ?? context.originKind;
+  return {
+    ...(metadata.id !== undefined ? { id: metadata.id } : {}),
+    ...(value?.key !== undefined ? { key: value.key } : {}),
+    identity: {
+      source: source.kind,
+      name: sourceName,
+    },
+    source,
+    ...(source.range !== undefined ? { constraint: source.range } : {}),
+    kind: value?.kind,
+    ...(value?.optional === true ? { optional: true } : {}),
+    origin: {
+      ...origin,
+      ...(origin.sourcePath === undefined ? { sourcePath: context.sourcePath } : {}),
+    },
+    layer: metadata.layer ?? context.layer,
+    ...(metadata.layerOrder !== undefined ? { layerOrder: metadata.layerOrder } : {}),
+    order,
+    authority: metadata.authority ?? 'owned',
+    editability: metadata.editability ?? defaultEditability(originKind),
+  };
+}
+
+function defaultEditability(originKind: string): string {
+  if (originKind === 'concept') {
+    return 'concept-owned';
+  }
+  if (originKind === 'template') {
+    return 'generated';
+  }
+  if (originKind === 'compatibility') {
+    return 'observed';
+  }
+  return 'editable';
+}
+
+function withDependencyAuthoringSourcePath(
+  pkg: Record<string, unknown>,
+  sourcePath: string,
+): Record<string, unknown> {
+  const authoring = pkg.dependencyAuthoring as { declarations?: Array<Record<string, unknown>> } | undefined;
+  if (!authoring?.declarations) {
+    return pkg;
+  }
+  return {
+    ...pkg,
+    dependencyAuthoring: {
+      ...authoring,
+      declarations: authoring.declarations.map((declaration) => {
+        const origin = declaration.origin as Record<string, unknown> | undefined;
+        return {
+          ...declaration,
+          origin: {
+            ...origin,
+            sourcePath,
+          },
+        };
+      }),
+    },
+  };
 }
 
 function mapTargets(rows: any[]): any[] {

@@ -60,8 +60,30 @@ declare module 'tspack/manifest' {
 
   export type DependencySource = NpmSource | GitSource | PathSource | WorkspaceSource;
 
+  export type DependencyDeclarationMetadata = {
+    id?: string;
+    origin?: {
+      kind:
+        | 'project-manifest'
+        | 'package-manifest'
+        | 'concept'
+        | 'template'
+        | 'compatibility'
+        | 'generated'
+        | 'explicit-user-operation';
+      name?: string;
+      sourcePath?: string;
+      ref?: string;
+    };
+    layer?: 'base' | 'concept' | 'template' | 'project' | 'package' | 'compatibility' | 'explicit';
+    layerOrder?: number;
+    authority?: 'owned' | 'observed' | 'generated';
+    editability?: 'editable' | 'derived' | 'observed' | 'generated' | 'concept-owned';
+  };
+
   export type DependencyOptions = {
     key?: string;
+    declaration?: DependencyDeclarationMetadata;
   };
 
   export type DepIntent = {
@@ -283,6 +305,7 @@ declare module 'tspack/manifest' {
 
   export type PackageAnnotationProps = {
     name?: string;
+    dependencyDeclaration?: DependencyDeclarationMetadata;
     dependencies?: {
       values: DependencyIntent[];
     };
@@ -299,6 +322,7 @@ declare module 'tspack/manifest' {
     dependencies?: {
       values: DependencyIntent[];
     };
+    dependencyDeclaration?: DependencyDeclarationMetadata;
     devBackend?: DevBackend;
     children?: ManifestNode;
   };

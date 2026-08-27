@@ -1,6 +1,10 @@
 package concepts
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/yuechen-li-dev/tspack/internal/authoring"
+)
 
 type Fragment struct {
 	Name            string
@@ -54,7 +58,13 @@ type TargetContribution struct {
 	Types   string
 }
 
-type DependencyContribution struct{ Name, Range, Source string }
+type DependencyContribution struct {
+	Name             string
+	Range            string
+	Source           string
+	DeclaredBy       string
+	DeclarationOrder int
+}
 
 type RunTargetContribution struct{ Name, Command, Cwd string }
 
@@ -94,13 +104,14 @@ type SlotContribution struct {
 }
 
 type MergedConceptIR struct {
-	Concepts    []string
-	Variables   []VariableContribution
-	Manifest    ManifestContributions
-	Files       []FileContribution
-	Projections ProjectionContributions
-	Slots       []SlotContribution
-	Warnings    []string
+	Concepts            []string
+	Variables           []VariableContribution
+	Manifest            ManifestContributions
+	DependencyAuthoring []authoring.DependencyDeclaration
+	Files               []FileContribution
+	Projections         ProjectionContributions
+	Slots               []SlotContribution
+	Warnings            []string
 }
 
 type Conflict struct {

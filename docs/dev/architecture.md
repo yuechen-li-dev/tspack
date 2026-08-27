@@ -11,6 +11,7 @@ the project history.
 | `cmd/tspack` | Process bootstrap only; passes process arguments to `internal/cli` | CLI/presentation |
 | `internal/cli` | Command registry, command-specific parsing, text/JSON renderers, exit mapping, and cheap workspace path loading | CLI/presentation |
 | `internal/project` | Typed lifecycle application operations for update, sync, check, pack, why, outdated, and policy planning | application/orchestration |
+| `internal/authoring` | Dependency authoring declarations, provenance, ordered tape, effective projection, and pure edit semantics | core domain |
 | `internal/manifest`, `manifesttypes` | Normalized manifest IR and the small public declaration type vocabulary | core domain |
 | `internal/graph`, `projectir`, `ecosystem` | Semantic workspace/dependency models and ecosystem-neutral project evidence | core domain |
 | `internal/resolver`, `lockfile` | Resolution and deterministic lockfile truth | core domain + infrastructure boundary |
@@ -41,7 +42,13 @@ the project history.
 manifest.tsx / package.manifest.tsx
         |
         v
-manifest-frontend  ->  internal/manifest IR
+manifest-frontend  ->  dependency authoring IR
+        |                    |
+        |                    v
+        |              ordered dependency tape
+        |                    |
+        |                    v
+        |             effective manifest IR
         |                    |
         |                    v
         |             graph / project model
@@ -104,6 +111,17 @@ types. Go discovers and invokes its built bridge through `internal/bridge` and
 `internal/nodecmd`, then validates the normalized result in `internal/manifest`.
 Generated declaration copies have one source in the frontend/build pipeline and
 are checked with `tspack compat diff`.
+
+## Dependency authoring boundary
+
+`internal/authoring` owns declarations before resolution: source-qualified
+package identity, dependency kind, provenance, layer/order, authority,
+editability, shadow decisions, and pure edits. `internal/manifest` builds each
+package tape during normalized IR validation and projects only effective
+dependencies into the existing graph. Graph and resolver packages do not own
+authoring precedence, and lockfiles do not contain authoring history. Concept,
+template, package-manifest, and compatibility producers converge on the same
+declaration vocabulary. See `docs/dev/m69a-authoring-ir.md` for the full model.
 
 ## Cross-cutting services
 

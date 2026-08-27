@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/yuechen-li-dev/tspack/internal/authoring"
 )
 
 type Observation struct {
@@ -43,18 +45,19 @@ type Lockfile struct {
 }
 
 type Report struct {
-	Root                  string              `json:"root"`
-	PackageName           string              `json:"packageName,omitempty"`
-	Version               string              `json:"version,omitempty"`
-	DependencyCounts      map[string]int      `json:"dependencyCounts"`
-	Scripts               []string            `json:"scripts"`
-	Lockfiles             []Lockfile          `json:"lockfiles"`
-	ManifestExists        bool                `json:"manifestExists"`
-	LockfileExists        bool                `json:"lockfileExists"`
-	SuggestedAdoptionMode string              `json:"suggestedAdoptionMode"`
-	Warnings              []string            `json:"warnings"`
-	PackageAnnotations    []PackageAnnotation `json:"packageAnnotations,omitempty"`
-	Observation           Observation         `json:"observation"`
+	Root                  string                    `json:"root"`
+	PackageName           string                    `json:"packageName,omitempty"`
+	Version               string                    `json:"version,omitempty"`
+	DependencyCounts      map[string]int            `json:"dependencyCounts"`
+	Scripts               []string                  `json:"scripts"`
+	Lockfiles             []Lockfile                `json:"lockfiles"`
+	ManifestExists        bool                      `json:"manifestExists"`
+	LockfileExists        bool                      `json:"lockfileExists"`
+	SuggestedAdoptionMode string                    `json:"suggestedAdoptionMode"`
+	Warnings              []string                  `json:"warnings"`
+	PackageAnnotations    []PackageAnnotation       `json:"packageAnnotations,omitempty"`
+	DependencyAuthoring   *authoring.TapeResolution `json:"dependencyAuthoring,omitempty"`
+	Observation           Observation               `json:"observation"`
 }
 
 type packageJSON struct {
@@ -145,6 +148,7 @@ func BuildReportWithAnnotations(obs Observation, annotations []PackageAnnotation
 	if !obs.LockfileExists {
 		warnings = append(warnings, "no ts-lock.toml yet; TSPack has not generated a lockfile for this project")
 	}
+	dependencyAuthoring := buildDependencyAuthoring(obs, annotations)
 	return Report{
 		Root:                  obs.Root,
 		PackageName:           obs.Name,
@@ -157,7 +161,130 @@ func BuildReportWithAnnotations(obs Observation, annotations []PackageAnnotation
 		SuggestedAdoptionMode: mode,
 		Warnings:              warnings,
 		PackageAnnotations:    annotations,
+		DependencyAuthoring:   &dependencyAuthoring,
 		Observation:           obs,
+	}
+}
+
+func buildDependencyAuthoring(obs Observation, annotations []PackageAnnotation) authoring.TapeResolution {
+	var declarations []authoring.DependencyDeclaration
+	order := 0
+
+	sortedAnnotations := append([]PackageAnnotation(nil), annotations...)
+	sort.SliceStable(sortedAnnotations, func(left, right int) bool {
+		if sortedAnnotations[left].Root != sortedAnnotations[right].Root {
+			return sortedAnnotations[left].Root < sortedAnnotations[right].Root
+		}
+		return sortedAnnotations[left].ManifestPath < sortedAnnotations[right].ManifestPath
+	})
+	for _, annotation := range sortedAnnotations {
+		dependencies := append([]AnnotatedDep(nil), annotation.Dependencies...)
+		sort.SliceStable(dependencies, func(left, right int) bool {
+			if dependencies[left].Name != dependencies[right].Name {
+				return dependencies[left].Name < dependencies[right].Name
+			}
+			return dependencies[left].Kind < dependencies[right].Kind
+		})
+		for _, dependency := range dependencies {
+			constraint := dependency.Range
+			if constraint == "" {
+				constraint = dependency.PackageJSONRange
+			}
+			declarations = append(declarations, authoring.DependencyDeclaration{
+				ID:          fmt.Sprintf("annotation-%04d", order),
+				Key:         dependency.Key,
+				Identity:    authoring.PackageIdentity{Source: "npm", Name: dependency.Name},
+				Source:      authoring.PackageSource{Kind: "npm", Package: dependency.Name, Range: constraint},
+				Constraint:  constraint,
+				Kind:        authoring.DependencyKind(dependency.Kind),
+				Origin:      authoring.DeclarationOrigin{Kind: authoring.OriginPackageManifest, Name: annotation.AnnotationName, SourcePath: annotation.ManifestPath},
+				Layer:       authoring.LayerPackage,
+				Order:       order,
+				Authority:   authoring.AuthorityOwned,
+				Editability: authoring.EditabilityDerived,
+			})
+			order++
+		}
+	}
+	for _, annotation := range sortedAnnotations {
+		dependencies := append([]AnnotatedDep(nil), annotation.Dependencies...)
+		sort.SliceStable(dependencies, func(left, right int) bool {
+			if dependencies[left].Name != dependencies[right].Name {
+				return dependencies[left].Name < dependencies[right].Name
+			}
+			return dependencies[left].PackageJSONSection < dependencies[right].PackageJSONSection
+		})
+		for _, dependency := range dependencies {
+			kind, optional, observed := packageJSONDependencySemantics(dependency.PackageJSONSection)
+			if !observed {
+				continue
+			}
+			declarations = append(declarations, authoring.DependencyDeclaration{
+				ID:          fmt.Sprintf("annotated-package-json-%04d", order),
+				Key:         dependency.Name,
+				Identity:    authoring.PackageIdentity{Source: "npm", Name: dependency.Name},
+				Source:      authoring.PackageSource{Kind: "npm", Package: dependency.Name, Range: dependency.PackageJSONRange},
+				Constraint:  dependency.PackageJSONRange,
+				Kind:        kind,
+				Optional:    optional,
+				Origin:      authoring.DeclarationOrigin{Kind: authoring.OriginCompatibility, Name: "package.json " + dependency.PackageJSONSection, SourcePath: annotation.PackageJSONPath},
+				Layer:       authoring.LayerCompatibility,
+				Order:       order,
+				Authority:   authoring.AuthorityObserved,
+				Editability: authoring.EditabilityObserved,
+			})
+			order++
+		}
+	}
+
+	sections := []struct {
+		name         string
+		dependencies map[string]string
+		kind         authoring.DependencyKind
+		optional     bool
+	}{
+		{name: "dependencies", dependencies: obs.Dependencies, kind: authoring.DependencyRuntime},
+		{name: "devDependencies", dependencies: obs.DevDependencies, kind: authoring.DependencyTool},
+		{name: "peerDependencies", dependencies: obs.PeerDependencies, kind: authoring.DependencyPeer},
+		{name: "optionalDependencies", dependencies: obs.OptionalDependencies, kind: authoring.DependencyRuntime, optional: true},
+	}
+	for sectionOrder, section := range sections {
+		for _, name := range sortedKeys(section.dependencies) {
+			constraint := section.dependencies[name]
+			declarations = append(declarations, authoring.DependencyDeclaration{
+				ID:          fmt.Sprintf("package-json-%04d", order),
+				Key:         name,
+				Identity:    authoring.PackageIdentity{Source: "npm", Name: name},
+				Source:      authoring.PackageSource{Kind: "npm", Package: name, Range: constraint},
+				Constraint:  constraint,
+				Kind:        section.kind,
+				Optional:    section.optional,
+				Origin:      authoring.DeclarationOrigin{Kind: authoring.OriginCompatibility, Name: "package.json " + section.name, SourcePath: "package.json"},
+				Layer:       authoring.LayerCompatibility,
+				LayerOrder:  sectionOrder,
+				Order:       order,
+				Authority:   authoring.AuthorityObserved,
+				Editability: authoring.EditabilityObserved,
+			})
+			order++
+		}
+	}
+
+	return authoring.Build(declarations)
+}
+
+func packageJSONDependencySemantics(section string) (authoring.DependencyKind, bool, bool) {
+	switch section {
+	case "dependencies":
+		return authoring.DependencyRuntime, false, true
+	case "devDependencies":
+		return authoring.DependencyTool, false, true
+	case "peerDependencies":
+		return authoring.DependencyPeer, false, true
+	case "optionalDependencies":
+		return authoring.DependencyRuntime, true, true
+	default:
+		return "", false, false
 	}
 }
 

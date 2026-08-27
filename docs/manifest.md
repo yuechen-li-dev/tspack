@@ -180,7 +180,43 @@ const deps = defineDeps({
 <Tools values={[deps.biomejsBiome]} />
 ```
 
-Without the explicit key in this example, the manifest frontend preserves the property alias fallback. Because the dependency identity derived from the npm package is `@biomejs/biome` or `react-dom`, Go IR validation reports `TSPACK_IR_UNKNOWN_DEPENDENCY_REF` if the alias and dependency identity do not match. `tspack migrate` follows this rule automatically: generated declarations get `key` whenever the TypeScript identifier differs from the npm package name, while packages such as `typescript` do not get noisy key options.
+## Dependency declaration provenance
+
+The normalized manifest now retains an authoring declaration for every
+dependency before projecting the effective dependency set used by graph and
+resolution. A declaration records its source-qualified package identity,
+constraint, semantic kind, optional flag, manifest source path, precedence
+layer, authority, and editability. Later declarations for the same identity and
+effective dependency key can shadow earlier declarations without deleting them
+from the authoring tape. Distinct explicit aliases remain separate declarations.
+
+Ordinary manifest dependencies receive project- or package-manifest provenance
+automatically. Generated templates can set package-wide defaults with
+`dependencyDeclaration`, and a dependency helper can override those defaults
+with its `declaration` option. These fields are primarily for TSPack-owned
+generators and future editing commands; normal hand-authored manifests do not
+need to specify them.
+
+```tsx
+const deps = defineDeps({
+  react: dep(npm("react", "^19"), {
+    declaration: {
+      origin: { kind: "concept", name: "react.app" },
+      layer: "concept",
+      authority: "generated",
+      editability: "concept-owned",
+    },
+  }),
+});
+```
+
+The tape is authoring truth, not resolved truth. `ts-lock.toml` continues to
+record exact resolved packages and does not contain shadowed authoring history.
+During incremental adoption, package.json declarations are recorded as
+observed, non-editable compatibility evidence and package.json remains
+authoritative.
+
+Without the explicit keys in the dependency-alias example above, the manifest frontend preserves the property alias fallback. Because the dependency identity derived from the npm package is `@biomejs/biome` or `react-dom`, Go IR validation reports `TSPACK_IR_UNKNOWN_DEPENDENCY_REF` if the alias and dependency identity do not match. `tspack migrate` follows this rule automatically: generated declarations get `key` whenever the TypeScript identifier differs from the npm package name, while packages such as `typescript` do not get noisy key options.
 
 ## Publish include conventions
 

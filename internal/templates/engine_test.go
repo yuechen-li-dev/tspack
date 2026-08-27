@@ -886,7 +886,8 @@ func TestLocalConceptManifestOptInFixture(t *testing.T) {
 	}
 	for _, want := range []string{
 		"// - my-company.design-system",
-		`clsx: dep(npm("clsx", "^2.1.1"))`,
+		`clsx: dep(npm("clsx", "^2.1.1"), {`,
+		`origin: { kind: "concept", name: "my-company.design-system" }`,
 		`name: "generate-icons"`,
 		`command: ["node", "-e", "console.log('icons-generated')"]`,
 	} {
@@ -941,7 +942,8 @@ func TestTailwindLocalConceptManifestFixture(t *testing.T) {
 	}
 	for _, want := range []string{
 		"// - my-company.tailwind",
-		`tailwindcss: dep(npm("tailwindcss", "^4.0.0"))`,
+		`tailwindcss: dep(npm("tailwindcss", "^4.0.0"), {`,
+		`origin: { kind: "concept", name: "my-company.tailwind" }`,
 		`tailwindcssVite: tool(npm("@tailwindcss/vite", "^4.0.0"), {`,
 	} {
 		if !strings.Contains(manifest, want) {
@@ -1046,9 +1048,10 @@ func TestTailwindMachinaLocalConceptManifestFixture(t *testing.T) {
 	for _, want := range []string{
 		"// - my-company.tailwind",
 		"// - my-company.machina-layout",
-		`tailwindcss: dep(npm("tailwindcss", "^4.0.0"))`,
+		`tailwindcss: dep(npm("tailwindcss", "^4.0.0"), {`,
 		`tailwindcssVite: tool(npm("@tailwindcss/vite", "^4.0.0"), {`,
-		`machinalayout: dep(npm("machinalayout", "^0.3.1"))`,
+		`machinalayout: dep(npm("machinalayout", "^0.3.1"), {`,
+		`origin: { kind: "concept", name: "my-company.machina-layout" }`,
 	} {
 		if !strings.Contains(manifest, want) {
 			t.Fatalf("manifest missing %q:\n%s", want, manifest)
@@ -1210,7 +1213,8 @@ func TestMachinaLayoutLocalConceptManifestFixture(t *testing.T) {
 	}
 	for _, want := range []string{
 		"// - my-company.machina-layout",
-		`machinalayout: dep(npm("machinalayout", "^0.3.1"))`,
+		`machinalayout: dep(npm("machinalayout", "^0.3.1"), {`,
+		`origin: { kind: "concept", name: "my-company.machina-layout" }`,
 	} {
 		if !strings.Contains(manifest, want) {
 			t.Fatalf("manifest missing %q:\n%s", want, manifest)

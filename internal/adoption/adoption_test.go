@@ -123,6 +123,56 @@ func TestBuildReportWithPackageAnnotations(t *testing.T) {
 	}
 }
 
+func TestBuildReportModelsPackageJSONAsObservedAuthoritativeTapeLayer(t *testing.T) {
+	obs := Observation{
+		Name:            "demo",
+		Dependencies:    map[string]string{"react": "^19"},
+		DevDependencies: map[string]string{"vite": "^7"},
+	}
+	annotations := []PackageAnnotation{{
+		Root:           ".",
+		ManifestPath:   "package.manifest.tsx",
+		AnnotationName: "demo",
+		Dependencies: []AnnotatedDep{{
+			Key:                "react",
+			Name:               "react",
+			Kind:               "peer",
+			Range:              "^18",
+			PackageJSONSection: "dependencies",
+			PackageJSONRange:   "^19",
+		}},
+	}}
+
+	report := BuildReportWithAnnotations(obs, annotations)
+	if report.DependencyAuthoring == nil {
+		t.Fatal("dependency authoring tape is missing")
+	}
+	resolution := report.DependencyAuthoring
+	if len(resolution.Entries) != 4 {
+		t.Fatalf("tape entries = %#v", resolution.Entries)
+	}
+	annotationEntry := resolution.Entries[0]
+	if annotationEntry.Declaration.Origin.Kind != "package-manifest" || annotationEntry.Declaration.Editability != "derived" {
+		t.Fatalf("annotation declaration classification = %#v", annotationEntry.Declaration)
+	}
+	var reactEntryFound bool
+	for _, entry := range resolution.Entries {
+		if entry.Declaration.Identity.Name != "react" || !entry.Effective {
+			continue
+		}
+		reactEntryFound = true
+		if entry.Declaration.Origin.Kind != "compatibility" || entry.Declaration.Authority != "observed" || entry.Declaration.Editability != "observed" {
+			t.Fatalf("effective package.json declaration classification = %#v", entry.Declaration)
+		}
+		if entry.Declaration.Constraint != "^19" {
+			t.Fatalf("effective package.json constraint = %q", entry.Declaration.Constraint)
+		}
+	}
+	if !reactEntryFound {
+		t.Fatalf("effective react observation missing: %#v", resolution)
+	}
+}
+
 func TestValidateAnnotatedDependencyWarnings(t *testing.T) {
 	warnings := validateAnnotatedDependency(AnnotatedDep{Name: "react", Kind: "peer", Range: "^19.0.0", PackageJSONSection: "dependencies", PackageJSONRange: "^18.0.0"})
 	joined := strings.Join(warnings, "\n")

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/yuechen-li-dev/tspack/internal/authoring"
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/pathutil"
 )
@@ -100,22 +101,24 @@ func (a AcknowledgedLifecycleCategory) Key() string {
 }
 
 type Package struct {
-	Name         string             `json:"name"`
-	Version      string             `json:"version"`
-	Compiler     string             `json:"compiler,omitempty"`
-	CompilerPath string             `json:"compilerPath,omitempty"`
-	Root         string             `json:"root,omitempty"`
-	License      string             `json:"license,omitempty"`
-	Kind         string             `json:"kind"`
-	Policies     Policies           `json:"policies"`
-	Dependencies []DependencyIntent `json:"dependencies"`
-	Targets      []Target           `json:"targets"`
-	Tools        []string           `json:"tools"`
-	Boundaries   []BoundaryRule     `json:"boundaries"`
-	Publish      PublishPolicy      `json:"publish"`
-	RunTargets   []RunTarget        `json:"runTargets,omitempty"`
-	DevBackend   *DevBackend        `json:"devBackend,omitempty"`
-	Skyrim       *SkyrimTarget      `json:"skyrim,omitempty"`
+	Name                string                    `json:"name"`
+	Version             string                    `json:"version"`
+	Compiler            string                    `json:"compiler,omitempty"`
+	CompilerPath        string                    `json:"compilerPath,omitempty"`
+	Root                string                    `json:"root,omitempty"`
+	License             string                    `json:"license,omitempty"`
+	Kind                string                    `json:"kind"`
+	Policies            Policies                  `json:"policies"`
+	Dependencies        []DependencyIntent        `json:"dependencies"`
+	DependencyAuthoring *authoring.PackageIR      `json:"dependencyAuthoring,omitempty"`
+	DependencyTape      *authoring.TapeResolution `json:"-"`
+	Targets             []Target                  `json:"targets"`
+	Tools               []string                  `json:"tools"`
+	Boundaries          []BoundaryRule            `json:"boundaries"`
+	Publish             PublishPolicy             `json:"publish"`
+	RunTargets          []RunTarget               `json:"runTargets,omitempty"`
+	DevBackend          *DevBackend               `json:"devBackend,omitempty"`
+	Skyrim              *SkyrimTarget             `json:"skyrim,omitempty"`
 }
 
 type SkyrimTarget struct {
@@ -242,25 +245,9 @@ type Policies struct {
 	Boundaries map[string]string `json:"boundaries,omitempty"`
 }
 
-type DependencyIntent struct {
-	Key      string `json:"key,omitempty"`
-	Kind     string `json:"kind"`
-	Source   Source `json:"source"`
-	Optional bool   `json:"optional,omitempty"`
-}
+type DependencyIntent = authoring.EffectiveDependency
 
-type Source struct {
-	Kind    string `json:"kind"`
-	Package string `json:"package,omitempty"`
-	Range   string `json:"range,omitempty"`
-	Ref     string `json:"ref,omitempty"`
-	Repo    string `json:"repo,omitempty"`
-	Tag     string `json:"tag,omitempty"`
-	Rev     string `json:"rev,omitempty"`
-	Branch  string `json:"branch,omitempty"`
-	Path    string `json:"path,omitempty"`
-	Name    string `json:"name,omitempty"`
-}
+type Source = authoring.PackageSource
 
 type Target struct {
 	Name              string                `json:"name"`
@@ -642,6 +629,7 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 			add("TSPACK_IR_DUPLICATE_PACKAGE", "duplicate package name: "+p.Name)
 		}
 		seenPkg[p.Name] = struct{}{}
+		preparePackageAuthoring(add, pp, p)
 		depKinds := map[string]string{}
 		for i, d := range p.Dependencies {
 			k := depIdentity(d)
@@ -809,6 +797,67 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 	}
 	diag.SortDiagnostics(out)
 	return out
+}
+
+func preparePackageAuthoring(
+	add func(string, string, ...string),
+	packagePath string,
+	pkg *Package,
+) {
+	if pkg.DependencyAuthoring == nil {
+		declarations := make([]authoring.DependencyDeclaration, 0, len(pkg.Dependencies))
+		for order, dependency := range pkg.Dependencies {
+			declarations = append(declarations, authoring.DependencyDeclaration{
+				Key:         dependency.Key,
+				Identity:    dependency.Source.Identity(),
+				Source:      dependency.Source,
+				Constraint:  dependency.Source.Range,
+				Kind:        authoring.DependencyKind(dependency.Kind),
+				Optional:    dependency.Optional,
+				Origin:      authoring.DeclarationOrigin{Kind: authoring.OriginGenerated, Name: "legacy normalized manifest IR"},
+				Layer:       authoring.LayerProject,
+				Order:       order,
+				Authority:   authoring.AuthorityGenerated,
+				Editability: authoring.EditabilityDerived,
+			})
+		}
+		pkg.DependencyAuthoring = &authoring.PackageIR{Declarations: declarations}
+	}
+
+	for index := range pkg.DependencyAuthoring.Declarations {
+		declaration := &pkg.DependencyAuthoring.Declarations[index]
+		if !declaration.Identity.Valid() {
+			declaration.Identity = declaration.Source.Identity()
+		}
+		if !declaration.Identity.Valid() {
+			add(
+				"TSPACK_AUTHORING_INVALID_IDENTITY",
+				fmt.Sprintf("%s.dependencyAuthoring.declarations[%d] has no package identity", packagePath, index),
+			)
+		}
+		if declaration.Source.Kind != declaration.Identity.Source {
+			add(
+				"TSPACK_AUTHORING_SOURCE_IDENTITY_MISMATCH",
+				fmt.Sprintf("%s.dependencyAuthoring.declarations[%d] source and identity differ", packagePath, index),
+				"source="+declaration.Source.Kind,
+				"identity="+declaration.Identity.Source,
+			)
+		}
+	}
+
+	resolution := authoring.Build(pkg.DependencyAuthoring.Declarations)
+	pkg.DependencyTape = &resolution
+	pkg.Dependencies = append([]authoring.EffectiveDependency(nil), resolution.Effective...)
+	for _, conflict := range resolution.Conflicts {
+		if !conflict.Fatal {
+			continue
+		}
+		add(
+			"TSPACK_AUTHORING_DEPENDENCY_KEY_COLLISION",
+			packagePath+" has dependency declarations with colliding effective keys",
+			conflict.Message,
+		)
+	}
 }
 
 func validateSkyrimTarget(add func(string, string, ...string), packagePath string, target *SkyrimTarget) {
