@@ -282,13 +282,12 @@ func validate(file string, lf *Lockfile) []diag.Diagnostic {
 			out = append(out, errD("TSPACK_LOCK_DUPLICATE_PACKAGE", "duplicate package id", p.ID))
 		}
 		ids[p.ID] = struct{}{}
-		// Lockfile package sources remain the current npm/git/path/workspace set.
-		// Reserved ecosystem vocabulary such as PyPI must not become valid here
-		// without a real backend and lockfile schema decision.
+		// Registry packages share the existing version plus integrity/content-hash
+		// contract; source-qualified IDs keep registry identities distinct.
 		switch p.Source {
-		case "npm":
+		case "npm", "jsr":
 			if p.Version == "" || (p.Integrity == "" && p.Hash == "") {
-				out = append(out, errD("TSPACK_LOCK_INVALID_PACKAGE", "npm package requires version and integrity/hash", p.ID))
+				out = append(out, errD("TSPACK_LOCK_INVALID_PACKAGE", "registry package requires version and integrity/hash", p.ID))
 			}
 		case "git":
 			if p.Repo == "" || p.Rev == "" || (p.TreeHash == "" && p.Hash == "") {

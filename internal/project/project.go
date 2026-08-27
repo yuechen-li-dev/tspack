@@ -16,6 +16,7 @@ type Options struct {
 	ManifestIRPath                                 string
 	FrontendCLIPath                                string
 	ResolverClient                                 resolver.NPMRegistryClient
+	ResolverBackends                               resolver.BackendRegistry
 	Progress                                       Progress
 	Perf                                           *perf.Session
 	PerfWriter                                     io.Writer

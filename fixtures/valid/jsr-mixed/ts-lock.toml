@@ -1,0 +1,648 @@
+[lock]
+format = 1
+
+[[package]]
+ID = 'jsr:@deno/esbuild-plugin@1.2.1'
+Name = '@deno/esbuild-plugin'
+Version = '1.2.1'
+Source = 'jsr'
+Integrity = 'sha512-ljbQkxEBRDcGtsFyt69b7dVea5SOb+aqoCtNsemf+bVE52QgLlXRviZzqinmvGlGS68qvgD49G3DGmrXc+eF0w=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:b9894951078cc5e0c3be2e0442d943ba6c2e67d90c5c7068ba2b572d7e5237e4'
+
+[[package]]
+ID = 'jsr:@deno/loader@0.3.14'
+Name = '@deno/loader'
+Version = '0.3.14'
+Source = 'jsr'
+Integrity = 'sha512-ucQNmegbAVZCL2tss6EZaGN+YKp+saofm5wg+ENXLBWC9Gg0uhUEsqtoT3d0gsdzBOM02/FaM6SbW6fMU+U98A=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:6688c65cda9eef7a47bd4685b60bfd4be8b3be3579f2e0c7b609600a2db2c4a4'
+
+[[package]]
+ID = 'jsr:@luca/flag@1.0.1'
+Name = '@luca/flag'
+Version = '1.0.1'
+Source = 'jsr'
+Integrity = 'sha512-739AhIoEZZJQxfn1YpP8xq/M4S3J4em3JH2HRipaCGKwdySJIpKVuHixCIKmZGMeOuQi9u7GCN/gWhrQTXxLaQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:32b1fa1348a3b38c5cabb3b7bf2ebe3b52030a9a0d5f8cabcf1ca22a95c7a2ba'
+
+[[package]]
+ID = 'jsr:@std/internal@1.0.14'
+Name = '@std/internal'
+Version = '1.0.14'
+Source = 'jsr'
+Integrity = 'sha512-JT8b/t40WcR9q0GDwRZUooY7aXeXnFal8iidE/5TckdAFtvpVAsaJ71/Xgf1SfoChs41s6CZkuCYM8toaNgdvA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:5ff210456d6e19ae8990490132b2f50c55c1379f238abae7b2bf28f270931ec7'
+
+[[package]]
+ID = 'jsr:@std/path@1.1.6'
+Name = '@std/path'
+Version = '1.1.6'
+Source = 'jsr'
+Integrity = 'sha512-H1Cmg6z8jFyIsQbVV+vZB4eOx4k6Qg8lyUM6l7nZysj5MZumg89kb0M1bsPBTGQis3fw6mJFkJELo5+AK6oCFA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:ce084346762370090170a9d5255574d772c5ce6d436a049445253c0324247e8d'
+
+[[package]]
+ID = 'npm:@esbuild/aix-ppc64@0.25.12'
+Name = '@esbuild/aix-ppc64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:6f36448f31d26425773b80985184f3bfb5661acede70c503b201c823836a10e8'
+
+[[package]]
+ID = 'npm:@esbuild/android-arm64@0.25.12'
+Name = '@esbuild/android-arm64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-6AAmLG7zwD1Z159jCKPvAxZd4y/VTO0VkprYy+3N2FtJ8+BQWFXU+OxARIwA46c5tdD9SsKGZ/1ocqBS/gAKHg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:9cb49d434b501e232ec60de75d2bc7e0206477cdc7f38f5f1a8b531ab77e6921'
+
+[[package]]
+ID = 'npm:@esbuild/android-arm@0.25.12'
+Name = '@esbuild/android-arm'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-VJ+sKvNA/GE7Ccacc9Cha7bpS8nyzVv0jdVgwNDaR4gDMC/2TTRc33Ip8qrNYUcpkOHUT5OZ0bUcNNVZQ9RLlg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:5aea75886f091b07287ac357a492bcbbf633532381b31ba71611955faada3c7e'
+
+[[package]]
+ID = 'npm:@esbuild/android-x64@0.25.12'
+Name = '@esbuild/android-x64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-5jbb+2hhDHx5phYR2By8GTWEzn6I9UqR11Kwf22iKbNpYrsmRB18aX/9ivc5cabcUiAT/wM+YIZ6SG9QO6a8kg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:1b1fb12cc646f4b641503116c52d9503ba479f00f8eeba3553e5045fd5b3e808'
+
+[[package]]
+ID = 'npm:@esbuild/darwin-arm64@0.25.12'
+Name = '@esbuild/darwin-arm64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-N3zl+lxHCifgIlcMUP5016ESkeQjLj/959RxxNYIthIg+CQHInujFuXeWbWMgnTo4cp5XVHqFPmpyu9J65C1Yg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:2e0d011f852e45046ca5c107db54cfc56338f77aca49d227a063696d958451d7'
+
+[[package]]
+ID = 'npm:@esbuild/darwin-x64@0.25.12'
+Name = '@esbuild/darwin-x64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-HQ9ka4Kx21qHXwtlTUVbKJOAnmG1ipXhdWTmNXiPzPfWKpXqASVcWdnf2bnL73wgjNrFXAa3yYvBSd9pzfEIpA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:bf56cdf7b330a8605395ee13de805c784c7346d0802c7cced8490b4bfac2291a'
+
+[[package]]
+ID = 'npm:@esbuild/freebsd-arm64@0.25.12'
+Name = '@esbuild/freebsd-arm64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-gA0Bx759+7Jve03K1S0vkOu5Lg/85dou3EseOGUes8flVOGxbhDDh/iZaoek11Y8mtyKPGF3vP8XhnkDEAmzeg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:3d140ffd2d7e3d8f747a9dcb8abdbec9505ab795ba6e55a8a9dd4f23378c5d31'
+
+[[package]]
+ID = 'npm:@esbuild/freebsd-x64@0.25.12'
+Name = '@esbuild/freebsd-x64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-TGbO26Yw2xsHzxtbVFGEXBFH0FRAP7gtcPE7P5yP7wGy7cXK2oO7RyOhL5NLiqTlBh47XhmIUXuGciXEqYFfBQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:8bf2618e0ff33e342c68f5c9f56dde969551daaea3c89dd30d5859abe066b2a2'
+
+[[package]]
+ID = 'npm:@esbuild/linux-arm64@0.25.12'
+Name = '@esbuild/linux-arm64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-8bwX7a8FghIgrupcxb4aUmYDLp8pX06rGh5HqDT7bB+8Rdells6mHvrFHHW2JAOPZUbnjUpKTLg6ECyzvas2AQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:d5e01d210e026823d559e2b82554cdcdab6fd87c4a57b519b392ef183c1f87fd'
+
+[[package]]
+ID = 'npm:@esbuild/linux-arm@0.25.12'
+Name = '@esbuild/linux-arm'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-lPDGyC1JPDou8kGcywY0YILzWlhhnRjdof3UlcoqYmS9El818LLfJJc3PXXgZHrHCAKs/Z2SeZtDJr5MrkxtOw=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:318df2dc59ce5d2f0768fb0721fdcf20e639e2cd9d47765c6ddf4ae36f4a1142'
+
+[[package]]
+ID = 'npm:@esbuild/linux-ia32@0.25.12'
+Name = '@esbuild/linux-ia32'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-0y9KrdVnbMM2/vG8KfU0byhUN+EFCny9+8g202gYqSSVMonbsCfLjUO+rCci7pM0WBEtz+oK/PIwHkzxkyharA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:d9a45a87621f08f3be3017c95283fb5e4f48bdb3808daedd7c57c755a9c9f83b'
+
+[[package]]
+ID = 'npm:@esbuild/linux-loong64@0.25.12'
+Name = '@esbuild/linux-loong64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-h///Lr5a9rib/v1GGqXVGzjL4TMvVTv+s1DPoxQdz7l/AYv6LDSxdIwzxkrPW438oUXiDtwM10o9PmwS/6Z0Ng=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:45bee0343b63121ca9ff6e424bada69711bf959bcb649a81c2c0ac9c22ad91fb'
+
+[[package]]
+ID = 'npm:@esbuild/linux-mips64el@0.25.12'
+Name = '@esbuild/linux-mips64el'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-iyRrM1Pzy9GFMDLsXn1iHUm18nhKnNMWscjmp4+hpafcZjrr2WbT//d20xaGljXDBYHqRcl8HnxbX6uaA/eGVw=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:0840450dc4fe6b79cf2390c627f111c61b04266d9b5f0f7b0f291071a70a4825'
+
+[[package]]
+ID = 'npm:@esbuild/linux-ppc64@0.25.12'
+Name = '@esbuild/linux-ppc64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-9meM/lRXxMi5PSUqEXRCtVjEZBGwB7P/D4yT8UG/mwIdze2aV4Vo6U5gD3+RsoHXKkHCfSxZKzmDssVlRj1QQA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:1cd2f06d19e650b31d01474f82d72ff0a2cd4b15e901a83c22e9678c7958a10a'
+
+[[package]]
+ID = 'npm:@esbuild/linux-riscv64@0.25.12'
+Name = '@esbuild/linux-riscv64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-Zr7KR4hgKUpWAwb1f3o5ygT04MzqVrGEGXGLnj15YQDJErYu/BGg+wmFlIDOdJp0PmB0lLvxFIOXZgFRrdjR0w=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:64738a7389ebf341216c634916d8eef90f0cf57636f8de2c117f7ee89fdefa91'
+
+[[package]]
+ID = 'npm:@esbuild/linux-s390x@0.25.12'
+Name = '@esbuild/linux-s390x'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-MsKncOcgTNvdtiISc/jZs/Zf8d0cl/t3gYWX8J9ubBnVOwlk65UIEEvgBORTiljloIWnBzLs4qhzPkJcitIzIg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:35818fadf6809a5617d8533c2f91d2e321daeaf445729274d22213e831895bc7'
+
+[[package]]
+ID = 'npm:@esbuild/linux-x64@0.25.12'
+Name = '@esbuild/linux-x64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-uqZMTLr/zR/ed4jIGnwSLkaHmPjOjJvnm6TVVitAa08SLS9Z0VM8wIRx7gWbJB5/J54YuIMInDquWyYvQLZkgw=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:f7efc127658a108dcda9d4210b01804ee8f5d6b3acbd6d63f20aa51d3b50bd5f'
+
+[[package]]
+ID = 'npm:@esbuild/netbsd-arm64@0.25.12'
+Name = '@esbuild/netbsd-arm64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-xXwcTq4GhRM7J9A8Gv5boanHhRa/Q9KLVmcyXHCTaM4wKfIpWkdXiMog/KsnxzJ0A1+nD+zoecuzqPmCRyBGjg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:f746c1aa0f4dc86c6484dae61114ecc9155327cd4a1b0e9d234e32bc7a018858'
+
+[[package]]
+ID = 'npm:@esbuild/netbsd-x64@0.25.12'
+Name = '@esbuild/netbsd-x64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-Ld5pTlzPy3YwGec4OuHh1aCVCRvOXdH8DgRjfDy/oumVovmuSzWfnSJg+VtakB9Cm0gxNO9BzWkj6mtO1FMXkQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:d706a08a052577e74474036f51604b9c19dff434c1e14b8465ccd452fb225f95'
+
+[[package]]
+ID = 'npm:@esbuild/openbsd-arm64@0.25.12'
+Name = '@esbuild/openbsd-arm64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-fF96T6KsBo/pkQI950FARU9apGNTSlZGsv1jZBAlcLL1MLjLNIWPBkj5NlSz8aAzYKg+eNqknrUJ24QBybeR5A=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:ad09e31e1a86a5a12fd57304acc7472e59a55ae05385b1770e24b3a3670f7f99'
+
+[[package]]
+ID = 'npm:@esbuild/openbsd-x64@0.25.12'
+Name = '@esbuild/openbsd-x64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-MZyXUkZHjQxUvzK7rN8DJ3SRmrVrke8ZyRusHlP+kuwqTcfWLyqMOE3sScPPyeIXN/mDJIfGXvcMqCgYKekoQw=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:0ce2f4f74522d3b09e249a1ee240179bde15766660a43b772a60cba4781e300b'
+
+[[package]]
+ID = 'npm:@esbuild/openharmony-arm64@0.25.12'
+Name = '@esbuild/openharmony-arm64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-rm0YWsqUSRrjncSXGA7Zv78Nbnw4XL6/dzr20cyrQf7ZmRcsovpcRBdhD43Nuk3y7XIoW2OxMVvwuRvk9XdASg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:79828e6d55f5155ca81e55e04717aecb9125fd8b5202ba8b6e9e78cc8943a62d'
+
+[[package]]
+ID = 'npm:@esbuild/sunos-x64@0.25.12'
+Name = '@esbuild/sunos-x64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-3wGSCDyuTHQUzt0nV7bocDy72r2lI33QL3gkDNGkod22EsYl04sMf0qLb8luNKTOmgF/eDEDP5BFNwoBKH441w=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:6b2185ee71e7102c4ab07247769afb6ab84c8e550a51c65324f1455844183e3f'
+
+[[package]]
+ID = 'npm:@esbuild/win32-arm64@0.25.12'
+Name = '@esbuild/win32-arm64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-rMmLrur64A7+DKlnSuwqUdRKyd3UE7oPJZmnljqEptesKM8wx9J8gx5u0+9Pq0fQQW8vqeKebwNXdfOyP+8Bsg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:01979ffafb4bb6a63d824cd57ed76bd257d1e3eed804c3e47fdfd80005dcfa66'
+
+[[package]]
+ID = 'npm:@esbuild/win32-ia32@0.25.12'
+Name = '@esbuild/win32-ia32'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-HkqnmmBoCbCwxUKKNPBixiWDGCpQGVsrQfJoVGYLPT41XWF8lHuE5N6WhVia2n4o5QK5M4tYr21827fNhi4byQ=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:a0b88687c8262d88922c08f9aa70f5a8d2d5bf38309046a1b718fc8eb7ad4872'
+
+[[package]]
+ID = 'npm:@esbuild/win32-x64@0.25.12'
+Name = '@esbuild/win32-x64'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-alJC0uCZpTFrSL0CCDjcgleBXPnCrEAhTBILpeAp7M/OFgoqtAetfBzX0xM00MUsVVPpVjlPuMbREqnZCXaTnA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:c77076b48f96323cae6257bd515e5ea96ecf38ab8f7fa34364d4fc4ae5905b74'
+
+[[package]]
+ID = 'npm:esbuild@0.25.12'
+Name = 'esbuild'
+Version = '0.25.12'
+Source = 'npm'
+Integrity = 'sha512-bbPBYYrtZbkt6Os6FiTLCTFxvq4tt3JKall1vRwshA3fdVztsLAatFaZobhkBC8/BrPetoa0oksYoKXoG4ryJg=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:227584145829e5c4782734b3fb7b91b49c6aa12876d6cf070e6a3d9d4de543f9'
+
+[[package.capability]]
+kind = 'lifecycleScript'
+script = 'postinstall'
+command = 'node install.js'
+
+[[package]]
+ID = 'npm:picocolors@1.1.1'
+Name = 'picocolors'
+Version = '1.1.1'
+Source = 'npm'
+Integrity = 'sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA=='
+Repo = ''
+Rev = ''
+TreeHash = ''
+Path = ''
+Workspace = ''
+Hash = 'sha256:d3aedb2807967b7eb37fd11b03b7e3701e725af79c650d0812ff7213f8f882d9'
+
+[[edge]]
+From = 'jsr-mixed:target:core'
+To = 'jsr:@deno/esbuild-plugin@1.2.1'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'jsr-mixed:target:core'
+To = 'jsr:@luca/flag@1.0.1'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'jsr-mixed:target:core'
+To = 'jsr:@std/path@1.1.6'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'jsr-mixed:target:core'
+To = 'npm:picocolors@1.1.1'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'jsr:@deno/esbuild-plugin@1.2.1'
+To = 'jsr:@deno/loader@0.3.14'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'jsr:@deno/esbuild-plugin@1.2.1'
+To = 'jsr:@std/path@1.1.6'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'jsr:@deno/esbuild-plugin@1.2.1'
+To = 'npm:esbuild@0.25.12'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'jsr:@std/path@1.1.6'
+To = 'jsr:@std/internal@1.0.14'
+Kind = 'runtime'
+Optional = false
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/aix-ppc64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/android-arm64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/android-arm@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/android-x64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/darwin-arm64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/darwin-x64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/freebsd-arm64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/freebsd-x64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/linux-arm64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/linux-arm@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/linux-ia32@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/linux-loong64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/linux-mips64el@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/linux-ppc64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/linux-riscv64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/linux-s390x@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/linux-x64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/netbsd-arm64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/netbsd-x64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/openbsd-arm64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/openbsd-x64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/openharmony-arm64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/sunos-x64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/win32-arm64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/win32-ia32@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[edge]]
+From = 'npm:esbuild@0.25.12'
+To = 'npm:@esbuild/win32-x64@0.25.12'
+Kind = 'runtime'
+Optional = true
+
+[[target]]
+Package = 'jsr-mixed'
+Name = 'core'
+Export = '.'
+Entry = 'src/index.ts'
+Runtime = 'dist/index.js'
+Types = 'src/index.ts'

@@ -27,7 +27,7 @@ func ensurePerfSession(opts *Options, command string, dryRun bool) (*perf.Sessio
 	return session, nil
 }
 
-func instrumentRegistryClient(client resolver.NPMRegistryClient, session *perf.Session) resolver.NPMRegistryClient {
+func instrumentRegistryClient(client resolver.NPMRegistryClient, session *perf.Session, source string) resolver.NPMRegistryClient {
 	if client == nil {
 		client = resolver.NewHTTPRegistryClient("")
 	}
@@ -44,7 +44,11 @@ func instrumentRegistryClient(client resolver.NPMRegistryClient, session *perf.S
 				if parseErr == nil {
 					host = parsed.Host
 				}
-				session.RecordHTTPRequest(kind, host, status)
+				requestKind := kind
+				if source != "" {
+					requestKind = source + "." + kind
+				}
+				session.RecordHTTPRequest(requestKind, host, status)
 				switch kind {
 				case "metadata":
 					session.RecordMetadataRequest()

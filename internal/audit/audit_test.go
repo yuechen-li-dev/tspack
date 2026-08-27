@@ -81,3 +81,17 @@ func TestScanFailsClosedWhenAdvisoryServiceFails(t *testing.T) {
 		t.Fatal("expected service error")
 	}
 }
+
+func TestScanReportsJSRCoverageAsNotChecked(t *testing.T) {
+	lf := &lockfile.Lockfile{Packages: []lockfile.Package{
+		{ID: "npm:demo@1.0.0", Name: "demo", Version: "1.0.0", Source: "npm"},
+		{ID: "jsr:@std/path@1.1.6", Name: "@std/path", Version: "1.1.6", Source: "jsr"},
+	}}
+	report, err := Scan(context.Background(), lf, &fakeClient{queryResults: []QueryResult{{}}, records: map[string]Vulnerability{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Coverage) != 2 || report.Coverage[1].Source != "jsr" || report.Coverage[1].Status != "not-checked" {
+		t.Fatalf("JSR audit coverage was not explicit: %#v", report.Coverage)
+	}
+}

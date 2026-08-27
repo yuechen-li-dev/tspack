@@ -51,9 +51,18 @@ Capabilities are sorted/deduplicated deterministically and round-trip through lo
 - `tspack update` produces lockfile changes when capabilities change.
 - `tspack check` warns with `TSPACK_SECURITY_LIFECYCLE_SCRIPT_PRESENT` when lockfile packages include lifecycle capabilities. Human check output summarizes multiple lifecycle-present warnings by default because execution is blocked by policy; use `tspack check --show-lifecycle` for every script and pull-chain detail. `tspack check --json` remains full-detail, and serious security diagnostics stay visible in default human output.
 - `tspack adopt --security` is a read-only observed npm metadata report for existing package.json/package-lock projects. It labels whether lifecycle script data came from `package.json`, `package-lock.json`, or installed package metadata and does not treat the result as manifest policy truth.
-- `tspack update` may fetch npm tarballs and populate the store, but it never executes package code or lifecycle scripts.
+- `tspack update` may fetch npm or JSR registry artifacts and populate the store, but it never executes package code or lifecycle scripts.
 - `tspack update --dry-run` may fetch registry metadata for version resolution but does not fetch/store tarballs or materialize `node_modules`.
 - `tspack sync` materializes files only and never executes scripts.
+
+JSR compatibility artifacts do not receive npm lifecycle capability semantics.
+JSR packages report no install-script capabilities. If a JSR package depends on
+an npm package, that npm package retains its normal lifecycle capability data
+and blocked-by-default behavior.
+
+Native audit coverage remains source-explicit. OSV currently has an npm
+ecosystem but no JSR ecosystem identifier, so mixed-source audit reports mark
+JSR packages `not-checked` instead of silently presenting them as clean.
 
 ## Current policy status
 

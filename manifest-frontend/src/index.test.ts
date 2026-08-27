@@ -117,3 +117,25 @@ export default define(
     expect(result.authority).toBe('annotation');
   });
 });
+
+describe('JSR dependency source', () => {
+  it('normalizes jsr helper calls without a Deno project model', () => {
+    const manifestPath = writeFixture('manifest.tsx', `
+      import { Package, Workspace, define, dep, jsr } from "tspack/manifest";
+      export default define(
+        <Workspace name="demo">
+          <Package name="app" dependencies={{ values: [dep(jsr("@std/path", "^1.1.0"))] }} />
+        </Workspace>,
+      );
+    `);
+
+    const result = parseWorkspace(manifestPath);
+
+    expect(result.ok).toBe(true);
+    expect(result.ir?.packages[0]?.dependencies).toEqual([
+      expect.objectContaining({
+        source: { kind: 'jsr', package: '@std/path', range: '^1.1.0' },
+      }),
+    ]);
+  });
+});

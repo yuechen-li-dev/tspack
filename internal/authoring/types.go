@@ -11,6 +11,7 @@ type SourceKind string
 
 const (
 	SourceNPM       SourceKind = "npm"
+	SourceJSR       SourceKind = "jsr"
 	SourceWorkspace SourceKind = "workspace"
 	SourceGit       SourceKind = "git"
 	SourcePath      SourceKind = "path"

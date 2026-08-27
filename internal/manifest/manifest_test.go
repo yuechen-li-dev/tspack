@@ -274,6 +274,14 @@ func TestScopedToolExplicitKeyReferenceValidates(t *testing.T) {
 	}
 }
 
+func TestJSRDependencySourceValidates(t *testing.T) {
+	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"app","version":"1.0.0","kind":"library","dependencies":[{"key":"path","kind":"dep","source":{"kind":"jsr","package":"@std/path","range":"^1.1.0"}}],"targets":[{"name":"core","export":".","entry":"src/index.ts","runtime":"dist/index.js","types":"dist/index.d.ts","peers":[],"deps":["path"]}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}}]}`
+	_, diagnostics := LoadBytes("jsr.json", []byte(j))
+	if len(diagnostics) != 0 {
+		t.Fatalf("unexpected JSR diagnostics: %#v", diagnostics)
+	}
+}
+
 func TestUnscopedToolAliasReferenceValidates(t *testing.T) {
 	j := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"ok","version":"1.0.0","kind":"library","dependencies":[{"kind":"tool","source":{"kind":"npm","package":"typescript","range":"^5.0.0"}}],"targets":[{"name":"core","export":".","entry":"src/index.ts","runtime":"dist/index.js","types":"dist/index.d.ts","peers":[],"deps":[]}],"policies":{},"boundaries":[],"tools":["typescript"],"publish":{"include":["dist/**"],"exclude":[]}}]}`
 	_, diags := LoadBytes("x.json", []byte(j))

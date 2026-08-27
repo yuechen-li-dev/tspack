@@ -75,6 +75,12 @@ manifest-frontend  ->  dependency authoring IR
                           cmd/tspack
 ```
 
+Registry-backed edges enter the resolver through a source-keyed backend
+registry. npm and JSR adapters normalize metadata, transitive source identity,
+artifacts, integrity, and capabilities before the shared parallel resolver and
+store path. Workspace/path/git retain their distinct local semantics. See
+`docs/dev/m70a-registry-backends.md`.
+
 Dependencies point down toward domain and infrastructure capabilities. Core
 packages must not import `internal/cli` or `internal/integrations`. Integrations
 may consume stable domain contracts but must not import CLI presentation.

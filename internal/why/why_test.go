@@ -292,6 +292,40 @@ func TestWhyMatrix(t *testing.T) {
 	})
 }
 
+func TestWhySourceQualifiedQueryDoesNotCrossRegistryCollision(t *testing.T) {
+	ir := &manifest.ManifestIR{Workspace: manifest.Workspace{Name: "ws"}, Packages: []manifest.Package{{
+		Name: "app",
+		Dependencies: []manifest.DependencyIntent{
+			{Key: "npmFoo", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "@scope/foo", Range: "1.0.0"}},
+			{Key: "jsrFoo", Kind: "dep", Source: manifest.Source{Kind: "jsr", Package: "@scope/foo", Range: "1.0.0"}},
+		},
+		Targets: []manifest.Target{{Name: "core", Export: ".", Entry: "src/index.ts", Runtime: "dist/index.js", Deps: []string{"npmFoo", "jsrFoo"}}},
+	}}}
+	g, diagnostics := graph.Build(ir)
+	if len(diagnostics) != 0 {
+		t.Fatalf("graph diagnostics: %#v", diagnostics)
+	}
+	lf := &lockfile.Lockfile{
+		Packages: []lockfile.Package{
+			{ID: "npm:@scope/foo@1.0.0", Name: "@scope/foo", Version: "1.0.0", Source: "npm", Hash: "sha256:npm"},
+			{ID: "jsr:@scope/foo@1.0.0", Name: "@scope/foo", Version: "1.0.0", Source: "jsr", Hash: "sha256:jsr"},
+		},
+		Edges: []lockfile.Edge{
+			{From: "app:target:core", To: "npm:@scope/foo@1.0.0", Kind: "runtime"},
+			{From: "app:target:core", To: "jsr:@scope/foo@1.0.0", Kind: "runtime"},
+		},
+	}
+
+	result := Analyze(g, lf, Options{Query: "jsr:@scope/foo"})
+	if len(result.Diagnostics) != 0 || len(result.Explanations) != 1 {
+		t.Fatalf("unexpected source-qualified why result: %#v", result)
+	}
+	packages := result.Explanations[0].LockPackages
+	if len(packages) != 1 || packages[0].ID != "jsr:@scope/foo@1.0.0" {
+		t.Fatalf("why crossed registry identities: %#v", packages)
+	}
+}
+
 func TestReverseWhyMatrix(t *testing.T) {
 	scopedGraph := buildScopedGraph(t)
 	scopedLock := buildScopedLock()

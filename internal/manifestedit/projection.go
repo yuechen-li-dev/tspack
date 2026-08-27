@@ -534,6 +534,8 @@ func renderSource(source authoring.PackageSource) (string, string, error) {
 	switch source.Kind {
 	case "npm":
 		return "npm(" + quote(source.Package) + ", " + quote(source.Range) + ")", "npm", nil
+	case "jsr":
+		return "jsr(" + quote(source.Package) + ", " + quote(source.Range) + ")", "jsr", nil
 	case "workspace":
 		return "workspace(" + quote(source.Name) + ")", "workspace", nil
 	case "path":

@@ -3,6 +3,8 @@ package project
 import (
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/yuechen-li-dev/tspack/internal/authoring"
@@ -89,8 +91,8 @@ func RunRemoveDependency(request RemoveDependencyRequest) (result RemoveDependen
 	result.Package = identity.Name
 	result.Source = identity.Source
 	if request.Source != "" {
-		if request.Source != string(authoring.SourceNPM) {
-			result.Diagnostics = append(result.Diagnostics, removeDiagnostic("TSPACK_REMOVE_SOURCE_UNSUPPORTED", "dependency source is not supported", request.Source, "Only --source npm is implemented in M69."))
+		if request.Source != string(authoring.SourceNPM) && request.Source != string(authoring.SourceJSR) {
+			result.Diagnostics = append(result.Diagnostics, removeDiagnostic("TSPACK_REMOVE_SOURCE_UNSUPPORTED", "dependency source is not supported", request.Source, "Use --source npm or --source jsr."))
 			return result
 		}
 		identity.Source = request.Source
@@ -125,6 +127,24 @@ func RunRemoveDependency(request RemoveDependencyRequest) (result RemoveDependen
 		result.NoEditableDeclaration = true
 		populateCurrentResolvedStatus(&result, request.Project.LockfilePath)
 		return result
+	}
+	if request.Source == "" {
+		sources := declarationSourcesForName(*target.DependencyAuthoring, identity.Name)
+		if len(sources) > 1 {
+			result.Source = ""
+			result.Diagnostics = append(result.Diagnostics, removeDiagnostic(
+				"TSPACK_REMOVE_SOURCE_AMBIGUOUS",
+				"the package name is declared from more than one source",
+				"package: "+identity.Name,
+				"sources: "+strings.Join(sources, ", "),
+				"Use --source npm or --source jsr to select one declaration.",
+			))
+			return result
+		}
+		if len(sources) == 1 {
+			identity.Source = sources[0]
+			result.Source = sources[0]
+		}
 	}
 	allMatches := declarationsForIdentity(*target.DependencyAuthoring, identity)
 	editable := filterRemoveCandidates(allMatches, request.Kind, request.Optional)
@@ -250,8 +270,27 @@ func RunRemoveDependency(request RemoveDependencyRequest) (result RemoveDependen
 		return result
 	}
 	populateCurrentResolvedStatus(&result, request.Project.LockfilePath)
-	result.LockPackageRemoved = !result.StillResolved && lockDiffRemovesPackage(updated.LockDiff, result.Package)
+	result.LockPackageRemoved = !result.StillResolved && lockDiffRemovesPackage(updated.LockDiff, result.Source, result.Package)
 	return result
+}
+
+func declarationSourcesForName(ir authoring.PackageIR, name string) []string {
+	sourceSet := map[string]bool{}
+	for _, declaration := range ir.Declarations {
+		identity := declaration.Identity
+		if !identity.Valid() {
+			identity = declaration.Source.Identity()
+		}
+		if identity.Name == name {
+			sourceSet[identity.Source] = true
+		}
+	}
+	sources := make([]string, 0, len(sourceSet))
+	for source := range sourceSet {
+		sources = append(sources, source)
+	}
+	sort.Strings(sources)
+	return sources
 }
 
 func declarationsForIdentity(ir authoring.PackageIR, identity authoring.PackageIdentity) []authoring.DependencyDeclaration {
@@ -331,12 +370,12 @@ func populateCurrentResolvedStatus(result *RemoveDependencyResult, path string) 
 	}
 }
 
-func lockDiffRemovesPackage(diff *lockfile.Diff, name string) bool {
+func lockDiffRemovesPackage(diff *lockfile.Diff, source string, name string) bool {
 	if diff == nil {
 		return false
 	}
 	for _, pkg := range diff.PackagesRemoved {
-		if pkg.Name == name {
+		if pkg.Source == source && pkg.Name == name {
 			return true
 		}
 	}

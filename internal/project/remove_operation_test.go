@@ -187,6 +187,53 @@ export default define(<Workspace name="demo"><Package name="one" version="1.0.0"
 	}
 }
 
+func TestRunRemoveDependencyRequiresSourceForRegistryNameCollision(t *testing.T) {
+	frontendPath := addFrontendPath(t)
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "manifest.tsx")
+	source := `import { Package, Workspace, define, defineDeps, dep, jsr, npm } from "tspack/manifest";
+const deps = defineDeps({
+  npmFoo: dep(npm("@scope/foo", "1.0.0"), { key: "npmFoo" }),
+  jsrFoo: dep(jsr("@scope/foo", "1.0.0"), { key: "jsrFoo" }),
+});
+export default define(
+  <Workspace name="demo">
+    <Package name="app" version="1.0.0" kind="app" dependencies={{ values: [deps.npmFoo, deps.jsrFoo] }} />
+  </Workspace>,
+);
+`
+	if err := os.WriteFile(manifestPath, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	options := DefaultOptions(root)
+	options.FrontendCLIPath = frontendPath
+
+	ambiguous := RunRemoveDependency(RemoveDependencyRequest{
+		Project:     options,
+		PackageSpec: "@scope/foo",
+		DryRun:      true,
+	})
+	if !addHasDiagnosticCode(ambiguous.Diagnostics, "TSPACK_REMOVE_SOURCE_AMBIGUOUS") {
+		t.Fatalf("source collision diagnostics = %#v", ambiguous.Diagnostics)
+	}
+
+	jsrOnly := RunRemoveDependency(RemoveDependencyRequest{
+		Project:     options,
+		PackageSpec: "@scope/foo",
+		Source:      "jsr",
+		DryRun:      true,
+	})
+	if hasErrors(jsrOnly.Diagnostics) || !jsrOnly.DeclarationRemoved || jsrOnly.Source != "jsr" {
+		t.Fatalf("JSR-qualified removal = %#v", jsrOnly)
+	}
+	if jsrOnly.RemovedDeclaration == nil || jsrOnly.RemovedDeclaration.Identity.Source != "jsr" {
+		t.Fatalf("removed declaration = %#v", jsrOnly.RemovedDeclaration)
+	}
+	if len(jsrOnly.RemainingDeclarations) != 0 {
+		t.Fatalf("same-source declarations remain = %#v", jsrOnly.RemainingDeclarations)
+	}
+}
+
 func TestRunRemoveDependencyDoesNotRemoveDerivedDeclaration(t *testing.T) {
 	frontendPath := addFrontendPath(t)
 	root := t.TempDir()

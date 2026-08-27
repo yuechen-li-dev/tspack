@@ -47,6 +47,49 @@ func TestMaterializeStrictLayout(t *testing.T) {
 	}
 }
 
+func TestMaterializeRegistryNameCollisionUsesDistinctNodeNames(t *testing.T) {
+	workspace := t.TempDir()
+	contentStore, _ := store.Open(t.TempDir())
+	npmHash := putPkgWithPackageJSON(
+		t,
+		contentStore,
+		"npm:@std/path@1.0.0",
+		"@std/path",
+		`{"name":"@std/path","version":"1.0.0","exports":"./index.js"}`,
+		[]fileSpec{{path: "index.js", content: "export const source = 'npm';\n", mode: 0o644}},
+	)
+	jsrHash := putPkgWithPackageJSON(
+		t,
+		contentStore,
+		"jsr:@std/path@1.1.6",
+		"@std/path",
+		`{"name":"@jsr/std__path","version":"1.1.6","exports":"./mod.js"}`,
+		[]fileSpec{{path: "mod.js", content: "export const separator = '/';\n", mode: 0o644}},
+	)
+	lf := &lockfile.Lockfile{
+		Packages: []lockfile.Package{
+			{ID: "npm:@std/path@1.0.0", Name: "@std/path", Version: "1.0.0", Source: "npm", Hash: npmHash},
+			{ID: "jsr:@std/path@1.1.6", Name: "@std/path", Version: "1.1.6", Source: "jsr", Hash: jsrHash},
+		},
+		Edges: []lockfile.Edge{
+			{From: "app:target:core", To: "npm:@std/path@1.0.0", Kind: "runtime"},
+			{From: "app:target:core", To: "jsr:@std/path@1.1.6", Kind: "runtime"},
+		},
+	}
+
+	result := NodeModulesMaterializer{}.Materialize(context.Background(), Request{
+		WorkspaceRoot: workspace,
+		Lock:          lf,
+		Store:         contentStore,
+		Options:       Options{LinkMode: LinkModeCopy},
+	})
+	if len(result.Diagnostics) > 0 {
+		t.Fatalf("JSR materialization diagnostics: %#v", result.Diagnostics)
+	}
+	mustExist(t, filepath.Join(workspace, "node_modules", "@jsr", "std__path", "package.json"))
+	mustExist(t, filepath.Join(workspace, "node_modules", "@std", "path", "package.json"))
+}
+
 func TestRootBinMaterializationAndStrictness(t *testing.T) {
 	ws := t.TempDir()
 	s, _ := store.Open(t.TempDir())

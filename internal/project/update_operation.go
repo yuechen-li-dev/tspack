@@ -84,7 +84,14 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 		}
 	}
 	client := opts.ResolverClient
-	client = instrumentRegistryClient(client, perfSession)
+	client = instrumentRegistryClient(client, perfSession, resolver.SourceNPM)
+	backends := opts.ResolverBackends
+	if backends == nil {
+		backends = resolver.BackendRegistry{
+			resolver.SourceNPM: resolver.NewNPMBackend(client),
+			resolver.SourceJSR: resolver.NewJSRBackend(instrumentRegistryClient(resolver.NewHTTPRegistryClient("https://npm.jsr.io"), perfSession, resolver.SourceJSR)),
+		}
+	}
 	var (
 		st                    *store.Store
 		storeJobs             int
@@ -119,12 +126,13 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 	resolveOpts := resolver.ResolverOptions{
 		Mode:                  resolver.ResolveModeUpdate,
 		Client:                client,
+		Backends:              backends,
 		RootDir:               opts.RootDir,
 		ResolveJobs:           resolveJobs,
 		ResolveControllerMode: resolveControllerMode,
 		ResolveHostBudget:     defaultResolveControllerHostBudget(resolveJobs),
 		OnArtifactResolved:    storeArtifactCapture(st, perfSession),
-		OnMetadataCacheHit: func(name string) {
+		OnMetadataCacheHit: func(source string, name string) {
 			perfSession.RecordMetadataCacheHit()
 		},
 		OnResolveJobs:     func(jobs int) { perfSession.SetResolveJobs(jobs) },
@@ -418,6 +426,10 @@ func storeArtifactCapture(st *store.Store, perfSession *perf.Session) func(pkg l
 			perfSession.RecordArtifactAlreadyInStore()
 			return nil
 		}
+		artifactKind := store.ArtifactRegistryTarball
+		if pkg.Source == resolver.SourceNPM {
+			artifactKind = store.ArtifactNPMTarball
+		}
 		_, diags := st.PutArtifact(store.Artifact{
 			ID:        pkg.ID,
 			Name:      pkg.Name,
@@ -425,7 +437,7 @@ func storeArtifactCapture(st *store.Store, perfSession *perf.Session) func(pkg l
 			Source:    pkg.Source,
 			Hash:      pkg.Hash,
 			Integrity: pkg.Integrity,
-			Kind:      store.ArtifactNPMTarball,
+			Kind:      artifactKind,
 			Bytes:     artifact,
 			Metadata: store.PackageMetadata{
 				Name:         pkg.Name,

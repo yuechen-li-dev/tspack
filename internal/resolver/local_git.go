@@ -27,7 +27,12 @@ func (r *resolverState) resolveNonNPMDependency(ctx context.Context, dep *graph.
 	case "git":
 		r.resolveGitDependency(ctx, dep, from, kind)
 	default:
-		r.result.Diagnostics = append(r.result.Diagnostics, dWarn("TSPACK_RESOLVE_NON_NPM_SKIPPED", "non-npm dependency source skipped", dep.Source.Kind, dep.Key))
+		r.result.Diagnostics = append(r.result.Diagnostics, dErr(
+			"TSPACK_REGISTRY_SOURCE_UNSUPPORTED",
+			"dependency source is not supported",
+			dep.Source.Kind+":"+dep.Key,
+			"Use a supported registry source (npm or jsr) or a supported local source (workspace, path, or git).",
+		))
 	}
 }
 

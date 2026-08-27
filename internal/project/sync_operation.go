@@ -5,6 +5,7 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 	"github.com/yuechen-li-dev/tspack/internal/materialize"
+	"github.com/yuechen-li-dev/tspack/internal/resolver"
 	"github.com/yuechen-li-dev/tspack/internal/store"
 	"os"
 	"path/filepath"
@@ -34,7 +35,17 @@ func Sync(opts Options, clean bool, force bool) Result {
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
 	}
-	opts.ResolverClient = instrumentRegistryClient(opts.ResolverClient, perfSession)
+	opts.ResolverClient = instrumentRegistryClient(opts.ResolverClient, perfSession, resolver.SourceNPM)
+	if opts.ResolverBackends == nil {
+		opts.ResolverBackends = resolver.BackendRegistry{
+			resolver.SourceNPM: resolver.NewNPMBackend(opts.ResolverClient),
+			resolver.SourceJSR: resolver.NewJSRBackend(instrumentRegistryClient(
+				resolver.NewHTTPRegistryClient("https://npm.jsr.io"),
+				perfSession,
+				resolver.SourceJSR,
+			)),
+		}
+	}
 	st, err := store.Open(opts.StoreRoot)
 	if err != nil {
 		return Result{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_SYNC_STORE_ARTIFACT_MISSING", "failed to open store", err.Error())}}

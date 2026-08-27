@@ -19,7 +19,6 @@ import (
 	"sync"
 
 	semver "github.com/Masterminds/semver/v3"
-	"github.com/yuechen-li-dev/tspack/internal/capability"
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/graph"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
@@ -42,13 +41,14 @@ type NPMRegistryClient interface {
 type ResolverOptions struct {
 	RegistryURL           string
 	Client                NPMRegistryClient
+	Backends              BackendRegistry
 	Mode                  ResolveMode
 	RootDir               string
 	ResolveJobs           int
 	ResolveControllerMode ResolveControllerMode
 	ResolveHostBudget     int
 	OnArtifactResolved    func(pkg lockfile.Package, artifact []byte) error
-	OnMetadataCacheHit    func(name string)
+	OnMetadataCacheHit    func(source string, name string)
 	OnResolveJobs         func(jobs int)
 	OnResolveFrontier     func(width int)
 	OnResolveController   func(decision FrontierDecision)
@@ -95,6 +95,7 @@ type resolverState struct {
 	graph       *graph.WorkspaceGraph
 	controller  ResolveOccupancyController
 	hostMap     map[string]int
+	backends    BackendRegistry
 	frontierSeq int
 	metaMu      sync.Mutex
 	meta        map[string]*metadataMemoEntry
@@ -104,7 +105,7 @@ type resolverState struct {
 
 type metadataMemoEntry struct {
 	ready chan struct{}
-	meta  *PackageMetadata
+	meta  *RegistryPackageMetadata
 	err   error
 }
 
@@ -114,6 +115,7 @@ type preparedMemoEntry struct {
 }
 
 type resolveWorkItem struct {
+	source   string
 	name     string
 	rng      string
 	from     string
@@ -123,6 +125,7 @@ type resolveWorkItem struct {
 
 type resolveWorkGroup struct {
 	key         string
+	source      string
 	name        string
 	rng         string
 	requests    []resolveWorkItem
@@ -150,9 +153,19 @@ func ResolveNPM(ctx context.Context, opts ResolverOptions, req ResolveRequest) R
 		result.Diagnostics = append(result.Diagnostics, dErr("TSPACK_RESOLVE_MODE_UNSUPPORTED", "sync mode not yet supported in M7"))
 		return result
 	}
-	if req.Graph == nil || opts.Client == nil {
-		result.Diagnostics = append(result.Diagnostics, dErr("TSPACK_RESOLVE_INTERNAL_ERROR", "resolver requires graph and client"))
+	if req.Graph == nil {
+		result.Diagnostics = append(result.Diagnostics, dErr("TSPACK_RESOLVE_INTERNAL_ERROR", "resolver requires graph"))
 		return result
+	}
+	backends := opts.Backends
+	if backends == nil {
+		backends = BackendRegistry{}
+	}
+	if _, ok := backends.Backend(SourceNPM); !ok {
+		backends[SourceNPM] = NewNPMBackend(opts.Client)
+	}
+	if _, ok := backends.Backend(SourceJSR); !ok {
+		backends[SourceJSR] = NewJSRBackend(nil)
 	}
 
 	resolveJobs := opts.ResolveJobs
@@ -182,7 +195,8 @@ func ResolveNPM(ctx context.Context, opts ResolverOptions, req ResolveRequest) R
 		seenPkg:    map[string]bool{},
 		graph:      req.Graph,
 		controller: NewResolveOccupancyController(opts.ResolveControllerMode, resolveJobs, opts.ResolveHostBudget),
-		hostMap:    ResolveControllerHostMap(opts.RegistryURL),
+		hostMap:    backendHostMap(backends),
+		backends:   backends,
 	}
 
 	frontier := make([]resolveWorkItem, 0)
@@ -233,11 +247,12 @@ func dependencyEdgeKind(dep *graph.DependencyNode) string {
 }
 
 func (r *resolverState) enqueueDirectRequest(ctx context.Context, frontier []resolveWorkItem, dep *graph.DependencyNode, from, kind string) []resolveWorkItem {
-	if dep.Source.Kind != "npm" {
+	if _, ok := r.backends.Backend(dep.Source.Kind); !ok {
 		r.resolveNonNPMDependency(ctx, dep, from, kind)
 		return frontier
 	}
 	frontier = append(frontier, resolveWorkItem{
+		source:   dep.Source.Kind,
 		name:     dep.Source.Package,
 		rng:      dep.Source.Range,
 		from:     from,
@@ -262,7 +277,7 @@ func (r *resolverState) resolveFrontier(ctx context.Context, frontier []resolveW
 	nextFrontier := make([]resolveWorkItem, 0)
 	fatal := false
 	for _, request := range normalized {
-		groupKey := packageWorkGroupKey(request.name, request.rng)
+		groupKey := packageWorkGroupKey(request.source, request.name, request.rng)
 		prepared, ok := preparedByGroup[groupKey]
 		if !ok || prepared.cancelled {
 			continue
@@ -310,13 +325,14 @@ func groupWorkItems(frontier []resolveWorkItem) []resolveWorkGroup {
 	groupsByKey := make(map[string]*resolveWorkGroup, len(frontier))
 	order := make([]string, 0, len(frontier))
 	for _, request := range frontier {
-		groupKey := packageWorkGroupKey(request.name, request.rng)
+		groupKey := packageWorkGroupKey(request.source, request.name, request.rng)
 		group, ok := groupsByKey[groupKey]
 		if !ok {
 			group = &resolveWorkGroup{
-				key:  groupKey,
-				name: request.name,
-				rng:  request.rng,
+				key:    groupKey,
+				source: request.source,
+				name:   request.name,
+				rng:    request.rng,
 			}
 			groupsByKey[groupKey] = group
 			order = append(order, groupKey)
@@ -335,11 +351,11 @@ func groupWorkItems(frontier []resolveWorkItem) []resolveWorkGroup {
 }
 
 func resolveWorkItemKey(request resolveWorkItem) string {
-	return request.name + "|" + request.rng + "|" + request.from + "|" + request.kind + "|" + boolKey(request.optional)
+	return request.source + "|" + request.name + "|" + request.rng + "|" + request.from + "|" + request.kind + "|" + boolKey(request.optional)
 }
 
-func packageWorkGroupKey(name, rng string) string {
-	return name + "|" + rng
+func packageWorkGroupKey(source, name, rng string) string {
+	return source + "|" + name + "|" + rng
 }
 
 func boolKey(value bool) string {
@@ -434,44 +450,57 @@ func (r *resolverState) prepareGroups(ctx context.Context, normalized []resolveW
 func (r *resolverState) prepareGroup(ctx context.Context, group resolveWorkGroup) preparedPackage {
 	prepared := preparedPackage{groupKey: group.key}
 
-	meta, err := r.packageMetadata(ctx, group.name)
+	backend, ok := r.backends.Backend(group.source)
+	if !ok {
+		prepared.failure = prepareFailure("TSPACK_REGISTRY_SOURCE_UNSUPPORTED", "registry package source is not supported", group.source, group.name, "Use a configured package source such as npm or jsr.")
+		return prepared
+	}
+	meta, err := r.packageMetadata(ctx, backend, group.name)
 	if err != nil {
-		code := "TSPACK_RESOLVE_NPM_METADATA_ERROR"
+		code := sourceDiagnosticCode(group.source, "METADATA_ERROR")
 		if strings.Contains(strings.ToLower(err.Error()), "not found") {
-			code = "TSPACK_RESOLVE_NPM_PACKAGE_NOT_FOUND"
+			code = sourceDiagnosticCode(group.source, "PACKAGE_NOT_FOUND")
 		}
 		if errorsFromCancellation(err) {
 			prepared.cancelled = true
 			return prepared
 		}
-		prepared.failure = prepareFailure(code, "failed to fetch npm metadata", group.name, err.Error())
-		r.recordResolverWorkerError(group.key)
-		return prepared
-	}
-
-	pv, version, selCode, ok := selectVersion(meta, group.rng)
-	if !ok {
-		code := "TSPACK_RESOLVE_NPM_VERSION_NOT_FOUND"
-		if selCode != "" {
-			code = selCode
+		if group.source == SourceNPM {
+			prepared.failure = prepareFailure(code, "failed to fetch npm metadata", group.name, err.Error())
+		} else {
+			prepared.failure = prepareFailure(code, "failed to fetch registry package metadata", group.source+":"+group.name, err.Error(), "Check the source-qualified package name and registry availability.")
 		}
-		prepared.failure = prepareFailure(code, "failed to select npm version", group.name, group.rng)
 		r.recordResolverWorkerError(group.key)
 		return prepared
 	}
 
-	id := fmt.Sprintf("npm:%s@%s", group.name, version)
+	pv, version, selCode, ok := selectRegistryVersion(meta, group.rng)
+	if !ok {
+		code := sourceDiagnosticCode(group.source, "VERSION_NOT_FOUND")
+		if selCode != "" {
+			code = sourceDiagnosticCode(group.source, "INVALID_RANGE")
+		}
+		if group.source == SourceNPM {
+			prepared.failure = prepareFailure(code, "failed to select npm version", group.name, group.rng)
+		} else {
+			prepared.failure = prepareFailure(code, "failed to select registry package version", group.source+":"+group.name, group.rng, "Use a valid SemVer constraint matching a published, non-yanked version.")
+		}
+		r.recordResolverWorkerError(group.key)
+		return prepared
+	}
+
+	id := pv.Identity.ID(version)
 	if r.seenPkg[id] {
 		prepared.packageID = id
 		return prepared
 	}
 
-	prepared = r.prepareSelectedPackage(ctx, group.key, id, pv)
+	prepared = r.prepareSelectedPackage(ctx, group.key, id, backend, pv)
 	prepared.groupKey = group.key
 	return prepared
 }
 
-func (r *resolverState) prepareSelectedPackage(ctx context.Context, groupKey string, id string, pv PackageVersion) preparedPackage {
+func (r *resolverState) prepareSelectedPackage(ctx context.Context, groupKey string, id string, backend RegistryBackend, pv RegistryPackageVersion) preparedPackage {
 	r.prepMu.Lock()
 	if r.prep == nil {
 		r.prep = map[string]*preparedMemoEntry{}
@@ -491,35 +520,35 @@ func (r *resolverState) prepareSelectedPackage(ctx context.Context, groupKey str
 	r.prep[id] = entry
 	r.prepMu.Unlock()
 
-	prepared := r.prepareSelectedPackageUncached(ctx, groupKey, id, pv)
+	prepared := r.prepareSelectedPackageUncached(ctx, groupKey, id, backend, pv)
 	entry.prepared = prepared
 	close(entry.ready)
 	return prepared
 }
 
-func (r *resolverState) prepareSelectedPackageUncached(ctx context.Context, groupKey string, id string, pv PackageVersion) preparedPackage {
+func (r *resolverState) prepareSelectedPackageUncached(ctx context.Context, groupKey string, id string, backend RegistryBackend, pv RegistryPackageVersion) preparedPackage {
 	prepared := preparedPackage{groupKey: groupKey}
 
-	body, err := r.opts.Client.Tarball(ctx, pv.Dist.Tarball)
+	body, err := backend.FetchArtifact(ctx, pv.Artifact)
 	if err != nil {
 		if errorsFromCancellation(err) {
 			prepared.cancelled = true
 			return prepared
 		}
-		prepared.failure = prepareFailure("TSPACK_RESOLVE_NPM_TARBALL_ERROR", "failed to fetch npm tarball", id, err.Error())
+		prepared.failure = prepareFailure(sourceDiagnosticCode(pv.Identity.Source, "ARTIFACT_ERROR"), "failed to fetch registry package artifact", id, err.Error())
 		r.recordResolverWorkerError(groupKey)
 		return prepared
 	}
 
-	if pv.Dist.Integrity != "" {
-		ok, code := verifyIntegrity(body, pv.Dist.Integrity)
+	if pv.Artifact.Integrity != "" {
+		ok, code := verifyIntegrity(body, pv.Artifact.Integrity)
 		if code != "" {
-			prepared.failure = prepareFailure(code, "unsupported npm integrity algorithm", id, pv.Dist.Integrity)
+			prepared.failure = prepareFailure(sourceDiagnosticCode(pv.Identity.Source, "UNSUPPORTED_INTEGRITY"), "unsupported registry artifact integrity algorithm", id, pv.Artifact.Integrity)
 			r.recordResolverWorkerError(groupKey)
 			return prepared
 		}
 		if !ok {
-			prepared.failure = prepareFailure("TSPACK_RESOLVE_NPM_INTEGRITY_MISMATCH", "tarball integrity mismatch", id)
+			prepared.failure = prepareFailure(sourceDiagnosticCode(pv.Identity.Source, "ARTIFACT_INTEGRITY_FAILED"), "registry artifact integrity mismatch", id)
 			r.recordResolverWorkerError(groupKey)
 			return prepared
 		}
@@ -527,12 +556,12 @@ func (r *resolverState) prepareSelectedPackageUncached(ctx context.Context, grou
 
 	manifest, ok := parseTarballPackageJSON(body)
 	if !ok {
-		prepared.failure = prepareFailure("TSPACK_RESOLVE_NPM_TARBALL_PACKAGE_JSON_MISSING", "tarball package.json missing", id)
+		prepared.failure = prepareFailure(sourceDiagnosticCode(pv.Identity.Source, "ARTIFACT_PACKAGE_JSON_MISSING"), "registry tarball package.json missing", id)
 		r.recordResolverWorkerError(groupKey)
 		return prepared
 	}
-	if manifest.Name != pv.Name || manifest.Version != pv.Version {
-		prepared.failure = prepareFailure("TSPACK_RESOLVE_NPM_TARBALL_METADATA_MISMATCH", "tarball package metadata mismatch", id)
+	if manifest.Name != pv.ArtifactPackageName || manifest.Version != pv.Version {
+		prepared.failure = prepareFailure(sourceDiagnosticCode(pv.Identity.Source, "ARTIFACT_METADATA_MISMATCH"), "registry artifact package metadata mismatch", id, manifest.Name, pv.ArtifactPackageName)
 		r.recordResolverWorkerError(groupKey)
 		return prepared
 	}
@@ -540,12 +569,12 @@ func (r *resolverState) prepareSelectedPackageUncached(ctx context.Context, grou
 	hash := sha256.Sum256(body)
 	pkg := lockfile.Package{
 		ID:           id,
-		Name:         pv.Name,
+		Name:         pv.Identity.Name,
 		Version:      pv.Version,
-		Source:       "npm",
-		Integrity:    pv.Dist.Integrity,
+		Source:       pv.Identity.Source,
+		Integrity:    pv.Artifact.Integrity,
 		Hash:         "sha256:" + hex.EncodeToString(hash[:]),
-		Capabilities: capability.FromPackageJSONScripts(manifest.Scripts),
+		Capabilities: append([]lockfile.Capability(nil), pv.Capabilities...),
 	}
 
 	if r.opts.OnArtifactResolved != nil {
@@ -556,22 +585,15 @@ func (r *resolverState) prepareSelectedPackageUncached(ctx context.Context, grou
 		}
 	}
 
-	transitive := make([]resolveWorkItem, 0, len(pv.Dependencies)+len(pv.OptionalDependencies))
-	for _, dep := range sortedDeps(pv.Dependencies) {
+	transitive := make([]resolveWorkItem, 0, len(pv.Dependencies))
+	for _, dep := range pv.Dependencies {
 		transitive = append(transitive, resolveWorkItem{
-			name: dep.name,
-			rng:  dep.rng,
-			from: id,
-			kind: "runtime",
-		})
-	}
-	for _, dep := range sortedDeps(pv.OptionalDependencies) {
-		transitive = append(transitive, resolveWorkItem{
-			name:     dep.name,
-			rng:      dep.rng,
+			source:   dep.Identity.Source,
+			name:     dep.Identity.Name,
+			rng:      dep.Constraint,
 			from:     id,
-			kind:     "runtime",
-			optional: true,
+			kind:     dep.Kind,
+			optional: dep.Optional,
 		})
 	}
 
@@ -584,8 +606,8 @@ func (r *resolverState) prepareSelectedPackageUncached(ctx context.Context, grou
 	return prepared
 }
 
-func (r *resolverState) packageMetadata(ctx context.Context, name string) (*PackageMetadata, error) {
-	key := r.registryMetadataCacheKey(name)
+func (r *resolverState) packageMetadata(ctx context.Context, backend RegistryBackend, name string) (*RegistryPackageMetadata, error) {
+	key := backend.Source() + "|" + name
 
 	r.metaMu.Lock()
 	if r.meta == nil {
@@ -594,7 +616,7 @@ func (r *resolverState) packageMetadata(ctx context.Context, name string) (*Pack
 	if entry, ok := r.meta[key]; ok {
 		r.metaMu.Unlock()
 		if r.opts.OnMetadataCacheHit != nil {
-			r.opts.OnMetadataCacheHit(name)
+			r.opts.OnMetadataCacheHit(backend.Source(), name)
 		}
 		select {
 		case <-entry.ready:
@@ -607,19 +629,9 @@ func (r *resolverState) packageMetadata(ctx context.Context, name string) (*Pack
 	r.meta[key] = entry
 	r.metaMu.Unlock()
 
-	entry.meta, entry.err = r.opts.Client.PackageMetadata(ctx, name)
+	entry.meta, entry.err = backend.Metadata(ctx, name)
 	close(entry.ready)
 	return entry.meta, entry.err
-}
-
-func (r *resolverState) registryMetadataCacheKey(name string) string {
-	if client, ok := r.opts.Client.(*HTTPRegistryClient); ok && client.BaseURL != "" {
-		return client.BaseURL + "|" + name
-	}
-	if r.opts.RegistryURL != "" {
-		return r.opts.RegistryURL + "|" + name
-	}
-	return "default|" + name
 }
 
 func (r *resolverState) recordResolverWorkerError(groupKey string) {
@@ -647,13 +659,13 @@ func buildResolveDiagnostic(optional bool, failure *preparedFailure) diag.Diagno
 	return dErr(failure.code, failure.message, failure.details...)
 }
 
-func selectVersion(meta *PackageMetadata, rng string) (PackageVersion, string, string, bool) {
+func selectRegistryVersion(meta *RegistryPackageMetadata, rng string) (RegistryPackageVersion, string, string, bool) {
 	c, err := semver.NewConstraint(rng)
 	if err != nil {
-		return PackageVersion{}, "", "TSPACK_RESOLVE_NPM_INVALID_RANGE", false
+		return RegistryPackageVersion{}, "", "invalid-range", false
 	}
 	versions := make([]*semver.Version, 0, len(meta.Versions))
-	lookup := map[string]PackageVersion{}
+	lookup := map[string]RegistryPackageVersion{}
 	for version, pkgVersion := range meta.Versions {
 		semVersion, err := semver.NewVersion(version)
 		if err != nil {
@@ -670,7 +682,38 @@ func selectVersion(meta *PackageMetadata, rng string) (PackageVersion, string, s
 			return lookup[version.Original()], version.Original(), "", true
 		}
 	}
-	return PackageVersion{}, "", "", false
+	return RegistryPackageVersion{}, "", "", false
+}
+
+func backendHostMap(backends BackendRegistry) map[string]int {
+	hosts := map[string]int{}
+	for _, backend := range backends {
+		host := backend.Host()
+		if host != "" {
+			hosts[host]++
+		}
+	}
+	return hosts
+}
+
+func sourceDiagnosticCode(source string, condition string) string {
+	if source == SourceNPM {
+		npmConditions := map[string]string{
+			"METADATA_ERROR":                "TSPACK_RESOLVE_NPM_METADATA_ERROR",
+			"PACKAGE_NOT_FOUND":             "TSPACK_RESOLVE_NPM_PACKAGE_NOT_FOUND",
+			"VERSION_NOT_FOUND":             "TSPACK_RESOLVE_NPM_VERSION_NOT_FOUND",
+			"INVALID_RANGE":                 "TSPACK_RESOLVE_NPM_INVALID_RANGE",
+			"ARTIFACT_ERROR":                "TSPACK_RESOLVE_NPM_TARBALL_ERROR",
+			"UNSUPPORTED_INTEGRITY":         "TSPACK_RESOLVE_NPM_UNSUPPORTED_INTEGRITY",
+			"ARTIFACT_INTEGRITY_FAILED":     "TSPACK_RESOLVE_NPM_INTEGRITY_MISMATCH",
+			"ARTIFACT_PACKAGE_JSON_MISSING": "TSPACK_RESOLVE_NPM_TARBALL_PACKAGE_JSON_MISSING",
+			"ARTIFACT_METADATA_MISMATCH":    "TSPACK_RESOLVE_NPM_TARBALL_METADATA_MISMATCH",
+		}
+		if code := npmConditions[condition]; code != "" {
+			return code
+		}
+	}
+	return "TSPACK_" + strings.ToUpper(source) + "_" + condition
 }
 
 type depEntry struct {

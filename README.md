@@ -29,7 +29,7 @@ TSPACK_VERSION=v0.1.8 sh scripts/install.sh
 
 The installer downloads GitHub Release artifacts, verifies the checksum entry, and installs `tspack` to `$HOME/.local/bin` unless `TSPACK_INSTALL_DIR` is set. Review installer scripts before running them from raw URLs. `get.tspack.dev` is not live.
 
-TSPack delegates npm package operations to real npm and does not manage Node.js runtime versions. Use a Node already on `PATH`; if you want a runtime manager, `mise` is the recommended option: https://mise.jdx.dev/
+TSPack resolves npm and JSR registry packages directly and does not manage Node.js runtime versions. JSR use does not require Deno or a package-manager switch. Use a Node already on `PATH`; if you want a runtime manager, `mise` is the recommended option: https://mise.jdx.dev/
 
 ## Quickstart
 
@@ -60,6 +60,7 @@ tspack help commands
 
 - `manifest.tsx` / `package.manifest.tsx` project contracts.
 - Deterministic `ts-lock.toml` lockfiles.
+- Mixed npm + JSR resolution through source-qualified registry backends, with no Deno requirement.
 - First-class `tspack add` and `tspack remove` through semantic authoring IR and source-preserving manifest projection.
 - `update`, `sync`, and content-addressed store population.
 - `check` and read-only `check --format` validation.

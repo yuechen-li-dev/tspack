@@ -1,6 +1,6 @@
 # Vulnerability audit
 
-`tspack audit` checks the exact npm package name/version pairs in `ts-lock.toml` against the OSV.dev vulnerability database. It is read-only: it does not execute lifecycle scripts, inspect mutable `node_modules`, change the manifest or lockfile, or attempt automatic remediation.
+`tspack audit` checks the exact npm package name/version pairs in `ts-lock.toml` against the OSV.dev vulnerability database. For mixed locks it also reports coverage by source. Because OSV does not currently define a JSR ecosystem identifier, JSR packages are explicitly marked `not-checked`; they are never silently omitted as though the whole graph were clean. Audit is read-only: it does not execute lifecycle scripts, inspect mutable `node_modules`, change the manifest or lockfile, or attempt automatic remediation.
 
 ```text
 tspack audit

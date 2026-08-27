@@ -1,12 +1,54 @@
 package project
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/yuechen-li-dev/tspack/internal/perf"
 	"github.com/yuechen-li-dev/tspack/internal/resolver"
 )
+
+func TestRegistryPerfAttributesRequestsBySource(t *testing.T) {
+	registry := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/@scope/pkg", "/%40scope%2Fpkg":
+			response.Header().Set("Content-Type", "application/json")
+			_, _ = response.Write([]byte(`{"name":"@scope/pkg"}`))
+		case "/pkg.tgz":
+			_, _ = response.Write([]byte("artifact"))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer registry.Close()
+
+	session, err := perf.NewSession("update", t.TempDir(), false, perf.EnvConfig{Enabled: true}, nil)
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	client := instrumentRegistryClient(
+		resolver.NewHTTPRegistryClient(registry.URL),
+		session,
+		resolver.SourceJSR,
+	)
+	if _, err := client.PackageMetadata(context.Background(), "@scope/pkg"); err != nil {
+		t.Fatalf("PackageMetadata failed: %v", err)
+	}
+	if _, err := client.Tarball(context.Background(), registry.URL+"/pkg.tgz"); err != nil {
+		t.Fatalf("Tarball failed: %v", err)
+	}
+
+	report := session.Snapshot(time.Now().UTC())
+	if report.HTTP.RequestKinds["jsr.metadata"] != 1 {
+		t.Fatalf("jsr metadata request count=%d want 1", report.HTTP.RequestKinds["jsr.metadata"])
+	}
+	if report.HTTP.RequestKinds["jsr.tarball"] != 1 {
+		t.Fatalf("jsr tarball request count=%d want 1", report.HTTP.RequestKinds["jsr.tarball"])
+	}
+}
 
 func TestUpdatePerfCapturesResolveAndStoreCounters(t *testing.T) {
 	root := t.TempDir()

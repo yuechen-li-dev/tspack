@@ -193,13 +193,32 @@ type Finding struct {
 }
 
 type Report struct {
-	Packages int       `json:"packages"`
-	Findings []Finding `json:"findings"`
+	Packages int        `json:"packages"`
+	Findings []Finding  `json:"findings"`
+	Coverage []Coverage `json:"coverage,omitempty"`
+}
+
+type Coverage struct {
+	Source   string `json:"source"`
+	Packages int    `json:"packages"`
+	Status   string `json:"status"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 func Scan(ctx context.Context, lf *lockfile.Lockfile, client Client) (Report, error) {
 	packages := npmPackages(lf)
 	report := Report{Packages: len(packages), Findings: []Finding{}}
+	if len(packages) > 0 {
+		report.Coverage = append(report.Coverage, Coverage{Source: "npm", Packages: len(packages), Status: "checked"})
+	}
+	if jsrCount := packageCountForSource(lf, "jsr"); jsrCount > 0 {
+		report.Coverage = append(report.Coverage, Coverage{
+			Source:   "jsr",
+			Packages: jsrCount,
+			Status:   "not-checked",
+			Reason:   "OSV does not define a JSR ecosystem identifier; npm compatibility names are not treated as JSR vulnerability truth",
+		})
+	}
 	if len(packages) == 0 {
 		return report, nil
 	}
@@ -265,6 +284,19 @@ func Scan(ctx context.Context, lf *lockfile.Lockfile, client Client) (Report, er
 		return report.Findings[i].ID < report.Findings[j].ID
 	})
 	return report, nil
+}
+
+func packageCountForSource(lf *lockfile.Lockfile, source string) int {
+	if lf == nil {
+		return 0
+	}
+	seen := map[string]bool{}
+	for _, pkg := range lf.Packages {
+		if pkg.Source == source && pkg.ID != "" {
+			seen[pkg.ID] = true
+		}
+	}
+	return len(seen)
 }
 
 func ParseThreshold(value string) (Severity, error) {

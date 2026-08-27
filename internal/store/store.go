@@ -38,10 +38,11 @@ type artifactLock struct {
 type ArtifactKind string
 
 const (
-	ArtifactNPMTarball ArtifactKind = "npm-tarball"
-	ArtifactGitTree    ArtifactKind = "git-tree"
-	ArtifactPathTree   ArtifactKind = "path-tree"
-	ArtifactWorkspace  ArtifactKind = "workspace-tree"
+	ArtifactNPMTarball      ArtifactKind = "npm-tarball"
+	ArtifactRegistryTarball ArtifactKind = "registry-tarball"
+	ArtifactGitTree         ArtifactKind = "git-tree"
+	ArtifactPathTree        ArtifactKind = "path-tree"
+	ArtifactWorkspace       ArtifactKind = "workspace-tree"
 )
 
 type PackageMetadata struct {
@@ -97,11 +98,11 @@ func (s *Store) PutArtifact(a Artifact) (StoreRef, []diag.Diagnostic) {
 	defer unlock()
 
 	ref := s.ref(hash, a.Kind, a.ID)
-	if a.Kind == ArtifactNPMTarball {
+	if a.Kind == ArtifactNPMTarball || a.Kind == ArtifactRegistryTarball {
 		if d := s.writeBlobIfMissing(ref.StorePath, a.Bytes); d != nil {
 			return StoreRef{}, d
 		}
-		if !extractedArtifactHealthy(ref.ExtractedPath, "npm") {
+		if !extractedArtifactHealthy(ref.ExtractedPath, a.Source) {
 			_ = os.RemoveAll(ref.ExtractedPath)
 			if d := extractTarGz(a.Bytes, ref.ExtractedPath); d != nil {
 				return StoreRef{}, d
@@ -185,8 +186,8 @@ func (s *Store) Verify(hash string) []diag.Diagnostic {
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_HASH_MISMATCH", "metadata hash mismatch")}
 	}
 	if !extractedArtifactHealthy(ref.ExtractedPath, md.Source) {
-		if md.Source == "npm" {
-			return []diag.Diagnostic{errDiag("TSPACK_STORE_EXTRACTED_ARTIFACT_INVALID", "npm extracted artifact is missing package.json")}
+		if md.Source == "npm" || md.Source == "jsr" {
+			return []diag.Diagnostic{errDiag("TSPACK_STORE_EXTRACTED_ARTIFACT_INVALID", "registry extracted artifact is missing package.json")}
 		}
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_EXTRACTED_ARTIFACT_MISSING", "extracted artifact is missing")}
 	}

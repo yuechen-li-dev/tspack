@@ -3,6 +3,7 @@ package graph
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
@@ -297,6 +298,12 @@ func (d *DependencyNode) ExternalPackageIdentifiers() []string {
 	add(d.Key)
 	add(d.Source.Name)
 	add(d.Source.Package)
+	if d.Source.Kind == "jsr" && strings.HasPrefix(d.Source.Package, "@") {
+		parts := strings.Split(strings.TrimPrefix(d.Source.Package, "@"), "/")
+		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+			add("@jsr/" + parts[0] + "__" + parts[1])
+		}
+	}
 	return identifiers
 }
 

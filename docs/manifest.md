@@ -67,7 +67,7 @@ Select TypeScript Version` and choose the workspace SDK.
 - File must be root `manifest.tsx`.
 - Imports allowed only from `tspack/manifest` (including `import type`).
 - Default export must be `define(<Workspace>...</Workspace>)`.
-- Approved helpers: `define`, `defineDeps`, `npm`, `git`, `path`, `workspace`, `dep`, `peer`, `tool`.
+- Approved helpers: `define`, `defineDeps`, `npm`, `jsr`, `git`, `path`, `workspace`, `dep`, `peer`, `tool`.
 - Approved JSX elements: `Workspace`, `Packages`, `Package`, `Policies`, `Targets`, `RunTargets`, `Tools`, `Boundaries`, `Publish`.
 - `rows={[...]}` and `values={[...]}` must remain literal/restricted.
 
@@ -81,6 +81,21 @@ Select TypeScript Version` and choose the workspace SDK.
 - Spread syntax is forbidden (`...` in object literals, arrays/call arguments, and JSX props) to keep manifests fully inspectable and non-opaque.
 
 ## Example
+
+Registry sources are explicit on each dependency and can be mixed without
+changing the workspace runtime:
+
+```tsx
+const deps = defineDeps({
+  colors: dep(npm("picocolors", "^1.1.1")),
+  path: dep(jsr("@std/path", "^1.1.6")),
+});
+```
+
+JSR names use `@scope/package`. JSR resolution does not require Deno. Node and
+TypeScript compatibility artifacts use JSR's `@jsr/scope__package` names (for
+example `@jsr/std__path`), while lock and diagnostic identity remains
+`jsr:@std/path`.
 
 ```tsx
 import {

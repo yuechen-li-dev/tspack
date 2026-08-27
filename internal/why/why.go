@@ -96,7 +96,8 @@ func Analyze(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, opts Options) Resul
 	}
 	for _, p := range pkgs {
 		for _, d := range p.AllDependencies() {
-			if d.Key != q && d.Source.Package != q {
+			sourceQualifiedName := d.Source.Kind + ":" + d.Source.Package
+			if d.Key != q && d.Source.Package != q && sourceQualifiedName != q {
 				continue
 			}
 			e := Explanation{Query: q, PackageName: p.Name, DependencyKey: d.Key, ExternalPackageName: d.Source.Package, Kind: string(d.Kind), Optional: d.Optional, MatchType: "dependency"}
@@ -113,7 +114,7 @@ func Analyze(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, opts Options) Resul
 					e.NotReachableFrom = append(e.NotReachableFrom, ReachabilityRef{PackageName: p.Name, TargetName: t.Name, Reason: "not-allowed"})
 				}
 			}
-			addDependencyLockDetails(&e, lf, p, d.Source.Package, opts.AcknowledgedCapabilities, opts.RootDir)
+			addDependencyLockDetails(&e, lf, p, d.Source.Kind, d.Source.Package, opts.AcknowledgedCapabilities, opts.RootDir)
 			out.Explanations = append(out.Explanations, e)
 		}
 		if t, ok := p.Target(q); ok {
@@ -198,13 +199,15 @@ func matchingLockPackageIDs(query string, lf *lockfile.Lockfile) []string {
 	}
 
 	packageName := query
-	if strings.HasPrefix(query, "npm:") && !lockPackageIDExists(query, lf) {
-		packageName = strings.TrimPrefix(query, "npm:")
+	source := ""
+	if separator := strings.Index(query, ":"); separator > 0 && !lockPackageIDExists(query, lf) {
+		source = query[:separator]
+		packageName = query[separator+1:]
 	}
 
 	matches := []string{}
 	for _, pkg := range lf.Packages {
-		if pkg.Name == packageName {
+		if pkg.Name == packageName && (source == "" || pkg.Source == source) {
 			matches = append(matches, pkg.ID)
 		}
 	}
@@ -221,12 +224,12 @@ func lockPackageIDExists(query string, lf *lockfile.Lockfile) bool {
 	return false
 }
 
-func addDependencyLockDetails(e *Explanation, lf *lockfile.Lockfile, pkg *graph.PackageNode, packageName string, acknowledgements []manifest.AcknowledgedCapability, rootDir string) {
+func addDependencyLockDetails(e *Explanation, lf *lockfile.Lockfile, pkg *graph.PackageNode, source string, packageName string, acknowledgements []manifest.AcknowledgedCapability, rootDir string) {
 	if lf == nil || pkg == nil || packageName == "" {
 		return
 	}
 
-	matchingPackageIDs := lockPackageIDsByName(lf, packageName)
+	matchingPackageIDs := lockPackageIDsBySourceAndName(lf, source, packageName)
 	if len(matchingPackageIDs) == 0 {
 		return
 	}
@@ -323,6 +326,16 @@ func lockPackageIDsByName(lf *lockfile.Lockfile, packageName string) map[string]
 	packageIDs := map[string]bool{}
 	for _, pkg := range lf.Packages {
 		if pkg.Name == packageName {
+			packageIDs[pkg.ID] = true
+		}
+	}
+	return packageIDs
+}
+
+func lockPackageIDsBySourceAndName(lf *lockfile.Lockfile, source string, packageName string) map[string]bool {
+	packageIDs := map[string]bool{}
+	for _, pkg := range lf.Packages {
+		if pkg.Source == source && pkg.Name == packageName {
 			packageIDs[pkg.ID] = true
 		}
 	}
@@ -556,11 +569,13 @@ func reverseQueryLockPackages(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, qu
 	}
 
 	packageName := query
-	if strings.HasPrefix(query, "npm:") {
-		packageName = strings.TrimPrefix(query, "npm:")
+	source := ""
+	if separator := strings.Index(query, ":"); separator > 0 {
+		source = query[:separator]
+		packageName = query[separator+1:]
 	}
 
-	matchesByName := lockPackagesByName(lf, packageName)
+	matchesByName := lockPackagesBySourceAndName(lf, source, packageName)
 	if len(matchesByName) > 0 {
 		return matchesByName
 	}
@@ -569,23 +584,35 @@ func reverseQueryLockPackages(g *graph.WorkspaceGraph, lf *lockfile.Lockfile, qu
 		return nil
 	}
 
-	declaredPackageNames := map[string]bool{}
+	declaredIdentities := map[string]bool{}
 	for _, pkg := range g.AllPackages() {
 		for _, dep := range pkg.AllDependencies() {
-			if dep.Key == query && dep.Source.Kind == "npm" && dep.Source.Package != "" {
-				declaredPackageNames[dep.Source.Package] = true
+			if dep.Key == query && dep.Source.Package != "" {
+				declaredIdentities[dep.Source.Kind+":"+dep.Source.Package] = true
 			}
 		}
 	}
-	if len(declaredPackageNames) != 1 {
+	if len(declaredIdentities) != 1 {
 		return nil
 	}
 
-	declaredPackageName := ""
-	for name := range declaredPackageNames {
-		declaredPackageName = name
+	declaredIdentity := ""
+	for identity := range declaredIdentities {
+		declaredIdentity = identity
 	}
-	return lockPackagesByName(lf, declaredPackageName)
+	separator := strings.Index(declaredIdentity, ":")
+	return lockPackagesBySourceAndName(lf, declaredIdentity[:separator], declaredIdentity[separator+1:])
+}
+
+func lockPackagesBySourceAndName(lf *lockfile.Lockfile, source string, packageName string) []lockfile.Package {
+	matches := []lockfile.Package{}
+	for _, lockPackage := range lf.Packages {
+		if lockPackage.Name == packageName && (source == "" || lockPackage.Source == source) {
+			matches = append(matches, lockPackage)
+		}
+	}
+	sortLockfilePackages(matches)
+	return matches
 }
 
 func lockPackagesByName(lf *lockfile.Lockfile, packageName string) []lockfile.Package {

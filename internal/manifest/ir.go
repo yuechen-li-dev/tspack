@@ -1173,23 +1173,22 @@ func DependencyIdentity(d DependencyIntent) string {
 
 func depIdentity(d DependencyIntent) string { return DependencyIdentity(d) }
 
-// validateDep accepts the current TypeScript/npm-era source kinds only.
-// PyPI is intentionally not accepted here; future ecosystems should add source
-// validation through a backend seam with their own version/range semantics.
+// validateDep accepts registry sources supported by resolver backends and the
+// existing local source kinds.
 func validateDep(add func(string, string, ...string), pp string, i int, d DependencyIntent) {
 	allowed := map[string]bool{"runtime": true, "dep": true, "peer": true, "tool": true, "type": true, "test": true, "workspace": true}
 	if !allowed[d.Kind] {
 		add("TSPACK_IR_INVALID_DEPENDENCY_KIND", fmt.Sprintf("%s.dependencies[%d].kind is invalid", pp, i))
 	}
 	sk := d.Source.Kind
-	if sk != "npm" && sk != "git" && sk != "path" && sk != "workspace" {
+	if sk != "npm" && sk != "jsr" && sk != "git" && sk != "path" && sk != "workspace" {
 		add("TSPACK_IR_INVALID_SOURCE_KIND", fmt.Sprintf("%s.dependencies[%d].source.kind is invalid", pp, i))
 		return
 	}
 	switch sk {
-	case "npm":
+	case "npm", "jsr":
 		if d.Source.Package == "" || d.Source.Range == "" {
-			add("TSPACK_IR_INVALID_SOURCE", fmt.Sprintf("%s.dependencies[%d].source npm requires package and range", pp, i))
+			add("TSPACK_IR_INVALID_SOURCE", fmt.Sprintf("%s.dependencies[%d].source %s requires package and range", pp, i, sk))
 		}
 	case "git":
 		if d.Source.Repo == "" && d.Source.Ref == "" {

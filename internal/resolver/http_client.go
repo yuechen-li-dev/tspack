@@ -123,6 +123,12 @@ func (c *HTTPRegistryClient) get(ctx context.Context, u string) ([]byte, int, er
 	if err != nil {
 		return nil, 0, err
 	}
+	req.Header.Set("User-Agent", "tspack")
+	if httpKind(u) == "tarball" {
+		req.Header.Set("Accept", "application/octet-stream")
+	} else {
+		req.Header.Set("Accept", "application/json")
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		if c.Observe != nil {

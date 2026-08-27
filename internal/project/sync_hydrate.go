@@ -44,22 +44,76 @@ func ensureStoreArtifactsForLock(ctx context.Context, opts Options, st *store.St
 	for index, pkg := range missing {
 		opts.Perf.RecordSyncHydrationFetch()
 		opts.Progress.Step("%s [%d/%d] %s", storeFetchProgressLabel(pkg), index+1, len(missing), packageProgressLabel(pkg))
-		out = append(out, hydrateMissingStoreArtifact(ctx, opts.RootDir, st, client, pkg)...)
+		out = append(out, hydrateMissingStoreArtifact(ctx, opts, st, client, pkg)...)
 	}
 	return out
 }
 
-func hydrateMissingStoreArtifact(ctx context.Context, rootDir string, st *store.Store, client resolver.NPMRegistryClient, pkg lockfile.Package) []diag.Diagnostic {
+func hydrateMissingStoreArtifact(ctx context.Context, opts Options, st *store.Store, client resolver.NPMRegistryClient, pkg lockfile.Package) []diag.Diagnostic {
 	switch pkg.Source {
 	case "npm":
 		return hydrateMissingNPMStoreArtifact(ctx, st, client, pkg)
+	case "jsr":
+		backend := resolver.NewJSRBackend(nil)
+		if configured, ok := opts.ResolverBackends.Backend(resolver.SourceJSR); ok {
+			backend = configured
+		}
+		return hydrateMissingJSRStoreArtifact(ctx, st, backend, pkg)
 	case "path", "workspace":
-		return hydrateMissingLocalStoreArtifact(rootDir, st, pkg)
+		return hydrateMissingLocalStoreArtifact(opts.RootDir, st, pkg)
 	case "git":
 		return []diag.Diagnostic{syncHydrateFailedDiagnostic(pkg, "sync cannot hydrate missing git store artifacts", "source: git", "recreate the store artifact with `tspack update`")}
 	default:
 		return []diag.Diagnostic{syncHydrateFailedDiagnostic(pkg, "sync cannot hydrate missing store artifact for unsupported source", "source: "+pkg.Source, "recreate the store artifact with `tspack update`")}
 	}
+}
+
+func hydrateMissingJSRStoreArtifact(ctx context.Context, st *store.Store, backend resolver.RegistryBackend, pkg lockfile.Package) []diag.Diagnostic {
+	metadata, err := backend.Metadata(ctx, pkg.Name)
+	if err != nil {
+		return []diag.Diagnostic{syncHydrateFailedDiagnostic(pkg, "failed to fetch locked JSR metadata for sync hydration", "package: "+pkg.Name, err.Error())}
+	}
+	version, ok := metadata.Versions[pkg.Version]
+	if !ok {
+		return []diag.Diagnostic{syncHydrateFailedDiagnostic(pkg, "locked JSR version is unavailable from registry metadata", "package: "+pkg.Name, "version: "+pkg.Version)}
+	}
+	body, err := backend.FetchArtifact(ctx, version.Artifact)
+	if err != nil {
+		return []diag.Diagnostic{syncHydrateFailedDiagnostic(pkg, "failed to download locked JSR artifact for sync hydration", "package: "+pkg.Name, "version: "+pkg.Version, err.Error())}
+	}
+	if pkg.Integrity != "" {
+		verified, verifyErr := verifyLockedNPMIntegrity(body, pkg.Integrity)
+		if verifyErr != nil {
+			return []diag.Diagnostic{syncArtifactIntegrityDiagnostic(pkg, "lockfile JSR integrity is unsupported or invalid", verifyErr.Error(), "integrity: "+pkg.Integrity)}
+		}
+		if !verified {
+			return []diag.Diagnostic{syncArtifactIntegrityDiagnostic(pkg, "downloaded JSR artifact did not match lockfile integrity", "integrity: "+pkg.Integrity)}
+		}
+	}
+	ref, diagnostics := st.PutArtifact(store.Artifact{
+		ID:        pkg.ID,
+		Name:      pkg.Name,
+		Version:   pkg.Version,
+		Source:    pkg.Source,
+		Hash:      pkg.Hash,
+		Integrity: pkg.Integrity,
+		Kind:      store.ArtifactRegistryTarball,
+		Bytes:     body,
+		Metadata: store.PackageMetadata{
+			Name:      pkg.Name,
+			Version:   pkg.Version,
+			Source:    pkg.Source,
+			PackageID: pkg.ID,
+			Integrity: pkg.Integrity,
+		},
+	})
+	if len(diagnostics) > 0 {
+		return remapSyncHydrateStoreDiagnostics(pkg, diagnostics)
+	}
+	if len(st.Verify(ref.Hash)) > 0 {
+		return []diag.Diagnostic{syncHydrateFailedDiagnostic(pkg, "hydrated JSR store artifact failed post-write verification", "hash: "+ref.Hash)}
+	}
+	return nil
 }
 
 func hydrateMissingNPMStoreArtifact(ctx context.Context, st *store.Store, client resolver.NPMRegistryClient, pkg lockfile.Package) []diag.Diagnostic {

@@ -187,7 +187,7 @@ func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) R
 			out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_EDGE_UNKNOWN_PACKAGE", Severity: diag.SeverityError, Message: "edge points to unknown package", Details: []string{e.From, e.To}})
 			continue
 		}
-		if _, err := safePackagePath(nmRoot, pkg.Name); err != nil {
+		if _, err := safePackagePath(nmRoot, materializedPackageName(pkg)); err != nil {
 			out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_INVALID_PACKAGE_NAME", Severity: diag.SeverityError, Message: err.Error(), Details: []string{pkg.ID, pkg.Name}})
 			continue
 		}
@@ -366,7 +366,7 @@ func (s *materializeState) pathWith(pkgID string) string {
 }
 
 func materializePkg(req Request, out *Result, pkgs map[string]lockfile.Package, edgesByFrom map[string][]lockfile.Edge, pkg lockfile.Package, parentNodeModules string, state *materializeState, observer *materializeObserver) {
-	dest, err := safePackagePath(parentNodeModules, pkg.Name)
+	dest, err := safePackagePath(parentNodeModules, materializedPackageName(pkg))
 	if err != nil {
 		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_INVALID_DESTINATION", Severity: diag.SeverityError, Message: err.Error(), Details: []string{pkg.ID}})
 		return
@@ -465,7 +465,7 @@ func buildMaterializePlan(rootEdges []lockfile.Edge, pkgs map[string]lockfile.Pa
 }
 
 func appendMaterializePlan(plan *[]lockfile.Package, pkgs map[string]lockfile.Package, edgesByFrom map[string][]lockfile.Edge, pkg lockfile.Package, parentNodeModules string, state *materializeState) {
-	dest, err := safePackagePath(parentNodeModules, pkg.Name)
+	dest, err := safePackagePath(parentNodeModules, materializedPackageName(pkg))
 	if err != nil {
 		return
 	}
@@ -755,7 +755,7 @@ func materializeRootBins(req Request, out *Result, nmRoot string, pkgs map[strin
 	sort.Strings(ids)
 	for _, id := range ids {
 		pkg := pkgs[id]
-		pkgRoot, err := safePackagePath(nmRoot, pkg.Name)
+		pkgRoot, err := safePackagePath(nmRoot, materializedPackageName(pkg))
 		if err != nil {
 			continue
 		}
@@ -775,7 +775,7 @@ func materializeRootBins(req Request, out *Result, nmRoot string, pkgs map[strin
 				out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_BIN_CONFLICT", Severity: diag.SeverityError, Message: "multiple packages expose the same bin", Details: []string{def.name, prev.pkgName, pkg.Name}})
 				continue
 			}
-			candidates[def.name] = candidate{pkgName: pkg.Name, absPath: target, relPath: def.relPath}
+			candidates[def.name] = candidate{pkgName: materializedPackageName(pkg), absPath: target, relPath: def.relPath}
 		}
 	}
 	names := make([]string, 0, len(candidates))
@@ -813,6 +813,17 @@ func materializeRootBins(req Request, out *Result, nmRoot string, pkgs map[strin
 	}); err != nil {
 		out.Diagnostics = append(out.Diagnostics, materializeDiagnosticFromError(err, "", binsRoot, ""))
 	}
+}
+
+func materializedPackageName(pkg lockfile.Package) string {
+	if pkg.Source != "jsr" || !strings.HasPrefix(pkg.Name, "@") {
+		return pkg.Name
+	}
+	parts := strings.Split(strings.TrimPrefix(pkg.Name, "@"), "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return pkg.Name
+	}
+	return "@jsr/" + parts[0] + "__" + parts[1]
 }
 
 type binDef struct{ name, relPath string }

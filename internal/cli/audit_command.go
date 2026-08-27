@@ -83,6 +83,12 @@ func printAuditReport(report audit.Report, auditLevel string, failing int) {
 	fmt.Println("TSPack audit (OSV.dev)")
 	fmt.Println()
 	fmt.Printf("Scanned %d locked npm packages.\n", report.Packages)
+	for _, coverage := range report.Coverage {
+		if coverage.Status == "checked" {
+			continue
+		}
+		fmt.Printf("Audit coverage: %s packages %s (%d). %s\n", coverage.Source, coverage.Status, coverage.Packages, coverage.Reason)
+	}
 	if len(report.Findings) == 0 {
 		fmt.Println("No known vulnerabilities found.")
 		return

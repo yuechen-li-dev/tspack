@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -75,6 +76,116 @@ func TestUpdateThenSyncWithFakeRegistryPopulatesStore(t *testing.T) {
 	if !bytes.Equal(before, after) {
 		t.Fatalf("sync mutated lockfile")
 	}
+}
+
+func TestMixedNPMAndJSRUpdateThenOfflineSyncSupportsNode(t *testing.T) {
+	root := t.TempDir()
+	irPath := writeIR(t, root, map[string]any{
+		"format":    1,
+		"workspace": map[string]any{"name": "ws"},
+		"packages": []map[string]any{{
+			"name": "app", "version": "1.0.0", "kind": "library",
+			"dependencies": []map[string]any{
+				{"key": "npmLeaf", "kind": "dep", "source": map[string]any{"kind": "npm", "package": "npm-leaf", "range": "1.0.0"}},
+				{"key": "jsrLeaf", "kind": "dep", "source": map[string]any{"kind": "jsr", "package": "@demo/leaf", "range": "1.0.0"}},
+			},
+			"targets": []map[string]any{{"name": "core", "export": ".", "entry": "src/index.ts", "runtime": "src/index.ts", "types": "dist/index.d.ts", "deps": []string{"npmLeaf", "jsrLeaf"}, "peers": []string{}}},
+			"tools":   []string{}, "boundaries": []any{}, "publish": map[string]any{"include": []string{"dist/**"}, "exclude": []string{}}, "policies": map[string]any{"types": map[string]any{}, "boundaries": map[string]any{}},
+		}},
+	})
+
+	npmTarball := fakeRegistryTarball(t, "npm-leaf", "1.0.0", nil)
+	jsrTarball := fakeJSRCompatibilityTarball(t, "@jsr/demo__leaf", "1.0.0")
+	npmMux := http.NewServeMux()
+	npmServer := httptest.NewServer(npmMux)
+	npmMux.HandleFunc("/npm-leaf", func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewEncoder(writer).Encode(resolver.PackageMetadata{Name: "npm-leaf", Versions: map[string]resolver.PackageVersion{"1.0.0": {Name: "npm-leaf", Version: "1.0.0", Dist: resolver.PackageDist{Tarball: npmServer.URL + "/npm-leaf.tgz", Integrity: fakeIntegrity(npmTarball)}}}})
+	})
+	npmMux.HandleFunc("/npm-leaf.tgz", func(writer http.ResponseWriter, request *http.Request) { _, _ = writer.Write(npmTarball) })
+
+	var jsrServer *httptest.Server
+	jsrServer = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/@jsr/demo__leaf":
+			_ = json.NewEncoder(writer).Encode(resolver.PackageMetadata{Name: "@jsr/demo__leaf", Versions: map[string]resolver.PackageVersion{"1.0.0": {Name: "@jsr/demo__leaf", Version: "1.0.0", Dist: resolver.PackageDist{Tarball: jsrServer.URL + "/leaf.tgz", Integrity: fakeIntegrity(jsrTarball)}}}})
+		case "/leaf.tgz":
+			_, _ = writer.Write(jsrTarball)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+
+	opts := DefaultOptions(root)
+	opts.ManifestIRPath = irPath
+	opts.ResolverBackends = resolver.BackendRegistry{
+		resolver.SourceNPM: resolver.NewNPMBackend(resolver.NewHTTPRegistryClient(npmServer.URL)),
+		resolver.SourceJSR: resolver.NewJSRBackend(resolver.NewHTTPRegistryClient(jsrServer.URL)),
+	}
+	update := Update(opts)
+	if hasErrors(update.Diagnostics) {
+		t.Fatalf("mixed update failed: %#v", update.Diagnostics)
+	}
+	locked, _, err := lockfile.LoadFile(opts.LockfilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !lockHasPackage(locked, "npm:npm-leaf@1.0.0") || !lockHasPackage(locked, "jsr:@demo/leaf@1.0.0") {
+		t.Fatalf("mixed lock lacks source-qualified packages: %#v", locked.Packages)
+	}
+
+	// Closing both registries proves sync consumes lock/store truth without a registry or Deno.
+	npmServer.Close()
+	jsrServer.Close()
+	syncResult := Sync(opts, false, false)
+	if hasErrors(syncResult.Diagnostics) {
+		t.Fatalf("offline mixed sync failed: %#v", syncResult.Diagnostics)
+	}
+	mustExist(t, filepath.Join(root, "node_modules", "@jsr", "demo__leaf", "index.js"))
+
+	// A real Node process is necessary here to prove the generated compatibility package is consumable.
+	command := exec.Command("node", "--input-type=module", "--eval", "import { answer } from '@jsr/demo__leaf'; if (answer !== 42) process.exit(3);")
+	command.Dir = root
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Node could not consume materialized JSR package: %v\n%s", err, output)
+	}
+}
+
+func lockHasPackage(lock *lockfile.Lockfile, id string) bool {
+	for _, pkg := range lock.Packages {
+		if pkg.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func fakeJSRCompatibilityTarball(t *testing.T, name string, version string) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+	files := map[string][]byte{
+		"package/package.json": []byte(`{"name":"` + name + `","version":"` + version + `","type":"module","exports":"./index.js","types":"./index.d.ts"}`),
+		"package/index.js":     []byte("export const answer = 42;\n"),
+		"package/index.d.ts":   []byte("export declare const answer: 42;\n"),
+	}
+	for _, fileName := range []string{"package/package.json", "package/index.js", "package/index.d.ts"} {
+		body := files[fileName]
+		if err := tarWriter.WriteHeader(&tar.Header{Name: fileName, Mode: 0o644, Size: int64(len(body))}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tarWriter.Write(body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
 }
 
 func TestUpdateFailureDoesNotWriteLockfile(t *testing.T) {

@@ -39,6 +39,12 @@ declare module 'tspack/manifest' {
     range: string;
   };
 
+  export type JsrSource = {
+    kind: 'jsr';
+    package: string;
+    range: string;
+  };
+
   export type GitSource = {
     kind: 'git';
     ref: string;
@@ -58,7 +64,7 @@ declare module 'tspack/manifest' {
     target?: string;
   };
 
-  export type DependencySource = NpmSource | GitSource | PathSource | WorkspaceSource;
+  export type DependencySource = NpmSource | JsrSource | GitSource | PathSource | WorkspaceSource;
 
   export type DependencyDeclarationMetadata = {
     id?: string;
@@ -460,6 +466,7 @@ declare module 'tspack/manifest' {
   export function defineDeps<T extends Record<string, DependencyIntent>>(deps: T): T;
 
   export function npm(name: string, range: string): NpmSource;
+  export function jsr(name: string, range: string): JsrSource;
   export function git(ref: string, options?: Omit<GitSource, 'kind' | 'ref'>): GitSource;
   export function path(pathValue: string): PathSource;
   export function workspace(name: string, options?: Omit<WorkspaceSource, 'kind' | 'name'>): WorkspaceSource;

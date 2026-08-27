@@ -27,7 +27,8 @@
 
 ## `tspack update`
 
-- `tspack update` resolves dependency intent, fetches required npm artifacts into the content-addressed store, and writes deterministic `ts-lock.toml` only after required store population succeeds.
+- `tspack update` resolves dependency intent, fetches required npm and JSR artifacts into the shared content-addressed store, and writes deterministic `ts-lock.toml` only after required store population succeeds.
+- Registry selection is per dependency edge. A project and its transitive graph may mix npm and JSR; JSR access is direct and does not require Deno or a package-manager subprocess.
 - It does not materialize `node_modules`; `tspack sync` consumes the lock/store state after update.
 - Text-mode progress is written to **stderr** so stdout remains reserved for human diff output or JSON payloads, depending on mode.
 - Cold store population prints deterministic plain-text lines such as `fetching npm artifacts [3/20] vite@7.1.0`.
@@ -50,7 +51,7 @@
 - `tspack remove lodash` removes one owned, editable declaration from the selected native package. It does not interpret `lodash@^4` as an uninstall query and does not force matching lock entries out of the graph.
 - The command rebuilds the authoring tape before source projection. If an explicit override shadowed a concept or template declaration, that lower declaration becomes effective again and is reported with its provenance.
 - Package-local direct truth and resolved truth are separate. A declaration can disappear while the artifact remains locked transitively or because another workspace package still requires it.
-- Several editable matches are an error. `--optional`, `--source npm`, and `--kind dep|peer|tool|test` narrow declarations; `--dev` and `--tool` are remove aliases for the corresponding kinds. Package selection accepts a stable name or exact workspace-relative package root, with unambiguous current-directory inference.
+- Several editable matches are an error. `--optional`, `--source npm|jsr`, and `--kind dep|peer|tool|test` narrow declarations; `--dev` and `--tool` are remove aliases for the corresponding kinds. If npm and JSR declarations share a package name, an unqualified removal reports source ambiguity and requires `--source`. Package selection accepts a stable name or exact workspace-relative package root, with unambiguous current-directory inference.
 - Derived/concept-only and repeated removals are no-op operations. Incremental package.json authority is denied with guidance to use `tspack npm uninstall`.
 - `--dry-run` performs selection, semantic removal, tape rebuilding, and source projection without writing manifest, lock, or store state. Resolved status is reported only after a committed update or when reading unchanged no-op state. `--json` exposes the semantic fields without raw tape or AST data.
 

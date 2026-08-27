@@ -118,7 +118,8 @@ func buildMaterializationPlan(lf *lockfile.Lockfile, nmRoot string, mode LinkMod
 }
 
 func appendMaterializationPlanEntries(entries *[]materializationPlanEntry, pkgs map[string]lockfile.Package, edgesByFrom map[string][]lockfile.Edge, pkg lockfile.Package, parentNodeModules string, state *materializeState) {
-	dest, err := safePackagePath(parentNodeModules, pkg.Name)
+	installName := materializedPackageName(pkg)
+	dest, err := safePackagePath(parentNodeModules, installName)
 	if err != nil {
 		return
 	}
@@ -131,7 +132,7 @@ func appendMaterializationPlanEntries(entries *[]materializationPlanEntry, pkgs 
 	hash, _ := PackageStoreHash(pkg)
 	*entries = append(*entries, materializationPlanEntry{
 		PackageID:   pkg.ID,
-		PackageName: pkg.Name,
+		PackageName: installName,
 		PackageHash: hash,
 		Destination: filepath.ToSlash(dest),
 	})
@@ -221,7 +222,7 @@ func markerSanityCheck(nmRoot string, plan materializationPlan) bool {
 	}
 
 	for _, pkg := range plan.rootVisible {
-		dest, err := safePackagePath(nmRoot, pkg.Name)
+		dest, err := safePackagePath(nmRoot, materializedPackageName(pkg))
 		if err != nil {
 			return false
 		}
@@ -278,8 +279,9 @@ func pruneNodeModulesRoot(nmRoot string, rootVisible []lockfile.Package) error {
 	}
 	keepPackages := map[string]map[string]struct{}{}
 	for _, pkg := range rootVisible {
-		if strings.HasPrefix(pkg.Name, "@") {
-			parts := strings.Split(pkg.Name, "/")
+		installName := materializedPackageName(pkg)
+		if strings.HasPrefix(installName, "@") {
+			parts := strings.Split(installName, "/")
 			if len(parts) != 2 {
 				continue
 			}
@@ -291,7 +293,7 @@ func pruneNodeModulesRoot(nmRoot string, rootVisible []lockfile.Package) error {
 			scopePackages[parts[1]] = struct{}{}
 			continue
 		}
-		keepPackages[pkg.Name] = nil
+		keepPackages[installName] = nil
 	}
 
 	entries, err := os.ReadDir(nmRoot)
