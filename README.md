@@ -73,6 +73,9 @@ tspack help commands
 - Native xTest harness.
 - `outdated` plus declared UpdatePolicy dry-run planning.
 - `pack`, `why`, and `how` release/audit helpers.
+- Per-target compiler orchestration: ordinary tsc projects may opt a bounded
+  source set into ScriptC native-executable compilation without becoming
+  project-wide ScriptC. See [M71a ScriptC hot paths](docs/dev/m71a-scriptc-hotpath.md).
 
 ## Self-hosting
 
@@ -85,6 +88,9 @@ TSPack is self-hosted after bootstrap. The root `manifest.tsx` and `ts-lock.toml
 - Policy-driven update mutation is not implemented; `update --policy --dry-run` is read-only planning.
 - The `setup-tspack` action is release-backed and should still be validated against real published artifacts as part of release prep.
 - Homebrew, mise, npm bootstrapper, and `get.tspack.dev` distribution channels are future work.
+- ScriptC M71a uses a coarse native sidecar boundary. The measured Windows x64
+  integer kernel did not beat Node/V8, so projects must benchmark their real
+  workload; TSPack does not claim that native output is automatically faster.
 
 ## Docs
 

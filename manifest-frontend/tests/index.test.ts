@@ -671,6 +671,31 @@ export default defineWorkspace(
     });
   });
 
+  it('preserves bounded ScriptC ownership and artifact dependencies', () => {
+    const result = parseManifestFile(
+      path.join(root, 'fixtures', 'scriptc-hotpath-m71a', 'manifest.tsx'),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.ir?.packages[0]?.targets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'app',
+          compiler: 'tsc',
+          inputs: ['src/app/**'],
+          dependsOn: ['hotpath'],
+        }),
+        expect.objectContaining({
+          name: 'hotpath',
+          language: 'scriptc',
+          compiler: 'scriptc',
+          inputs: ['src/hot/**'],
+          artifact: 'nativeExecutable',
+        }),
+      ]),
+    );
+  });
+
   it('uses canonical manifest editor defaults when no overrides are supplied', () => {
     withTemporaryManifest(
       'tmp-compat-json-helper-defaults-',

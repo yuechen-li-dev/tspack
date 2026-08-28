@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -275,7 +276,11 @@ type Target struct {
 	Name              string                `json:"name"`
 	Language          string                `json:"language,omitempty"`
 	Compiler          string                `json:"compiler,omitempty"`
+	CompilerPath      string                `json:"compilerPath,omitempty"`
 	CompilerConfig    string                `json:"compilerConfig,omitempty"`
+	Inputs            []string              `json:"inputs,omitempty"`
+	DependsOn         []string              `json:"dependsOn,omitempty"`
+	Artifact          string                `json:"artifact,omitempty"`
 	Export            string                `json:"export"`
 	Entry             string                `json:"entry"`
 	Runtime           string                `json:"runtime"`
@@ -642,8 +647,8 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 		if p.Compiler == "" {
 			p.Compiler = "tsc"
 		}
-		if p.Compiler != "tsc" && p.Compiler != "tscl" {
-			add("TSPACK_MANIFEST_INVALID_COMPILER", pp+".compiler must be tsc or tscl")
+		if p.Compiler != "tsc" && p.Compiler != "tscl" && p.Compiler != "scriptc" {
+			add("TSPACK_MANIFEST_INVALID_COMPILER", pp+".compiler must be tsc, tscl, or scriptc")
 		}
 		if p.Compiler == "tscl" && strings.TrimSpace(p.CompilerPath) == "" {
 			add("TSPACK_TSCL_PATH_REQUIRED", pp+".compilerPath is required when compiler is tscl")
@@ -678,8 +683,8 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 				compiler = p.Compiler
 				p.Targets[ti].Compiler = compiler
 			}
-			if compiler != "tsc" && compiler != "tscl" {
-				add("TSPACK_MANIFEST_INVALID_COMPILER", tp+".compiler must be tsc or tscl")
+			if compiler != "tsc" && compiler != "tscl" && compiler != "scriptc" {
+				add("TSPACK_MANIFEST_INVALID_COMPILER", tp+".compiler must be tsc, tscl, or scriptc")
 			}
 			if compiler == "tscl" && strings.TrimSpace(p.CompilerPath) == "" {
 				add("TSPACK_TSCL_PATH_REQUIRED", tp+" requires package compilerPath for the Copeland tool")
@@ -687,12 +692,32 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 			if t.Language == "" {
 				if compiler == "tscl" {
 					p.Targets[ti].Language = "copeland-ts"
+				} else if compiler == "scriptc" {
+					p.Targets[ti].Language = "scriptc"
 				} else {
 					p.Targets[ti].Language = "typescript"
 				}
 			}
 			if t.CompilerConfig != "" && !pathutil.IsSafePackageFilePath(t.CompilerConfig) {
 				add("TSPACK_COMPILER_CONFIG_INVALID", tp+".compilerConfig must be a safe relative path")
+			}
+			if t.CompilerPath != "" && !filepath.IsAbs(t.CompilerPath) && !pathutil.IsSafePackageFilePath(t.CompilerPath) {
+				add("TSPACK_COMPILER_TOOL_PATH_INVALID", tp+".compilerPath must be a safe relative path")
+			}
+			for _, input := range t.Inputs {
+				if !pathutil.IsSafeRelativeGlob(input) && !pathutil.IsSafePackageFilePath(input) {
+					add("TSPACK_COMPILER_INPUT_INVALID", tp+".inputs must contain safe relative paths or globs")
+				}
+			}
+			if compiler == "scriptc" {
+				if len(t.Inputs) == 0 {
+					add("TSPACK_COMPILER_INPUTS_REQUIRED", tp+".inputs is required for a bounded ScriptC target")
+				}
+				if t.Artifact == "" {
+					p.Targets[ti].Artifact = "nativeExecutable"
+				} else if t.Artifact != "nativeExecutable" {
+					add("TSPACK_COMPILER_ARTIFACT_UNSUPPORTED", tp+".artifact must be nativeExecutable for M71a ScriptC targets")
+				}
 			}
 			if t.Name == "" || !targetNameRe.MatchString(t.Name) || strings.HasPrefix(t.Name, "/") || strings.HasSuffix(t.Name, "/") || strings.Contains(t.Name, "..") {
 				add("TSPACK_IR_INVALID_TARGET_NAME", tp+".name is invalid")
@@ -728,6 +753,24 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 				if _, ok := depKinds[ref]; !ok {
 					add("TSPACK_IR_UNKNOWN_DEPENDENCY_REF", tp+".deps has unknown dependency: "+ref)
 				}
+			}
+		}
+		inputOwners := map[string]string{}
+		for ti, target := range p.Targets {
+			tp := fmt.Sprintf("%s.targets[%d]", pp, ti)
+			for _, dependencyTarget := range target.DependsOn {
+				if _, ok := seenTarget[dependencyTarget]; !ok {
+					add("TSPACK_COMPILER_TARGET_DEPENDENCY_UNKNOWN", tp+".dependsOn has unknown target: "+dependencyTarget)
+				}
+				if dependencyTarget == target.Name {
+					add("TSPACK_COMPILER_TARGET_DEPENDENCY_CYCLE", tp+".dependsOn cannot reference itself")
+				}
+			}
+			for _, input := range target.Inputs {
+				if owner, ok := inputOwners[input]; ok && owner != target.Name {
+					add("TSPACK_COMPILER_SOURCE_OVERLAP", tp+".inputs overlaps target "+owner+" through identical pattern "+input)
+				}
+				inputOwners[input] = target.Name
 			}
 		}
 		for _, tool := range p.Tools {

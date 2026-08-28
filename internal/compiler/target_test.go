@@ -92,6 +92,28 @@ func TestCopelandAdapterRequiresVersionedPayload(t *testing.T) {
 	}
 }
 
+func TestScriptCAdapterKeepsCompilerFlagsInVersionedPayload(t *testing.T) {
+	target := testTarget()
+	target.Language.ID = "scriptc"
+	target.Compiler.ID = "scriptc"
+	target.Tool = ToolIdentity{Source: "npm", Name: "scriptc", Version: "0.0.35", Path: "/tools/scriptc"}
+	target.Outputs = []Output{{Kind: OutputNativeExecutable, Path: "dist/hotpath"}}
+	target.Payload = Payload{
+		Kind:          "scriptc-v1",
+		SchemaVersion: 1,
+		Data:          json.RawMessage(`{"entry":"src/hot/main.ts","output":"dist/hotpath","optimization":"dev"}`),
+	}
+
+	invocation, err := (ScriptCAdapter{}).PrepareInvocation(target, "/ignored/descriptor.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "build src/hot/main.ts --out dist/hotpath --no-keep-c --optimization dev"
+	if strings.Join(invocation.Arguments, " ") != want {
+		t.Fatalf("arguments=%q, want %q", strings.Join(invocation.Arguments, " "), want)
+	}
+}
+
 func testTarget() Target {
 	return Target{
 		ProjectRoot: "C:/workspace",

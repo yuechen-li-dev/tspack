@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -55,6 +56,147 @@ func (CopelandAdapter) DescribeCapabilities() []Capability {
 		CapabilityCompilerOwnedConfig,
 		CapabilityCompilerOwnedSourcePartition,
 	}
+}
+
+// ScriptCPayloadV1 is the bounded adapter payload for ScriptC's executable
+// lane. ScriptC-specific flags stay here rather than becoming generic target
+// semantics.
+type ScriptCPayloadV1 struct {
+	Entry        string   `json:"entry"`
+	Output       string   `json:"output"`
+	Dynamic      bool     `json:"dynamic,omitempty"`
+	Backend      string   `json:"backend,omitempty"`
+	Optimization string   `json:"optimization,omitempty"`
+	NPMStatic    []string `json:"npmStatic,omitempty"`
+	CC           string   `json:"cc,omitempty"`
+	Target       string   `json:"target,omitempty"`
+}
+
+type ScriptCAdapter struct{}
+
+func (ScriptCAdapter) CompilerID() string { return "scriptc" }
+
+func (ScriptCAdapter) DescribeCapabilities() []Capability {
+	return []Capability{
+		CapabilityParse,
+		CapabilityTypeCheck,
+		CapabilityEmitNative,
+		CapabilityCompilerOwnedConfig,
+		CapabilityStaticCoverage,
+		CapabilityDynamicFallback,
+	}
+}
+
+func (adapter ScriptCAdapter) ValidateTarget(target Target) error {
+	if target.Compiler.ID != adapter.CompilerID() || target.Language.ID != "scriptc" {
+		return fmt.Errorf("ScriptC adapter requires language scriptc and compiler scriptc")
+	}
+	if target.Payload.Kind != "scriptc-v1" || target.Payload.SchemaVersion != 1 {
+		return fmt.Errorf("ScriptC adapter requires scriptc-v1 payload schema 1")
+	}
+	nativeExecutables := 0
+	for _, output := range target.Outputs {
+		switch output.Kind {
+		case OutputNativeExecutable:
+			nativeExecutables++
+		case OutputCompilerMetadata:
+		default:
+			return fmt.Errorf("ScriptC M71a adapter supports nativeExecutable and compilerMetadata outputs")
+		}
+	}
+	if nativeExecutables != 1 {
+		return fmt.Errorf("ScriptC M71a adapter requires one nativeExecutable output")
+	}
+	_, err := decodeScriptCPayload(target.Payload)
+	if err != nil {
+		return err
+	}
+	return ValidateTarget(target)
+}
+
+func (adapter ScriptCAdapter) PrepareInvocation(target Target, _ string) (Invocation, error) {
+	if err := adapter.ValidateTarget(target); err != nil {
+		return Invocation{}, err
+	}
+	payload, err := decodeScriptCPayload(target.Payload)
+	if err != nil {
+		return Invocation{}, err
+	}
+	arguments := []string{"build", payload.Entry, "--out", payload.Output, "--no-keep-c"}
+	arguments = appendScriptCOptions(arguments, payload)
+	return Invocation{
+		Executable:  target.Tool.Path,
+		Arguments:   arguments,
+		Directory:   target.ProjectRoot,
+		Environment: scriptCEnvironment(payload),
+	}, nil
+}
+
+func (adapter ScriptCAdapter) PrepareCoverageInvocation(target Target) (Invocation, error) {
+	if err := adapter.ValidateTarget(target); err != nil {
+		return Invocation{}, err
+	}
+	payload, err := decodeScriptCPayload(target.Payload)
+	if err != nil {
+		return Invocation{}, err
+	}
+	arguments := appendScriptCOptions([]string{"coverage", payload.Entry}, payload)
+	return Invocation{
+		Executable:  target.Tool.Path,
+		Arguments:   arguments,
+		Directory:   target.ProjectRoot,
+		Environment: scriptCEnvironment(payload),
+	}, nil
+}
+
+func decodeScriptCPayload(payload Payload) (ScriptCPayloadV1, error) {
+	var decoded ScriptCPayloadV1
+	if err := json.Unmarshal(payload.Data, &decoded); err != nil {
+		return ScriptCPayloadV1{}, fmt.Errorf("decode ScriptC payload: %w", err)
+	}
+	if strings.TrimSpace(decoded.Entry) == "" || strings.TrimSpace(decoded.Output) == "" {
+		return ScriptCPayloadV1{}, fmt.Errorf("ScriptC payload requires entry and output")
+	}
+	if decoded.Backend != "" && decoded.Backend != "llvm" && decoded.Backend != "c" {
+		return ScriptCPayloadV1{}, fmt.Errorf("ScriptC backend must be llvm or c")
+	}
+	if decoded.Optimization != "" && decoded.Optimization != "release" && decoded.Optimization != "dev" {
+		return ScriptCPayloadV1{}, fmt.Errorf("ScriptC optimization must be release or dev")
+	}
+	if decoded.CC != "" && decoded.CC != "clang" && decoded.CC != "zigcc" {
+		return ScriptCPayloadV1{}, fmt.Errorf("ScriptC cc must be clang or zigcc")
+	}
+	if decoded.Target != "" && decoded.CC != "zigcc" {
+		return ScriptCPayloadV1{}, fmt.Errorf("ScriptC cross target requires cc zigcc")
+	}
+	return decoded, nil
+}
+
+func scriptCEnvironment(payload ScriptCPayloadV1) map[string]string {
+	environment := map[string]string{}
+	if payload.CC != "" {
+		environment["SCRIPTC_CC"] = payload.CC
+	}
+	if payload.Target != "" {
+		environment["SCRIPTC_TARGET"] = payload.Target
+	}
+	return environment
+}
+
+func appendScriptCOptions(arguments []string, payload ScriptCPayloadV1) []string {
+	if payload.Dynamic {
+		arguments = append(arguments, "--dynamic")
+	}
+	if payload.Backend != "" {
+		arguments = append(arguments, "--backend", payload.Backend)
+	}
+	if payload.Optimization != "" {
+		arguments = append(arguments, "--optimization", payload.Optimization)
+	}
+	for _, packageName := range payload.NPMStatic {
+		arguments = append(arguments, "--npm-static", packageName)
+	}
+	return arguments
 }
 
 func (adapter CopelandAdapter) ValidateTarget(target Target) error {

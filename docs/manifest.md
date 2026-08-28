@@ -146,6 +146,40 @@ export default define(
 );
 ```
 
+## Selective compiler targets
+
+A package may keep ordinary TypeScript as its default while assigning a bounded
+source set to another compiler. ScriptC M71a targets require explicit `inputs`,
+produce a `nativeExecutable`, and are consumed through an artifact dependency:
+
+```tsx
+<Targets rows={[
+  {
+    name: "app",
+    compiler: "tsc",
+    inputs: ["src/app/**"],
+    dependsOn: ["hotpath"],
+    entry: "src/app/main.ts",
+    runtime: "dist/app/main.js",
+  },
+  {
+    name: "hotpath",
+    language: "scriptc",
+    compiler: "scriptc",
+    compilerConfig: "scriptc.json",
+    inputs: ["src/hot/**"],
+    artifact: "nativeExecutable",
+    entry: "src/hot/compute.ts",
+    runtime: "dist/hotpath.exe",
+  },
+]} />
+```
+
+Input overlap and source imports across different compiler owners are errors.
+`manifest.tsx` owns which sources and artifacts participate; `scriptc.json`
+owns ScriptC-specific backend, optimization, dynamic, package-static, compiler,
+and target choices. See [M71a](dev/m71a-scriptc-hotpath.md).
+
 ## Package kinds
 
 Package `kind` is semantic classification. It is preserved in the manifest IR

@@ -48,6 +48,8 @@ const (
 	CapabilityEmitNative                   Capability = "emitNative"
 	CapabilityEmitObject                   Capability = "emitObject"
 	CapabilityEmitWasm                     Capability = "emitWasm"
+	CapabilityStaticCoverage               Capability = "staticCoverage"
+	CapabilityDynamicFallback              Capability = "dynamicFallback"
 	CapabilityIncremental                  Capability = "incremental"
 	CapabilityProjectReferences            Capability = "projectReferences"
 	CapabilitySourceMaps                   Capability = "sourceMaps"
@@ -124,9 +126,10 @@ type Adapter interface {
 }
 
 type Invocation struct {
-	Executable string
-	Arguments  []string
-	Directory  string
+	Executable  string
+	Arguments   []string
+	Directory   string
+	Environment map[string]string
 }
 
 type Descriptor struct {

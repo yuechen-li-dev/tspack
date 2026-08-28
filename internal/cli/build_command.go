@@ -85,9 +85,17 @@ func runBuildCommand(args []string) {
 		failBuild("TSPACK_BUILD_PACKAGE_NOT_FOUND", "no package matched the requested build selection")
 	}
 	for _, pkg := range packages {
-		targets := selectBuildTargets(pkg, opts.TargetName)
-		if len(targets) == 0 {
-			failBuild("TSPACK_BUILD_TARGET_NOT_FOUND", "no target matched "+opts.TargetName)
+		packageRoot := resolvePackageRoot(root, manifestPath, ir, pkg)
+		if err := validateCompilerSourceOwnership(packageRoot, pkg); err != nil {
+			failBuild("TSPACK_COMPILER_SOURCE_OWNERSHIP_INVALID", err.Error())
+		}
+		targets, err := orderBuildTargets(pkg, opts.TargetName)
+		if err != nil || len(targets) == 0 {
+			message := "no target matched " + opts.TargetName
+			if err != nil {
+				message = err.Error()
+			}
+			failBuild("TSPACK_BUILD_TARGET_NOT_FOUND", message)
 		}
 		for _, target := range targets {
 			switch target.Compiler {
@@ -97,6 +105,8 @@ func runBuildCommand(args []string) {
 				selectedPackage := *pkg
 				selectedPackage.Targets = []manifest.Target{target}
 				buildTsclPackage(root, manifestPath, ir, &selectedPackage, "", opts.PreserveLastSuccessful)
+			case "scriptc":
+				buildScriptCTarget(root, manifestPath, ir, pkg, target)
 			default:
 				failBuild("TSPACK_BUILD_UNSUPPORTED_COMPILER", "unsupported compiler for target "+pkg.Name+":"+target.Name+": "+target.Compiler)
 			}
@@ -111,7 +121,14 @@ func buildTscTarget(root string, manifestPath string, ir *manifest.ManifestIR, p
 	if _, err := os.Stat(configPath); err != nil {
 		failBuild("TSPACK_COMPILER_CONFIG_MISSING", "tsc compiler config is missing at "+configPath)
 	}
-	compilerPath := pkg.CompilerPath
+	configRef, err := projectTSCConfig(packageRoot, pkg, target, configRef)
+	if err != nil {
+		failBuild("TSPACK_COMPILER_CONFIG_PROJECTION_FAILED", err.Error())
+	}
+	compilerPath := target.CompilerPath
+	if compilerPath == "" {
+		compilerPath = pkg.CompilerPath
+	}
 	if compilerPath == "" {
 		compilerPath = filepath.Join(root, "node_modules", ".bin", "tsc")
 		if os.PathSeparator == '\\' {
@@ -133,7 +150,7 @@ func buildTscTarget(root string, manifestPath string, ir *manifest.ManifestIR, p
 	if _, err := os.Stat(entryPath); err != nil {
 		failBuild("TSPACK_COMPILER_SOURCE_MISSING", err.Error())
 	}
-	sources, err := collectTypeScriptSources(packageRoot)
+	sources, err := collectTSCInputs(packageRoot, pkg, target)
 	if err != nil {
 		failBuild("TSPACK_COMPILER_SOURCE_MISSING", err.Error())
 	}
@@ -151,15 +168,10 @@ func buildTscTarget(root string, manifestPath string, ir *manifest.ManifestIR, p
 		Capabilities: adapter.DescribeCapabilities(),
 	}
 	for _, source := range sources {
-		contents, readErr := os.ReadFile(source.Path)
-		if readErr != nil {
-			failBuild("TSPACK_COMPILER_SOURCE_MISSING", readErr.Error())
-		}
-		sourceHash := sha256.Sum256(contents)
 		compilerTarget.Inputs = append(compilerTarget.Inputs, compilerir.Input{
 			LogicalPath: source.LogicalPath,
 			Path:        source.Path,
-			Fingerprint: hex.EncodeToString(sourceHash[:]),
+			Fingerprint: source.Fingerprint,
 		})
 	}
 	descriptor, err := compilerir.NewDescriptor(compilerTarget)
@@ -247,7 +259,13 @@ func selectBuildPackages(ir *manifest.ManifestIR, packageName string) []*manifes
 
 func buildTsclPackage(root string, manifestPath string, ir *manifest.ManifestIR, pkg *manifest.Package, requestedTarget string, preserveLastSuccessful bool) {
 	packageRoot := resolvePackageRoot(root, manifestPath, ir, pkg)
-	compilerPath := pkg.CompilerPath
+	compilerPath := ""
+	if len(pkg.Targets) == 1 {
+		compilerPath = pkg.Targets[0].CompilerPath
+	}
+	if compilerPath == "" {
+		compilerPath = pkg.CompilerPath
+	}
 	if !filepath.IsAbs(compilerPath) {
 		compilerPath = filepath.Join(packageRoot, compilerPath)
 	}

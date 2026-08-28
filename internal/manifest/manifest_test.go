@@ -132,6 +132,18 @@ func TestCompilerSelectionCanVaryByTarget(t *testing.T) {
 	}
 }
 
+func TestScriptCTargetRequiresBoundedInputsAndDefaultsNativeArtifact(t *testing.T) {
+	contents := []byte(`{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"app","version":"1.0.0","kind":"app","dependencies":[],"targets":[{"name":"hot","compiler":"scriptc","compilerConfig":"scriptc.json","inputs":["src/hot/**"],"export":"./hot","entry":"src/hot/main.ts","runtime":"dist/hot.exe","types":"","peers":[],"deps":[]}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":[],"exclude":[]}}]}`)
+	ir, diagnostics := LoadBytes("scriptc.json", contents)
+	if len(diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+	target := ir.Packages[0].Targets[0]
+	if target.Language != "scriptc" || target.Artifact != "nativeExecutable" {
+		t.Fatalf("unexpected ScriptC defaults: %#v", target)
+	}
+}
+
 func TestRootCompatOnlyManifestValidates(t *testing.T) {
 	_, diags := LoadBytes("x.json", []byte(`{"format":1,"workspace":{"name":"mono"},"compatFiles":[{"format":"json","path":"tsconfig.tspack.json","value":{}}],"packages":[]}`))
 	if len(diags) != 0 {
