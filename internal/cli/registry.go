@@ -32,4 +32,5 @@ var commandHandlers = map[string]func([]string){
 	"test":             runTestCommand,
 	"update":           runUpdateCommand,
 	"why":              runWhyCommand,
+	"workflow":         runWorkflowCommand,
 }

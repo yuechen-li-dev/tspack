@@ -26,6 +26,52 @@ type ManifestIR struct {
 	RegistryPolicy RegistryPolicy `json:"registryPolicy,omitempty"`
 	Packages       []Package      `json:"packages"`
 	CompatFiles    []CompatFile   `json:"compatFiles,omitempty"`
+	Workflows      []Workflow     `json:"workflows,omitempty"`
+}
+
+type Workflow struct {
+	Identity string            `json:"identity"`
+	Triggers []WorkflowTrigger `json:"triggers"`
+	Jobs     []WorkflowJob     `json:"jobs"`
+}
+
+type WorkflowTrigger struct {
+	Kind     string   `json:"kind"`
+	Branches []string `json:"branches,omitempty"`
+	Paths    []string `json:"paths,omitempty"`
+}
+
+type WorkflowJob struct {
+	Identity string                `json:"identity"`
+	Needs    []string              `json:"needs,omitempty"`
+	RunsOn   string                `json:"runsOn,omitempty"`
+	Matrix   map[string][]any      `json:"matrix,omitempty"`
+	Env      []WorkflowEnvironment `json:"env,omitempty"`
+	Steps    []WorkflowStep        `json:"steps"`
+}
+
+type WorkflowStep struct {
+	Name           string                `json:"name,omitempty"`
+	Operation      string                `json:"operation"`
+	Packages       []string              `json:"packages,omitempty"`
+	Command        []string              `json:"command,omitempty"`
+	Script         string                `json:"script,omitempty"`
+	Shell          string                `json:"shell,omitempty"`
+	Cwd            string                `json:"cwd,omitempty"`
+	Capabilities   []string              `json:"capabilities,omitempty"`
+	Env            []WorkflowEnvironment `json:"env,omitempty"`
+	TimeoutSeconds int                   `json:"timeoutSeconds,omitempty"`
+}
+
+type WorkflowEnvironment struct {
+	Name  string        `json:"name"`
+	Value WorkflowValue `json:"value"`
+}
+
+type WorkflowValue struct {
+	Kind  string `json:"kind"`
+	Value string `json:"value,omitempty"`
+	Name  string `json:"name,omitempty"`
 }
 
 type RegistryPolicy struct {
@@ -531,6 +577,7 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 		add("TSPACK_IR_NO_PACKAGES", "at least one package or root compatibility declaration is required")
 	}
 	validateRegistryPolicy(add, ir.RegistryPolicy)
+	validateWorkflows(add, ir)
 
 	seenCompatPaths := map[string]struct{}{}
 	for index, compatFile := range ir.CompatFiles {

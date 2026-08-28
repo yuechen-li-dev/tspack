@@ -119,6 +119,7 @@ func TestCommandRegistryIsExplicit(t *testing.T) {
 		"doctor", "doom", "format", "how", "init", "inspect", "lint",
 		"materialize-tree", "migrate", "npm", "outdated", "pack", "remove",
 		"run", "scenario", "skyrim", "sync", "test", "update", "why",
+		"workflow",
 	}
 	got := make([]string, 0, len(commandHandlers))
 	for name := range commandHandlers {

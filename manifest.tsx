@@ -1,14 +1,23 @@
 // biome-ignore assist/source/organizeImports: Manifest imports are organized by TSPack and should not be auto-organized by IDEs or formatters.
 import {
 	CompatFiles,
+	Check,
+	CurrentHost,
+	Job,
 	JsonFile,
+	Manual,
 	Package,
+	Process,
+	PullRequest,
+	Push,
 	RunTargets,
 	Security,
 	TsConfig,
 	Tools,
 	UpdatePolicy,
 	VSCode,
+	Workflow,
+	Workflows,
 	Workspace,
 	define,
 	defineDeps,
@@ -68,6 +77,55 @@ export default define(
 			/>
 			<JsonFile path=".vscode/extensions.json" value={VSCode.extensions()} />
 		</CompatFiles>
+		<Workflows
+			rows={[
+				Workflow("CI", {
+					triggers: [
+						Manual(),
+						Push({ branches: ["main"] }),
+						PullRequest({
+							paths: ["cmd/**", "internal/**", "manifest-frontend/**", "manifest.tsx"],
+						}),
+					],
+					jobs: [
+						Job("validate", {
+							runsOn: CurrentHost(),
+							steps: [Check()],
+						}),
+						Job("workflow-tests", {
+							needs: ["validate"],
+							runsOn: CurrentHost(),
+							steps: [
+								Process("Go workflow tests", {
+									command: ["go", "test", "./internal/workflow", "./internal/manifest"],
+									cwd: "workspace",
+									capabilities: ["process", "workspaceRead", "workspaceWrite"],
+								}),
+							],
+						}),
+						Job("manifest-frontend-tests", {
+							needs: ["validate"],
+							runsOn: CurrentHost(),
+							steps: [
+								Process("Manifest workflow tests", {
+									command: [
+										"npm",
+										"--prefix",
+										"manifest-frontend",
+										"test",
+										"--",
+										"--run",
+										"src/index.test.ts",
+									],
+									cwd: "workspace",
+									capabilities: ["process", "workspaceRead", "workspaceWrite"],
+								}),
+							],
+						}),
+					],
+				}),
+			]}
+		/>
 		<Security
 			acknowledgedLifecycleCategories={[
 				{
@@ -139,7 +197,11 @@ export default define(
 					{
 						name: "go-test",
 						runtime: "system",
-						command: ["sh", "-c", "go test ./cmd/... ./internal/... ./tools/... && echo TSPACK_READY"],
+						command: [
+							"sh",
+							"-c",
+							"go test ./cmd/... ./internal/... ./tools/... && echo TSPACK_READY",
+						],
 						url: "",
 						cwd: "workspace",
 						ready: { kind: "stdout-match", pattern: "TSPACK_READY", stream: "stdout" },

@@ -782,3 +782,41 @@ func TestRunTargetURLAllowsEnvPlaceholders(t *testing.T) {
 		t.Fatalf("expected invalid placeholder URL diagnostic, got %#v", diags)
 	}
 }
+
+func TestWorkflowValidationRejectsUnknownNeedsCyclesAndUnsafeEffects(t *testing.T) {
+	base := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"app","version":"1.0.0","kind":"app","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":[],"exclude":[]}}],"workflows":[%s]}`
+	cases := []struct {
+		name     string
+		workflow string
+		code     string
+	}{
+		{
+			name:     "unknown dependency",
+			workflow: `{"identity":"CI","triggers":[{"kind":"push"}],"jobs":[{"identity":"test","needs":["missing"],"steps":[{"operation":"check"}]}]}`,
+			code:     "TSPACK_WORKFLOW_JOB_DEPENDENCY_UNKNOWN",
+		},
+		{
+			name:     "cycle",
+			workflow: `{"identity":"CI","triggers":[{"kind":"manual"}],"jobs":[{"identity":"one","needs":["two"],"steps":[{"operation":"check"}]},{"identity":"two","needs":["one"],"steps":[{"operation":"sync"}]}]}`,
+			code:     "TSPACK_WORKFLOW_JOB_DEPENDENCY_CYCLE",
+		},
+		{
+			name:     "empty argv",
+			workflow: `{"identity":"CI","triggers":[{"kind":"push"}],"jobs":[{"identity":"test","steps":[{"operation":"process","name":"bad","command":[]}]}]}`,
+			code:     "TSPACK_WORKFLOW_PROCESS_COMMAND_REQUIRED",
+		},
+		{
+			name:     "secret value",
+			workflow: `{"identity":"CI","triggers":[{"kind":"push"}],"jobs":[{"identity":"test","steps":[{"operation":"process","name":"bad","command":["tool"],"env":[{"name":"TOKEN","value":{"kind":"secret","name":"CI_TOKEN","value":"leak"}}]}]}]}`,
+			code:     "TSPACK_WORKFLOW_SECRET_REFERENCE_INVALID",
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, diagnostics := LoadBytes("manifest.json", []byte(fmt.Sprintf(base, testCase.workflow)))
+			if !hasDiagnosticCode(diagnostics, testCase.code) {
+				t.Fatalf("expected %s, got %#v", testCase.code, diagnostics)
+			}
+		})
+	}
+}

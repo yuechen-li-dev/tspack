@@ -365,6 +365,50 @@ declare module 'tspack/manifest' {
     rows: RunTargetRow[];
   };
 
+  export type WorkflowPlatform = 'linux' | 'windows' | 'macos' | 'currentHost';
+  export type WorkflowTriggerFilter = { branches?: string[]; paths?: string[] };
+  export type WorkflowTrigger = { kind: 'manual' | 'push' | 'pullRequest'; branches?: string[]; paths?: string[] };
+  export type WorkflowValue =
+    | { kind: 'plain'; value: string }
+    | { kind: 'secret'; name: string };
+  export type WorkflowEnvRow = { name: string; value: WorkflowValue };
+  export type WorkflowStepOptions = {
+    name?: string;
+    packages?: string[];
+    env?: WorkflowEnvRow[];
+    timeoutSeconds?: number;
+  };
+  export type WorkflowProcessStepOptions = WorkflowStepOptions & {
+    command: string[];
+    cwd?: 'workspace' | `package:${string}`;
+    capabilities?: Array<'network' | 'workspaceRead' | 'workspaceWrite' | 'environment' | 'secrets' | 'process'>;
+  };
+  export type WorkflowShellStepOptions = WorkflowStepOptions & {
+    script: string;
+    shell?: 'sh' | 'powershell';
+    cwd?: 'workspace' | `package:${string}`;
+    capabilities?: Array<'network' | 'workspaceRead' | 'workspaceWrite' | 'environment' | 'secrets' | 'process'>;
+  };
+  export type WorkflowStep =
+    | (WorkflowStepOptions & { operation: 'sync' | 'check' | 'pack' })
+    | (WorkflowProcessStepOptions & { operation: 'process' })
+    | (WorkflowShellStepOptions & { operation: 'shellScript' });
+  export type WorkflowMatrixValue = string | number | boolean | WorkflowPlatform;
+  export type WorkflowJob = {
+    identity: string;
+    needs?: string[];
+    runsOn?: WorkflowPlatform;
+    matrix?: Record<string, WorkflowMatrixValue[]>;
+    env?: WorkflowEnvRow[];
+    steps: WorkflowStep[];
+  };
+  export type WorkflowDeclaration = {
+    identity: string;
+    triggers: WorkflowTrigger[];
+    jobs: WorkflowJob[];
+  };
+  export type WorkflowsProps = { rows: WorkflowDeclaration[] };
+
   export type SkyrimAssetPack = {
     name: string;
     source: string;
@@ -505,6 +549,23 @@ declare module 'tspack/manifest' {
   export function tool(source: DependencySource, options?: DependencyOptions): ToolIntent;
   export function Env(name: string, options?: Omit<RunTargetEnvRow, 'name'>): RunTargetEnvRow;
   export function Service(name: string, options?: Omit<RunTargetServiceRequirementRow, 'name' | 'kind'>): RunTargetServiceRequirementRow;
+  export function Workflow(identity: string, options: Omit<WorkflowDeclaration, 'identity'>): WorkflowDeclaration;
+  export function Job(identity: string, options: Omit<WorkflowJob, 'identity'>): WorkflowJob;
+  export function Manual(options?: WorkflowTriggerFilter): WorkflowTrigger;
+  export function Push(options?: WorkflowTriggerFilter): WorkflowTrigger;
+  export function PullRequest(options?: WorkflowTriggerFilter): WorkflowTrigger;
+  export function Linux(): WorkflowPlatform;
+  export function Windows(): WorkflowPlatform;
+  export function MacOS(): WorkflowPlatform;
+  export function CurrentHost(): WorkflowPlatform;
+  export function Sync(options?: WorkflowStepOptions): WorkflowStep;
+  export function Check(options?: WorkflowStepOptions): WorkflowStep;
+  export function Pack(options?: WorkflowStepOptions): WorkflowStep;
+  export function Process(name: string, options: WorkflowProcessStepOptions): WorkflowStep;
+  export function ShellScript(name: string, options: WorkflowShellStepOptions): WorkflowStep;
+  export function Plain(value: string): WorkflowValue;
+  export function Secret(name: string): WorkflowValue;
+  export function WorkflowEnv(name: string, value: WorkflowValue): WorkflowEnvRow;
   export function json<T extends JSONValue>(value: T): T;
 
   export const TsConfig: {
@@ -523,6 +584,7 @@ declare module 'tspack/manifest' {
   export const Policies: ManifestComponent<PoliciesProps>;
   export const Targets: ManifestComponent<TargetsProps>;
   export const RunTargets: ManifestComponent<RunTargetsProps>;
+  export const Workflows: ManifestComponent<WorkflowsProps>;
   export const SkyrimTarget: ManifestComponent<SkyrimTargetProps>;
   export const Tools: ManifestComponent<ToolsProps>;
   export const Boundaries: ManifestComponent<BoundariesProps>;

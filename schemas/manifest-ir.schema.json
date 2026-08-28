@@ -225,6 +225,101 @@
         },
         "additionalProperties": true
       }
+    },
+    "workflows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["identity", "triggers", "jobs"],
+        "properties": {
+          "identity": { "type": "string" },
+          "triggers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["kind"],
+              "properties": {
+                "kind": { "enum": ["manual", "push", "pullRequest"] },
+                "branches": { "type": "array", "items": { "type": "string" } },
+                "paths": { "type": "array", "items": { "type": "string" } }
+              },
+              "additionalProperties": false
+            }
+          },
+          "jobs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["identity", "steps"],
+              "properties": {
+                "identity": { "type": "string" },
+                "needs": { "type": "array", "items": { "type": "string" } },
+                "runsOn": { "enum": ["linux", "windows", "macos", "currentHost"] },
+                "matrix": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "type": ["string", "number", "boolean"] }
+                  }
+                },
+                "env": { "$ref": "#/$defs/workflowEnvironment" },
+                "steps": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["operation"],
+                    "properties": {
+                      "name": { "type": "string" },
+                      "operation": { "enum": ["sync", "check", "pack", "process", "shellScript"] },
+                      "packages": { "type": "array", "items": { "type": "string" } },
+                      "command": { "type": "array", "items": { "type": "string" } },
+                      "script": { "type": "string" },
+                      "shell": { "enum": ["sh", "powershell"] },
+                      "cwd": { "type": "string" },
+                      "capabilities": { "type": "array", "items": { "type": "string" } },
+                      "env": { "$ref": "#/$defs/workflowEnvironment" },
+                      "timeoutSeconds": { "type": "integer", "minimum": 1 }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "workflowEnvironment": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "value"],
+        "properties": {
+          "name": { "type": "string" },
+          "value": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["kind", "value"],
+                "properties": { "kind": { "const": "plain" }, "value": { "type": "string" } },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["kind", "name"],
+                "properties": { "kind": { "const": "secret" }, "name": { "type": "string" } },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
     }
   },
   "additionalProperties": false

@@ -26,6 +26,7 @@ export type ManifestIr = {
   compatFiles?: Array<Record<string, unknown>>;
   packages: Array<Record<string, unknown>>;
   packageAnnotations?: Array<Record<string, unknown>>;
+  workflows?: Array<Record<string, unknown>>;
 };
 
 type RuntimeProfile = 'nodejs' | 'bun' | 'deno';
@@ -83,8 +84,8 @@ export type DependencySourceAnalysis = {
 };
 
 const ALLOWED_IMPORT = 'tspack/manifest';
-const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'annotatePackage', 'defineDeps', 'npm', 'jsr', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service', 'json']);
-const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'PackageAnnotations', 'Policies', 'Targets', 'RunTargets', 'SkyrimTarget', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy', 'RegistryPolicy', 'RegistrySource', 'CompatFiles', 'JsonFile']);
+const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'annotatePackage', 'defineDeps', 'npm', 'jsr', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service', 'json', 'Workflow', 'Job', 'Manual', 'Push', 'PullRequest', 'Linux', 'Windows', 'MacOS', 'CurrentHost', 'Sync', 'Check', 'Pack', 'Process', 'ShellScript', 'Plain', 'Secret', 'WorkflowEnv']);
+const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'PackageAnnotations', 'Policies', 'Targets', 'RunTargets', 'Workflows', 'SkyrimTarget', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy', 'RegistryPolicy', 'RegistrySource', 'CompatFiles', 'JsonFile']);
 const APPROVED_PROPERTY_HELPERS = new Set(['TsConfig.manifestEditor', 'VSCode.settings', 'VSCode.extensions']);
 const DEFAULT_MANIFEST_EDITOR_INCLUDE = [
   'manifest.tsx',
@@ -323,6 +324,23 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
     if (name === 'workspace') return { kind: 'workspace', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'Env') return { name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'Service') return { kind: 'service', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
+    if (name === 'Workflow') return { identity: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
+    if (name === 'Job') return { identity: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
+    if (name === 'Manual' || name === 'Push' || name === 'PullRequest') {
+      const kind = name === 'Manual' ? 'manual' : name === 'Push' ? 'push' : 'pullRequest';
+      return { kind, ...(typeof args[0] === 'object' ? (args[0] as object) : {}) };
+    }
+    if (name === 'Linux' || name === 'Windows' || name === 'MacOS' || name === 'CurrentHost') {
+      return name === 'MacOS' ? 'macos' : name === 'CurrentHost' ? 'currentHost' : name.toLowerCase();
+    }
+    if (name === 'Sync' || name === 'Check' || name === 'Pack') {
+      return { operation: name.toLowerCase(), ...(typeof args[0] === 'object' ? (args[0] as object) : {}) };
+    }
+    if (name === 'Process') return { operation: 'process', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
+    if (name === 'ShellScript') return { operation: 'shellScript', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
+    if (name === 'Plain') return { kind: 'plain', value: args[0] };
+    if (name === 'Secret') return { kind: 'secret', name: args[0] };
+    if (name === 'WorkflowEnv') return { name: args[0], value: args[1] };
     if (name === 'json') return args[0];
     if (name === 'TsConfig.manifestEditor') return manifestEditorTsConfig(args[0], diags, file);
     if (name === 'VSCode.settings') return buildVSCodeSettings(args[0], diags, file);
@@ -798,6 +816,7 @@ function jsxToRootDoc(root: unknown, diags: Diagnostic[], file: string): Interna
   const updatePolicyNode = children.find((c: any) => c.__tag === 'UpdatePolicy');
   const registryPolicyNode = children.find((c: any) => c.__tag === 'RegistryPolicy');
   const compatFilesNode = children.find((c: any) => c.__tag === 'CompatFiles');
+  const workflowsNode = children.find((c: any) => c.__tag === 'Workflows');
   const baseIr = {
     format: 1 as const,
     workspace: { name: r?.name ?? 'workspace', runtime: runtimeProfile(r?.runtime, diags, file) },
@@ -805,6 +824,7 @@ function jsxToRootDoc(root: unknown, diags: Diagnostic[], file: string): Interna
     ...(updatePolicyNode ? { updatePolicy: mapUpdatePolicy(updatePolicyNode) } : {}),
     ...(registryPolicyNode ? { registryPolicy: mapRegistryPolicy(registryPolicyNode) } : {}),
     ...(compatFilesNode ? { compatFiles: mapCompatFiles(compatFilesNode, diags, file) } : {}),
+    ...(workflowsNode ? { workflows: workflowsNode.rows ?? [] } : {}),
   };
   if (packagesNode && inlinePackages.length > 0) {
     return { mode: 'split', ir: { ...baseIr, packages: [] }, rows: [] };

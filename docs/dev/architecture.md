@@ -21,6 +21,7 @@ the project history.
 | `internal/authoring` | Dependency authoring declarations, provenance, ordered tape, effective projection, and pure edit semantics | core domain |
 | `internal/manifestedit` | Syntax-qualified owned dependency islands, deterministic dependency rendering, and source-edit planning over M69a semantic edits | core domain + manifest frontend boundary |
 | `internal/manifest`, `manifesttypes` | Normalized manifest IR and the small public declaration type vocabulary | core domain |
+| `internal/workflow` | Provider-neutral workflow planning, bounded local execution, structured events, and narrow provider adapters | application/runtime |
 | `internal/graph`, `projectir`, `ecosystem` | Semantic workspace/dependency models and ecosystem-neutral project evidence | core domain |
 | `internal/requirements` | SSA-like dependency-intent IR, shared-slot precedence, shadowing, and compatibility classification | core domain |
 | `internal/resolver`, `lockfile` | Version resolution and deterministic selected/requirement lock truth | core domain + infrastructure boundary |

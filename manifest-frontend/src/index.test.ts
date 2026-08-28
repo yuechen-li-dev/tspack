@@ -139,3 +139,58 @@ describe('JSR dependency source', () => {
     ]);
   });
 });
+
+describe('workflow declarations', () => {
+  it('normalizes semantic workflow intent without evaluating effects', () => {
+    const manifestPath = writeFixture('manifest.tsx', `
+      import { Check, CurrentHost, Job, Package, Process, PullRequest, Push, Secret, Sync, Workflow, WorkflowEnv, Workflows, Workspace, define } from "tspack/manifest";
+      export default define(
+        <Workspace name="demo">
+          <Workflows rows={[
+            Workflow("CI", {
+              triggers: [Push({ branches: ["main"] }), PullRequest({ paths: ["src/**"] })],
+              jobs: [Job("test", {
+                runsOn: CurrentHost(),
+                steps: [
+                  Sync(),
+                  Check(),
+                  Process("verify", {
+                    command: ["node", "--version"],
+                    cwd: "workspace",
+                    env: [WorkflowEnv("TOKEN", Secret("CI_TOKEN"))],
+                    capabilities: ["process", "workspaceRead", "environment", "secrets"],
+                  }),
+                ],
+              })],
+            }),
+          ]} />
+          <Package name="app" version="1.0.0" kind="app" />
+        </Workspace>,
+      );
+    `);
+
+    const result = parseWorkspace(manifestPath);
+
+    expect(result.ok).toBe(true);
+    expect(result.ir?.workflows).toEqual([
+      expect.objectContaining({
+        identity: 'CI',
+        triggers: [
+          { branches: ['main'], kind: 'push' },
+          { kind: 'pullRequest', paths: ['src/**'] },
+        ],
+        jobs: [
+          expect.objectContaining({
+            identity: 'test',
+            runsOn: 'currentHost',
+            steps: expect.arrayContaining([
+              { operation: 'sync' },
+              { operation: 'check' },
+              expect.objectContaining({ operation: 'process', command: ['node', '--version'] }),
+            ]),
+          }),
+        ],
+      }),
+    ]);
+  });
+});

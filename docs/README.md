@@ -24,6 +24,7 @@
 - [Update, outdated, and UpdatePolicy](update.md)
 - [Performance harness and profiling](performance.md)
 - [Run targets](run.md)
+- [Typed workflows](workflows.md)
 - [Check and format](check.md)
 - [Format and lint backend](format-lint.md)
 - [Diagnostics](diagnostics.md)
