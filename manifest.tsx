@@ -1,19 +1,20 @@
 // biome-ignore assist/source/organizeImports: Manifest imports are organized by TSPack and should not be auto-organized by IDEs or formatters.
 import {
 	Audit,
+	Branch,
 	Build,
 	Check,
 	CompatFiles,
-	CurrentHost,
-	Job,
 	JsonFile,
 	Manual,
 	Package,
+	Parallel,
 	Process,
 	PullRequest,
 	Push,
 	RunTargets,
 	Security,
+	Sequence,
 	Sync,
 	Test,
 	TsConfig,
@@ -91,26 +92,23 @@ export default define(
 							paths: ["cmd/**", "internal/**", "manifest-frontend/**", "manifest.tsx"],
 						}),
 					],
-					jobs: [
-						Job("validate", {
-							runsOn: CurrentHost(),
-							steps: [Sync(), Check(), Test(), Build(), Audit()],
-						}),
-						Job("workflow-tests", {
-							needs: ["validate"],
-							runsOn: CurrentHost(),
-							steps: [
+					flow: Sequence(
+						Sync(),
+						Check(),
+						Test(),
+						Build(),
+						Audit(),
+						Parallel(
+							Branch(
+								"workflow-tests",
 								Process("Go workflow tests", {
 									command: ["go", "test", "./internal/workflow", "./internal/manifest"],
 									cwd: "workspace",
 									capabilities: ["process", "workspaceRead", "workspaceWrite"],
 								}),
-							],
-						}),
-						Job("manifest-frontend-tests", {
-							needs: ["validate"],
-							runsOn: CurrentHost(),
-							steps: [
+							),
+							Branch(
+								"manifest-frontend-tests",
 								Process("Manifest workflow tests", {
 									command: [
 										"npm",
@@ -124,9 +122,9 @@ export default define(
 									cwd: "workspace",
 									capabilities: ["process", "workspaceRead", "workspaceWrite"],
 								}),
-							],
-						}),
-					],
+							),
+						),
+					),
 				}),
 			]}
 		/>

@@ -50,5 +50,9 @@ describe('manifest API type surface', () => {
     expect(result.output).toContain("Property 'path' is missing");
     expect(result.output).toContain("Property 'value' is missing");
     expect(result.output).toContain("Type '() => string' is not assignable to type 'JSONValue'");
+    expect(result.output).toContain("Property 'passed' does not exist on type 'WorkflowBuildEffect'");
+    expect(result.output).toContain("Property 'artifacts' does not exist on type 'WorkflowTestEffect'");
+    expect(result.output).toContain("Property 'targets' does not exist on type 'WorkflowAuditEffect'");
+    expect(result.output).toContain("missing the following properties from type 'WorkflowMatchArms<WorkflowBuildEffect>': cancelled, timedOut");
   });
 });

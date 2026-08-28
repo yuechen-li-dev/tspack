@@ -141,6 +141,121 @@ describe('JSR dependency source', () => {
 });
 
 describe('workflow declarations', () => {
+  it('builds inert programming-language-shaped flow declarations', () => {
+    const manifestPath = writeFixture('manifest.tsx', `
+      import { Audit, Branch, Build, Check, Parallel, PullRequest, Sequence, Sync, Test, Workflow, Workflows, Workspace, define } from "tspack/manifest";
+      export default define(
+        <Workspace name="demo">
+          <Workflows rows={[
+            Workflow("CI", {
+              triggers: [PullRequest()],
+              flow: Sequence(
+                Sync(),
+                Check(),
+                Parallel(
+                  Branch("test", Test()),
+                  Branch("build", Build()),
+                ),
+                Audit(),
+              ),
+            }),
+          ]} />
+        </Workspace>,
+      );
+    `);
+
+    const result = parseWorkspace(manifestPath);
+
+    expect(result.ok).toBe(true);
+    expect(result.ir?.workflows?.[0]).toEqual(expect.objectContaining({
+      identity: 'CI',
+      flow: {
+        kind: 'sequence',
+        children: [
+          { kind: 'effect', effect: expect.objectContaining({ operation: 'sync' }) },
+          { kind: 'effect', effect: expect.objectContaining({ operation: 'check' }) },
+          {
+            kind: 'parallel',
+            children: [
+              { kind: 'branch', identity: 'test', children: [{ kind: 'effect', effect: expect.objectContaining({ operation: 'test' }) }] },
+              { kind: 'branch', identity: 'build', children: [{ kind: 'effect', effect: expect.objectContaining({ operation: 'build' }) }] },
+            ],
+          },
+          { kind: 'effect', effect: expect.objectContaining({ operation: 'audit' }) },
+        ],
+      },
+    }));
+  });
+
+  it('lowers typed values, exhaustive matching, cleanup, and finite fan-out as inert data', () => {
+    const manifestPath = writeFixture('manifest.tsx', `
+      import { Audit, Build, CurrentHost, Finally, ForEach, Linux, MatchResult, Pack, Sequence, Test, Windows, Workflow, Workflows, Workspace, define, On } from "tspack/manifest";
+      const build = Build();
+      export default define(
+        <Workspace name="demo">
+          <Workflows rows={[
+            Workflow("M77", {
+              triggers: [],
+              flow: Sequence(
+                build,
+                MatchResult(build, {
+                  succeeded: result => Pack(result.artifacts),
+                  failed: () => Audit(),
+                  cancelled: () => Audit(),
+                  timedOut: () => Audit(),
+                }),
+                Finally(Test(), Audit()),
+                ForEach("platform", [Linux(), Windows(), CurrentHost()], platform => On(platform, Test())),
+              ),
+            }),
+          ]} />
+        </Workspace>,
+      );
+    `);
+
+    const result = parseWorkspace(manifestPath);
+
+    expect(result.ok).toBe(true);
+    const flow = result.ir?.workflows?.[0]?.flow as Record<string, any>;
+    const match = flow.children[1];
+    expect(match.kind).toBe('match');
+    expect(match.arms.map((arm: Record<string, unknown>) => arm.kind)).toEqual(['succeeded', 'failed', 'cancelled', 'timedOut']);
+    expect(match.arms[0].flow.effect.inputs[0]).toEqual(expect.objectContaining({ fieldPath: ['artifacts'], category: 'artifactReference' }));
+    expect(flow.children[2]).toEqual(expect.objectContaining({ kind: 'finally' }));
+    expect(flow.children[3]).toEqual(expect.objectContaining({
+      kind: 'forEach',
+      identity: 'platform',
+      items: expect.arrayContaining([expect.objectContaining({
+        index: 0,
+        value: { kind: 'platform', string: 'linux' },
+      })]),
+    }));
+  });
+
+  it('diagnoses non-exhaustive matching before Flow lowering', () => {
+    const manifestPath = writeFixture('manifest.tsx', `
+      import { Audit, Build, MatchResult, Workflow, Workflows, Workspace, define } from "tspack/manifest";
+      export default define(
+        <Workspace name="demo">
+          <Workflows rows={[
+            Workflow("Invalid", {
+              triggers: [],
+              flow: MatchResult(Build(), {
+                succeeded: () => Audit(),
+                failed: () => Audit(),
+              }),
+            }),
+          ]} />
+        </Workspace>,
+      );
+    `);
+
+    const result = parseWorkspace(manifestPath);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map(diagnostic => diagnostic.code)).toContain('TSPACK_WORKFLOW_MATCH_NON_EXHAUSTIVE');
+  });
+
   it('normalizes semantic workflow intent without evaluating effects', () => {
     const manifestPath = writeFixture('manifest.tsx', `
       import { Audit, Build, Check, CurrentHost, Job, Package, Process, PullRequest, Push, Secret, Sync, Test, Workflow, WorkflowEnv, Workflows, Workspace, define } from "tspack/manifest";
@@ -187,11 +302,11 @@ describe('workflow declarations', () => {
             identity: 'test',
             runsOn: 'currentHost',
             steps: expect.arrayContaining([
-              { operation: 'sync' },
-              { operation: 'check' },
-              { operation: 'test', filter: 'unit' },
-              { operation: 'build', packages: ['app'], targets: ['browser'] },
-              { operation: 'audit', auditLevel: 'high', requireCoverage: true },
+              expect.objectContaining({ operation: 'sync' }),
+              expect.objectContaining({ operation: 'check' }),
+              expect.objectContaining({ operation: 'test', filter: 'unit' }),
+              expect.objectContaining({ operation: 'build', packages: ['app'], targets: ['browser'] }),
+              expect.objectContaining({ operation: 'audit', auditLevel: 'high', requireCoverage: true }),
               expect.objectContaining({ operation: 'process', command: ['node', '--version'] }),
             ]),
           }),

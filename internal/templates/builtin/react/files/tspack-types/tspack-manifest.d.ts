@@ -402,6 +402,87 @@ declare module 'tspack/manifest' {
     | (WorkflowAuditStepOptions & { operation: 'audit' })
     | (WorkflowProcessStepOptions & { operation: 'process' })
     | (WorkflowShellStepOptions & { operation: 'shellScript' });
+  export type WorkflowValueCategory = 'control' | 'smallSerialized' | 'artifactReference' | 'regionLocal' | 'placement';
+  export type WorkflowValueRef<T, Category extends WorkflowValueCategory = WorkflowValueCategory> = {
+    readonly __workflowValueType?: T;
+    readonly __workflowValueCategory?: Category;
+  };
+  export type WorkflowDiagnostic = {
+    code: string;
+    severity: 'info' | 'warning' | 'error';
+    message: string;
+  };
+  export type WorkflowBuildArtifact = { package: string; target: string; kind: string; path: string };
+  export type WorkflowBuildTarget = {
+    package: string;
+    target: string;
+    compiler: string;
+    succeeded: boolean;
+    artifacts: WorkflowBuildArtifact[];
+    diagnostics: WorkflowDiagnostic[];
+  };
+  export type WorkflowBuildResultRef = {
+    artifacts: WorkflowValueRef<WorkflowBuildArtifact[], 'artifactReference'>;
+    targets: WorkflowValueRef<WorkflowBuildTarget[], 'smallSerialized'>;
+    diagnostics: WorkflowValueRef<WorkflowDiagnostic[], 'smallSerialized'>;
+  };
+  export type WorkflowTestEvidence = { id: string; name?: string; status: string; durationMs?: number; failure?: object };
+  export type WorkflowTestResultRef = {
+    passed: WorkflowValueRef<number, 'control'>;
+    failed: WorkflowValueRef<number, 'control'>;
+    skipped: WorkflowValueRef<number, 'control'>;
+    durationMs: WorkflowValueRef<number, 'control'>;
+    tests: WorkflowValueRef<WorkflowTestEvidence[], 'smallSerialized'>;
+    diagnostics: WorkflowValueRef<WorkflowDiagnostic[], 'smallSerialized'>;
+  };
+  export type WorkflowAuditReference = { type: string; url: string };
+  export type WorkflowAuditFinding = {
+    id: string;
+    aliases?: string[];
+    summary: string;
+    severity: 'unknown' | 'low' | 'moderate' | 'high' | 'critical';
+    package: string;
+    version: string;
+    fixedVersions?: string[];
+    references?: WorkflowAuditReference[];
+    paths?: string[][];
+  };
+  export type WorkflowAuditCoverage = {
+    source: string;
+    packages: number;
+    status: 'checked' | 'not-checked' | 'unsupported-ecosystem' | 'coverage-unknown';
+    reason?: string;
+  };
+  export type WorkflowAuditReport = {
+    packages: number;
+    lockedPackages: number;
+    coverageComplete: boolean;
+    findings: WorkflowAuditFinding[];
+    coverage?: WorkflowAuditCoverage[];
+  };
+  export type WorkflowAuditResultRef = {
+    source: WorkflowValueRef<string, 'control'>;
+    auditLevel: WorkflowValueRef<string, 'control'>;
+    failing: WorkflowValueRef<number, 'control'>;
+    report: WorkflowValueRef<WorkflowAuditReport, 'smallSerialized'>;
+    diagnostics: WorkflowValueRef<WorkflowDiagnostic[], 'smallSerialized'>;
+  };
+  export type WorkflowBuildEffect = (Omit<WorkflowBuildStepOptions, 'targets'> & { operation: 'build' }) & WorkflowBuildResultRef;
+  export type WorkflowTestEffect = (WorkflowTestStepOptions & { operation: 'test' }) & WorkflowTestResultRef;
+  export type WorkflowAuditEffect = (Omit<WorkflowAuditStepOptions, 'auditLevel'> & { operation: 'audit' }) & WorkflowAuditResultRef;
+  export type WorkflowTypedEffect = WorkflowBuildEffect | WorkflowTestEffect | WorkflowAuditEffect;
+  export type WorkflowFailureRef = {
+    kind: 'failed' | 'cancelled' | 'timedOut';
+    error: WorkflowValueRef<string, 'smallSerialized'>;
+    diagnostics: WorkflowValueRef<WorkflowDiagnostic[], 'smallSerialized'>;
+  };
+  export type WorkflowNodeInput = WorkflowStep | WorkflowTypedEffect | WorkflowFlowNode;
+  export type WorkflowMatchArms<T extends WorkflowTypedEffect> = {
+    succeeded: (result: T) => WorkflowNodeInput;
+    failed: (failure: WorkflowFailureRef & { kind: 'failed' }) => WorkflowNodeInput;
+    cancelled: (cancellation: WorkflowFailureRef & { kind: 'cancelled' }) => WorkflowNodeInput;
+    timedOut: (timeout: WorkflowFailureRef & { kind: 'timedOut' }) => WorkflowNodeInput;
+  };
   export type WorkflowMatrixValue = string | number | boolean | WorkflowPlatform;
   export type WorkflowJob = {
     identity: string;
@@ -411,11 +492,24 @@ declare module 'tspack/manifest' {
     env?: WorkflowEnvRow[];
     steps: WorkflowStep[];
   };
+  export type WorkflowFlowNode =
+    | { kind: 'effect'; effect: WorkflowStep }
+    | { kind: 'sequence'; children: WorkflowFlowNode[] }
+    | { kind: 'parallel'; children: WorkflowBranch[] }
+    | WorkflowBranch
+    | { kind: 'region'; runsOn: WorkflowPlatform; env?: WorkflowEnvRow[]; children: WorkflowFlowNode[] };
+  export type WorkflowBranch = {
+    kind: 'branch';
+    identity: string;
+    children: WorkflowFlowNode[];
+  };
   export type WorkflowDeclaration = {
     identity: string;
     triggers: WorkflowTrigger[];
-    jobs: WorkflowJob[];
-  };
+  } & ({ flow: WorkflowFlowNode; jobs?: never } | { jobs: WorkflowJob[]; flow?: never });
+  export type WorkflowOptions = {
+    triggers: WorkflowTrigger[];
+  } & ({ flow: WorkflowFlowNode; jobs?: never } | { jobs: WorkflowJob[]; flow?: never });
   export type WorkflowsProps = { rows: WorkflowDeclaration[] };
 
   export type SkyrimAssetPack = {
@@ -558,8 +652,16 @@ declare module 'tspack/manifest' {
   export function tool(source: DependencySource, options?: DependencyOptions): ToolIntent;
   export function Env(name: string, options?: Omit<RunTargetEnvRow, 'name'>): RunTargetEnvRow;
   export function Service(name: string, options?: Omit<RunTargetServiceRequirementRow, 'name' | 'kind'>): RunTargetServiceRequirementRow;
-  export function Workflow(identity: string, options: Omit<WorkflowDeclaration, 'identity'>): WorkflowDeclaration;
+  export function Workflow(identity: string, options: WorkflowOptions): WorkflowDeclaration;
   export function Job(identity: string, options: Omit<WorkflowJob, 'identity'>): WorkflowJob;
+  export function Sequence(...nodes: WorkflowNodeInput[]): WorkflowFlowNode;
+  export function Parallel(...branches: WorkflowBranch[]): WorkflowFlowNode;
+  export function Branch(identity: string, ...nodes: WorkflowNodeInput[]): WorkflowBranch;
+  export function On(platform: WorkflowPlatform, ...nodes: WorkflowNodeInput[]): WorkflowFlowNode;
+  export function On(platform: WorkflowPlatform, options: { env?: WorkflowEnvRow[] }, ...nodes: WorkflowNodeInput[]): WorkflowFlowNode;
+  export function MatchResult<T extends WorkflowTypedEffect>(source: T, arms: WorkflowMatchArms<T>): WorkflowFlowNode;
+  export function Finally(body: WorkflowNodeInput, cleanup: WorkflowNodeInput): WorkflowFlowNode;
+  export function ForEach<T extends string | number | boolean>(identity: string, source: readonly T[], body: (value: T) => WorkflowNodeInput): WorkflowFlowNode;
   export function Manual(options?: WorkflowTriggerFilter): WorkflowTrigger;
   export function Push(options?: WorkflowTriggerFilter): WorkflowTrigger;
   export function PullRequest(options?: WorkflowTriggerFilter): WorkflowTrigger;
@@ -569,10 +671,11 @@ declare module 'tspack/manifest' {
   export function CurrentHost(): WorkflowPlatform;
   export function Sync(options?: WorkflowStepOptions): WorkflowStep;
   export function Check(options?: WorkflowStepOptions): WorkflowStep;
-  export function Build(options?: WorkflowBuildStepOptions): WorkflowStep;
-  export function Test(options?: WorkflowTestStepOptions): WorkflowStep;
+  export function Build(options?: WorkflowBuildStepOptions): WorkflowBuildEffect;
+  export function Test(options?: WorkflowTestStepOptions): WorkflowTestEffect;
   export function Pack(options?: WorkflowStepOptions): WorkflowStep;
-  export function Audit(options?: WorkflowAuditStepOptions): WorkflowStep;
+  export function Pack(artifacts: WorkflowValueRef<WorkflowBuildArtifact[], 'artifactReference'>): WorkflowStep;
+  export function Audit(options?: WorkflowAuditStepOptions): WorkflowAuditEffect;
   export function Process(name: string, options: WorkflowProcessStepOptions): WorkflowStep;
   export function ShellScript(name: string, options: WorkflowShellStepOptions): WorkflowStep;
   export function Plain(value: string): WorkflowValue;

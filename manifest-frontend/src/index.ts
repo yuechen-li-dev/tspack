@@ -84,7 +84,7 @@ export type DependencySourceAnalysis = {
 };
 
 const ALLOWED_IMPORT = 'tspack/manifest';
-const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'annotatePackage', 'defineDeps', 'npm', 'jsr', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service', 'json', 'Workflow', 'Job', 'Manual', 'Push', 'PullRequest', 'Linux', 'Windows', 'MacOS', 'CurrentHost', 'Sync', 'Check', 'Build', 'Test', 'Pack', 'Audit', 'Process', 'ShellScript', 'Plain', 'Secret', 'WorkflowEnv']);
+const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'annotatePackage', 'defineDeps', 'npm', 'jsr', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service', 'json', 'Workflow', 'Job', 'Sequence', 'Parallel', 'Branch', 'On', 'MatchResult', 'Finally', 'ForEach', 'Manual', 'Push', 'PullRequest', 'Linux', 'Windows', 'MacOS', 'CurrentHost', 'Sync', 'Check', 'Build', 'Test', 'Pack', 'Audit', 'Process', 'ShellScript', 'Plain', 'Secret', 'WorkflowEnv']);
 const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'PackageAnnotations', 'Policies', 'Targets', 'RunTargets', 'Workflows', 'SkyrimTarget', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy', 'RegistryPolicy', 'RegistrySource', 'CompatFiles', 'JsonFile']);
 const APPROVED_PROPERTY_HELPERS = new Set(['TsConfig.manifestEditor', 'VSCode.settings', 'VSCode.extensions']);
 const DEFAULT_MANIFEST_EDITOR_INCLUDE = [
@@ -239,7 +239,7 @@ function parseManifestDocument(filePath: string, modeHint: ParseMode): { doc?: I
       const mod = (node.moduleSpecifier as ts.StringLiteral).text;
       if (mod !== ALLOWED_IMPORT) addDiag(node, 'TSPACK_MANIFEST_FORBIDDEN_IMPORT', `Only imports from "${ALLOWED_IMPORT}" are allowed.`);
     }
-    if (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node)) addDiag(node, 'TSPACK_MANIFEST_FORBIDDEN_FUNCTION', 'Functions are forbidden in manifest subset.');
+    if ((ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node)) && !isWorkflowCallback(node)) addDiag(node, 'TSPACK_MANIFEST_FORBIDDEN_FUNCTION', 'Functions are forbidden in manifest subset.');
     if (ts.isClassDeclaration(node)) addDiag(node, 'TSPACK_MANIFEST_FORBIDDEN_CLASS', 'Classes are forbidden in manifest subset.');
     if (ts.isForStatement(node) || ts.isForInStatement(node) || ts.isForOfStatement(node) || ts.isWhileStatement(node) || ts.isDoStatement(node)) addDiag(node, 'TSPACK_MANIFEST_FORBIDDEN_LOOP', 'Loops are forbidden in manifest subset.');
     if (ts.isIfStatement(node) || ts.isConditionalExpression(node) || ts.isSwitchStatement(node)) addDiag(node, 'TSPACK_MANIFEST_FORBIDDEN_CONDITIONAL', 'Conditionals are forbidden in manifest subset.');
@@ -299,6 +299,15 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
   if (ts.isIdentifier(node)) return env.get(node.text);
   if (ts.isPropertyAccessExpression(node)) {
     const base = evalNode(node.expression, sf, diags, file, env) as Record<string, unknown>;
+    if (base?.__workflowRef && !Object.prototype.hasOwnProperty.call(base, node.name.text)) {
+      const reference = base.__workflowRef as Record<string, unknown>;
+      diags.push({
+        code: 'TSPACK_WORKFLOW_PROJECTION_INVALID',
+        severity: 'error',
+        message: `${String(reference.resultType)} results do not contain field ${node.name.text}.`,
+        file,
+      });
+    }
     return base?.[node.name.text];
   }
   if (ts.isArrayLiteralExpression(node)) return node.elements.map((e) => evalNode(e, sf, diags, file, env));
@@ -311,6 +320,8 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
   }
   if (ts.isCallExpression(node)) {
     const name = node.expression.getText(sf);
+    if (name === 'MatchResult') return evalMatchResult(node, sf, diags, file, env);
+    if (name === 'ForEach') return evalForEach(node, sf, diags, file, env);
     const args = node.arguments.map((a) => evalNode(a, sf, diags, file, env));
     if (name === 'define' || name === 'defineWorkspace') return jsxToRootDoc(args[0], diags, file);
     if (name === 'definePackage') return jsxToPackageDoc(args[0]);
@@ -324,8 +335,35 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
     if (name === 'workspace') return { kind: 'workspace', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'Env') return { name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'Service') return { kind: 'service', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
-    if (name === 'Workflow') return { identity: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
+    if (name === 'Workflow') return { identity: args[0], ...normalizeWorkflowOptions(args[1]) };
     if (name === 'Job') return { identity: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
+    if (name === 'Sequence') return { kind: 'sequence', children: args.map(asWorkflowFlowNode) };
+    if (name === 'Parallel') return { kind: 'parallel', children: args.map(asWorkflowFlowNode) };
+    if (name === 'Branch') return { kind: 'branch', identity: args[0], children: args.slice(1).map(asWorkflowFlowNode) };
+    if (name === 'On') {
+      const second = args[1];
+      const secondRecord = second as Record<string, unknown> | undefined;
+      const secondIsNode = !!secondRecord
+        && typeof secondRecord === 'object'
+        && ('operation' in secondRecord || 'kind' in secondRecord);
+      const options = !secondIsNode && typeof second === 'object' && second !== null
+        ? second as Record<string, unknown>
+        : {};
+      const children = secondIsNode ? args.slice(1) : args.slice(2);
+      return {
+        kind: 'region',
+        runsOn: args[0],
+        ...options,
+        children: children.map(asWorkflowFlowNode),
+      };
+    }
+    if (name === 'Finally') {
+      return {
+        kind: 'finally',
+        body: asWorkflowFlowNode(args[0]),
+        cleanup: asWorkflowFlowNode(args[1]),
+      };
+    }
     if (name === 'Manual' || name === 'Push' || name === 'PullRequest') {
       const kind = name === 'Manual' ? 'manual' : name === 'Push' ? 'push' : 'pullRequest';
       return { kind, ...(typeof args[0] === 'object' ? (args[0] as object) : {}) };
@@ -334,7 +372,15 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
       return name === 'MacOS' ? 'macos' : name === 'CurrentHost' ? 'currentHost' : name.toLowerCase();
     }
     if (name === 'Sync' || name === 'Check' || name === 'Build' || name === 'Test' || name === 'Pack' || name === 'Audit') {
-      return { operation: name.toLowerCase(), ...(typeof args[0] === 'object' ? (args[0] as object) : {}) };
+      const operation = name.toLowerCase();
+      const resultIdentity = `effect/${node.getStart(sf)}`;
+      if (name === 'Pack' && isWorkflowValueRef(args[0])) {
+        return workflowEffect(operation, resultIdentity, {}, [args[0]]);
+      }
+      const options = typeof args[0] === 'object' && args[0] !== null
+        ? args[0] as Record<string, unknown>
+        : {};
+      return workflowEffect(operation, resultIdentity, options);
     }
     if (name === 'Process') return { operation: 'process', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'ShellScript') return { operation: 'shellScript', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
@@ -376,6 +422,364 @@ function manifestEditorTsConfig(options: unknown, diags: Diagnostic[], file: str
     include: validated.include,
     exclude: validated.exclude,
   };
+}
+
+function asWorkflowFlowNode(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { kind: 'invalid' };
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.operation === 'string') {
+    return { kind: 'effect', effect: workflowStep(record) };
+  }
+  return record;
+}
+
+function workflowEffect(
+  operation: string,
+  resultIdentity: string,
+  options: Record<string, unknown>,
+  inputs: unknown[] = [],
+): Record<string, unknown> {
+  const effect: Record<string, unknown> = {
+    operation,
+    resultIdentity,
+    ...options,
+  };
+  const references = inputs.filter(isWorkflowValueRef);
+  if (references.length > 0) effect.inputs = references;
+
+  const result = workflowResultRef(operation, resultIdentity);
+  return {
+    ...effect,
+    ...result,
+    __workflowRef: rootWorkflowValueRef(operation, resultIdentity),
+    __workflowStep: effect,
+  };
+}
+
+function workflowStep(record: Record<string, unknown>): Record<string, unknown> {
+  if (record.__workflowStep && typeof record.__workflowStep === 'object') {
+    return record.__workflowStep as Record<string, unknown>;
+  }
+  const step: Record<string, unknown> = {};
+  const fields = [
+    'resultIdentity',
+    'inputs',
+    'name',
+    'operation',
+    'packages',
+    'targets',
+    'filter',
+    'auditLevel',
+    'requireCoverage',
+    'command',
+    'script',
+    'shell',
+    'cwd',
+    'capabilities',
+    'env',
+    'timeoutSeconds',
+  ];
+  for (const field of fields) {
+    if (record[field] !== undefined) {
+      step[field] = record[field];
+    }
+  }
+  return step;
+}
+
+function normalizeWorkflowOptions(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  const options = value as Record<string, unknown>;
+  if (!Array.isArray(options.jobs)) {
+    return options;
+  }
+  return {
+    ...options,
+    jobs: options.jobs.map((job) => {
+      if (!job || typeof job !== 'object' || Array.isArray(job)) {
+        return job;
+      }
+      const record = job as Record<string, unknown>;
+      return {
+        ...record,
+        steps: Array.isArray(record.steps)
+          ? record.steps.map((step) => {
+            if (step && typeof step === 'object') {
+              return workflowStep(step as Record<string, unknown>);
+            }
+            return step;
+          })
+          : record.steps,
+      };
+    }),
+  };
+}
+
+function workflowResultRef(operation: string, source: string): Record<string, unknown> {
+  const fields: Record<string, Array<[string, string]>> = {
+    build: [
+      ['artifacts', 'artifactReference'],
+      ['targets', 'smallSerialized'],
+      ['diagnostics', 'smallSerialized'],
+    ],
+    test: [
+      ['passed', 'control'],
+      ['failed', 'control'],
+      ['skipped', 'control'],
+      ['durationMs', 'control'],
+      ['tests', 'smallSerialized'],
+      ['diagnostics', 'smallSerialized'],
+    ],
+    audit: [
+      ['source', 'control'],
+      ['auditLevel', 'control'],
+      ['failing', 'control'],
+      ['report', 'smallSerialized'],
+      ['diagnostics', 'smallSerialized'],
+    ],
+  };
+  const result: Record<string, unknown> = {};
+  for (const [field, category] of fields[operation] ?? []) {
+    result[field] = {
+      identity: `${source}.${field}`,
+      source,
+      resultType: operation,
+      fieldPath: [field],
+      category,
+    };
+  }
+  return result;
+}
+
+function rootWorkflowValueRef(operation: string, source: string): Record<string, unknown> {
+  return {
+    identity: source,
+    source,
+    resultType: operation,
+    category: 'regionLocal',
+  };
+}
+
+function isWorkflowValueRef(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record.identity === 'string'
+    && typeof record.source === 'string'
+    && typeof record.resultType === 'string';
+}
+
+function evalMatchResult(
+  node: ts.CallExpression,
+  sf: ts.SourceFile,
+  diags: Diagnostic[],
+  file: string,
+  env: Map<string, unknown>,
+): Record<string, unknown> {
+  const source = evalNode(node.arguments[0], sf, diags, file, env) as Record<string, unknown>;
+  const sourceRef = source?.__workflowRef;
+  const armsNode = node.arguments[1];
+  const arms: Array<Record<string, unknown>> = [];
+  const expected = ['succeeded', 'failed', 'cancelled', 'timedOut'];
+  if (!isWorkflowValueRef(sourceRef) || !armsNode || !ts.isObjectLiteralExpression(armsNode)) {
+    diags.push({
+      code: 'TSPACK_WORKFLOW_MATCH_INVALID',
+      severity: 'error',
+      message: 'MatchResult requires an effect result and an exhaustive arm object.',
+      file,
+    });
+    return { kind: 'invalid' };
+  }
+  const properties = new Map<string, ts.Expression>();
+  for (const property of armsNode.properties) {
+    if (!ts.isPropertyAssignment(property)) {
+      continue;
+    }
+    const key = property.name.getText(sf).replaceAll('"', '').replaceAll("'", '');
+    if (properties.has(key)) {
+      diags.push({
+        code: 'TSPACK_WORKFLOW_MATCH_KIND_DUPLICATE',
+        severity: 'error',
+        message: `MatchResult repeats the ${key} arm.`,
+        file,
+      });
+    }
+    properties.set(key, property.initializer);
+  }
+  for (const kind of expected) {
+    const expression = properties.get(kind);
+    if (!expression) {
+      diags.push({
+        code: 'TSPACK_WORKFLOW_MATCH_NON_EXHAUSTIVE',
+        severity: 'error',
+        message: `MatchResult is missing the ${kind} arm.`,
+        file,
+      });
+      continue;
+    }
+    const binding = kind === 'succeeded' ? source : failureBinding(sourceRef, kind);
+    const flow = evalWorkflowArm(expression, binding, sf, diags, file, env);
+    arms.push({ kind, flow: asWorkflowFlowNode(flow) });
+  }
+  for (const key of properties.keys()) {
+    if (!expected.includes(key)) {
+      diags.push({
+        code: 'TSPACK_WORKFLOW_MATCH_KIND_INVALID',
+        severity: 'error',
+        message: `MatchResult has unknown outcome arm ${key}.`,
+        file,
+      });
+    }
+  }
+  return { kind: 'match', source: sourceRef, effect: workflowStep(source), arms };
+}
+
+function failureBinding(source: Record<string, unknown>, kind: string): Record<string, unknown> {
+  return {
+    kind,
+    error: {
+      identity: `${source.source}.${kind}.error`,
+      source: source.source,
+      resultType: `${source.resultType}Failure`,
+      fieldPath: ['error'],
+      category: 'smallSerialized',
+    },
+    diagnostics: {
+      identity: `${source.source}.${kind}.diagnostics`,
+      source: source.source,
+      resultType: `${source.resultType}Failure`,
+      fieldPath: ['diagnostics'],
+      category: 'smallSerialized',
+    },
+  };
+}
+
+function evalWorkflowArm(
+  expression: ts.Expression,
+  binding: unknown,
+  sf: ts.SourceFile,
+  diags: Diagnostic[],
+  file: string,
+  env: Map<string, unknown>,
+): unknown {
+  if (!ts.isArrowFunction(expression)) {
+    return evalNode(expression, sf, diags, file, env);
+  }
+  if (!ts.isExpression(expression.body)) {
+    diags.push({
+      code: 'TSPACK_WORKFLOW_CALLBACK_INVALID',
+      severity: 'error',
+      message: 'Workflow callbacks must have a single expression body.',
+      file,
+    });
+    return undefined;
+  }
+  const callbackEnv = new Map(env);
+  const parameter = expression.parameters[0];
+  if (parameter && ts.isIdentifier(parameter.name)) {
+    callbackEnv.set(parameter.name.text, binding);
+  }
+  return evalNode(expression.body, sf, diags, file, callbackEnv);
+}
+
+function evalForEach(
+  node: ts.CallExpression,
+  sf: ts.SourceFile,
+  diags: Diagnostic[],
+  file: string,
+  env: Map<string, unknown>,
+): Record<string, unknown> {
+  const identity = evalNode(node.arguments[0], sf, diags, file, env);
+  const values = evalNode(node.arguments[1], sf, diags, file, env);
+  const callback = node.arguments[2];
+  if (typeof identity !== 'string' || !Array.isArray(values) || !callback || !ts.isArrowFunction(callback)) {
+    diags.push({
+      code: 'TSPACK_WORKFLOW_FOREACH_SOURCE_INVALID',
+      severity: 'error',
+      message: 'ForEach requires a stable identity, a finite array literal, and an expression callback.',
+      file,
+    });
+    return { kind: 'invalid' };
+  }
+  if (values.length === 0 || values.length > 256) {
+    diags.push({
+      code: 'TSPACK_WORKFLOW_FOREACH_LIMIT_INVALID',
+      severity: 'error',
+      message: 'ForEach source must contain between 1 and 256 items.',
+      file,
+    });
+  }
+  const items = values.slice(0, 256).map((value, index) => ({
+    index,
+    value: workflowIterationValue(value),
+    flow: namespaceWorkflowValues(
+      asWorkflowFlowNode(evalWorkflowArm(callback, value, sf, diags, file, env)),
+      `foreach/${identity}/${index}`,
+    ),
+  }));
+  return { kind: 'forEach', identity, items };
+}
+
+function workflowIterationValue(value: unknown): Record<string, unknown> {
+  if (typeof value === 'string') {
+    const platforms = ['linux', 'windows', 'macos', 'currentHost'];
+    return {
+      kind: platforms.includes(value) ? 'platform' : 'string',
+      string: value,
+    };
+  }
+  if (typeof value === 'number') {
+    return { kind: 'number', number: value };
+  }
+  return { kind: 'boolean', boolean: value };
+}
+
+function namespaceWorkflowValues(value: unknown, suffix: string): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => namespaceWorkflowValues(item, suffix));
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  const record = value as Record<string, unknown>;
+  if (isWorkflowValueRef(record)) {
+    return {
+      ...record,
+      identity: `${record.identity}/${suffix}`,
+      source: `${record.source}/${suffix}`,
+    };
+  }
+  const namespaced: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(record)) {
+    namespaced[key] = key === 'resultIdentity' && typeof item === 'string'
+      ? `${item}/${suffix}`
+      : namespaceWorkflowValues(item, suffix);
+  }
+  return namespaced;
+}
+
+function isWorkflowCallback(node: ts.Node): boolean {
+  if (!ts.isArrowFunction(node)) {
+    return false;
+  }
+  const parent = node.parent;
+  if (ts.isCallExpression(parent)) {
+    const name = parent.expression.getText();
+    return name === 'ForEach';
+  }
+  if (
+    ts.isPropertyAssignment(parent)
+    && ts.isObjectLiteralExpression(parent.parent)
+    && ts.isCallExpression(parent.parent.parent)
+  ) {
+    return parent.parent.parent.expression.getText() === 'MatchResult';
+  }
+  return false;
 }
 
 export function analyzeDependencySource(

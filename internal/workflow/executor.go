@@ -25,9 +25,11 @@ type State string
 
 const (
 	StatePending   State = "pending"
+	StateWaiting   State = "waiting"
 	StateRunning   State = "running"
 	StateSucceeded State = "succeeded"
 	StateFailed    State = "failed"
+	StateTimedOut  State = "timedOut"
 	StateSkipped   State = "skipped"
 	StateBlocked   State = "blocked"
 	StateCancelled State = "cancelled"
@@ -44,6 +46,7 @@ const (
 	EventStepCompleted     EventKind = "stepCompleted"
 	EventJobCompleted      EventKind = "jobCompleted"
 	EventWorkflowCompleted EventKind = "workflowCompleted"
+	EventMachineStepped    EventKind = "machineStepped"
 )
 
 type Event struct {
@@ -60,6 +63,7 @@ type Event struct {
 	Message  string        `json:"message,omitempty"`
 	Details  []string      `json:"details,omitempty"`
 	Result   *NativeResult `json:"result,omitempty"`
+	Trace    *StepTrace    `json:"trace,omitempty"`
 }
 
 type JobResult struct {
@@ -80,9 +84,11 @@ type StepResult struct {
 }
 
 type Result struct {
-	Workflow string      `json:"workflow"`
-	State    State       `json:"state"`
-	Jobs     []JobResult `json:"jobs"`
+	Workflow string       `json:"workflow"`
+	State    State        `json:"state"`
+	Jobs     []JobResult  `json:"jobs"`
+	Effects  []StepResult `json:"effects,omitempty"`
+	Snapshot *Snapshot    `json:"snapshot,omitempty"`
 }
 
 type EventSink func(Event)
@@ -189,139 +195,11 @@ func (operations ProjectOperations) Run(ctx context.Context, operation string, p
 }
 
 func (executor *Executor) Run(ctx context.Context, plan Plan) Result {
-	if executor.Concurrency <= 0 {
-		executor.Concurrency = runtime.NumCPU()
-		if executor.Concurrency > 4 {
-			executor.Concurrency = 4
-		}
+	flow, err := BuildFlowFromPlan(plan)
+	if err != nil {
+		return Result{Workflow: plan.Workflow, State: StateFailed}
 	}
-	if executor.Environment == nil {
-		executor.Environment = os.LookupEnv
-	}
-	result := Result{Workflow: plan.Workflow, State: StateRunning}
-	executor.emit(Event{Kind: EventWorkflowStarted, Workflow: plan.Workflow, State: StateRunning})
-
-	states := make(map[string]State, len(plan.Jobs))
-	for _, job := range plan.Jobs {
-		states[job.Identity] = StatePending
-	}
-
-	type completedJob struct {
-		result JobResult
-	}
-	completed := make(chan completedJob, executor.Concurrency)
-	running := 0
-	results := map[string]JobResult{}
-
-	for len(results) < len(plan.Jobs) {
-		madeProgress := false
-		for _, planned := range plan.Jobs {
-			if states[planned.Identity] != StatePending {
-				continue
-			}
-			if ctx.Err() != nil {
-				states[planned.Identity] = StateCancelled
-				results[planned.Identity] = JobResult{Identity: planned.Identity, State: StateCancelled}
-				madeProgress = true
-				continue
-			}
-			if dependencyFailed(planned.Needs, states) {
-				states[planned.Identity] = StateBlocked
-				jobResult := JobResult{Identity: planned.Identity, State: StateBlocked, Error: "required job did not succeed"}
-				results[planned.Identity] = jobResult
-				executor.emit(Event{Kind: EventJobCompleted, Workflow: plan.Workflow, Job: planned.Identity, State: StateBlocked})
-				madeProgress = true
-				continue
-			}
-			if running >= executor.Concurrency || !dependenciesSucceeded(planned.Needs, states) {
-				continue
-			}
-			states[planned.Identity] = StateRunning
-			running++
-			madeProgress = true
-			go func(job PlanJob) {
-				completed <- completedJob{result: executor.runJob(ctx, plan.Workflow, job)}
-			}(planned)
-		}
-		if len(results) == len(plan.Jobs) {
-			break
-		}
-		if running == 0 {
-			if !madeProgress {
-				for _, planned := range plan.Jobs {
-					if states[planned.Identity] == StatePending {
-						states[planned.Identity] = StateBlocked
-						results[planned.Identity] = JobResult{Identity: planned.Identity, State: StateBlocked, Error: "scheduler made no progress"}
-					}
-				}
-			}
-			continue
-		}
-		finished := <-completed
-		running--
-		states[finished.result.Identity] = finished.result.State
-		results[finished.result.Identity] = finished.result
-	}
-
-	result.State = StateSucceeded
-	for _, planned := range plan.Jobs {
-		jobResult := results[planned.Identity]
-		result.Jobs = append(result.Jobs, jobResult)
-		if jobResult.State == StateCancelled {
-			result.State = StateCancelled
-		} else if result.State != StateCancelled && (jobResult.State == StateFailed || jobResult.State == StateBlocked) {
-			result.State = StateFailed
-		}
-	}
-	executor.emit(Event{Kind: EventWorkflowCompleted, Workflow: plan.Workflow, State: result.State})
-	return result
-}
-
-func (executor *Executor) runJob(ctx context.Context, workflowIdentity string, job PlanJob) JobResult {
-	started := time.Now()
-	result := JobResult{Identity: job.Identity, State: StateRunning}
-	executor.emit(Event{Kind: EventJobStarted, Workflow: workflowIdentity, Job: job.Identity, State: StateRunning})
-	if !platformCompatible(job.Platform) {
-		result.State = StateFailed
-		result.Error = "TSPACK_WORKFLOW_PLATFORM_UNAVAILABLE: job requires " + job.Platform
-		executor.emit(Event{Kind: EventJobCompleted, Workflow: workflowIdentity, Job: job.Identity, State: result.State})
-		return result
-	}
-	for stepIndex, step := range job.Steps {
-		stepStarted := time.Now()
-		executor.emit(Event{Kind: EventStepStarted, Workflow: workflowIdentity, Job: job.Identity, Step: step.Identity, State: StateRunning})
-		nativeResult, err := executor.runStep(ctx, workflowIdentity, job, step)
-		duration := time.Since(stepStarted).Milliseconds()
-		state := StateSucceeded
-		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				state = StateCancelled
-			} else {
-				state = StateFailed
-			}
-		}
-		stepResult := StepResult{Identity: step.Identity, State: state, DurationMs: duration, Result: nativeResult}
-		if err != nil {
-			stepResult.Error = err.Error()
-			stepResult.ExitCode = processExitCode(err)
-		}
-		result.Steps = append(result.Steps, stepResult)
-		executor.emit(Event{Kind: EventStepCompleted, Workflow: workflowIdentity, Job: job.Identity, Step: step.Identity, State: state, Duration: duration, Result: nativeResult})
-		if err != nil {
-			for _, skipped := range job.Steps[stepIndex+1:] {
-				result.Steps = append(result.Steps, StepResult{Identity: skipped.Identity, State: StateSkipped})
-			}
-			result.State = state
-			result.Error = err.Error()
-			result.DurationMs = time.Since(started).Milliseconds()
-			executor.emit(Event{Kind: EventJobCompleted, Workflow: workflowIdentity, Job: job.Identity, State: state, Duration: result.DurationMs})
-			return result
-		}
-	}
-	result.State = StateSucceeded
-	result.DurationMs = time.Since(started).Milliseconds()
-	executor.emit(Event{Kind: EventJobCompleted, Workflow: workflowIdentity, Job: job.Identity, State: result.State, Duration: result.DurationMs})
-	return result
+	return executor.RunFlow(ctx, flow)
 }
 
 func processExitCode(err error) *int {
@@ -525,25 +403,6 @@ func (executor *Executor) emit(event Event) {
 	if executor.Events != nil {
 		executor.Events(event)
 	}
-}
-
-func dependenciesSucceeded(needs []string, states map[string]State) bool {
-	for _, dependency := range needs {
-		if states[dependency] != StateSucceeded {
-			return false
-		}
-	}
-	return true
-}
-
-func dependencyFailed(needs []string, states map[string]State) bool {
-	for _, dependency := range needs {
-		state := states[dependency]
-		if state == StateFailed || state == StateBlocked || state == StateCancelled || state == StateSkipped {
-			return true
-		}
-	}
-	return false
 }
 
 func platformCompatible(platform string) bool {

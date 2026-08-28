@@ -35,12 +35,12 @@ func TestWorkflowCLIListInspectRunAndExportUseOneManifestPlan(t *testing.T) {
 
 	inspected := runTestApp(t, "workflow", "inspect", "CI", "--root", workspace.Root, "--json")
 	clitest.AssertExit(t, inspected, 0)
-	var plan workflow.Plan
-	if err := json.Unmarshal([]byte(inspected.Stdout), &plan); err != nil {
-		t.Fatalf("decode inspect plan: %v\n%s", err, inspected.Stdout)
+	var flow workflow.Flow
+	if err := json.Unmarshal([]byte(inspected.Stdout), &flow); err != nil {
+		t.Fatalf("decode inspect flow: %v\n%s", err, inspected.Stdout)
 	}
-	if plan.Workflow != "CI" || len(plan.Jobs) != 2 || plan.Jobs[1].Needs[0] != "validate" {
-		t.Fatalf("unexpected plan: %#v", plan)
+	if flow.Identity != "CI" || flow.SchemaVersion != workflow.FlowSchemaVersion || len(flow.Nodes) == 0 {
+		t.Fatalf("unexpected flow: %#v", flow)
 	}
 
 	run := runTestApp(t, "workflow", "run", "CI", "--root", workspace.Root, "--jobs", "2")
@@ -66,4 +66,40 @@ func TestWorkflowCLIListInspectRunAndExportUseOneManifestPlan(t *testing.T) {
 
 	driftCheck := runTestApp(t, "workflow", "export", "github", "CI", "--root", workspace.Root, "--check")
 	clitest.AssertExit(t, driftCheck, 0)
+}
+
+func TestWorkflowM77FixtureInspectExposesValueAndControlFlow(t *testing.T) {
+	repository := repoRootForMigrateTest(t)
+	root := filepath.Join(repository, "fixtures", "workflow-m77")
+
+	inspected := runTestApp(t, "workflow", "inspect", "CI", "--root", root, "--json")
+	clitest.AssertExit(t, inspected, 0)
+	var flow workflow.Flow
+	if err := json.Unmarshal([]byte(inspected.Stdout), &flow); err != nil {
+		t.Fatalf("decode M77 inspect flow: %v\n%s", err, inspected.Stdout)
+	}
+	if flow.SchemaVersion != 2 || len(flow.Values) == 0 {
+		t.Fatalf("M77 flow=%#v", flow)
+	}
+	if countCLIFlowNodes(flow, workflow.NodeMatch) != 1 || countCLIFlowNodes(flow, workflow.NodeIterator) != 2 {
+		t.Fatalf("M77 nodes=%#v", flow.Nodes)
+	}
+
+	human := runTestApp(t, "workflow", "inspect", "CI", "--root", root)
+	clitest.AssertExit(t, human, 0)
+	for _, expected := range []string{"match value/ci/", "foreach suite cursor", "cleanup(", "consumes:", "Values:"} {
+		if !strings.Contains(human.Stdout, expected) {
+			t.Fatalf("human inspect missing %q:\n%s", expected, human.Stdout)
+		}
+	}
+}
+
+func countCLIFlowNodes(flow workflow.Flow, kind workflow.NodeKind) int {
+	count := 0
+	for _, node := range flow.Nodes {
+		if node.Kind == kind {
+			count++
+		}
+	}
+	return count
 }

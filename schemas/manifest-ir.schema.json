@@ -230,7 +230,11 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["identity", "triggers", "jobs"],
+        "required": ["identity", "triggers"],
+        "oneOf": [
+          { "required": ["jobs"], "not": { "required": ["flow"] } },
+          { "required": ["flow"], "not": { "required": ["jobs"] } }
+        ],
         "properties": {
           "identity": { "type": "string" },
           "triggers": {
@@ -246,6 +250,7 @@
               "additionalProperties": false
             }
           },
+          "flow": { "$ref": "#/$defs/workflowFlowNode" },
           "jobs": {
             "type": "array",
             "items": {
@@ -271,8 +276,14 @@
                     "required": ["operation"],
                     "properties": {
                       "name": { "type": "string" },
-                      "operation": { "enum": ["sync", "check", "pack", "process", "shellScript"] },
+                      "resultIdentity": { "type": "string" },
+                      "inputs": { "type": "array", "items": { "$ref": "#/$defs/workflowValueRef" } },
+                      "operation": { "enum": ["sync", "check", "build", "test", "pack", "audit", "process", "shellScript"] },
                       "packages": { "type": "array", "items": { "type": "string" } },
+                      "targets": { "type": "array", "items": { "type": "string" } },
+                      "filter": { "type": "string" },
+                      "auditLevel": { "enum": ["any", "low", "moderate", "high", "critical"] },
+                      "requireCoverage": { "type": "boolean" },
                       "command": { "type": "array", "items": { "type": "string" } },
                       "script": { "type": "string" },
                       "shell": { "enum": ["sh", "powershell"] },
@@ -294,6 +305,92 @@
     }
   },
   "$defs": {
+    "workflowValueRef": {
+      "type": "object",
+      "required": ["identity", "source", "resultType", "category"],
+      "properties": {
+        "identity": { "type": "string" },
+        "source": { "type": "string" },
+        "resultType": { "type": "string" },
+        "fieldPath": { "type": "array", "items": { "type": "string" } },
+        "category": { "enum": ["control", "smallSerialized", "artifactReference", "regionLocal", "placement"] }
+      },
+      "additionalProperties": false
+    },
+    "workflowStep": {
+      "type": "object",
+      "required": ["operation"],
+      "properties": {
+        "resultIdentity": { "type": "string" },
+        "inputs": { "type": "array", "items": { "$ref": "#/$defs/workflowValueRef" } },
+        "name": { "type": "string" },
+        "operation": { "enum": ["sync", "check", "build", "test", "pack", "audit", "process", "shellScript"] },
+        "packages": { "type": "array", "items": { "type": "string" } },
+        "targets": { "type": "array", "items": { "type": "string" } },
+        "filter": { "type": "string" },
+        "auditLevel": { "type": "string" },
+        "requireCoverage": { "type": "boolean" },
+        "command": { "type": "array", "items": { "type": "string" } },
+        "script": { "type": "string" },
+        "shell": { "type": "string" },
+        "cwd": { "type": "string" },
+        "capabilities": { "type": "array", "items": { "type": "string" } },
+        "env": { "$ref": "#/$defs/workflowEnvironment" },
+        "timeoutSeconds": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "workflowFlowNode": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["effect", "sequence", "parallel", "branch", "region", "match", "finally", "forEach"] },
+        "identity": { "type": "string" },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/workflowFlowNode" } },
+        "effect": { "$ref": "#/$defs/workflowStep" },
+        "source": { "$ref": "#/$defs/workflowValueRef" },
+        "arms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind", "flow"],
+            "properties": {
+              "kind": { "enum": ["succeeded", "failed", "cancelled", "timedOut"] },
+              "flow": { "$ref": "#/$defs/workflowFlowNode" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "body": { "$ref": "#/$defs/workflowFlowNode" },
+        "cleanup": { "$ref": "#/$defs/workflowFlowNode" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["index", "value", "flow"],
+            "properties": {
+              "index": { "type": "integer", "minimum": 0 },
+              "value": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": {
+                  "kind": { "enum": ["string", "number", "boolean", "platform"] },
+                  "string": { "type": "string" },
+                  "number": { "type": "number" },
+                  "boolean": { "type": "boolean" }
+                },
+                "additionalProperties": false
+              },
+              "flow": { "$ref": "#/$defs/workflowFlowNode" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "runsOn": { "enum": ["linux", "windows", "macos", "currentHost"] },
+        "env": { "$ref": "#/$defs/workflowEnvironment" }
+      },
+      "additionalProperties": false
+    },
     "workflowEnvironment": {
       "type": "array",
       "items": {

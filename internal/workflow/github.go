@@ -15,7 +15,11 @@ func GitHubPath(workflowIdentity string) string {
 	return ".github/workflows/tspack-" + strings.ToLower(workflowIdentity) + ".yml"
 }
 
-func ExportGitHub(plan Plan) ([]byte, error) {
+func ExportGitHub(input any) ([]byte, error) {
+	plan, err := providerPlan(input)
+	if err != nil {
+		return nil, err
+	}
 	for _, job := range plan.Jobs {
 		if job.Platform != "linux" && job.Platform != "currentHost" && job.Platform != "" {
 			return nil, fmt.Errorf("TSPACK_WORKFLOW_PROVIDER_UNSUPPORTED: GitHub thin-runner mode cannot execute %s job %s on one Linux runner", job.Platform, job.Identity)
@@ -56,6 +60,33 @@ func ExportGitHub(plan Plan) ([]byte, error) {
 	}
 	_ = encoder.Close()
 	return buffer.Bytes(), nil
+}
+
+func providerPlan(input any) (Plan, error) {
+	switch value := input.(type) {
+	case Plan:
+		return value, nil
+	case Flow:
+		plan := Plan{Workflow: value.Identity, Triggers: append([]Trigger(nil), value.Triggers...)}
+		for _, region := range value.Regions {
+			plan.Jobs = append(plan.Jobs, PlanJob{
+				Identity:    region.Identity,
+				Platform:    region.Platform,
+				Environment: append([]Environment(nil), region.Environment...),
+			})
+		}
+		if len(plan.Jobs) == 0 {
+			plan.Jobs = append(plan.Jobs, PlanJob{Identity: "flow", Platform: "currentHost"})
+		}
+		for _, node := range value.Nodes {
+			if node.Effect != nil {
+				plan.Jobs[0].Steps = append(plan.Jobs[0].Steps, *node.Effect)
+			}
+		}
+		return plan, nil
+	default:
+		return Plan{}, fmt.Errorf("TSPACK_WORKFLOW_PROVIDER_UNSUPPORTED: unknown workflow IR %T", input)
+	}
 }
 
 func githubTriggers(triggers []Trigger) *yaml.Node {

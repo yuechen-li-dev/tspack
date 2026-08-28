@@ -43,14 +43,20 @@ func runWorkflowCommand(args []string) {
 		runWorkflowList(ir.Workflows, options.JSON)
 	case "inspect":
 		declaration := findWorkflowOrFail(ir, options.Identity)
-		plan := workflow.BuildPlan(*declaration)
-		renderWorkflowPlan(plan, options.JSON)
+		flow, err := workflow.BuildFlow(*declaration)
+		if err != nil {
+			failWorkflow("TSPACK_WORKFLOW_FLOW_INVALID", err.Error())
+		}
+		renderWorkflowFlow(flow, options.JSON)
 	case "run":
 		if options.Provider != "" && options.Provider != "github" {
 			failWorkflow("TSPACK_WORKFLOW_PROVIDER_UNSUPPORTED", "local runner does not recognize provider "+options.Provider)
 		}
 		declaration := findWorkflowOrFail(ir, options.Identity)
-		plan := workflow.BuildPlan(*declaration)
+		flow, err := workflow.BuildFlow(*declaration)
+		if err != nil {
+			failWorkflow("TSPACK_WORKFLOW_FLOW_INVALID", err.Error())
+		}
 		projectOptions := project.DefaultOptions(workspace.Root)
 		projectOptions.ManifestPath = manifestPath
 		projectOptions.FrontendCLIPath = manifestFrontendCLIPath()
@@ -67,7 +73,7 @@ func runWorkflowCommand(args []string) {
 		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		result := executor.Run(ctx, plan)
+		result := executor.RunFlow(ctx, flow)
 		if options.JSON {
 			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"type": "result", "result": result})
 		}
@@ -79,8 +85,11 @@ func runWorkflowCommand(args []string) {
 			failWorkflow("TSPACK_WORKFLOW_PROVIDER_UNSUPPORTED", "export currently supports only github")
 		}
 		declaration := findWorkflowOrFail(ir, options.Identity)
-		plan := workflow.BuildPlan(*declaration)
-		exportWorkflowGitHub(workspace.Root, plan, options)
+		flow, err := workflow.BuildFlow(*declaration)
+		if err != nil {
+			failWorkflow("TSPACK_WORKFLOW_FLOW_INVALID", err.Error())
+		}
+		exportWorkflowGitHub(workspace.Root, flow, options)
 	default:
 		failWorkflowArgs("unknown workflow subcommand: " + subcommand)
 	}
@@ -158,16 +167,16 @@ func findWorkflowOrFail(ir *manifest.ManifestIR, identity string) *manifest.Work
 	return declaration
 }
 
-func renderWorkflowPlan(plan workflow.Plan, jsonOutput bool) {
+func renderWorkflowFlow(flow workflow.Flow, jsonOutput bool) {
 	if jsonOutput {
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")
-		_ = encoder.Encode(plan)
+		_ = encoder.Encode(flow)
 		return
 	}
-	fmt.Printf("Workflow %s\n\n", plan.Workflow)
+	fmt.Printf("Workflow %s\n\n", flow.Identity)
 	fmt.Println("Triggers:")
-	for _, trigger := range plan.Triggers {
+	for _, trigger := range flow.Triggers {
 		filters := []string{}
 		if len(trigger.Branches) > 0 {
 			filters = append(filters, "branches="+strings.Join(trigger.Branches, ","))
@@ -181,61 +190,146 @@ func renderWorkflowPlan(plan workflow.Plan, jsonOutput bool) {
 			fmt.Printf("  %s\n", trigger.Kind)
 		}
 	}
-	fmt.Println("\nJobs:")
-	for _, job := range plan.Jobs {
-		fmt.Printf("  %s [%s]\n", job.Identity, job.Platform)
-		if len(job.Needs) > 0 {
-			fmt.Printf("    needs: %s\n", strings.Join(job.Needs, ", "))
-		}
-		for _, environment := range job.Environment {
-			if environment.Kind == "secret" {
-				fmt.Printf("    env: %s <- secret(%s)\n", environment.Name, environment.Secret)
+	fmt.Printf("\nFlow (schema %d):\n", flow.SchemaVersion)
+	renderFlowProgram(flow, flow.Entry, "  ", map[string]bool{})
+	if len(flow.Values) > 0 {
+		fmt.Println("\nValues:")
+		for _, value := range flow.Values {
+			if len(value.FieldPath) > 0 {
+				fmt.Printf("  %s = %s.%s [%s]\n", value.Identity, value.Source, strings.Join(value.FieldPath, "."), value.Category)
 			} else {
-				fmt.Printf("    env: %s <- plain\n", environment.Name)
-			}
-		}
-		for _, step := range job.Steps {
-			fmt.Printf("    %s (%s)\n", step.Name, step.Operation)
-			if step.Operation == "process" {
-				fmt.Printf("      argv: %s\n", strings.Join(step.Command, " "))
-			}
-			if step.Operation == "shellScript" {
-				fmt.Printf("      shell: %s\n", step.Shell)
-			}
-			switch step.Operation {
-			case "build":
-				if len(step.Targets) == 0 {
-					fmt.Println("      targets: project defaults")
-				} else {
-					fmt.Printf("      targets: %s\n", strings.Join(step.Targets, ", "))
-				}
-			case "test":
-				fmt.Println("      harness: TSPack")
-				if step.Filter != "" {
-					fmt.Printf("      filter: %s\n", step.Filter)
-				}
-			case "audit":
-				level := step.AuditLevel
-				if level == "" {
-					level = "any"
-				}
-				fmt.Printf("      policy: project source policy (threshold %s)\n", level)
-			}
-			if step.Cwd != "" {
-				fmt.Printf("      cwd: %s\n", step.Cwd)
-			}
-			for _, environment := range step.Environment {
-				if environment.Kind == "secret" {
-					fmt.Printf("      env: %s <- secret(%s)\n", environment.Name, environment.Secret)
-				} else {
-					fmt.Printf("      env: %s <- plain\n", environment.Name)
-				}
-			}
-			if len(step.Capabilities) > 0 {
-				fmt.Printf("      capabilities: %s\n", strings.Join(step.Capabilities, ", "))
+				fmt.Printf("  %s <- %s [%s]\n", value.Identity, value.Producer, value.Category)
 			}
 		}
 	}
+	fmt.Println("\nTransitions:")
+	for _, transition := range flow.Transitions {
+		guard := ""
+		if transition.Guard != "" && transition.Guard != string(transition.Event) {
+			guard = " [" + transition.Guard + "]"
+		}
+		fmt.Printf("  %s --%s%s--> %s\n", transition.From, transition.Event, guard, transition.To)
+	}
+}
+
+func renderFlowProgram(flow workflow.Flow, identity string, indent string, visited map[string]bool) {
+	if visited[identity] {
+		fmt.Printf("%s%s (already shown)\n", indent, identity)
+		return
+	}
+	visited[identity] = true
+	node, exists := findFlowNode(flow, identity)
+	if !exists {
+		fmt.Printf("%sunknown %s\n", indent, identity)
+		return
+	}
+	switch node.Kind {
+	case workflow.NodeEntry:
+		fmt.Printf("%sentry\n", indent)
+		if next := flowTransitionTarget(flow, identity, workflow.MachineContinue); next != "" {
+			renderFlowProgram(flow, next, indent+"  ", visited)
+		}
+	case workflow.NodeEffect:
+		cleanup := ""
+		if node.Cleanup {
+			cleanup = " cleanup(" + string(node.CleanupCause) + ")"
+		}
+		fmt.Printf("%s%s (%s) @ %s => %s%s\n", indent, node.Effect.Name, node.Effect.Operation, node.Region, node.Value, cleanup)
+		for _, input := range node.Effect.Inputs {
+			fmt.Printf("%s  consumes: %s\n", indent, input.Identity)
+		}
+		if node.Effect.Operation == "process" {
+			fmt.Printf("%s  argv: %s\n", indent, strings.Join(node.Effect.Command, " "))
+		}
+		if next := flowTransitionTarget(flow, identity, workflow.MachineEffectSucceeded); next != "" {
+			renderFlowProgram(flow, next, indent, visited)
+		}
+	case workflow.NodeFork:
+		fmt.Printf("%sfork\n", indent)
+		join := ""
+		for _, target := range node.Targets {
+			targetNode, _ := findFlowNode(flow, target)
+			if targetNode.Kind == workflow.NodeJoin {
+				join = target
+				continue
+			}
+			branch := targetNode.Branch
+			if branch == "" {
+				branch = target
+			}
+			fmt.Printf("%s  branch %s:\n", indent, branch)
+			renderFlowProgram(flow, target, indent+"    ", visited)
+		}
+		if join != "" {
+			fmt.Printf("%sjoin all\n", indent)
+			visited[join] = true
+			if next := flowTransitionTarget(flow, join, workflow.MachineContinue); next != "" {
+				renderFlowProgram(flow, next, indent, visited)
+			}
+		}
+	case workflow.NodeBranchExit:
+		fmt.Printf("%sbranch complete\n", indent)
+	case workflow.NodeJoin:
+		fmt.Printf("%sjoin all\n", indent)
+		if next := flowTransitionTarget(flow, identity, workflow.MachineContinue); next != "" {
+			renderFlowProgram(flow, next, indent, visited)
+		}
+	case workflow.NodeMatch:
+		fmt.Printf("%smatch %s:\n", indent, node.Source)
+		for _, transition := range flow.Transitions {
+			if transition.From == identity && transition.Event == workflow.MachineContinue {
+				fmt.Printf("%s  %s:\n", indent, transition.Guard)
+				renderFlowProgram(flow, transition.To, indent+"    ", visited)
+			}
+		}
+	case workflow.NodeIterator:
+		if node.Iterator == nil {
+			fmt.Printf("%siterator (invalid)\n", indent)
+			break
+		}
+		fmt.Printf("%sforeach %s cursor %d/%d = %s (%s, %s)\n", indent, node.Iterator.SourceIdentity, node.Iterator.Index+1, node.Iterator.Count, renderIterationValue(node.Iterator.Value), node.Iterator.Mode, node.Iterator.FailurePolicy)
+		if next := flowTransitionTarget(flow, identity, workflow.MachineContinue); next != "" {
+			renderFlowProgram(flow, next, indent+"  ", visited)
+		}
+	case workflow.NodeTerminal:
+		fmt.Printf("%sexit %s\n", indent, node.Terminal)
+	default:
+		fmt.Printf("%s%s [%s]\n", indent, identity, node.Kind)
+	}
+}
+
+func renderIterationValue(value workflow.IterationValue) string {
+	switch value.Kind {
+	case "string", "platform":
+		return value.String
+	case "number":
+		if value.Number != nil {
+			return fmt.Sprint(*value.Number)
+		}
+	case "boolean":
+		if value.Boolean != nil {
+			return fmt.Sprint(*value.Boolean)
+		}
+	}
+	return "<invalid>"
+}
+
+func findFlowNode(flow workflow.Flow, identity string) (workflow.FlowNode, bool) {
+	for _, node := range flow.Nodes {
+		if node.Identity == identity {
+			return node, true
+		}
+	}
+	return workflow.FlowNode{}, false
+}
+
+func flowTransitionTarget(flow workflow.Flow, from string, event workflow.MachineEventKind) string {
+	for _, transition := range flow.Transitions {
+		if transition.From == from && transition.Event == event {
+			return transition.To
+		}
+	}
+	return ""
 }
 
 func workflowEventRenderer(jsonOutput bool) workflow.EventSink {
@@ -282,8 +376,8 @@ func workflowEventRenderer(jsonOutput bool) workflow.EventSink {
 	}
 }
 
-func exportWorkflowGitHub(root string, plan workflow.Plan, options workflowCommandOptions) {
-	contents, err := workflow.ExportGitHub(plan)
+func exportWorkflowGitHub(root string, flow workflow.Flow, options workflowCommandOptions) {
+	contents, err := workflow.ExportGitHub(flow)
 	if err != nil {
 		failWorkflow("TSPACK_WORKFLOW_PROVIDER_UNSUPPORTED", err.Error())
 	}
@@ -293,7 +387,7 @@ func exportWorkflowGitHub(root string, plan workflow.Plan, options workflowComma
 	}
 	relativePath := options.Output
 	if relativePath == "" {
-		relativePath = workflow.GitHubPath(plan.Workflow)
+		relativePath = workflow.GitHubPath(flow.Identity)
 	}
 	if filepath.IsAbs(relativePath) || strings.HasPrefix(filepath.Clean(relativePath), "..") {
 		failWorkflow("TSPACK_WORKFLOW_OUTPUT_PATH_INVALID", "output path must stay within the workspace")

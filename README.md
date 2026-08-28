@@ -70,7 +70,7 @@ tspack help commands
 - `doctor security` lifecycle capability audit surface.
 - Native `tspack audit` checks locked npm versions against OSV.dev without invoking npm or mutating dependency state.
 - Declared RunTargets with runtime inheritance.
-- Provider-neutral typed workflows with deterministic local planning/execution and GitHub thin-runner export. See [typed workflows](docs/workflows.md).
+- A small inert workflow language with typed effect values and projections, exhaustive `MatchResult`, explicit `Finally` cleanup, bounded `ForEach` cursors, deterministic local execution, and GitHub thin-runner export. See [workflow language](docs/workflows.md).
 - Native xTest harness.
 - `outdated` plus declared UpdatePolicy dry-run planning.
 - `pack`, `why`, and `how` release/audit helpers.

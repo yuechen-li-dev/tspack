@@ -57,7 +57,159 @@ func validateWorkflows(add func(string, string, ...string), ir *ManifestIR) {
 			}
 		}
 
-		validateWorkflowJobs(add, prefix, workflow, packageNames)
+		if workflow.Flow != nil && len(workflow.Jobs) > 0 {
+			add("TSPACK_WORKFLOW_AUTHORING_AMBIGUOUS", prefix+" must declare either flow or legacy jobs, not both")
+		}
+		if workflow.Flow == nil && len(workflow.Jobs) == 0 {
+			add("TSPACK_WORKFLOW_FLOW_REQUIRED", prefix+" must declare flow or legacy jobs")
+		}
+		if workflow.Flow != nil {
+			validateWorkflowFlowNode(add, prefix+".flow", workflow.Flow, packageNames, "currentHost")
+		} else {
+			validateWorkflowJobs(add, prefix, workflow, packageNames)
+		}
+	}
+}
+
+func validateWorkflowFlowNode(add func(string, string, ...string), prefix string, node *WorkflowFlowNode, packageNames map[string]struct{}, inheritedPlatform string) {
+	switch node.Kind {
+	case "effect":
+		if node.Effect == nil {
+			add("TSPACK_WORKFLOW_EFFECT_REQUIRED", prefix+" effect node must contain an effect")
+			return
+		}
+		if len(node.Children) > 0 || node.Identity != "" {
+			add("TSPACK_WORKFLOW_FLOW_NODE_INVALID", prefix+" effect node cannot contain children or an identity")
+		}
+		validateWorkflowStep(add, prefix+".effect", *node.Effect, packageNames)
+	case "sequence":
+		if len(node.Children) == 0 {
+			add("TSPACK_WORKFLOW_SEQUENCE_EMPTY", prefix+" sequence must contain at least one node")
+		}
+		for index := range node.Children {
+			validateWorkflowFlowNode(add, fmt.Sprintf("%s.children[%d]", prefix, index), &node.Children[index], packageNames, inheritedPlatform)
+		}
+	case "parallel":
+		if len(node.Children) < 2 {
+			add("TSPACK_WORKFLOW_PARALLEL_TOO_SMALL", prefix+" parallel must contain at least two branches")
+		}
+		seen := map[string]struct{}{}
+		for index := range node.Children {
+			child := &node.Children[index]
+			childPrefix := fmt.Sprintf("%s.children[%d]", prefix, index)
+			if child.Kind != "branch" {
+				add("TSPACK_WORKFLOW_PARALLEL_BRANCH_REQUIRED", childPrefix+" must be a Branch declaration")
+			}
+			if _, exists := seen[child.Identity]; exists {
+				add("TSPACK_WORKFLOW_BRANCH_IDENTITY_DUPLICATE", prefix+" repeats branch "+child.Identity)
+			}
+			seen[child.Identity] = struct{}{}
+			validateWorkflowFlowNode(add, childPrefix, child, packageNames, inheritedPlatform)
+		}
+	case "branch":
+		if !workflowIdentityPattern.MatchString(node.Identity) {
+			add("TSPACK_WORKFLOW_BRANCH_IDENTITY_INVALID", prefix+".identity must be a stable identifier")
+		}
+		if len(node.Children) == 0 {
+			add("TSPACK_WORKFLOW_BRANCH_EMPTY", prefix+" branch must contain at least one node")
+		}
+		for index := range node.Children {
+			validateWorkflowFlowNode(add, fmt.Sprintf("%s.children[%d]", prefix, index), &node.Children[index], packageNames, inheritedPlatform)
+		}
+	case "region":
+		platform := node.RunsOn
+		if platform == "" {
+			platform = inheritedPlatform
+		}
+		if platform != "linux" && platform != "windows" && platform != "macos" && platform != "currentHost" {
+			add("TSPACK_WORKFLOW_PLATFORM_INVALID", prefix+".runsOn must be linux, windows, macos, or currentHost")
+		}
+		validateWorkflowEnvironment(add, prefix+".env", node.Env)
+		if len(node.Children) == 0 {
+			add("TSPACK_WORKFLOW_REGION_EMPTY", prefix+" region must contain at least one node")
+		}
+		for index := range node.Children {
+			validateWorkflowFlowNode(add, fmt.Sprintf("%s.children[%d]", prefix, index), &node.Children[index], packageNames, platform)
+		}
+	case "match":
+		if node.Source == nil || node.Effect == nil {
+			add("TSPACK_WORKFLOW_MATCH_INVALID", prefix+" MatchResult requires a typed source effect")
+			return
+		}
+		validateWorkflowValueRef(add, prefix+".source", *node.Source)
+		seen := map[string]bool{}
+		for index := range node.Arms {
+			arm := &node.Arms[index]
+			armPrefix := fmt.Sprintf("%s.arms[%d]", prefix, index)
+			if seen[arm.Kind] {
+				add("TSPACK_WORKFLOW_MATCH_KIND_DUPLICATE", prefix+" repeats "+arm.Kind)
+			}
+			seen[arm.Kind] = true
+			validateWorkflowFlowNode(add, armPrefix+".flow", &arm.Flow, packageNames, inheritedPlatform)
+		}
+		for _, kind := range []string{"succeeded", "failed", "cancelled", "timedOut"} {
+			if !seen[kind] {
+				add("TSPACK_WORKFLOW_MATCH_NON_EXHAUSTIVE", prefix+" is missing "+kind)
+			}
+		}
+	case "finally":
+		if node.Body == nil || node.Cleanup == nil {
+			add("TSPACK_WORKFLOW_FINALLY_INVALID", prefix+" Finally requires body and cleanup flows")
+			return
+		}
+		validateWorkflowFlowNode(add, prefix+".body", node.Body, packageNames, inheritedPlatform)
+		validateWorkflowFlowNode(add, prefix+".cleanup", node.Cleanup, packageNames, inheritedPlatform)
+	case "forEach":
+		if !workflowIdentityPattern.MatchString(node.Identity) {
+			add("TSPACK_WORKFLOW_FOREACH_IDENTITY_INVALID", prefix+".identity must be a stable identifier")
+		}
+		if len(node.Items) == 0 || len(node.Items) > 256 {
+			add("TSPACK_WORKFLOW_FOREACH_LIMIT_INVALID", prefix+" must contain between 1 and 256 finite items")
+		}
+		for index := range node.Items {
+			item := &node.Items[index]
+			if item.Index != index {
+				add("TSPACK_WORKFLOW_FOREACH_CURSOR_INVALID", fmt.Sprintf("%s.items[%d] has non-deterministic cursor index %d", prefix, index, item.Index))
+			}
+			validateWorkflowIterationValue(add, fmt.Sprintf("%s.items[%d].value", prefix, index), item.Value)
+			validateWorkflowFlowNode(add, fmt.Sprintf("%s.items[%d].flow", prefix, index), &item.Flow, packageNames, inheritedPlatform)
+		}
+	default:
+		add("TSPACK_WORKFLOW_FLOW_NODE_INVALID", prefix+" has unknown flow node kind "+node.Kind)
+	}
+}
+
+func validateWorkflowIterationValue(add func(string, string, ...string), prefix string, value WorkflowIterationValue) {
+	switch value.Kind {
+	case "string":
+		if value.Number != nil || value.Boolean != nil {
+			add("TSPACK_WORKFLOW_FOREACH_VALUE_INVALID", prefix+" string value has conflicting scalar fields")
+		}
+	case "platform":
+		if value.String != "linux" && value.String != "windows" && value.String != "macos" && value.String != "currentHost" {
+			add("TSPACK_WORKFLOW_PLATFORM_INVALID", prefix+" has invalid platform "+value.String)
+		}
+	case "number":
+		if value.Number == nil || value.Boolean != nil || value.String != "" {
+			add("TSPACK_WORKFLOW_FOREACH_VALUE_INVALID", prefix+" must contain exactly one number")
+		}
+	case "boolean":
+		if value.Boolean == nil || value.Number != nil || value.String != "" {
+			add("TSPACK_WORKFLOW_FOREACH_VALUE_INVALID", prefix+" must contain exactly one boolean")
+		}
+	default:
+		add("TSPACK_WORKFLOW_FOREACH_VALUE_INVALID", prefix+" has unknown finite scalar kind "+value.Kind)
+	}
+}
+
+func validateWorkflowValueRef(add func(string, string, ...string), prefix string, value WorkflowValueRef) {
+	if value.Identity == "" || value.Source == "" || value.ResultType == "" {
+		add("TSPACK_WORKFLOW_VALUE_INVALID", prefix+" must contain deterministic identity, source, and result type")
+	}
+	switch value.Category {
+	case "control", "smallSerialized", "artifactReference", "regionLocal", "placement":
+	default:
+		add("TSPACK_WORKFLOW_VALUE_CATEGORY_INVALID", prefix+" has unknown category "+value.Category)
 	}
 }
 
@@ -113,6 +265,9 @@ func validateWorkflowJobs(add func(string, string, ...string), prefix string, wo
 }
 
 func validateWorkflowStep(add func(string, string, ...string), prefix string, step WorkflowStep, packageNames map[string]struct{}) {
+	for index, input := range step.Inputs {
+		validateWorkflowValueRef(add, fmt.Sprintf("%s.inputs[%d]", prefix, index), input)
+	}
 	switch step.Operation {
 	case "sync", "check", "build", "test", "pack", "audit":
 		if len(step.Command) > 0 || step.Script != "" || step.Cwd != "" || len(step.Env) > 0 || len(step.Capabilities) > 0 {

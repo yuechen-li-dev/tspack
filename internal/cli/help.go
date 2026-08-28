@@ -38,7 +38,7 @@ func printDefaultHelp() {
 	fmt.Println("  check      Validate manifest, lockfile, security policy, and formatting")
 	fmt.Println("  audit      Check locked npm packages against OSV.dev advisories")
 	fmt.Println("  run        Run declared RunTargets")
-	fmt.Println("  workflow   Inspect, run, and export typed workflows")
+	fmt.Println("  workflow   Inspect, run, and export Flow-machine workflows")
 	fmt.Println("  why        Explain why a dependency exists")
 	fmt.Println("  pack       Create or verify package artifacts")
 	fmt.Println("  doctor     Diagnose project/runtime/security/inspect setup")
@@ -112,7 +112,7 @@ func printCommandsHelp() {
 	fmt.Println()
 	fmt.Println("Execution and testing:")
 	fmt.Println("  run         Run declared RunTargets")
-	fmt.Println("  workflow    List, inspect, run, or export typed workflow intent")
+	fmt.Println("  workflow    List, inspect, run, or export workflow Flow IR")
 	fmt.Println("  test        Run xTest/Vitest-compatible project tests")
 	fmt.Println("  inspect     Inspect browser/app/runtime targets")
 	fmt.Println("  list        List project packages/apps")
@@ -127,7 +127,7 @@ func printCommandsHelp() {
 }
 
 func printWorkflowHelp() {
-	fmt.Println("TSPack typed workflows:")
+	fmt.Println("TSPack workflow language and Flow machines:")
 	fmt.Println()
 	fmt.Println("  tspack workflow list")
 	fmt.Println("  tspack workflow inspect CI [--json]")
@@ -135,8 +135,9 @@ func printWorkflowHelp() {
 	fmt.Println("  tspack workflow export github CI [--check]")
 	fmt.Println()
 	fmt.Println("Workflows are provider-neutral execution graphs declared in manifest.tsx.")
-	fmt.Println("Native Sync, Check, and Pack steps call typed project operations; Process uses argv,")
-	fmt.Println("and ShellScript is an explicit shell interpretation escape hatch.")
+	fmt.Println("Effects produce typed values; MatchResult branches exhaustively, Finally exposes cleanup paths,")
+	fmt.Println("and finite ForEach sources lower to explicit ordered cursors. Process uses argv, while")
+	fmt.Println("ShellScript is an explicit shell interpretation escape hatch.")
 	fmt.Println("GitHub export emits a generated thin runner that executes the same local plan.")
 	fmt.Println()
 	fmt.Println("TSPack project lifecycle:")

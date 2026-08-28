@@ -33,21 +33,29 @@ type PlanJob struct {
 }
 
 type PlanStep struct {
-	Identity        string        `json:"identity"`
-	Name            string        `json:"name"`
-	Operation       string        `json:"operation"`
-	Packages        []string      `json:"packages,omitempty"`
-	Targets         []string      `json:"targets,omitempty"`
-	Filter          string        `json:"filter,omitempty"`
-	AuditLevel      string        `json:"auditLevel,omitempty"`
-	RequireCoverage bool          `json:"requireCoverage,omitempty"`
-	Command         []string      `json:"command,omitempty"`
-	Script          string        `json:"script,omitempty"`
-	Shell           string        `json:"shell,omitempty"`
-	Cwd             string        `json:"cwd,omitempty"`
-	Capabilities    []string      `json:"capabilities,omitempty"`
-	Environment     []Environment `json:"environment,omitempty"`
-	TimeoutSeconds  int           `json:"timeoutSeconds,omitempty"`
+	Identity        string          `json:"identity"`
+	ResultIdentity  string          `json:"resultIdentity,omitempty"`
+	Inputs          []ValueRef      `json:"inputs,omitempty"`
+	ResolvedInputs  []ResolvedValue `json:"-"`
+	Name            string          `json:"name"`
+	Operation       string          `json:"operation"`
+	Packages        []string        `json:"packages,omitempty"`
+	Targets         []string        `json:"targets,omitempty"`
+	Filter          string          `json:"filter,omitempty"`
+	AuditLevel      string          `json:"auditLevel,omitempty"`
+	RequireCoverage bool            `json:"requireCoverage,omitempty"`
+	Command         []string        `json:"command,omitempty"`
+	Script          string          `json:"script,omitempty"`
+	Shell           string          `json:"shell,omitempty"`
+	Cwd             string          `json:"cwd,omitempty"`
+	Capabilities    []string        `json:"capabilities,omitempty"`
+	Environment     []Environment   `json:"environment,omitempty"`
+	TimeoutSeconds  int             `json:"timeoutSeconds,omitempty"`
+}
+
+type ResolvedValue struct {
+	Reference ValueRef
+	Result    *NativeResult
 }
 
 type Environment struct {

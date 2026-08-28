@@ -32,7 +32,51 @@ type ManifestIR struct {
 type Workflow struct {
 	Identity string            `json:"identity"`
 	Triggers []WorkflowTrigger `json:"triggers"`
-	Jobs     []WorkflowJob     `json:"jobs"`
+	Jobs     []WorkflowJob     `json:"jobs,omitempty"`
+	Flow     *WorkflowFlowNode `json:"flow,omitempty"`
+}
+
+// WorkflowFlowNode is the inert authoring IR produced by the TypeScript
+// manifest frontend. It deliberately contains data only; execution semantics
+// belong to internal/workflow's normalized Flow IR.
+type WorkflowFlowNode struct {
+	Kind     string                `json:"kind"`
+	Identity string                `json:"identity,omitempty"`
+	Children []WorkflowFlowNode    `json:"children,omitempty"`
+	Effect   *WorkflowStep         `json:"effect,omitempty"`
+	Source   *WorkflowValueRef     `json:"source,omitempty"`
+	Arms     []WorkflowMatchArm    `json:"arms,omitempty"`
+	Body     *WorkflowFlowNode     `json:"body,omitempty"`
+	Cleanup  *WorkflowFlowNode     `json:"cleanup,omitempty"`
+	Items    []WorkflowForEachItem `json:"items,omitempty"`
+	RunsOn   string                `json:"runsOn,omitempty"`
+	Env      []WorkflowEnvironment `json:"env,omitempty"`
+}
+
+type WorkflowValueRef struct {
+	Identity   string   `json:"identity"`
+	Source     string   `json:"source"`
+	ResultType string   `json:"resultType"`
+	FieldPath  []string `json:"fieldPath,omitempty"`
+	Category   string   `json:"category"`
+}
+
+type WorkflowMatchArm struct {
+	Kind string           `json:"kind"`
+	Flow WorkflowFlowNode `json:"flow"`
+}
+
+type WorkflowForEachItem struct {
+	Index int                    `json:"index"`
+	Value WorkflowIterationValue `json:"value"`
+	Flow  WorkflowFlowNode       `json:"flow"`
+}
+
+type WorkflowIterationValue struct {
+	Kind    string   `json:"kind"`
+	String  string   `json:"string,omitempty"`
+	Number  *float64 `json:"number,omitempty"`
+	Boolean *bool    `json:"boolean,omitempty"`
 }
 
 type WorkflowTrigger struct {
@@ -51,6 +95,8 @@ type WorkflowJob struct {
 }
 
 type WorkflowStep struct {
+	ResultIdentity  string                `json:"resultIdentity,omitempty"`
+	Inputs          []WorkflowValueRef    `json:"inputs,omitempty"`
 	Name            string                `json:"name,omitempty"`
 	Operation       string                `json:"operation"`
 	Packages        []string              `json:"packages,omitempty"`
