@@ -1,0 +1,10 @@
+{
+  "name": "perry-hotpath-m71b",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@perryts/perry": "0.5.1220",
+    "@types/node": "24.3.0",
+    "typescript": "5.9.3"
+  }
+}

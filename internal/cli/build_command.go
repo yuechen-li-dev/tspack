@@ -107,6 +107,8 @@ func runBuildCommand(args []string) {
 				buildTsclPackage(root, manifestPath, ir, &selectedPackage, "", opts.PreserveLastSuccessful)
 			case "scriptc":
 				buildScriptCTarget(root, manifestPath, ir, pkg, target)
+			case "perry":
+				buildPerryTarget(root, manifestPath, ir, pkg, target)
 			default:
 				failBuild("TSPACK_BUILD_UNSUPPORTED_COMPILER", "unsupported compiler for target "+pkg.Name+":"+target.Name+": "+target.Compiler)
 			}

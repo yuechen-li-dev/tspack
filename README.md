@@ -76,6 +76,8 @@ tspack help commands
 - Per-target compiler orchestration: ordinary tsc projects may opt a bounded
   source set into ScriptC native-executable compilation without becoming
   project-wide ScriptC. See [M71a ScriptC hot paths](docs/dev/m71a-scriptc-hotpath.md).
+- Perry uses the same bounded target model through a project-managed tool and
+  Perry-owned config. See [the M71b performance qualification](docs/dev/m71b-perry-performance.md).
 
 ## Self-hosting
 

@@ -180,6 +180,12 @@ Input overlap and source imports across different compiler owners are errors.
 owns ScriptC-specific backend, optimization, dynamic, package-static, compiler,
 and target choices. See [M71a](dev/m71a-scriptc-hotpath.md).
 
+Perry targets use the same bounded ownership rule with `compiler: "perry"`,
+explicit `inputs`, a native executable artifact, and a project-managed
+`@perryts/perry` tool. `perry.json` owns target, output type, floating-point,
+type-check, codegen, auto-optimization, and feature choices. See the
+[M71b qualification](dev/m71b-perry-performance.md).
+
 ## Package kinds
 
 Package `kind` is semantic classification. It is preserved in the manifest IR

@@ -29,7 +29,7 @@ export type ManifestIr = {
 };
 
 type RuntimeProfile = 'nodejs' | 'bun' | 'deno';
-type Compiler = 'tsc' | 'tscl' | 'scriptc';
+type Compiler = 'tsc' | 'tscl' | 'scriptc' | 'perry';
 type ParseMode = 'root' | 'package';
 type DocMode = 'single' | 'split' | 'package' | 'annotation';
 type PackageRow = { name: string; root: string; manifest: string };
@@ -1154,7 +1154,7 @@ function mapSkyrimTarget(target: any): Record<string, unknown> {
 
 function compilerIdentity(value: unknown): Compiler {
   if (value === undefined) return 'tsc';
-  if (value === 'tsc' || value === 'tscl' || value === 'scriptc') return value;
+  if (value === 'tsc' || value === 'tscl' || value === 'scriptc' || value === 'perry') return value;
   return value as Compiler;
 }
 

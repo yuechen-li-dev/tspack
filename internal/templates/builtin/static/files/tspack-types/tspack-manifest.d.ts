@@ -31,7 +31,7 @@ declare module 'tspack/manifest' {
   };
 
   export type RuntimeProfile = 'nodejs' | 'bun' | 'deno';
-  export type Compiler = 'tsc' | 'tscl' | 'scriptc';
+  export type Compiler = 'tsc' | 'tscl' | 'scriptc' | 'perry';
 
   export type NpmSource = {
     kind: 'npm';

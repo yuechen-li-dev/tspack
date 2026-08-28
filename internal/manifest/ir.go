@@ -647,8 +647,8 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 		if p.Compiler == "" {
 			p.Compiler = "tsc"
 		}
-		if p.Compiler != "tsc" && p.Compiler != "tscl" && p.Compiler != "scriptc" {
-			add("TSPACK_MANIFEST_INVALID_COMPILER", pp+".compiler must be tsc, tscl, or scriptc")
+		if p.Compiler != "tsc" && p.Compiler != "tscl" && p.Compiler != "scriptc" && p.Compiler != "perry" {
+			add("TSPACK_MANIFEST_INVALID_COMPILER", pp+".compiler must be tsc, tscl, scriptc, or perry")
 		}
 		if p.Compiler == "tscl" && strings.TrimSpace(p.CompilerPath) == "" {
 			add("TSPACK_TSCL_PATH_REQUIRED", pp+".compilerPath is required when compiler is tscl")
@@ -683,8 +683,8 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 				compiler = p.Compiler
 				p.Targets[ti].Compiler = compiler
 			}
-			if compiler != "tsc" && compiler != "tscl" && compiler != "scriptc" {
-				add("TSPACK_MANIFEST_INVALID_COMPILER", tp+".compiler must be tsc, tscl, or scriptc")
+			if compiler != "tsc" && compiler != "tscl" && compiler != "scriptc" && compiler != "perry" {
+				add("TSPACK_MANIFEST_INVALID_COMPILER", tp+".compiler must be tsc, tscl, scriptc, or perry")
 			}
 			if compiler == "tscl" && strings.TrimSpace(p.CompilerPath) == "" {
 				add("TSPACK_TSCL_PATH_REQUIRED", tp+" requires package compilerPath for the Copeland tool")
@@ -694,6 +694,8 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 					p.Targets[ti].Language = "copeland-ts"
 				} else if compiler == "scriptc" {
 					p.Targets[ti].Language = "scriptc"
+				} else if compiler == "perry" {
+					p.Targets[ti].Language = "perry-ts"
 				} else {
 					p.Targets[ti].Language = "typescript"
 				}
@@ -717,6 +719,16 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 					p.Targets[ti].Artifact = "nativeExecutable"
 				} else if t.Artifact != "nativeExecutable" {
 					add("TSPACK_COMPILER_ARTIFACT_UNSUPPORTED", tp+".artifact must be nativeExecutable for M71a ScriptC targets")
+				}
+			}
+			if compiler == "perry" {
+				if len(t.Inputs) == 0 {
+					add("TSPACK_COMPILER_INPUTS_REQUIRED", tp+".inputs is required for a bounded Perry target")
+				}
+				if t.Artifact == "" {
+					p.Targets[ti].Artifact = "nativeExecutable"
+				} else if t.Artifact != "nativeExecutable" {
+					add("TSPACK_COMPILER_ARTIFACT_UNSUPPORTED", tp+".artifact must be nativeExecutable for M71b Perry targets")
 				}
 			}
 			if t.Name == "" || !targetNameRe.MatchString(t.Name) || strings.HasPrefix(t.Name, "/") || strings.HasSuffix(t.Name, "/") || strings.Contains(t.Name, "..") {

@@ -27,7 +27,7 @@ type scriptCConfig struct {
 	Target        string   `json:"target,omitempty"`
 }
 
-type scriptCCacheRecord struct {
+type compilerCacheRecord struct {
 	SchemaVersion int    `json:"schemaVersion"`
 	Fingerprint   string `json:"fingerprint"`
 	Compiler      string `json:"compiler"`
@@ -124,9 +124,9 @@ func buildScriptCTarget(root string, manifestPath string, ir *manifest.ManifestI
 		failBuild("TSPACK_BUILD_IO", err.Error())
 	}
 
-	fingerprint := scriptCTargetFingerprint(compilerTarget)
+	fingerprint := compilerTargetFingerprint(compilerTarget)
 	cachePath := filepath.Join(packageRoot, ".tspack", "compiler-cache", safeBuildName(pkg.Name)+"-"+safeBuildName(target.Name)+".json")
-	if scriptCCacheHit(cachePath, outputPath, fingerprint) {
+	if compilerCacheHit(cachePath, outputPath, fingerprint) {
 		fmt.Printf("Cached %s:%s with scriptc %s -> %s\n", pkg.Name, target.Name, version, target.Runtime)
 		return
 	}
@@ -172,7 +172,7 @@ func buildScriptCTarget(root string, manifestPath string, ir *manifest.ManifestI
 	if err := replaceArtifactAtomically(stagingPath, outputPath); err != nil {
 		failBuild("TSPACK_BUILD_IO", err.Error())
 	}
-	cache := scriptCCacheRecord{SchemaVersion: 1, Fingerprint: fingerprint, Compiler: version, Platform: runtime.GOOS + "-" + runtime.GOARCH}
+	cache := compilerCacheRecord{SchemaVersion: 1, Fingerprint: fingerprint, Compiler: version, Platform: runtime.GOOS + "-" + runtime.GOARCH}
 	cacheBytes, _ := json.MarshalIndent(cache, "", "  ")
 	if err := writeFileAtomically(cachePath, append(cacheBytes, '\n'), 0o644); err != nil {
 		failBuild("TSPACK_BUILD_IO", err.Error())
@@ -387,14 +387,14 @@ func samePath(left string, right string) bool {
 	return filepath.Clean(left) == filepath.Clean(right)
 }
 
-func scriptCTargetFingerprint(target compilerir.Target) string {
+func compilerTargetFingerprint(target compilerir.Target) string {
 	descriptor, _ := compilerir.NewDescriptor(target)
 	contents, _ := json.Marshal(descriptor)
 	hash := sha256.Sum256(append(contents, []byte("\x00"+runtime.GOOS+"/"+runtime.GOARCH)...))
 	return hex.EncodeToString(hash[:])
 }
 
-func scriptCCacheHit(cachePath string, outputPath string, fingerprint string) bool {
+func compilerCacheHit(cachePath string, outputPath string, fingerprint string) bool {
 	if _, err := os.Stat(outputPath); err != nil {
 		return false
 	}
@@ -402,7 +402,7 @@ func scriptCCacheHit(cachePath string, outputPath string, fingerprint string) bo
 	if err != nil {
 		return false
 	}
-	var cache scriptCCacheRecord
+	var cache compilerCacheRecord
 	return json.Unmarshal(contents, &cache) == nil && cache.SchemaVersion == 1 && cache.Fingerprint == fingerprint
 }
 

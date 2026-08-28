@@ -49,6 +49,7 @@ dist-packages/
 tspack-artifacts/
 **/.tspack/
 **/tspack-artifacts/
+**/.perry-trace/
 
 # Editor / OS files
 .DS_Store

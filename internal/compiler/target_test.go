@@ -114,6 +114,30 @@ func TestScriptCAdapterKeepsCompilerFlagsInVersionedPayload(t *testing.T) {
 	}
 }
 
+func TestPerryAdapterKeepsCompilerFlagsInVersionedPayload(t *testing.T) {
+	target := testTarget()
+	target.Language.ID = "perry-ts"
+	target.Compiler.ID = "perry"
+	target.Tool = ToolIdentity{Source: "npm", Name: "@perryts/perry", Version: "0.5.1220", Path: "/tools/perry"}
+	target.Outputs = []Output{{Kind: OutputNativeExecutable, Path: "dist/hotpath"}}
+	target.Payload = Payload{
+		Kind:          "perry-v1",
+		SchemaVersion: 1,
+		Data:          json.RawMessage(`{"entry":"src/hot/main.ts","output":"dist/hotpath","target":"windows","fastMath":true,"fpContract":"fast","features":["simd"]}`),
+	}
+
+	invocation, err := (PerryAdapter{}).PrepareInvocation(target, "/ignored/descriptor.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(invocation.Arguments, " ")
+	for _, expected := range []string{"compile", "src/hot/main.ts", "--target windows", "--fast-math", "--fp-contract fast", "--features simd"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("invocation %q is missing %q", joined, expected)
+		}
+	}
+}
+
 func testTarget() Target {
 	return Target{
 		ProjectRoot: "C:/workspace",

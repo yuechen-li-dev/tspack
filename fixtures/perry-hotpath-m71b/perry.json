@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "target": "windows",
+  "outputType": "executable",
+  "fastMath": false,
+  "fpContract": "off",
+  "typeCheck": false,
+  "noAutoOptimize": false,
+  "noCodegen": true,
+  "features": []
+}

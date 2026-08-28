@@ -87,6 +87,131 @@ func (ScriptCAdapter) DescribeCapabilities() []Capability {
 	}
 }
 
+// PerryPayloadV1 contains Perry-owned native compilation choices. Keeping
+// these flags in a versioned payload preserves the language-neutral target IR.
+type PerryPayloadV1 struct {
+	Entry          string   `json:"entry"`
+	Output         string   `json:"output"`
+	Target         string   `json:"target,omitempty"`
+	OutputType     string   `json:"outputType,omitempty"`
+	FastMath       bool     `json:"fastMath,omitempty"`
+	FPContract     string   `json:"fpContract,omitempty"`
+	TypeCheck      bool     `json:"typeCheck,omitempty"`
+	NoAutoOptimize bool     `json:"noAutoOptimize,omitempty"`
+	NoCodegen      bool     `json:"noCodegen,omitempty"`
+	Features       []string `json:"features,omitempty"`
+}
+
+type PerryAdapter struct {
+	RuntimeDirectory string
+}
+
+func (PerryAdapter) CompilerID() string { return "perry" }
+
+func (PerryAdapter) DescribeCapabilities() []Capability {
+	return []Capability{
+		CapabilityParse,
+		CapabilityTypeCheck,
+		CapabilityEmitNative,
+		CapabilityCompilerOwnedConfig,
+		CapabilityCompilerOwnedSourcePartition,
+	}
+}
+
+func (adapter PerryAdapter) ValidateTarget(target Target) error {
+	if target.Compiler.ID != adapter.CompilerID() || target.Language.ID != "perry-ts" {
+		return fmt.Errorf("Perry adapter requires language perry-ts and compiler perry")
+	}
+	if target.Payload.Kind != "perry-v1" || target.Payload.SchemaVersion != 1 {
+		return fmt.Errorf("Perry adapter requires perry-v1 payload schema 1")
+	}
+	nativeExecutables := 0
+	for _, output := range target.Outputs {
+		if output.Kind != OutputNativeExecutable {
+			return fmt.Errorf("Perry M71b adapter supports nativeExecutable output")
+		}
+		nativeExecutables++
+	}
+	if nativeExecutables != 1 {
+		return fmt.Errorf("Perry M71b adapter requires one nativeExecutable output")
+	}
+	_, err := decodePerryPayload(target.Payload)
+	if err != nil {
+		return err
+	}
+	return ValidateTarget(target)
+}
+
+func (adapter PerryAdapter) PrepareInvocation(target Target, _ string) (Invocation, error) {
+	if err := adapter.ValidateTarget(target); err != nil {
+		return Invocation{}, err
+	}
+	payload, err := decodePerryPayload(target.Payload)
+	if err != nil {
+		return Invocation{}, err
+	}
+	arguments := []string{"compile", payload.Entry, "--output", payload.Output, "--no-color"}
+	if payload.Target != "" {
+		arguments = append(arguments, "--target", payload.Target)
+	}
+	if payload.OutputType != "" {
+		arguments = append(arguments, "--output-type", payload.OutputType)
+	}
+	if payload.FastMath {
+		arguments = append(arguments, "--fast-math")
+	}
+	if payload.FPContract != "" {
+		arguments = append(arguments, "--fp-contract", payload.FPContract)
+	}
+	if payload.TypeCheck {
+		arguments = append(arguments, "--type-check")
+	}
+	if payload.NoAutoOptimize {
+		arguments = append(arguments, "--no-auto-optimize")
+	}
+	if payload.NoCodegen {
+		arguments = append(arguments, "--no-codegen")
+	}
+	if len(payload.Features) > 0 {
+		arguments = append(arguments, "--features", strings.Join(payload.Features, ","))
+	}
+	return Invocation{
+		Executable:  target.Tool.Path,
+		Arguments:   arguments,
+		Directory:   target.ProjectRoot,
+		Environment: perryEnvironment(adapter.RuntimeDirectory),
+	}, nil
+}
+
+func perryEnvironment(runtimeDirectory string) map[string]string {
+	if strings.TrimSpace(runtimeDirectory) == "" {
+		return nil
+	}
+	return map[string]string{"PERRY_RUNTIME_DIR": runtimeDirectory}
+}
+
+func decodePerryPayload(payload Payload) (PerryPayloadV1, error) {
+	var decoded PerryPayloadV1
+	if err := json.Unmarshal(payload.Data, &decoded); err != nil {
+		return PerryPayloadV1{}, fmt.Errorf("decode Perry payload: %w", err)
+	}
+	if strings.TrimSpace(decoded.Entry) == "" || strings.TrimSpace(decoded.Output) == "" {
+		return PerryPayloadV1{}, fmt.Errorf("Perry payload requires entry and output")
+	}
+	if decoded.OutputType != "" && decoded.OutputType != "executable" {
+		return PerryPayloadV1{}, fmt.Errorf("Perry M71b executable adapter requires outputType executable")
+	}
+	if decoded.FPContract != "" && decoded.FPContract != "off" && decoded.FPContract != "on" && decoded.FPContract != "fast" {
+		return PerryPayloadV1{}, fmt.Errorf("Perry fpContract must be off, on, or fast")
+	}
+	for _, feature := range decoded.Features {
+		if strings.TrimSpace(feature) == "" || strings.Contains(feature, ",") {
+			return PerryPayloadV1{}, fmt.Errorf("Perry features must be non-empty names without commas")
+		}
+	}
+	return decoded, nil
+}
+
 func (adapter ScriptCAdapter) ValidateTarget(target Target) error {
 	if target.Compiler.ID != adapter.CompilerID() || target.Language.ID != "scriptc" {
 		return fmt.Errorf("ScriptC adapter requires language scriptc and compiler scriptc")

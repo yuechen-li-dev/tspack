@@ -72,6 +72,29 @@ func TestScriptCConfigRejectsImplicitPackageDiscovery(t *testing.T) {
 	}
 }
 
+func TestPerryConfigRejectsUnsupportedOutputType(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "perry.json")
+	writeScriptCTestFile(t, root, "perry.json", `{"schemaVersion":1,"outputType":"dylib"}`)
+	_, err := loadPerryConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "outputType executable") {
+		t.Fatalf("config error=%v", err)
+	}
+}
+
+func TestPerryConfigAcceptsOwnedExecutableOptions(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "perry.json")
+	writeScriptCTestFile(t, root, "perry.json", `{"schemaVersion":1,"target":"windows","fastMath":true,"fpContract":"fast","features":["simd"]}`)
+	config, err := loadPerryConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.OutputType != "executable" || !config.FastMath || config.FPContract != "fast" {
+		t.Fatalf("unexpected config: %#v", config)
+	}
+}
+
 func TestScriptCStaticPolicyReadsCompilerCoverageEvidence(t *testing.T) {
 	if !scriptCCoverageRequiresDynamic([]byte("runs with --dynamic   2 sites")) {
 		t.Fatal("dynamic-only coverage was accepted as static")
