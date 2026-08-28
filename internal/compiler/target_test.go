@@ -77,7 +77,7 @@ func TestCopelandAdapterRequiresVersionedPayload(t *testing.T) {
 	target.Language.ID = "copeland-ts"
 	target.Compiler.ID = "tscl"
 	target.Tool.Path = "/tools/tscl"
-	target.Payload = Payload{Kind: "copeland-v1", SchemaVersion: 1, Data: json.RawMessage(`{}`)}
+	target.Payload = Payload{Kind: "copeland-v1", SchemaVersion: 1, Data: json.RawMessage(`{"backend":"javascript","executionRuntime":"node"}`)}
 
 	invocation, err := (CopelandAdapter{}).PrepareInvocation(target, "/workspace/app.request.json")
 	if err != nil {
@@ -89,6 +89,21 @@ func TestCopelandAdapterRequiresVersionedPayload(t *testing.T) {
 	target.Payload.SchemaVersion = 2
 	if _, err := (CopelandAdapter{}).PrepareInvocation(target, "/workspace/app.request.json"); err == nil {
 		t.Fatal("future Copeland payload version was accepted")
+	}
+}
+
+func TestCopelandAdapterRejectsInvalidBackendRuntimePairAndMissingNativeRID(t *testing.T) {
+	target := testTarget()
+	target.Language.ID = "copeland-ts"
+	target.Compiler.ID = "tscl"
+	target.Tool.Path = "/tools/tscl"
+	target.Payload = Payload{Kind: "copeland-v1", SchemaVersion: 1, Data: json.RawMessage(`{"backend":"javascript","executionRuntime":"nativeaot"}`)}
+	if _, err := (CopelandAdapter{}).PrepareInvocation(target, "/workspace/app.request.json"); err == nil || !strings.Contains(err.Error(), "invalid Copeland backend/runtime") {
+		t.Fatalf("invalid pair error = %v", err)
+	}
+	target.Payload.Data = json.RawMessage(`{"backend":"csharp","executionRuntime":"nativeaot"}`)
+	if _, err := (CopelandAdapter{}).PrepareInvocation(target, "/workspace/app.request.json"); err == nil || !strings.Contains(err.Error(), "runtimeIdentifier") {
+		t.Fatalf("missing RID error = %v", err)
 	}
 }
 

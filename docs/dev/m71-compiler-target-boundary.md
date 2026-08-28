@@ -84,6 +84,14 @@ Neither repository references the other's source. Local dogfood points at a buil
 
 ScriptC could be added with a new identity, capabilities, acquired tool, config reference, invocation, outputs, runtime, and bounded payload without modifying core target semantics. The same is true for PerryTS. Nothing in generic IR requires JavaScript output, Node, .NET, `tsconfig`, or Copeland ownership. Native link information, if eventually required, belongs in a versioned compiler payload or semantic artifact, not new Copeland fields in the core.
 
+M71c keeps that law while expanding Copeland's opaque `copeland-v1` payload.
+The generic IR adds only reusable managed-executable and CLR capability terms;
+backend, target framework, and RID stay compiler-payload/config facts. A
+Copeland build now reports its resolved backend/runtime/artifact and launch
+contract. The same source can be selected as JS/Node, C#/RyuJIT,
+C#/NativeAOT, or C#/.NET WASM without a package-global compiler switch. See
+[M71c Copeland backend targets](m71c-copeland-backend-targets.md).
+
 M71a exercises that claim with a bounded ScriptC native-executable target. The
 generic target model remains language-neutral; ScriptC flags live in a
 `scriptc-v1` payload, while explicit input ownership, artifact dependencies,

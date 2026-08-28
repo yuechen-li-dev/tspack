@@ -53,9 +53,25 @@ func (CopelandAdapter) DescribeCapabilities() []Capability {
 		CapabilityParse,
 		CapabilityTypeCheck,
 		CapabilityEmitJavaScript,
+		CapabilityEmitManaged,
+		CapabilityEmitNative,
+		CapabilityEmitWasm,
+		CapabilityRunCLR,
 		CapabilityCompilerOwnedConfig,
 		CapabilityCompilerOwnedSourcePartition,
 	}
+}
+
+type CopelandPayloadV1 struct {
+	ProjectRoot       string          `json:"projectRoot"`
+	Sources           json.RawMessage `json:"sources"`
+	Entry             json.RawMessage `json:"entry"`
+	Backend           string          `json:"backend"`
+	ExecutionRuntime  string          `json:"executionRuntime"`
+	TargetFramework   string          `json:"targetFramework,omitempty"`
+	RuntimeIdentifier string          `json:"runtimeIdentifier,omitempty"`
+	OutputDirectory   string          `json:"outputDirectory"`
+	EntryOutputPath   string          `json:"entryOutputPath"`
 }
 
 // ScriptCPayloadV1 is the bounded adapter payload for ScriptC's executable
@@ -330,6 +346,18 @@ func (adapter CopelandAdapter) ValidateTarget(target Target) error {
 	}
 	if target.Payload.Kind != "copeland-v1" || target.Payload.SchemaVersion != 1 {
 		return fmt.Errorf("Copeland adapter requires copeland-v1 payload schema 1")
+	}
+	var payload CopelandPayloadV1
+	if err := json.Unmarshal(target.Payload.Data, &payload); err != nil {
+		return fmt.Errorf("decode Copeland payload: %w", err)
+	}
+	validPair := (payload.Backend == "javascript" && (payload.ExecutionRuntime == "node" || payload.ExecutionRuntime == "browser")) ||
+		(payload.Backend == "csharp" && (payload.ExecutionRuntime == "ryujit" || payload.ExecutionRuntime == "nativeaot" || payload.ExecutionRuntime == "wasm"))
+	if !validPair {
+		return fmt.Errorf("invalid Copeland backend/runtime pairing backend=%q runtime=%q; javascript supports node/browser and csharp supports ryujit/nativeaot/wasm", payload.Backend, payload.ExecutionRuntime)
+	}
+	if payload.ExecutionRuntime == "nativeaot" && strings.TrimSpace(payload.RuntimeIdentifier) == "" {
+		return fmt.Errorf("Copeland NativeAOT target requires an explicit runtimeIdentifier")
 	}
 	return ValidateTarget(target)
 }

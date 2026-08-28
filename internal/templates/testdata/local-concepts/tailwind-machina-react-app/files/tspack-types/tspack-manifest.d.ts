@@ -230,12 +230,14 @@ declare module 'tspack/manifest' {
 	compilerConfig?: string;
 	inputs?: string[];
 	dependsOn?: string[];
-	artifact?: 'nativeExecutable';
+	artifact?: 'javaScript' | 'managedExecutable' | 'nativeExecutable' | 'wasmModule';
     export?: string;
     entry: string;
     runtime: string;
     types?: string;
     javascriptRuntime?: 'node' | 'browser';
+	targetFramework?: string;
+	runtimeIdentifier?: string;
     tsXmlProfile?: 'react-m0';
     npmContracts?: CopelandNpmContract[];
     deps?: TargetDependencyRefLike[];

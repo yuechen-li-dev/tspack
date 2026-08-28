@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	compilerir "github.com/yuechen-li-dev/tspack/internal/compiler"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
 )
 
@@ -75,6 +76,35 @@ func TestTsclProjectRequestSelectsBrowserRuntimeAndDistinctFingerprint(t *testin
 	}
 	if browserRequest.BuildFingerprint == nodeRequest.BuildFingerprint {
 		t.Fatal("browser and node target requests must not share a build fingerprint")
+	}
+}
+
+func TestTsclProjectRequestSelectsManagedAndNativeTargets(t *testing.T) {
+	root := t.TempDir()
+	sourceDirectory := filepath.Join(root, "src")
+	if err := os.MkdirAll(sourceDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDirectory, "Main.ts"), []byte("export function Main(): string { return \"ok\"; }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	managed, err := newTsclProjectRequest(root, "app", "tscl", manifest.Target{
+		Name: "clr", Entry: "src/Main.ts", Runtime: "dist/clr/app.dll", Artifact: "managedExecutable",
+	}, "1.2.3", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if managed.Backend != "csharp" || managed.ExecutionRuntime != "ryujit" || managed.Target.Runtime.Name != "ryujit" || managed.Target.Outputs[0].Kind != compilerir.OutputManagedExecutable {
+		t.Fatalf("managed target = %#v", managed)
+	}
+	native, err := newTsclProjectRequest(root, "app", "tscl", manifest.Target{
+		Name: "native", Entry: "src/Main.ts", Runtime: "dist/native/app.exe", Artifact: "nativeExecutable", RuntimeIdentifier: "win-x64",
+	}, "1.2.3", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if native.ExecutionRuntime != "nativeaot" || native.RuntimeIdentifier != "win-x64" || native.BuildFingerprint == managed.BuildFingerprint {
+		t.Fatalf("native target = %#v", native)
 	}
 }
 

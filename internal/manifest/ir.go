@@ -286,6 +286,8 @@ type Target struct {
 	Runtime           string                `json:"runtime"`
 	Types             string                `json:"types"`
 	JavaScriptRuntime string                `json:"javascriptRuntime,omitempty"`
+	TargetFramework   string                `json:"targetFramework,omitempty"`
+	RuntimeIdentifier string                `json:"runtimeIdentifier,omitempty"`
 	TsXmlProfile      string                `json:"tsXmlProfile,omitempty"`
 	NpmContracts      []CopelandNpmContract `json:"npmContracts,omitempty"`
 	Peers             []string              `json:"peers"`
@@ -729,6 +731,16 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 					p.Targets[ti].Artifact = "nativeExecutable"
 				} else if t.Artifact != "nativeExecutable" {
 					add("TSPACK_COMPILER_ARTIFACT_UNSUPPORTED", tp+".artifact must be nativeExecutable for M71b Perry targets")
+				}
+			}
+			if compiler == "tscl" {
+				if t.Artifact == "" {
+					p.Targets[ti].Artifact = "javaScript"
+				} else if t.Artifact != "javaScript" && t.Artifact != "managedExecutable" && t.Artifact != "nativeExecutable" && t.Artifact != "wasmModule" {
+					add("TSPACK_COMPILER_ARTIFACT_UNSUPPORTED", tp+".artifact must be javaScript, managedExecutable, nativeExecutable, or wasmModule for Copeland targets")
+				}
+				if t.Artifact == "nativeExecutable" && strings.TrimSpace(t.RuntimeIdentifier) == "" {
+					add("TSPACK_COPELAND_RID_REQUIRED", tp+".runtimeIdentifier is required for a Copeland nativeExecutable target")
 				}
 			}
 			if t.Name == "" || !targetNameRe.MatchString(t.Name) || strings.HasPrefix(t.Name, "/") || strings.HasSuffix(t.Name, "/") || strings.Contains(t.Name, "..") {

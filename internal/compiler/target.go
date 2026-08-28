@@ -44,6 +44,8 @@ const (
 	CapabilityParse                        Capability = "parse"
 	CapabilityTypeCheck                    Capability = "typeCheck"
 	CapabilityEmitJavaScript               Capability = "emitJavaScript"
+	CapabilityEmitManaged                  Capability = "emitManaged"
+	CapabilityRunCLR                       Capability = "runClr"
 	CapabilityEmitDeclarations             Capability = "emitDeclarations"
 	CapabilityEmitNative                   Capability = "emitNative"
 	CapabilityEmitObject                   Capability = "emitObject"
@@ -60,13 +62,14 @@ const (
 type OutputKind string
 
 const (
-	OutputJavaScript       OutputKind = "javaScript"
-	OutputDeclarations     OutputKind = "declarations"
-	OutputNativeExecutable OutputKind = "nativeExecutable"
-	OutputNativeObject     OutputKind = "nativeObject"
-	OutputWasmModule       OutputKind = "wasmModule"
-	OutputLibrary          OutputKind = "library"
-	OutputCompilerMetadata OutputKind = "compilerMetadata"
+	OutputJavaScript        OutputKind = "javaScript"
+	OutputManagedExecutable OutputKind = "managedExecutable"
+	OutputDeclarations      OutputKind = "declarations"
+	OutputNativeExecutable  OutputKind = "nativeExecutable"
+	OutputNativeObject      OutputKind = "nativeObject"
+	OutputWasmModule        OutputKind = "wasmModule"
+	OutputLibrary           OutputKind = "library"
+	OutputCompilerMetadata  OutputKind = "compilerMetadata"
 )
 
 type Input struct {

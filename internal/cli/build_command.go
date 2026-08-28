@@ -33,6 +33,10 @@ type tsclProjectRequest struct {
 	Sources           []tsclProjectSource   `json:"sources"`
 	Entry             tsclProjectEntry      `json:"entry"`
 	JavaScriptRuntime string                `json:"javascriptRuntime"`
+	Backend           string                `json:"backend"`
+	ExecutionRuntime  string                `json:"executionRuntime"`
+	TargetFramework   string                `json:"targetFramework,omitempty"`
+	RuntimeIdentifier string                `json:"runtimeIdentifier,omitempty"`
 	JavaScriptProfile string                `json:"javascriptProfile"`
 	TsXmlProfile      string                `json:"tsXmlProfile,omitempty"`
 	OutputDirectory   string                `json:"outputDirectory"`
@@ -66,9 +70,18 @@ type tsclBuildResult struct {
 		Path   string `json:"path"`
 		SHA256 string `json:"sha256"`
 	} `json:"outputs"`
-	EntryOutputPath  string `json:"entryOutputPath"`
-	BuildFingerprint string `json:"buildFingerprint"`
-	GraphFingerprint string `json:"graphFingerprint"`
+	EntryOutputPath   string            `json:"entryOutputPath"`
+	BuildFingerprint  string            `json:"buildFingerprint"`
+	GraphFingerprint  string            `json:"graphFingerprint"`
+	Backend           string            `json:"backend"`
+	Runtime           string            `json:"runtime"`
+	ArtifactKind      string            `json:"artifactKind"`
+	TargetFramework   string            `json:"targetFramework"`
+	RuntimeIdentifier string            `json:"runtimeIdentifier"`
+	LaunchExecutable  string            `json:"launchExecutable"`
+	LaunchArguments   []string          `json:"launchArguments"`
+	Capabilities      []string          `json:"capabilities"`
+	ToolVersions      map[string]string `json:"toolVersions"`
 }
 
 func runBuildCommand(args []string) {
@@ -341,7 +354,7 @@ func buildTsclPackage(root string, manifestPath string, ir *manifest.ManifestIR,
 			}
 			failBuild("TSPACK_TSCL_OUTPUT_MISSING", "tscl result declared an entry artifact that was not materialized")
 		}
-		if request.JavaScriptRuntime == "browser" {
+		if request.ExecutionRuntime == "browser" {
 			materialization, materializationErr := materializeBrowserGraph(request.OutputDirectory, contracts)
 			if materializationErr != nil {
 				if !preserveLastSuccessful {
@@ -356,7 +369,11 @@ func buildTsclPackage(root string, manifestPath string, ir *manifest.ManifestIR,
 				failBuild("TSPACK_BROWSER_HOST_WRITE_FAILED", hostErr.Error())
 			}
 		}
-		fmt.Printf("Built %s:%s with tscl %s -> %s\n", pkg.Name, target.Name, compilerVersion, result.EntryOutputPath)
+		toolSuffix := ""
+		if dotnetSDK := result.ToolVersions["dotnetSdk"]; dotnetSDK != "" {
+			toolSuffix = " dotnetSdk=" + dotnetSDK
+		}
+		fmt.Printf("Built %s:%s language=copeland-ts compiler=tscl@%s backend=%s runtime=%s artifact=%s%s -> %s\n", pkg.Name, target.Name, compilerVersion, result.Backend, result.Runtime, result.ArtifactKind, toolSuffix, result.EntryOutputPath)
 	}
 }
 
@@ -385,12 +402,39 @@ func newTsclProjectRequest(packageRoot string, packageName string, compilerPath 
 	if javaScriptRuntime == "" {
 		javaScriptRuntime = "node"
 	}
+	backend := "javascript"
+	executionRuntime := javaScriptRuntime
+	outputKind := compilerir.OutputJavaScript
+	capabilities := (compilerir.CopelandAdapter{}).DescribeCapabilities()
+	switch target.Artifact {
+	case "", "javaScript":
+	case "managedExecutable":
+		backend = "csharp"
+		executionRuntime = "ryujit"
+		outputKind = compilerir.OutputManagedExecutable
+	case "nativeExecutable":
+		backend = "csharp"
+		executionRuntime = "nativeaot"
+		outputKind = compilerir.OutputNativeExecutable
+	case "wasmModule":
+		backend = "csharp"
+		executionRuntime = "wasm"
+		outputKind = compilerir.OutputWasmModule
+	default:
+		return tsclProjectRequest{}, fmt.Errorf("unsupported Copeland artifact %q", target.Artifact)
+	}
+	targetFramework := target.TargetFramework
+	if targetFramework == "" {
+		targetFramework = "net10.0"
+	}
 	configRef := compilerConfigRef(packageRoot, target.CompilerConfig, "tsconfig.tsx")
 	fingerprint := tsclBuildFingerprint(compilerVersion, target, sources, npmContracts, configRef.Fingerprint)
 	request := tsclProjectRequest{
 		ProjectRoot: packageRoot, Sources: sources,
 		Entry:             tsclProjectEntry{Module: filepath.ToSlash(target.Entry), Export: "Main"},
 		JavaScriptRuntime: javaScriptRuntime, JavaScriptProfile: "production",
+		Backend: backend, ExecutionRuntime: executionRuntime,
+		TargetFramework: targetFramework, RuntimeIdentifier: target.RuntimeIdentifier,
 		TsXmlProfile:    target.TsXmlProfile,
 		OutputDirectory: outputDirectory, EntryOutputPath: entryOutputPath,
 		BuildFingerprint: fingerprint, NpmContracts: npmContracts,
@@ -400,23 +444,17 @@ func newTsclProjectRequest(packageRoot string, packageName string, compilerPath 
 		return tsclProjectRequest{}, fmt.Errorf("encode Copeland compiler payload: %w", err)
 	}
 	compilerTarget := compilerir.Target{
-		ProjectRoot: packageRoot,
-		Package:     packageName,
-		Name:        target.Name,
-		Language:    compilerir.LanguageIdentity{ID: "copeland-ts"},
-		Compiler:    compilerir.CompilerIdentity{ID: "tscl", Version: compilerVersion},
-		Tool:        compilerir.ToolIdentity{Source: "path", Name: "copeland", Version: compilerVersion, Path: compilerPath},
-		Config:      configRef,
-		Runtime:     compilerir.RuntimeIdentity{Family: "javascript", Name: javaScriptRuntime},
-		Capabilities: []compilerir.Capability{
-			compilerir.CapabilityParse,
-			compilerir.CapabilityTypeCheck,
-			compilerir.CapabilityEmitJavaScript,
-			compilerir.CapabilityCompilerOwnedConfig,
-			compilerir.CapabilityCompilerOwnedSourcePartition,
-		},
-		Outputs: []compilerir.Output{{Kind: compilerir.OutputJavaScript, Path: target.Runtime}},
-		Payload: compilerir.Payload{Kind: "copeland-v1", SchemaVersion: 1, Data: payloadBytes},
+		ProjectRoot:  packageRoot,
+		Package:      packageName,
+		Name:         target.Name,
+		Language:     compilerir.LanguageIdentity{ID: "copeland-ts"},
+		Compiler:     compilerir.CompilerIdentity{ID: "tscl", Version: compilerVersion},
+		Tool:         compilerir.ToolIdentity{Source: "path", Name: "copeland", Version: compilerVersion, Path: compilerPath},
+		Config:       configRef,
+		Runtime:      compilerir.RuntimeIdentity{Family: backend, Name: executionRuntime},
+		Capabilities: capabilities,
+		Outputs:      []compilerir.Output{{Kind: outputKind, Path: target.Runtime}},
+		Payload:      compilerir.Payload{Kind: "copeland-v1", SchemaVersion: 1, Data: payloadBytes},
 	}
 	for _, source := range sources {
 		contents, readErr := os.ReadFile(source.Path)
@@ -658,7 +696,7 @@ func tsclBuildFingerprint(version string, target manifest.Target, sources []tscl
 	if runtime == "" {
 		runtime = "node"
 	}
-	_, _ = hash.Write([]byte("compiler=tscl\nversion=" + version + "\nconfig=" + configFingerprint + "\nruntime=" + runtime + "\nprofile=production\ntsxml=" + target.TsXmlProfile + "\nentry=" + target.Entry + "\noutput=" + target.Runtime + "\n"))
+	_, _ = hash.Write([]byte("compiler=tscl\nversion=" + version + "\nconfig=" + configFingerprint + "\nruntime=" + runtime + "\nartifact=" + target.Artifact + "\ntargetFramework=" + target.TargetFramework + "\nrid=" + target.RuntimeIdentifier + "\nprofile=production\ntsxml=" + target.TsXmlProfile + "\nentry=" + target.Entry + "\noutput=" + target.Runtime + "\n"))
 	for _, source := range sources {
 		contents, _ := os.ReadFile(source.Path)
 		_, _ = hash.Write([]byte(source.LogicalPath + "\n"))
