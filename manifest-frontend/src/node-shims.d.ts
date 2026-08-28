@@ -20,6 +20,8 @@ declare const process: {
   exit(code?: number): never;
   stdout: { write(chunk: string | Uint8Array): boolean };
   stderr: { write(chunk: string | Uint8Array): boolean };
+  once(event: 'SIGINT' | 'SIGTERM', listener: () => void): void;
+  off(event: 'SIGINT' | 'SIGTERM', listener: () => void): void;
 };
 
 declare const Buffer: {

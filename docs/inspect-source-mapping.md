@@ -153,32 +153,29 @@ Any heuristic result should include evidence, confidence, and ambiguity rather t
 
 Source hints feed the M40d UI context bundle only after workspace validation. The bundle builder preserves the raw hint, validates the hinted file with the same source-safety rules used by the VS Code reveal command, and includes a bounded read-only excerpt only when the file exists inside the workspace without traversal, absolute paths, URL-like schemes, or symlink escapes.
 
-M72 keeps manual attributes as the explicit cross-framework contract. Automatic
-Vite/JSX injection is deferred: safely instrumenting intrinsic versus component
-nodes requires compiler location metadata, source-map preservation, an explicit
-dev/test build-mode contract, JSX-runtime compatibility, and proof that
-production output contains no hints. A blind text transform would point at
-generated code or rewrite user JSX semantics, so TSPack does not ship one as
-part of the live inspection/bundle core.
-
-The bounded follow-up design is:
+M73 keeps manual attributes as the explicit cross-framework contract and adds
+automatic Vite TSX/JSX instrumentation through the framework-neutral
+`InspectSourceInstrumentation` seam. Its bounded design is:
 
 - instrument intrinsic JSX elements only; component call sites do not
   necessarily correspond to one rendered node;
 - encode a workspace-relative slash path and the compiler/parser-provided
   one-based line/column of the user-authored opening element;
-- infer `component`/`symbol` only from a containing named function/class or
-  an explicit compiler symbol, never from generated output text;
-- activate through an explicit TSPack inspect/dev/test build contract and emit
-  no attributes in production builds;
-- preserve and compose source maps instead of treating transformed offsets as
-  authored locations;
-- qualify classic and automatic JSX runtimes for the supported React/Vite
-  versions before claiming compatibility;
+- infer `component` from a clearly containing PascalCase function and `symbol`
+  from a clearly containing PascalCase local JSX binding, never from labels or
+  generated output text;
+- activate only for Vite serve/dev intent; production `vite build` does not run
+  the adapter and emitted-artifact tests prove zero attributes/helper identity;
+- preserve TypeScript source-map mappings and the configured downstream JSX
+  runtime by returning preserved JSX to Vite's normal transform pipeline;
+- leave an element unchanged when it already contains manual TSPack provenance;
+- append automatic attributes after spreads, without wrapping or moving any
+  user expression, so evaluation order is unchanged and provenance is stable;
 - expose a source-hint instrumentation seam that can later host Copeland,
   Machina, or another compiler rather than naming the contract after React.
 
-Until those properties and a production-output absence test exist, a Vite
-transform remains deferred rather than partially safe.
+The current adapter is qualified for the Vite classic JSX mode used by the M73
+fixture. The semantic seam is framework-neutral, but this does not claim Preact,
+Solid, Copeland/Machina, SSR, or hydration adapter support yet.
 
 This keeps `data-tspack-source`, `data-tspack-component`, and `data-tspack-symbol` useful for author/reviewer context without treating page-provided metadata as authority. Unsafe or missing hints remain visible as validation errors and do not produce source excerpts.

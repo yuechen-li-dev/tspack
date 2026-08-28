@@ -174,12 +174,13 @@ if(!args.includes('--cdp') || !args.includes('http://127.0.0.1:9222')){console.e
 if(!args.includes('--host-path') || !args.includes('/tmp/host')){console.error('missing-host-path');process.exit(1)}
 if(!args.includes('--browser-path') || !args.includes('/tmp/browser')){console.error('missing-browser-path');process.exit(1)}
 if(!args.includes('--list-targets') || !args.includes('--target') || !args.includes('0') || !args.includes('--target-url') || !args.includes('localhost:5173')){console.error('missing-target-flags');process.exit(1)}
+if(!args.includes('--watch') || !args.includes('--watch-debounce') || !args.includes('80') || !args.includes('--verbose')){console.error('missing-watch-flags');process.exit(1)}
 if(args.includes('--json')){console.log('{"ok":true}');process.exit(0)}
 console.log(args.join(' '));`
 	_ = os.WriteFile(bridge, []byte(stub), 0o755)
 	t.Cleanup(func() { _ = os.Remove(bridge) })
 
-	cmd := exec.Command(testTspackBinary, "inspect", "http://example.test", "--json", "--cdp", "http://127.0.0.1:9222", "--host-path", "/tmp/host", "--browser-path", "/tmp/browser", "--list-targets", "--target", "0", "--target-url", "localhost:5173")
+	cmd := exec.Command(testTspackBinary, "inspect", "http://example.test", "--json", "--cdp", "http://127.0.0.1:9222", "--host-path", "/tmp/host", "--browser-path", "/tmp/browser", "--list-targets", "--target", "0", "--target-url", "localhost:5173", "--watch", "--watch-debounce", "80", "--verbose")
 	cmd.Dir = repo
 	b, err := cmd.CombinedOutput()
 	if err != nil || !strings.Contains(string(b), "{\"ok\":true}") {
@@ -191,7 +192,7 @@ func TestCLIInspectRunTargetByName(t *testing.T) {
 	repo := filepath.Join("..", "..")
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644)
-	server := `const http=require('http'); const p=5221; http.createServer((_,res)=>{res.statusCode=200;res.end('ok')}).listen(p,'127.0.0.1'); setInterval(()=>{},1000);`
+	server := `const fs=require('fs'); const http=require('http'); const p=5221; http.createServer((_,res)=>{res.statusCode=200;res.end(JSON.stringify({intent:process.env.TSPACK_INSPECT_INSTRUMENTATION,adapterExists:fs.existsSync(process.env.TSPACK_INSPECT_VITE_ADAPTER || '')}))}).listen(p,'127.0.0.1'); setInterval(()=>{},1000);`
 	_ = os.WriteFile(filepath.Join(root, "server.js"), []byte(server), 0o644)
 	writeRunFrontendStub(t, `{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js"],url:"http://127.0.0.1:5221",ready:{kind:"http",path:"/"}}]}]}`)
 
@@ -200,6 +201,8 @@ func TestCLIInspectRunTargetByName(t *testing.T) {
 	stub := `#!/usr/bin/env node
 const args=process.argv.slice(2);
 if(args[1] !== 'http://127.0.0.1:5221'){console.error('missing-run-url');process.exit(1)}
+const intent=await (await fetch(args[1])).json();
+if(intent.intent !== '1' || intent.adapterExists !== true){console.error('missing-instrumentation-intent');process.exit(1)}
 console.log('{"ok":true}');`
 	_ = os.WriteFile(bridge, []byte(stub), 0o755)
 	t.Cleanup(func() { _ = os.Remove(bridge) })

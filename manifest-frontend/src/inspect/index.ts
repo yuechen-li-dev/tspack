@@ -9,6 +9,18 @@ import {
   buildUIContextBundle,
   serializeUiContextBundle,
 } from './context-bundle.js';
+import { runInspectWatch } from './watch.js';
+
+export {
+  createInspectSourceInstrumentation,
+  tspackInspectSourceVitePlugin,
+} from './source-instrumentation.js';
+export type {
+  InspectSourceInstrumentation,
+  InspectSourceInstrumentationOptions,
+  InspectSourceInstrumentationResult,
+  TspackVitePlugin,
+} from './source-instrumentation.js';
 
 export type InspectOptions = {
   url?: string;
@@ -28,6 +40,9 @@ export type InspectOptions = {
   listTargets?: boolean;
   target?: string;
   targetUrl?: string;
+  watch?: boolean;
+  watchDebounceMilliseconds?: number;
+  verbose?: boolean;
 };
 
 function inspectFailureBackend(options: Partial<InspectOptions>): UIInspectResult['browser']['backend'] {
@@ -249,6 +264,65 @@ export async function inspectAndWrite(options: InspectOptions): Promise<void> {
   }
 
   if (!options.url && !options.cdpEndpoint) throw new Error('TSPACK_INSPECT_TARGET_REQUIRED');
+  if (options.watch) {
+    if (
+      options.json ||
+      options.out ||
+      options.text ||
+      options.listTargets ||
+      (options.bundle && !options.bundleOutput)
+    ) {
+      throw new Error('TSPACK_INSPECT_WATCH_INVALID_OPTIONS');
+    }
+    const workspaceRoot = path.resolve(options.root ?? process.cwd());
+    await runInspectWatch({
+      root: workspaceRoot,
+      debounceMilliseconds: options.watchDebounceMilliseconds ?? 200,
+      inspectOptions: options,
+      onChange(changedPaths) {
+        const description = changedPaths.length === 1
+          ? changedPaths[0]
+          : `${changedPaths.length} files`;
+        process.stderr.write(`[${watchTimestamp()}] changed ${description}\n`);
+      },
+      async onCycle(cycle) {
+        if (!cycle.result.root) {
+          throw new Error('TSPACK_INSPECT_BUNDLE_SELECTION_REQUIRED');
+        }
+        if (options.bundle || options.bundleOutput) {
+          const bundle = await buildUIContextBundle(
+            cycle.result,
+            cycle.result.root,
+            {
+              workspaceRoot,
+              workspaceRootName: path.basename(workspaceRoot),
+              selectionReason: options.selector
+                ? `CSS selector: ${options.selector}`
+                : 'inspect root',
+            },
+          );
+          const bundleJson = serializeUiContextBundle(bundle);
+          if (options.bundleOutput) {
+            writeFileAtomically(options.bundleOutput, bundleJson);
+          }
+        }
+        const root = cycle.result.root;
+        const summary = [root.role ?? root.tag ?? 'node'];
+        if (root.children.length > 0) {
+          summary.push(`${root.children.length} children`);
+        }
+        process.stderr.write(
+          `[${watchTimestamp()}] inspection updated (generation ${cycle.generation}, ${summary.join(', ')})\n`,
+        );
+        if (options.verbose) {
+          process.stderr.write(
+            `  browser reused: ${cycle.browserReused ? 'yes' : 'no'}\n`,
+          );
+        }
+      },
+    });
+    return;
+  }
   const result = await runInspect(options);
   if (options.bundle || options.bundleOutput) {
     if (!result.root) {
@@ -282,4 +356,8 @@ export async function inspectAndWrite(options: InspectOptions): Promise<void> {
     fs.writeFileSync(options.text, textOut, 'utf8');
   }
   process.stdout.write(options.json ? jsonOut : textOut);
+}
+
+function watchTimestamp(): string {
+  return new Date().toISOString().slice(11, 19);
 }

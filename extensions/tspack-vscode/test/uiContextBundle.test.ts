@@ -142,7 +142,11 @@ describe('UI context bundle shape', () => {
       viewport: { width: 1280, height: 720 },
     });
     expect(serializeUiContextBundle(bundle)).not.toContain('/volatile/browser');
-    expect(bundle.node).toBe(selected);
+    expect(bundle.node).toMatchObject({
+      id: selected.id,
+      tag: selected.tag,
+      text: `${longText().slice(0, 200)}…`,
+    });
     expect(bundle.context.ancestors.map((node) => node.id)).toEqual([
       'root',
       'panel',
@@ -185,7 +189,7 @@ describe('UI context bundle shape', () => {
       selectionPath: [9, 9],
     });
 
-    expect(bundle.node).toBe(detached);
+    expect(bundle.node).toMatchObject(detached);
     expect(bundle.selection.path).toEqual([9, 9]);
     expect(bundle.context.ancestors).toEqual([]);
     expect(bundle.context.siblings).toEqual([]);

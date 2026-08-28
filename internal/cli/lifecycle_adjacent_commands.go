@@ -175,7 +175,7 @@ func printLegacyHelp() {
 	fmt.Println("  tspack npm <npm-args...> [--root .]")
 	fmt.Println("  tspack format [paths...] [--root .] [--check]")
 	fmt.Println("  tspack lint [paths...] [--root .] [--fix] [--unsafe]")
-	fmt.Println("  tspack inspect <url> [experimental] [--run target] [--env KEY=VALUE] [--url <url>] [--browser auto|vscode|playwright-chromium|chromium|browser-path|host-path|cdp] [--host-path path] [--browser-path path] [--cdp endpoint] [--list-targets] [--target index-or-id] [--target-url substring] [--viewport WxH] [--selector css] [--point x,y] [--json] [--out file] [--text file] [--bundle] [--bundle-output file]")
+	fmt.Println("  tspack inspect <url> [experimental] [--run target] [--env KEY=VALUE] [--url <url>] [--browser auto|vscode|playwright-chromium|chromium|browser-path|host-path|cdp] [--host-path path] [--browser-path path] [--cdp endpoint] [--list-targets] [--target index-or-id] [--target-url substring] [--viewport WxH] [--selector css] [--point x,y] [--json] [--out file] [--text file] [--bundle] [--bundle-output file] [--watch] [--watch-debounce milliseconds] [--verbose]")
 	fmt.Println("  tspack doctor [format|run|runtime|inspect|security] [--root .] [--json]")
 	fmt.Println("  tspack init --kind <library|app> --name <package-name> [--version <version>] [--license <license>] [--force] [--dry-run]")
 	fmt.Println("  tspack migrate [--check] [--write] [--root .] [--package-json path] [--package-lock path] [--no-lock-evidence] [--scan-source] [--no-source-scan] [--out-manifest path] [--out-report path] [--force]")
@@ -269,6 +269,9 @@ func runInspectCommand(args []string) {
 		fmt.Fprintln(os.Stderr, "TSPACK_INSPECT_INVALID_TARGET_OPTIONS: --env requires --run or a run target name")
 		exit(1)
 	}
+	if runTarget != "" {
+		runEnv = withInspectInstrumentationEnv(runEnv)
+	}
 
 	bridge := requireManifestFrontendBridge("inspect-cli.js", "TSPACK_INSPECT_BRIDGE_MISSING", "inspect bridge")
 	nodeArgs := []string{bridge, "inspect"}
@@ -293,8 +296,8 @@ func runInspectCommand(args []string) {
 		rt.Runtime = resolvedRuntime.Runtime
 		fmt.Fprintf(os.Stderr, "Starting run target %q...\n", runTarget)
 		fmt.Fprintf(os.Stderr, "Cwd: %s (%s)\n", effectiveRunTargetCwd(rt), cwdPath)
-		if len(runEnv.Keys) > 0 {
-			fmt.Fprintf(os.Stderr, "Env: %s\n", strings.Join(runEnv.Keys, ", "))
+		if userEnvKeys := runEnv.UserKeys(); len(userEnvKeys) > 0 {
+			fmt.Fprintf(os.Stderr, "Env: %s\n", strings.Join(userEnvKeys, ", "))
 		}
 		session, readyErr := startRunTargetInDir(workspaceRoot, cwdPath, rt, time.Duration(runReadyTimeout)*time.Second, os.Stderr, os.Stderr, runEnv)
 		if readyErr != nil {
@@ -642,6 +645,9 @@ func runTestCommand(args []string) {
 		fmt.Fprintln(os.Stderr, "TSPACK_TEST_RUN_INVALID_OPTIONS: --run cannot be combined with --list")
 		exit(1)
 	}
+	if runTarget != "" {
+		runEnv = withInspectInstrumentationEnv(runEnv)
+	}
 
 	var runSession *RunTargetSession
 	if runTarget != "" {
@@ -709,4 +715,21 @@ func runTestCommand(args []string) {
 	if result.ExitCode != 0 {
 		exit(result.ExitCode)
 	}
+}
+
+func withInspectInstrumentationEnv(runEnv runEnvOverlay) runEnvOverlay {
+	assignments := []string{"TSPACK_INSPECT_INSTRUMENTATION=1"}
+	adapter := findManifestFrontendBridge(filepath.Join("inspect", "source-instrumentation.js"))
+	if adapter.Path != "" {
+		assignments = append(assignments, "TSPACK_INSPECT_VITE_ADAPTER="+adapter.Path)
+	}
+	for _, assignment := range assignments {
+		updated, assignmentErr := runEnv.WithInternalAssignment(assignment)
+		if assignmentErr != nil {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", assignmentErr.code, assignmentErr.msg)
+			exit(1)
+		}
+		runEnv = updated
+	}
+	return runEnv
 }

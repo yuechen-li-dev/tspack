@@ -140,9 +140,9 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p tsconfig.json",
-    "test": "vitest run",
-    "package": "vsce package --out dist/tspack-vscode.vsix"
+    "compile": "node ../../tools/generate-vscode-ui-context.mjs --check && tsc -p tsconfig.json",
+    "test": "node ../../tools/generate-vscode-ui-context.mjs --check && vitest run",
+    "package": "node ../../tools/generate-vscode-ui-context.mjs --check && vsce package --out dist/tspack-vscode.vsix"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

@@ -298,13 +298,25 @@ function compactChildren(node: InspectNode): CompactInspectNode[] {
     .map((child) => compactInspectNode(child));
 }
 
-function compactHitTests(hitTests: InspectResult['hitTests']): unknown[] {
-  return hitTests.slice(0, 20).map((hitTest) => ({
-    point: hitTest.point,
-    elements: hitTest.elements
-      .slice(0, 10)
-      .map((element) => compactInspectNode(element)),
-  }));
+function compactHitTests(hitTests: unknown[] | undefined): unknown[] {
+  return (hitTests ?? []).slice(0, 20).map((hitTest) => {
+    if (!hitTest || typeof hitTest !== 'object') {
+      return hitTest;
+    }
+    const candidate = hitTest as {
+      point?: unknown;
+      elements?: InspectNode[];
+    };
+    if (!Array.isArray(candidate.elements)) {
+      return hitTest;
+    }
+    return {
+      point: candidate.point,
+      elements: candidate.elements
+        .slice(0, 10)
+        .map((element) => compactInspectNode(element)),
+    };
+  });
 }
 
 function normalizeDiagnostics(
@@ -588,15 +600,16 @@ function boundedSelectedNode(root: InspectNode): {
   const clone = (node: InspectNode, depth: number): InspectNode => {
     nodeCount += 1;
     const children: InspectNode[] = [];
+    const sourceChildren = Array.isArray(node.children) ? node.children : [];
     if (depth < SELECTED_DEPTH_LIMIT) {
-      for (const child of node.children) {
+      for (const child of sourceChildren) {
         if (nodeCount >= SELECTED_NODE_LIMIT) {
           truncated = true;
           break;
         }
         children.push(clone(child, depth + 1));
       }
-    } else if (node.children.length > 0) {
+    } else if (sourceChildren.length > 0) {
       truncated = true;
     }
 

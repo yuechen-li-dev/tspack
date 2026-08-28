@@ -1,3 +1,5 @@
+// Code generated from manifest-frontend/src/inspect/context-bundle.ts.
+// Run: node tools/generate-vscode-ui-context.mjs
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type {
@@ -83,7 +85,7 @@ export type UIContextBundle = {
 };
 
 type FileSystemAccess = {
-  readFile(filePath: string, encoding: BufferEncoding): Promise<string>;
+  readFile(filePath: string, encoding: 'utf8'): Promise<string>;
   realpath(targetPath: string): Promise<string>;
 };
 
@@ -112,6 +114,11 @@ const SIBLINGS_BEFORE = 5;
 const SIBLINGS_AFTER = 5;
 const CHILDREN_LIMIT = 20;
 const DIAGNOSTICS_LIMIT = 20;
+const SELECTED_NODE_LIMIT = 250;
+const SELECTED_DEPTH_LIMIT = 20;
+const MAX_SOURCE_VALUE_LENGTH = 500;
+const MAX_EXCERPT_LENGTH = 32_000;
+const MAX_SERIALIZED_BUNDLE_LENGTH = 512_000;
 
 const defaultFileSystemAccess: FileSystemAccess = {
   readFile: fs.readFile,
@@ -149,8 +156,8 @@ function compactSource(source: InspectSourceHint | undefined):
     return undefined;
   }
   return {
-    component: source.component,
-    symbol: source.symbol,
+    component: truncateSourceValue(source.component),
+    symbol: truncateSourceValue(source.symbol),
   };
 }
 
@@ -288,6 +295,27 @@ function compactChildren(node: InspectNode): CompactInspectNode[] {
     .map((child) => compactInspectNode(child));
 }
 
+function compactHitTests(hitTests: unknown[] | undefined): unknown[] {
+  return (hitTests ?? []).slice(0, 20).map((hitTest) => {
+    if (!hitTest || typeof hitTest !== 'object') {
+      return hitTest;
+    }
+    const candidate = hitTest as {
+      point?: unknown;
+      elements?: InspectNode[];
+    };
+    if (!Array.isArray(candidate.elements)) {
+      return hitTest;
+    }
+    return {
+      point: candidate.point,
+      elements: candidate.elements
+        .slice(0, 10)
+        .map((element) => compactInspectNode(element)),
+    };
+  });
+}
+
 function normalizeDiagnostics(
   resultDiagnostics: InspectDiagnostic[] | undefined,
   optionDiagnostics: UIContextBundleDiagnostic[] | undefined,
@@ -389,7 +417,10 @@ function buildExcerpt(
     return {
       startLine,
       endLine,
-      text: lines.slice(startLine - 1, endLine).join('\n'),
+      text: lines
+        .slice(startLine - 1, endLine)
+        .join('\n')
+        .slice(0, MAX_EXCERPT_LENGTH),
     };
   }
 
@@ -397,7 +428,7 @@ function buildExcerpt(
   return {
     startLine: 1,
     endLine,
-    text: lines.slice(0, endLine).join('\n'),
+    text: lines.slice(0, endLine).join('\n').slice(0, MAX_EXCERPT_LENGTH),
   };
 }
 
@@ -410,7 +441,7 @@ async function buildSourceContext(
   }
 
   const baseSource = {
-    hint: source,
+    hint: boundedSourceHint(source),
     validated: false,
     line: source.line,
     column: source.column,
@@ -455,7 +486,7 @@ async function buildSourceContext(
   };
 }
 
-export async function buildUiContextBundle(
+export async function buildUIContextBundle(
   inspectResult: InspectResult,
   selectedNode: InspectNode,
   options: UIContextBundleOptions = {},
@@ -466,10 +497,21 @@ export async function buildUiContextBundle(
     options.selectionPath,
   );
   const source = await buildSourceContext(location.node.source, options);
-  const diagnostics = normalizeDiagnostics(
+  let diagnostics = normalizeDiagnostics(
     inspectResult.diagnostics,
     options.diagnostics,
   );
+  const selected = boundedSelectedNode(location.node);
+  if (selected.truncated) {
+    const truncationDiagnostic: UIContextBundleDiagnostic = {
+      code: 'TSPACK_UI_CONTEXT_TRUNCATED',
+      severity: 'warning',
+      message: `Selected context exceeded ${SELECTED_NODE_LIMIT} nodes or depth ${SELECTED_DEPTH_LIMIT}.`,
+    };
+    diagnostics = diagnostics
+      ? [...diagnostics, truncationDiagnostic]
+      : [truncationDiagnostic];
+  }
 
   const bundle: UIContextBundle = {
     version: 1,
@@ -487,7 +529,7 @@ export async function buildUiContextBundle(
       url: inspectResult.target?.url,
       viewport: viewport(inspectResult),
     },
-    node: location.node,
+    node: selected.node,
     context: {
       ancestors: location.ancestors.map((ancestor) =>
         compactInspectNode(ancestor),
@@ -507,18 +549,77 @@ export async function buildUiContextBundle(
     Array.isArray(inspectResult.hitTests) &&
     inspectResult.hitTests.length > 0
   ) {
-    bundle.context.hitTests = inspectResult.hitTests;
+    bundle.context.hitTests = compactHitTests(inspectResult.hitTests);
   }
   if (source) {
     bundle.source = source;
   }
   if (diagnostics) {
-    bundle.diagnostics = diagnostics;
+    bundle.diagnostics = diagnostics.slice(0, DIAGNOSTICS_LIMIT);
   }
 
   return bundle;
 }
 
 export function serializeUiContextBundle(bundle: UIContextBundle): string {
-  return JSON.stringify(bundle, null, 2);
+  const serialized = `${JSON.stringify(bundle, null, 2)}\n`;
+  if (serialized.length > MAX_SERIALIZED_BUNDLE_LENGTH) {
+    throw new Error('TSPACK_INSPECT_BUNDLE_TOO_LARGE');
+  }
+  return serialized;
 }
+
+function truncateSourceValue(value: string | undefined): string | undefined {
+  if (value === undefined || value.length <= MAX_SOURCE_VALUE_LENGTH) {
+    return value;
+  }
+  return `${value.slice(0, MAX_SOURCE_VALUE_LENGTH)}…`;
+}
+
+function boundedSourceHint(source: InspectSourceHint): InspectSourceHint {
+  return {
+    ...source,
+    raw: truncateSourceValue(source.raw),
+    file: truncateSourceValue(source.file),
+    component: truncateSourceValue(source.component),
+    symbol: truncateSourceValue(source.symbol),
+    parseError: truncateSourceValue(source.parseError),
+  };
+}
+
+function boundedSelectedNode(root: InspectNode): {
+  node: InspectNode;
+  truncated: boolean;
+} {
+  let nodeCount = 0;
+  let truncated = false;
+
+  const clone = (node: InspectNode, depth: number): InspectNode => {
+    nodeCount += 1;
+    const children: InspectNode[] = [];
+    const sourceChildren = Array.isArray(node.children) ? node.children : [];
+    if (depth < SELECTED_DEPTH_LIMIT) {
+      for (const child of sourceChildren) {
+        if (nodeCount >= SELECTED_NODE_LIMIT) {
+          truncated = true;
+          break;
+        }
+        children.push(clone(child, depth + 1));
+      }
+    } else if (sourceChildren.length > 0) {
+      truncated = true;
+    }
+
+    return {
+      ...node,
+      name: truncateText(node.name),
+      text: truncateText(node.text),
+      source: node.source ? boundedSourceHint(node.source) : undefined,
+      children,
+    };
+  };
+
+  return { node: clone(root, 0), truncated };
+}
+
+export const buildUiContextBundle = buildUIContextBundle;

@@ -167,6 +167,7 @@ VS Code/Electron inspection is an explicit editor/host path, not the generic URL
 - `tspack inspect --url <url>`
 - `tspack inspect <target>`
 - `tspack inspect --run <target>`
+- `tspack inspect --run <target> --watch`
 
 ## Options
 
@@ -187,6 +188,9 @@ VS Code/Electron inspection is an explicit editor/host path, not the generic URL
 - `--bundle-output <file>` (atomically replace the bundle and report success on stderr)
 - `--run <target>`
 - `--run-ready-timeout <seconds>` (default 30)
+- `--watch` (reinspect after relevant project/UI files change)
+- `--watch-debounce <milliseconds>` (default 200; range 25-5000)
+- `--verbose` (show bounded adapter, browser-reuse, and generation details)
 
 When `--json` is set and `--run` is used, progress and run-target logs go to stderr and JSON output remains on stdout.
 When `--json` is set for direct URL/browser inspection, handled failures also emit valid JSON on stdout with structured diagnostics instead of mixing human error text into stdout.
@@ -214,6 +218,24 @@ readiness, inspection, bundle replacement, and process-tree cleanup:
 tspack inspect --run dev --selector '[role="alert"]' --bundle-output artifacts/alert-context.json
 ```
 
+## Inspect watch
+
+Watch mode keeps one browser session open, observes relevant TypeScript,
+JavaScript, stylesheet, HTML, manifest, and Vite configuration files, and
+coalesces save bursts before reinspecting the existing target. Vite remains
+responsible for HMR/rebuild; TSPack waits briefly through transient page loads
+or selector absence and then reports the normal inspect diagnostic if the
+target does not stabilize.
+
+```powershell
+tspack inspect --run dev --selector '[role="alert"]' --watch --bundle-output .tspack/ui-context.json
+```
+
+Each successful generation atomically replaces the bundle. A change received
+during inspection marks the generation dirty and causes a latest-truth rerun.
+Watch never updates xTest snapshots. Ctrl+C closes the watcher and browser,
+then the shared RunTarget owner terminates the child process tree.
+
 ## Source hints
 
 Inspect can report optional, page-provided source hints on individual nodes. The analyzer reads:
@@ -221,6 +243,47 @@ Inspect can report optional, page-provided source hints on individual nodes. The
 - `data-tspack-source`, in the form `<file>`, `<file>:<line>`, or `<file>:<line>:<column>`
 - `data-tspack-component`
 - `data-tspack-symbol`
+
+For a Vite TSX/JSX project that installs the TSPack inspect adapter, `vite
+serve` injects these hints automatically on intrinsic rendered elements. The
+adapter uses the TypeScript AST location of the user-authored opening element,
+emits a workspace-relative slash-normalized path, and adds a containing
+PascalCase component name only when ownership is clear. Component call sites
+are not instrumented because they may disappear before the DOM.
+
+The adapter is development-only (`apply: "serve"`). `vite build` does not run
+it, and production-artifact tests assert that no TSPack attributes or helper
+identity remain. This is also a security boundary: source paths are useful
+developer metadata and must not be shipped. Automatic instrumentation excludes
+`node_modules` and files outside the workspace. It never emits an absolute
+path.
+
+Manual hints remain supported for other frameworks, generated UI, and custom
+renderers. If an intrinsic element already has any user-authored
+`data-tspack-*` provenance attribute, the adapter leaves that element unchanged
+so manual intent wins and duplicate JSX attributes cannot be produced.
+
+TSPack passes `TSPACK_INSPECT_VITE_ADAPTER` to RunTargets started by `inspect`
+and live xTest. A user-owned Vite configuration can opt into the small adapter
+hook without hard-coding an installation path:
+
+```ts
+import { pathToFileURL } from "node:url";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+
+export default defineConfig(async () => {
+  const adapterPath = process.env.TSPACK_INSPECT_VITE_ADAPTER;
+  const inspectPlugin = adapterPath
+    ? (await import(pathToFileURL(adapterPath).href)).tspackInspectSourceVitePlugin()
+    : undefined;
+  return { plugins: [inspectPlugin, react()].filter(Boolean) };
+});
+```
+
+The environment path is a tool-loading detail and is never emitted as browser
+metadata. TSPack does not rewrite user-owned Vite configuration automatically;
+generated/toolchain-owned Vite hosts can install this hook directly.
 
 When present, the node may include:
 
@@ -288,6 +351,19 @@ Page/analyzer:
 - `TSPACK_INSPECT_BUNDLE_SELECTION_REQUIRED`
 - `TSPACK_INSPECT_BUNDLE_TOO_LARGE`
 - `TSPACK_INSPECT_INVALID_BUNDLE_OPTIONS`
+- `TSPACK_INSPECT_WATCH_INVALID_OPTIONS`
+- `TSPACK_INSPECT_WATCH_INVALID_DEBOUNCE`
+- `TSPACK_INSPECT_WATCH_BACKEND_UNSUPPORTED`
+
+## Linux and Xvfb
+
+TSPack forwards the caller environment, including `DISPLAY`, to browser and
+RunTarget processes. It does not install or start Xvfb and does not download a
+browser. CI owns that setup. The Linux qualification lane runs the automatic
+Vite/browser/bundle fixture under `xvfb-run` with Playwright-managed browser
+storage hidden, proving discovery and launch of a system Chromium executable.
+If neither a managed nor system browser is usable, inspect retains the
+actionable `TSPACK_INSPECT_BROWSER_NOT_FOUND` failure.
 
 ## Manual probes
 
@@ -316,6 +392,12 @@ See [Runtime-Grounded IDE Vision](runtime-grounded-ide.md) and [Runtime-Grounded
 ## Native xTest helper
 
 The same runtime inspect backend is available inside native xTest through the `inspect` helper namespace. Tests can call `inspect.url(url, options?)` for a browser-backed page or `inspect.cdp(endpoint, options?)` for an existing CDP target, then assert or snapshot the returned structured inspect JSON. Inspect calls are observations, not assertions, so an inspect-only fact still fails the native harness no-assertion check. Use `assert.inspect.*` for role, name, visibility, bounds, hit-test, and source-hint facts over already-collected JSON. See [native-test-harness.md](./native-test-harness.md#inspect-helpers) for examples and option types.
+
+`tspack test --xtest --watch --run dev` passes the same explicit inspect
+instrumentation intent to the RunTarget as `tspack inspect --run dev`; a
+TSPack-adapted Vite dev server therefore needs no separate xTest configuration.
+Watch mode does not imply `--update-snapshots`, so baselines change only through
+the existing explicit snapshot-update action.
 
 ## Bridge build prerequisite
 

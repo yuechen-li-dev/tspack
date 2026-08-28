@@ -62,6 +62,20 @@ jobs:
             npm install --no-package-lock
           fi
 
+      - name: Qualify inspect with system Chromium under Xvfb
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        working-directory: manifest-frontend
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb
+          command -v google-chrome || command -v chromium || command -v chromium-browser
+          empty_browsers="$(mktemp -d)"
+          trap 'rm -rf "$empty_browsers"' EXIT INT TERM
+          PLAYWRIGHT_BROWSERS_PATH="$empty_browsers" \
+          TSPACK_EXPECT_SYSTEM_CHROMIUM=1 \
+          xvfb-run -a npm test -- --run tests/inspect.vite-instrumentation.integration.test.ts
+
       - name: Build release archive
         run: |
           version="${{ inputs.version || github.ref_name }}"

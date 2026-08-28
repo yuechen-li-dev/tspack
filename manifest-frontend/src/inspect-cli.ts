@@ -21,7 +21,10 @@ function parseInspectCliArgs(args: string[]): InspectOptions {
     cdpEndpoint: undefined as string | undefined,
     listTargets: false,
     target: undefined as string | undefined,
-    targetUrl: undefined as string | undefined
+    targetUrl: undefined as string | undefined,
+    watch: false,
+    watchDebounceMilliseconds: 200,
+    verbose: false,
   };
 
   for (let i = cursor; i < args.length; i += 1) {
@@ -60,6 +63,17 @@ function parseInspectCliArgs(args: string[]): InspectOptions {
     if (arg === '--list-targets') { options.listTargets = true; continue; }
     if (arg === '--target') { i += 1; options.target = args[i]; continue; }
     if (arg === '--target-url') { i += 1; options.targetUrl = args[i]; continue; }
+    if (arg === '--watch') { options.watch = true; continue; }
+    if (arg === '--watch-debounce') {
+      i += 1;
+      const milliseconds = Number(args[i]);
+      if (!Number.isInteger(milliseconds) || milliseconds < 25 || milliseconds > 5000) {
+        throw new Error('TSPACK_INSPECT_WATCH_INVALID_DEBOUNCE');
+      }
+      options.watchDebounceMilliseconds = milliseconds;
+      continue;
+    }
+    if (arg === '--verbose') { options.verbose = true; continue; }
     if (arg === '--viewport') { i += 1; options.viewport = parseViewport(args[i]); continue; }
     if (arg === '--point') { i += 1; options.points.push(parsePoint(args[i])); continue; }
     throw new Error(`unknown flag: ${arg}`);

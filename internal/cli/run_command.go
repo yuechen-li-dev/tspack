@@ -1103,8 +1103,9 @@ func joinReadinessURLPath(base string, readyPath string) string {
 }
 
 type runEnvOverlay struct {
-	Values map[string]string
-	Keys   []string
+	Values       map[string]string
+	Keys         []string
+	InternalKeys map[string]bool
 }
 
 func (overlay runEnvOverlay) WithAssignment(assignment string) (runEnvOverlay, *runErr) {
@@ -1123,6 +1124,29 @@ func (overlay runEnvOverlay) WithAssignment(assignment string) (runEnvOverlay, *
 	}
 	overlay.Values[key] = value
 	return overlay, nil
+}
+
+func (overlay runEnvOverlay) WithInternalAssignment(assignment string) (runEnvOverlay, *runErr) {
+	updated, assignmentErr := overlay.WithAssignment(assignment)
+	if assignmentErr != nil {
+		return overlay, assignmentErr
+	}
+	key, _, _ := strings.Cut(assignment, "=")
+	if updated.InternalKeys == nil {
+		updated.InternalKeys = map[string]bool{}
+	}
+	updated.InternalKeys[key] = true
+	return updated, nil
+}
+
+func (overlay runEnvOverlay) UserKeys() []string {
+	keys := make([]string, 0, len(overlay.Keys))
+	for _, key := range overlay.Keys {
+		if !overlay.InternalKeys[key] {
+			keys = append(keys, key)
+		}
+	}
+	return keys
 }
 
 func isValidRunEnvKey(key string) bool {

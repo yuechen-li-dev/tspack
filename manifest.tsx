@@ -21,6 +21,7 @@ const deps = defineDeps({
 	manifestFrontendTypescript: tool(npm("typescript", "^5.9.0"), { key: "typescript" }),
 	manifestFrontendVitest: tool(npm("vitest", "^3.2.6"), { key: "vitest" }),
 	manifestFrontendPlaywright: tool(npm("playwright", "^1.54.0"), { key: "playwright" }),
+	manifestFrontendVite: tool(npm("vite", "^7.3.6"), { key: "vite" }),
 	biome: tool(npm("@biomejs/biome", "^2.5.1"), { key: "@biomejs/biome" }),
 	vscodeTypescript: tool(npm("typescript", "^5.9.0"), { key: "vscode-typescript" }),
 	vscodeVitest: tool(npm("vitest", "^3.2.6"), { key: "vscode-vitest" }),
@@ -221,6 +222,7 @@ export default define(
 					deps.manifestFrontendTypescript,
 					deps.manifestFrontendVitest,
 					deps.manifestFrontendPlaywright,
+					deps.manifestFrontendVite,
 					deps.biome,
 				],
 			}}
@@ -230,6 +232,7 @@ export default define(
 					deps.manifestFrontendTypescript,
 					deps.manifestFrontendVitest,
 					deps.manifestFrontendPlaywright,
+					deps.manifestFrontendVite,
 					deps.biome,
 				]}
 			/>
