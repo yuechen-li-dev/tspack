@@ -18,6 +18,7 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
 	"github.com/yuechen-li-dev/tspack/internal/project"
+	"github.com/yuechen-li-dev/tspack/internal/testcmd"
 )
 
 type State string
@@ -46,18 +47,19 @@ const (
 )
 
 type Event struct {
-	Kind     EventKind `json:"kind"`
-	Workflow string    `json:"workflow"`
-	Job      string    `json:"job,omitempty"`
-	Step     string    `json:"step,omitempty"`
-	Stream   string    `json:"stream,omitempty"`
-	Output   string    `json:"output,omitempty"`
-	State    State     `json:"state,omitempty"`
-	Duration int64     `json:"durationMs,omitempty"`
-	Code     string    `json:"code,omitempty"`
-	Severity string    `json:"severity,omitempty"`
-	Message  string    `json:"message,omitempty"`
-	Details  []string  `json:"details,omitempty"`
+	Kind     EventKind     `json:"kind"`
+	Workflow string        `json:"workflow"`
+	Job      string        `json:"job,omitempty"`
+	Step     string        `json:"step,omitempty"`
+	Stream   string        `json:"stream,omitempty"`
+	Output   string        `json:"output,omitempty"`
+	State    State         `json:"state,omitempty"`
+	Duration int64         `json:"durationMs,omitempty"`
+	Code     string        `json:"code,omitempty"`
+	Severity string        `json:"severity,omitempty"`
+	Message  string        `json:"message,omitempty"`
+	Details  []string      `json:"details,omitempty"`
+	Result   *NativeResult `json:"result,omitempty"`
 }
 
 type JobResult struct {
@@ -69,11 +71,12 @@ type JobResult struct {
 }
 
 type StepResult struct {
-	Identity   string `json:"identity"`
-	State      State  `json:"state"`
-	ExitCode   *int   `json:"exitCode,omitempty"`
-	Error      string `json:"error,omitempty"`
-	DurationMs int64  `json:"durationMs"`
+	Identity   string        `json:"identity"`
+	State      State         `json:"state"`
+	ExitCode   *int          `json:"exitCode,omitempty"`
+	Error      string        `json:"error,omitempty"`
+	DurationMs int64         `json:"durationMs"`
+	Result     *NativeResult `json:"result,omitempty"`
 }
 
 type Result struct {
@@ -86,6 +89,16 @@ type EventSink func(Event)
 
 type NativeOperations interface {
 	Run(context.Context, string, []string) ([]diag.Diagnostic, error)
+}
+
+type StructuredNativeOperations interface {
+	RunStep(context.Context, PlanStep) (NativeResult, error)
+}
+
+type NativeResult struct {
+	Build *project.BuildOperationResult `json:"build,omitempty"`
+	Test  *project.TestOperationResult  `json:"test,omitempty"`
+	Audit *project.AuditOperationResult `json:"audit,omitempty"`
 }
 
 type Executor struct {
@@ -104,7 +117,42 @@ type ExecutionContext struct {
 }
 
 type ProjectOperations struct {
-	Options project.Options
+	Options       project.Options
+	BuildExecutor project.BuildTargetExecutor
+}
+
+func (operations ProjectOperations) RunStep(ctx context.Context, step PlanStep) (NativeResult, error) {
+	var result NativeResult
+	var diagnostics []diag.Diagnostic
+	var err error
+	switch step.Operation {
+	case "build":
+		buildResult := project.RunBuild(ctx, project.BuildRequest{Project: operations.Options, Packages: step.Packages, Targets: step.Targets, Executor: operations.BuildExecutor})
+		result.Build = &buildResult
+		diagnostics = buildResult.Diagnostics
+	case "test":
+		testResult := project.RunTest(ctx, project.TestRequest{Project: operations.Options, Options: testcmd.Options{RootDir: operations.Options.RootDir, Filter: step.Filter, CaptureStructured: true}})
+		result.Test = &testResult
+		diagnostics = testResult.Diagnostics
+		if testResult.ExitCode != 0 && !hasErrorDiagnostics(diagnostics) {
+			err = errors.New("TSPACK_TEST_FAILED: one or more tests failed")
+		}
+	case "audit":
+		auditResult := project.RunAudit(ctx, project.AuditRequest{Project: operations.Options, AuditLevel: step.AuditLevel, RequireCoverage: step.RequireCoverage})
+		result.Audit = &auditResult
+		diagnostics = auditResult.Diagnostics
+	default:
+		diagnostics, err = operations.Run(ctx, step.Operation, step.Packages)
+	}
+	if ctx.Err() != nil {
+		return result, ctx.Err()
+	}
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == diag.SeverityError {
+			return result, fmt.Errorf("%s: %s", diagnostic.Code, diagnostic.Message)
+		}
+	}
+	return result, err
 }
 
 func (operations ProjectOperations) Run(ctx context.Context, operation string, packages []string) ([]diag.Diagnostic, error) {
@@ -242,7 +290,7 @@ func (executor *Executor) runJob(ctx context.Context, workflowIdentity string, j
 	for stepIndex, step := range job.Steps {
 		stepStarted := time.Now()
 		executor.emit(Event{Kind: EventStepStarted, Workflow: workflowIdentity, Job: job.Identity, Step: step.Identity, State: StateRunning})
-		err := executor.runStep(ctx, workflowIdentity, job, step)
+		nativeResult, err := executor.runStep(ctx, workflowIdentity, job, step)
 		duration := time.Since(stepStarted).Milliseconds()
 		state := StateSucceeded
 		if err != nil {
@@ -252,13 +300,13 @@ func (executor *Executor) runJob(ctx context.Context, workflowIdentity string, j
 				state = StateFailed
 			}
 		}
-		stepResult := StepResult{Identity: step.Identity, State: state, DurationMs: duration}
+		stepResult := StepResult{Identity: step.Identity, State: state, DurationMs: duration, Result: nativeResult}
 		if err != nil {
 			stepResult.Error = err.Error()
 			stepResult.ExitCode = processExitCode(err)
 		}
 		result.Steps = append(result.Steps, stepResult)
-		executor.emit(Event{Kind: EventStepCompleted, Workflow: workflowIdentity, Job: job.Identity, Step: step.Identity, State: state, Duration: duration})
+		executor.emit(Event{Kind: EventStepCompleted, Workflow: workflowIdentity, Job: job.Identity, Step: step.Identity, State: state, Duration: duration, Result: nativeResult})
 		if err != nil {
 			for _, skipped := range job.Steps[stepIndex+1:] {
 				result.Steps = append(result.Steps, StepResult{Identity: skipped.Identity, State: StateSkipped})
@@ -285,18 +333,26 @@ func processExitCode(err error) *int {
 	return &exitCode
 }
 
-func (executor *Executor) runStep(parent context.Context, workflowIdentity string, job PlanJob, step PlanStep) error {
+func (executor *Executor) runStep(parent context.Context, workflowIdentity string, job PlanJob, step PlanStep) (*NativeResult, error) {
 	ctx := parent
 	cancel := func() {}
 	if step.TimeoutSeconds > 0 {
 		ctx, cancel = context.WithTimeout(parent, time.Duration(step.TimeoutSeconds)*time.Second)
 	}
 	defer cancel()
-	if step.Operation == "sync" || step.Operation == "check" || step.Operation == "pack" {
+	if step.Operation == "sync" || step.Operation == "check" || step.Operation == "build" || step.Operation == "test" || step.Operation == "pack" || step.Operation == "audit" {
 		if executor.Native == nil {
-			return errors.New("TSPACK_WORKFLOW_NATIVE_EXECUTOR_MISSING: native lifecycle operations are unavailable")
+			return nil, errors.New("TSPACK_WORKFLOW_NATIVE_EXECUTOR_MISSING: native lifecycle operations are unavailable")
 		}
-		diagnostics, err := executor.Native.Run(ctx, step.Operation, step.Packages)
+		var nativeResult NativeResult
+		var diagnostics []diag.Diagnostic
+		var err error
+		if structured, ok := executor.Native.(StructuredNativeOperations); ok {
+			nativeResult, err = structured.RunStep(ctx, step)
+			diagnostics = nativeDiagnostics(nativeResult)
+		} else {
+			diagnostics, err = executor.Native.Run(ctx, step.Operation, step.Packages)
+		}
 		for _, diagnostic := range diagnostics {
 			executor.emit(Event{
 				Kind:     EventStepDiagnostic,
@@ -309,16 +365,16 @@ func (executor *Executor) runStep(parent context.Context, workflowIdentity strin
 				Details:  append([]string(nil), diagnostic.Details...),
 			})
 		}
-		return err
+		return &nativeResult, err
 	}
 
 	environment, secrets, err := executor.resolveEnvironment(job.Environment, step.Environment)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cwd, err := executor.resolveCwd(step.Cwd)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var command *exec.Cmd
 	switch step.Operation {
@@ -339,27 +395,27 @@ func (executor *Executor) runStep(parent context.Context, workflowIdentity strin
 			command = exec.CommandContext(ctx, "sh", "-c", step.Script)
 		}
 	default:
-		return fmt.Errorf("TSPACK_WORKFLOW_STEP_UNSUPPORTED: %s", step.Operation)
+		return nil, fmt.Errorf("TSPACK_WORKFLOW_STEP_UNSUPPORTED: %s", step.Operation)
 	}
 	command.Dir = cwd
 	command.Env = append(os.Environ(), environment...)
 	configureWorkflowProcess(command)
 	stdout, err := command.StdoutPipe()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	stderr, err := command.StderrPipe()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := command.Start(); err != nil {
-		return fmt.Errorf("TSPACK_WORKFLOW_PROCESS_START_FAILED: %w", err)
+		return nil, fmt.Errorf("TSPACK_WORKFLOW_PROCESS_START_FAILED: %w", err)
 	}
 	cleanup, err := attachWorkflowCleanup(command)
 	if err != nil {
 		_ = command.Process.Kill()
 		_ = command.Wait()
-		return fmt.Errorf("TSPACK_WORKFLOW_PROCESS_OWNERSHIP_FAILED: %w", err)
+		return nil, fmt.Errorf("TSPACK_WORKFLOW_PROCESS_OWNERSHIP_FAILED: %w", err)
 	}
 	var outputWait sync.WaitGroup
 	outputWait.Add(2)
@@ -371,12 +427,34 @@ func (executor *Executor) runStep(parent context.Context, workflowIdentity strin
 		err = fmt.Errorf("TSPACK_WORKFLOW_PROCESS_CLEANUP_FAILED: %w", cleanupErr)
 	}
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return nil, ctx.Err()
 	}
 	if err != nil {
-		return fmt.Errorf("TSPACK_WORKFLOW_PROCESS_FAILED: %w", err)
+		return nil, fmt.Errorf("TSPACK_WORKFLOW_PROCESS_FAILED: %w", err)
+	}
+	return nil, nil
+}
+
+func nativeDiagnostics(result NativeResult) []diag.Diagnostic {
+	if result.Build != nil {
+		return result.Build.Diagnostics
+	}
+	if result.Test != nil {
+		return result.Test.Diagnostics
+	}
+	if result.Audit != nil {
+		return result.Audit.Diagnostics
 	}
 	return nil
+}
+
+func hasErrorDiagnostics(diagnostics []diag.Diagnostic) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == diag.SeverityError {
+			return true
+		}
+	}
+	return false
 }
 
 func (executor *Executor) resolveEnvironment(jobValues []Environment, stepValues []Environment) ([]string, []string, error) {

@@ -118,6 +118,18 @@ func quoteJS(value string) string {
 	return string(encoded)
 }
 
+func TestHasXTestsIgnoresNestedFixturesButAllowsExplicitFixtureRoot(t *testing.T) {
+	root := t.TempDir()
+	fixtureRoot := filepath.Join(root, "fixtures", "controlled")
+	mustWriteTestFile(t, filepath.Join(fixtureRoot, "controlled.xtest.tsx"))
+	if hasXTests(root) {
+		t.Fatal("repository discovery must ignore controlled fixtures")
+	}
+	if !hasXTests(fixtureRoot) {
+		t.Fatal("an explicitly selected fixture root must remain runnable")
+	}
+}
+
 func TestRunXTestForwardsBatchOnlyForRunMode(t *testing.T) {
 	root := t.TempDir()
 	bridge := filepath.Join(root, "bridge.js")

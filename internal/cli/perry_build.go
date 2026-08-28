@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -24,7 +25,7 @@ type perryConfig struct {
 	Features       []string `json:"features,omitempty"`
 }
 
-func buildPerryTarget(root string, manifestPath string, ir *manifest.ManifestIR, pkg *manifest.Package, target manifest.Target) {
+func buildPerryTarget(ctx context.Context, root string, manifestPath string, ir *manifest.ManifestIR, pkg *manifest.Package, target manifest.Target) {
 	packageRoot := resolvePackageRoot(root, manifestPath, ir, pkg)
 	configPath := target.CompilerConfig
 	if configPath == "" {
@@ -42,12 +43,12 @@ func buildPerryTarget(root string, manifestPath string, ir *manifest.ManifestIR,
 	if _, err := os.Stat(compilerPath); err != nil {
 		failBuild("TSPACK_COMPILER_TOOL_MISSING", "project-managed Perry compiler is missing at "+compilerPath)
 	}
-	version, err := compilerVersionAt(compilerPath, packageRoot)
+	version, err := compilerVersionAt(ctx, compilerPath, packageRoot)
 	if err != nil {
 		failBuild("TSPACK_COMPILER_VERSION_FAILED", err.Error())
 	}
 	version = normalizePerryVersion(version)
-	runtimeDirectory, err := discoverPerryRuntimeDirectory(compilerPath, packageRoot)
+	runtimeDirectory, err := discoverPerryRuntimeDirectory(ctx, compilerPath, packageRoot)
 	if err != nil {
 		failBuild("TSPACK_COMPILER_RUNTIME_MISSING", err.Error())
 	}
@@ -126,7 +127,7 @@ func buildPerryTarget(root string, manifestPath string, ir *manifest.ManifestIR,
 	if err != nil {
 		failBuild("TSPACK_COMPILER_TARGET_INVALID", err.Error())
 	}
-	buildOutput, buildErr := runCompilerInvocation(invocation)
+	buildOutput, buildErr := runCompilerInvocation(ctx, invocation)
 	if len(buildOutput) > 0 {
 		fmt.Print(string(buildOutput))
 	}
@@ -220,13 +221,13 @@ func perryTargetPlatform(config perryConfig) string {
 	return runtime.GOOS + "-" + runtime.GOARCH
 }
 
-func discoverPerryRuntimeDirectory(compilerPath string, packageRoot string) (string, error) {
+func discoverPerryRuntimeDirectory(ctx context.Context, compilerPath string, packageRoot string) (string, error) {
 	invocation := compilerir.Invocation{
 		Executable: compilerPath,
 		Arguments:  []string{"doctor"},
 		Directory:  packageRoot,
 	}
-	output, err := runCompilerInvocation(invocation)
+	output, err := runCompilerInvocation(ctx, invocation)
 	if err != nil {
 		return "", fmt.Errorf("Perry doctor could not materialize its packaged runtime: %s", strings.TrimSpace(string(output)))
 	}

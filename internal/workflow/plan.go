@@ -33,17 +33,21 @@ type PlanJob struct {
 }
 
 type PlanStep struct {
-	Identity       string        `json:"identity"`
-	Name           string        `json:"name"`
-	Operation      string        `json:"operation"`
-	Packages       []string      `json:"packages,omitempty"`
-	Command        []string      `json:"command,omitempty"`
-	Script         string        `json:"script,omitempty"`
-	Shell          string        `json:"shell,omitempty"`
-	Cwd            string        `json:"cwd,omitempty"`
-	Capabilities   []string      `json:"capabilities,omitempty"`
-	Environment    []Environment `json:"environment,omitempty"`
-	TimeoutSeconds int           `json:"timeoutSeconds,omitempty"`
+	Identity        string        `json:"identity"`
+	Name            string        `json:"name"`
+	Operation       string        `json:"operation"`
+	Packages        []string      `json:"packages,omitempty"`
+	Targets         []string      `json:"targets,omitempty"`
+	Filter          string        `json:"filter,omitempty"`
+	AuditLevel      string        `json:"auditLevel,omitempty"`
+	RequireCoverage bool          `json:"requireCoverage,omitempty"`
+	Command         []string      `json:"command,omitempty"`
+	Script          string        `json:"script,omitempty"`
+	Shell           string        `json:"shell,omitempty"`
+	Cwd             string        `json:"cwd,omitempty"`
+	Capabilities    []string      `json:"capabilities,omitempty"`
+	Environment     []Environment `json:"environment,omitempty"`
+	TimeoutSeconds  int           `json:"timeoutSeconds,omitempty"`
 }
 
 type Environment struct {
@@ -90,18 +94,26 @@ func BuildPlan(declaration manifest.Workflow) Plan {
 				if name == "" {
 					name = operationDisplayName(step.Operation)
 				}
+				capabilities := sortedCopy(step.Capabilities)
+				if len(capabilities) == 0 {
+					capabilities = nativeCapabilities(step.Operation)
+				}
 				planned.Steps = append(planned.Steps, PlanStep{
-					Identity:       fmt.Sprintf("%s/step-%02d-%s", identity, stepIndex+1, step.Operation),
-					Name:           name,
-					Operation:      step.Operation,
-					Packages:       sortedCopy(step.Packages),
-					Command:        append([]string(nil), step.Command...),
-					Script:         step.Script,
-					Shell:          step.Shell,
-					Cwd:            step.Cwd,
-					Capabilities:   sortedCopy(step.Capabilities),
-					Environment:    normalizeEnvironment(step.Env),
-					TimeoutSeconds: step.TimeoutSeconds,
+					Identity:        fmt.Sprintf("%s/step-%02d-%s", identity, stepIndex+1, step.Operation),
+					Name:            name,
+					Operation:       step.Operation,
+					Packages:        sortedCopy(step.Packages),
+					Targets:         sortedCopy(step.Targets),
+					Filter:          step.Filter,
+					AuditLevel:      step.AuditLevel,
+					RequireCoverage: step.RequireCoverage,
+					Command:         append([]string(nil), step.Command...),
+					Script:          step.Script,
+					Shell:           step.Shell,
+					Cwd:             step.Cwd,
+					Capabilities:    capabilities,
+					Environment:     normalizeEnvironment(step.Env),
+					TimeoutSeconds:  step.TimeoutSeconds,
 				})
 			}
 			plan.Jobs = append(plan.Jobs, planned)
@@ -115,6 +127,25 @@ func BuildPlan(declaration manifest.Workflow) Plan {
 		sort.Strings(plan.Jobs[index].Needs)
 	}
 	return plan
+}
+
+func nativeCapabilities(operation string) []string {
+	switch operation {
+	case "sync":
+		return []string{"network", "workspaceWrite"}
+	case "check":
+		return []string{"workspaceRead"}
+	case "test":
+		return []string{"process", "workspaceRead"}
+	case "build":
+		return []string{"process", "workspaceRead", "workspaceWrite"}
+	case "pack":
+		return []string{"workspaceRead", "workspaceWrite"}
+	case "audit":
+		return []string{"network", "workspaceRead"}
+	default:
+		return nil
+	}
 }
 
 func expandMatrix(matrix map[string][]any) []map[string]any {

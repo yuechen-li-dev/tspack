@@ -378,6 +378,12 @@ declare module 'tspack/manifest' {
     env?: WorkflowEnvRow[];
     timeoutSeconds?: number;
   };
+  export type WorkflowBuildStepOptions = WorkflowStepOptions & { targets?: string[] };
+  export type WorkflowTestStepOptions = WorkflowStepOptions & { filter?: string };
+  export type WorkflowAuditStepOptions = WorkflowStepOptions & {
+    auditLevel?: 'any' | 'low' | 'moderate' | 'high' | 'critical';
+    requireCoverage?: boolean;
+  };
   export type WorkflowProcessStepOptions = WorkflowStepOptions & {
     command: string[];
     cwd?: 'workspace' | `package:${string}`;
@@ -391,6 +397,9 @@ declare module 'tspack/manifest' {
   };
   export type WorkflowStep =
     | (WorkflowStepOptions & { operation: 'sync' | 'check' | 'pack' })
+    | (WorkflowBuildStepOptions & { operation: 'build' })
+    | (WorkflowTestStepOptions & { operation: 'test' })
+    | (WorkflowAuditStepOptions & { operation: 'audit' })
     | (WorkflowProcessStepOptions & { operation: 'process' })
     | (WorkflowShellStepOptions & { operation: 'shellScript' });
   export type WorkflowMatrixValue = string | number | boolean | WorkflowPlatform;
@@ -560,7 +569,10 @@ declare module 'tspack/manifest' {
   export function CurrentHost(): WorkflowPlatform;
   export function Sync(options?: WorkflowStepOptions): WorkflowStep;
   export function Check(options?: WorkflowStepOptions): WorkflowStep;
+  export function Build(options?: WorkflowBuildStepOptions): WorkflowStep;
+  export function Test(options?: WorkflowTestStepOptions): WorkflowStep;
   export function Pack(options?: WorkflowStepOptions): WorkflowStep;
+  export function Audit(options?: WorkflowAuditStepOptions): WorkflowStep;
   export function Process(name: string, options: WorkflowProcessStepOptions): WorkflowStep;
   export function ShellScript(name: string, options: WorkflowShellStepOptions): WorkflowStep;
   export function Plain(value: string): WorkflowValue;

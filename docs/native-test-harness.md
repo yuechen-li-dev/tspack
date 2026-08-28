@@ -110,6 +110,10 @@ Example IDs:
 ## M17 file discovery
 
 Native test files use the `*.xtest.tsx` suffix. Here, `x` means extended/xUnit style, not skipped.
+Repository-wide discovery skips conventional `fixtures` directories, along with
+generated/vendor directories. A fixture remains directly runnable by choosing
+that fixture directory as `--root`; this prevents controlled failure inputs from
+silently becoming ordinary project tests.
 Native tests can live next to production source files, but native test tags are only valid in native test files.
 Conventional `*.test.ts`, `*.test.tsx`, `*.spec.ts`, and `*.spec.tsx` are not claimed by the native harness.
 Discovery/listing is static and does not execute callback bodies.

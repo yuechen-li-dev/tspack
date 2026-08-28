@@ -134,10 +134,13 @@ func TestCommandRegistryIsExplicit(t *testing.T) {
 func TestLifecycleCommandsHaveDedicatedHandlers(t *testing.T) {
 	want := map[string]string{
 		"add":      "runAddCommand",
+		"audit":    "runAuditCommand",
+		"build":    "runBuildCommand",
 		"check":    "runCheckCommand",
 		"remove":   "runRemoveCommand",
 		"update":   "runUpdateCommand",
 		"sync":     "runSyncCommand",
+		"test":     "runTestCommand",
 		"pack":     "runPackCommand",
 		"why":      "runWhyCommand",
 		"outdated": "runOutdatedCommand",
@@ -147,6 +150,20 @@ func TestLifecycleCommandsHaveDedicatedHandlers(t *testing.T) {
 		function := runtime.FuncForPC(reflect.ValueOf(handler).Pointer())
 		if function == nil || !strings.HasSuffix(function.Name(), "."+handlerName) {
 			t.Errorf("%s must use dedicated handler %s; got %v", command, handlerName, function)
+		}
+	}
+}
+
+func TestWorkflowNativeLifecycleDoesNotSelfShell(t *testing.T) {
+	path := filepath.Join("..", "workflow", "executor.go")
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(contents)
+	for _, command := range []string{"tspack build", "tspack test", "tspack audit", "npm test", "npm run build", "npm audit"} {
+		if strings.Contains(source, command) {
+			t.Errorf("workflow native lifecycle must not self-shell through %q", command)
 		}
 	}
 }

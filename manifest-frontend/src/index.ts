@@ -84,7 +84,7 @@ export type DependencySourceAnalysis = {
 };
 
 const ALLOWED_IMPORT = 'tspack/manifest';
-const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'annotatePackage', 'defineDeps', 'npm', 'jsr', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service', 'json', 'Workflow', 'Job', 'Manual', 'Push', 'PullRequest', 'Linux', 'Windows', 'MacOS', 'CurrentHost', 'Sync', 'Check', 'Pack', 'Process', 'ShellScript', 'Plain', 'Secret', 'WorkflowEnv']);
+const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'annotatePackage', 'defineDeps', 'npm', 'jsr', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service', 'json', 'Workflow', 'Job', 'Manual', 'Push', 'PullRequest', 'Linux', 'Windows', 'MacOS', 'CurrentHost', 'Sync', 'Check', 'Build', 'Test', 'Pack', 'Audit', 'Process', 'ShellScript', 'Plain', 'Secret', 'WorkflowEnv']);
 const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'PackageAnnotations', 'Policies', 'Targets', 'RunTargets', 'Workflows', 'SkyrimTarget', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy', 'RegistryPolicy', 'RegistrySource', 'CompatFiles', 'JsonFile']);
 const APPROVED_PROPERTY_HELPERS = new Set(['TsConfig.manifestEditor', 'VSCode.settings', 'VSCode.extensions']);
 const DEFAULT_MANIFEST_EDITOR_INCLUDE = [
@@ -333,7 +333,7 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
     if (name === 'Linux' || name === 'Windows' || name === 'MacOS' || name === 'CurrentHost') {
       return name === 'MacOS' ? 'macos' : name === 'CurrentHost' ? 'currentHost' : name.toLowerCase();
     }
-    if (name === 'Sync' || name === 'Check' || name === 'Pack') {
+    if (name === 'Sync' || name === 'Check' || name === 'Build' || name === 'Test' || name === 'Pack' || name === 'Audit') {
       return { operation: name.toLowerCase(), ...(typeof args[0] === 'object' ? (args[0] as object) : {}) };
     }
     if (name === 'Process') return { operation: 'process', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };

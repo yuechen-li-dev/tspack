@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/project"
+	"github.com/yuechen-li-dev/tspack/internal/testcmd"
 	"gopkg.in/yaml.v3"
 )
 
@@ -50,6 +53,123 @@ func TestBuildPlanExpandsMatrixDeterministicallyAndConnectsAllNeeds(t *testing.T
 	}
 	if first.Jobs[0].Identity != `test[mode=7:"debug",shard=1:1]` {
 		t.Fatalf("first identity=%q", first.Jobs[0].Identity)
+	}
+}
+
+type structuredLifecycleOperations struct{}
+
+func (structuredLifecycleOperations) Run(context.Context, string, []string) ([]diag.Diagnostic, error) {
+	return nil, nil
+}
+
+type semanticFailureOperations struct {
+	failing string
+}
+
+func (operations semanticFailureOperations) Run(context.Context, string, []string) ([]diag.Diagnostic, error) {
+	return nil, nil
+}
+
+func (operations semanticFailureOperations) RunStep(_ context.Context, step PlanStep) (NativeResult, error) {
+	if step.Operation != operations.failing {
+		return NativeResult{}, nil
+	}
+	switch step.Operation {
+	case "build":
+		result := project.BuildOperationResult{Diagnostics: []diag.Diagnostic{{Code: "TSPACK_COMPILER_BUILD_FAILED", Severity: diag.SeverityError, Message: "controlled build failure"}}}
+		return NativeResult{Build: &result}, errors.New("TSPACK_COMPILER_BUILD_FAILED: controlled build failure")
+	case "test":
+		result := project.TestOperationResult{
+			ExitCode: 1,
+			Failed:   1,
+			Tests: []testcmd.TestEvidence{{
+				ID:      "suite/failing fact",
+				Status:  "failed",
+				Failure: map[string]any{"code": "TSPACK_TEST_ASSERTION_FAILED"},
+			}},
+		}
+		return NativeResult{Test: &result}, errors.New("TSPACK_TEST_FAILED: one or more tests failed")
+	case "audit":
+		result := project.AuditOperationResult{Failing: 1, Diagnostics: []diag.Diagnostic{{Code: "TSPACK_AUDIT_POLICY_REJECTED", Severity: diag.SeverityError, Message: "controlled audit failure"}}}
+		return NativeResult{Audit: &result}, errors.New("TSPACK_AUDIT_POLICY_REJECTED: controlled audit failure")
+	default:
+		return NativeResult{}, nil
+	}
+}
+
+func (structuredLifecycleOperations) RunStep(_ context.Context, step PlanStep) (NativeResult, error) {
+	switch step.Operation {
+	case "build":
+		return NativeResult{Build: &project.BuildOperationResult{Artifacts: []project.BuildArtifact{{Package: "app", Target: "browser", Kind: "javaScript", Path: "dist/app.js"}}}}, nil
+	case "test":
+		return NativeResult{Test: &project.TestOperationResult{Passed: 3, Skipped: 1}}, nil
+	case "audit":
+		return NativeResult{Audit: &project.AuditOperationResult{Source: "OSV.dev", AuditLevel: "high"}}, nil
+	default:
+		return NativeResult{}, nil
+	}
+}
+
+func TestExecutorPreservesStructuredNativeLifecycleResults(t *testing.T) {
+	plan := Plan{Workflow: "CI", Jobs: []PlanJob{{Identity: "ci", Platform: "currentHost", Steps: []PlanStep{
+		{Identity: "ci/step-01-test", Operation: "test"},
+		{Identity: "ci/step-02-build", Operation: "build"},
+		{Identity: "ci/step-03-audit", Operation: "audit"},
+	}}}}
+	result := (&Executor{Native: structuredLifecycleOperations{}}).Run(context.Background(), plan)
+	if result.State != StateSucceeded {
+		t.Fatalf("result=%+v", result)
+	}
+	steps := result.Jobs[0].Steps
+	if steps[0].Result == nil || steps[0].Result.Test == nil || steps[0].Result.Test.Passed != 3 {
+		t.Fatalf("test result=%+v", steps[0].Result)
+	}
+	if steps[1].Result == nil || len(steps[1].Result.Build.Artifacts) != 1 {
+		t.Fatalf("build result=%+v", steps[1].Result)
+	}
+	if steps[2].Result == nil || steps[2].Result.Audit.Source != "OSV.dev" {
+		t.Fatalf("audit result=%+v", steps[2].Result)
+	}
+}
+
+func TestNativeBuildFailureBlocksDependentsAndPreservesSemanticDiagnostic(t *testing.T) {
+	events := []Event{}
+	plan := Plan{Workflow: "Failure", Jobs: []PlanJob{
+		{Identity: "build", Platform: "currentHost", Steps: []PlanStep{{Identity: "build/step-01-build", Operation: "build"}}},
+		{Identity: "dependent", Platform: "currentHost", Needs: []string{"build"}, Steps: []PlanStep{{Identity: "dependent/step-01-test", Operation: "test"}}},
+		{Identity: "independent", Platform: "currentHost", Steps: []PlanStep{{Identity: "independent/step-01-check", Operation: "check"}}},
+	}}
+	result := (&Executor{Native: semanticFailureOperations{failing: "build"}, Concurrency: 1, Events: func(event Event) { events = append(events, event) }}).Run(context.Background(), plan)
+	if result.Jobs[0].State != StateFailed || result.Jobs[1].State != StateBlocked || result.Jobs[2].State != StateSucceeded {
+		t.Fatalf("jobs=%+v", result.Jobs)
+	}
+	found := false
+	for _, event := range events {
+		if event.Kind == EventStepDiagnostic && event.Code == "TSPACK_COMPILER_BUILD_FAILED" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("events=%+v", events)
+	}
+}
+
+func TestNativeTestAndAuditFailuresPreserveTypedEvidence(t *testing.T) {
+	for _, operation := range []string{"test", "audit"} {
+		t.Run(operation, func(t *testing.T) {
+			plan := Plan{Workflow: "Failure", Jobs: []PlanJob{{Identity: operation, Platform: "currentHost", Steps: []PlanStep{{Identity: operation + "/step-01-" + operation, Operation: operation}}}}}
+			result := (&Executor{Native: semanticFailureOperations{failing: operation}}).Run(context.Background(), plan)
+			step := result.Jobs[0].Steps[0]
+			if step.State != StateFailed || step.Result == nil {
+				t.Fatalf("step=%+v", step)
+			}
+			if operation == "test" && (step.Result.Test == nil || step.Result.Test.Tests[0].ID != "suite/failing fact") {
+				t.Fatalf("test=%+v", step.Result.Test)
+			}
+			if operation == "audit" && (step.Result.Audit == nil || step.Result.Audit.Failing != 1) {
+				t.Fatalf("audit=%+v", step.Result.Audit)
+			}
+		})
 	}
 }
 

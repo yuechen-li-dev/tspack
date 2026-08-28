@@ -13,7 +13,7 @@ not the semantic source.
       jobs: [
         Job("validate", {
           runsOn: CurrentHost(),
-          steps: [Sync(), Check()],
+          steps: [Sync(), Check(), Test(), Build(), Audit()],
         }),
         Job("package", {
           needs: ["validate"],
@@ -26,10 +26,24 @@ not the semantic source.
 />
 ```
 
-`Sync`, `Check`, and `Pack` are semantic operations. They call TSPack's typed
-project lifecycle entrypoints and do not spawn `tspack` as a child process.
-Build, test, and audit remain outside the native step vocabulary until their
-current CLI-owned behavior has a stable application seam.
+`Sync`, `Check`, `Test`, `Build`, `Pack`, and `Audit` are semantic operations.
+They call typed lifecycle entrypoints directly and never spawn `tspack`, npm
+scripts, or provider-specific commands. The CLI and workflow therefore share
+selection, diagnostics, cancellation context, and structured result contracts.
+
+The natural defaults use project truth:
+
+```tsx
+Test({ filter: "unit" })
+Build({ packages: ["app"], targets: ["browser"] })
+Audit({ auditLevel: "high", requireCoverage: true })
+```
+
+Build supports declared package and compiler-target identities. Test reuses the
+existing harness filter; package targeting remains rejected because the current
+test application does not define package-scoped discovery. Audit reuses the
+lockfile source model, OSV npm coverage, unsupported-source distinctions, and
+the existing severity threshold vocabulary.
 
 ## Commands
 
@@ -83,7 +97,12 @@ parallel up to `--jobs`; failed or cancelled prerequisites block dependents.
 A failed step fails its job and skips later steps.
 
 Ctrl+C cancels active process steps and prevents new jobs from starting.
-`timeoutSeconds` is available on steps. Conditions, retries, outputs, provider
+`timeoutSeconds` is available on steps and cancels the application context used
+by native operations. Test and Audit own context-aware child/network work. The
+legacy compiler adapters use the same cancellation context and owned process-tree
+cleanup as other lifecycle processes; moving their implementation files below
+CLI remains follow-up architecture work.
+Conditions, retries, outputs, provider
 artifacts, and user-authored cache keys are deliberately deferred.
 
 ## GitHub Actions
@@ -114,6 +133,6 @@ The migration from provider programming is intentionally direct:
 - run: npm run build
 ```
 
-becomes semantic project intent such as `Sync()`, `Check()`, and eventually
-native `Test()` / `Build()` after those lifecycle seams move below CLI. Checkout,
+becomes semantic project intent: `Sync()`, `Test()`, `Build()`, and `Audit()`.
+Checkout,
 runtime setup, and provider secret spelling remain backend mechanics.

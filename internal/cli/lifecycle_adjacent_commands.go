@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	compatplan "github.com/yuechen-li-dev/tspack/internal/compat"
+	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
 	"github.com/yuechen-li-dev/tspack/internal/nodecmd"
 	"github.com/yuechen-li-dev/tspack/internal/npmbridge"
+	"github.com/yuechen-li-dev/tspack/internal/project"
 	"github.com/yuechen-li-dev/tspack/internal/testcmd"
 	"github.com/yuechen-li-dev/tspack/internal/version"
 	"os"
@@ -702,8 +704,8 @@ func runTestCommand(args []string) {
 		)
 	}
 
-	result := testcmd.RunContext(ctx, opts)
-	for _, d := range result.Diagnostics {
+	operation := project.RunTest(ctx, project.TestRequest{Project: project.DefaultOptions(opts.RootDir), Options: opts})
+	for _, d := range operation.Diagnostics {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", d.Code, d.Message)
 		for _, detail := range d.Details {
 			if detail == d.Message {
@@ -712,9 +714,18 @@ func runTestCommand(args []string) {
 			fmt.Fprintf(os.Stderr, "  %s\n", detail)
 		}
 	}
-	if result.ExitCode != 0 {
-		exit(result.ExitCode)
+	if operation.ExitCode != 0 || hasDiagnosticErrors(operation.Diagnostics) {
+		exit(1)
 	}
+}
+
+func hasDiagnosticErrors(diagnostics []diag.Diagnostic) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == diag.SeverityError {
+			return true
+		}
+	}
+	return false
 }
 
 func withInspectInstrumentationEnv(runEnv runEnvOverlay) runEnvOverlay {

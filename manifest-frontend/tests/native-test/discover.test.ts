@@ -133,6 +133,11 @@ describe("native test discovery", () => {
       "tspack-artifacts/unpacked/tests/artifact.xtest.tsx",
       'export default (<Suite name="s"><Fact name="artifact">{() => {}}</Fact></Suite>);',
     );
+    write(
+      root,
+      "fixtures/controlled.xtest.tsx",
+      'export default (<Suite name="s"><Fact name="fixture">{() => {}}</Fact></Suite>);',
+    );
 
     const result = discoverNativeTestFiles({ rootDir: root });
 

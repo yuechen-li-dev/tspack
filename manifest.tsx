@@ -1,7 +1,9 @@
 // biome-ignore assist/source/organizeImports: Manifest imports are organized by TSPack and should not be auto-organized by IDEs or formatters.
 import {
-	CompatFiles,
+	Audit,
+	Build,
 	Check,
+	CompatFiles,
 	CurrentHost,
 	Job,
 	JsonFile,
@@ -12,6 +14,8 @@ import {
 	Push,
 	RunTargets,
 	Security,
+	Sync,
+	Test,
 	TsConfig,
 	Tools,
 	UpdatePolicy,
@@ -90,7 +94,7 @@ export default define(
 					jobs: [
 						Job("validate", {
 							runsOn: CurrentHost(),
-							steps: [Check()],
+							steps: [Sync(), Check(), Test(), Build(), Audit()],
 						}),
 						Job("workflow-tests", {
 							needs: ["validate"],

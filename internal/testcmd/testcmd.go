@@ -1,7 +1,9 @@
 package testcmd
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,23 +16,41 @@ import (
 )
 
 type Options struct {
-	RootDir         string
-	UseXTest        bool
-	UseVitest       bool
-	List            bool
-	Filter          string
-	Compact         bool
-	XTestBridge     string
-	Watch           bool
-	JSON            bool
-	UpdateSnapshots bool
-	Batch           bool
-	Environment     []string
+	RootDir           string
+	UseXTest          bool
+	UseVitest         bool
+	List              bool
+	Filter            string
+	Compact           bool
+	XTestBridge       string
+	Watch             bool
+	JSON              bool
+	UpdateSnapshots   bool
+	Batch             bool
+	Environment       []string
+	CaptureStructured bool
 }
 
 type Result struct {
 	Diagnostics []diag.Diagnostic
 	ExitCode    int
+	Summary     Summary
+	Tests       []TestEvidence
+}
+
+type Summary struct {
+	Passed     int     `json:"passed"`
+	Failed     int     `json:"failed"`
+	Skipped    int     `json:"skipped"`
+	DurationMs float64 `json:"durationMs,omitempty"`
+}
+
+type TestEvidence struct {
+	ID         string  `json:"id"`
+	Name       string  `json:"name,omitempty"`
+	Status     string  `json:"status"`
+	DurationMs float64 `json:"durationMs,omitempty"`
+	Failure    any     `json:"failure,omitempty"`
 }
 
 type BridgeResolution struct {
@@ -66,7 +86,7 @@ func RunContext(ctx context.Context, opts Options) Result {
 		case "xtest":
 			runXTestContext(ctx, opts, &result)
 		case "vitest":
-			runVitest(opts, &result)
+			runVitestContext(ctx, opts, &result)
 		}
 	}
 	if hasErrors(result.Diagnostics) || result.ExitCode != 0 {
@@ -105,7 +125,7 @@ func hasXTests(root string) bool {
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if ignoredTestDiscoveryDir(name) {
+			if path != root && ignoredTestDiscoveryDir(name) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -121,7 +141,7 @@ func hasXTests(root string) bool {
 
 func ignoredTestDiscoveryDir(name string) bool {
 	switch name {
-	case "node_modules", ".git", ".tspack", "dist", "tspack-artifacts":
+	case "node_modules", ".git", ".tspack", "dist", "fixtures", "tspack-artifacts":
 		return true
 	default:
 		return false
@@ -166,9 +186,35 @@ func runXTestContext(ctx context.Context, opts Options, result *Result) {
 	}
 	cmd := exec.CommandContext(ctx, "node", args...)
 	cmd.Env = append(os.Environ(), opts.Environment...)
-	cmd.Stdout = os.Stdout
+	var structured bytes.Buffer
+	if opts.CaptureStructured {
+		if !opts.JSON {
+			args = append(args, "--json")
+			cmd = exec.CommandContext(ctx, "node", args...)
+			cmd.Env = append(os.Environ(), opts.Environment...)
+		}
+		cmd.Stdout = &structured
+	} else {
+		cmd.Stdout = os.Stdout
+	}
 	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	if opts.CaptureStructured && structured.Len() > 0 {
+		var report struct {
+			Summary     Summary           `json:"summary"`
+			Tests       []TestEvidence    `json:"tests"`
+			Diagnostics []diag.Diagnostic `json:"diagnostics"`
+		}
+		if decodeErr := json.Unmarshal(structured.Bytes(), &report); decodeErr != nil {
+			result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_RESULT_INVALID", Severity: diag.SeverityError, Message: "native xTest returned invalid structured results", Details: []string{decodeErr.Error()}})
+			result.ExitCode = 1
+		} else {
+			result.Summary = report.Summary
+			result.Tests = append(result.Tests, report.Tests...)
+			result.Diagnostics = append(result.Diagnostics, report.Diagnostics...)
+		}
+	}
+	if err != nil {
 		if _, ok := err.(*exec.ExitError); ok {
 			result.ExitCode = 1
 			return
@@ -303,7 +349,7 @@ func missingBridgeDiagnostic(resolution BridgeResolution) diag.Diagnostic {
 	return diag.Diagnostic{Code: "TSPACK_TEST_XTEST_BRIDGE_MISSING", Severity: diag.SeverityError, Message: "native xTest bridge not found", Details: details}
 }
 
-func runVitest(opts Options, result *Result) {
+func runVitestContext(ctx context.Context, opts Options, result *Result) {
 	if opts.Batch {
 		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_BATCH_UNSUPPORTED_BACKEND", Severity: diag.SeverityError, Message: "batch execution only applies to native xTest"})
 		result.ExitCode = 1
@@ -331,7 +377,7 @@ func runVitest(opts Options, result *Result) {
 		args = append(args, "-t", opts.Filter)
 	}
 	bin := filepath.Join(opts.RootDir, "node_modules", ".bin", "vitest")
-	cmd := exec.Command(bin, args...)
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = append(os.Environ(), opts.Environment...)
 	cmd.Dir = opts.RootDir
 	cmd.Stdout = os.Stdout

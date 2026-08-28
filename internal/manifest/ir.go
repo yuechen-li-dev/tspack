@@ -51,16 +51,20 @@ type WorkflowJob struct {
 }
 
 type WorkflowStep struct {
-	Name           string                `json:"name,omitempty"`
-	Operation      string                `json:"operation"`
-	Packages       []string              `json:"packages,omitempty"`
-	Command        []string              `json:"command,omitempty"`
-	Script         string                `json:"script,omitempty"`
-	Shell          string                `json:"shell,omitempty"`
-	Cwd            string                `json:"cwd,omitempty"`
-	Capabilities   []string              `json:"capabilities,omitempty"`
-	Env            []WorkflowEnvironment `json:"env,omitempty"`
-	TimeoutSeconds int                   `json:"timeoutSeconds,omitempty"`
+	Name            string                `json:"name,omitempty"`
+	Operation       string                `json:"operation"`
+	Packages        []string              `json:"packages,omitempty"`
+	Targets         []string              `json:"targets,omitempty"`
+	Filter          string                `json:"filter,omitempty"`
+	AuditLevel      string                `json:"auditLevel,omitempty"`
+	RequireCoverage bool                  `json:"requireCoverage,omitempty"`
+	Command         []string              `json:"command,omitempty"`
+	Script          string                `json:"script,omitempty"`
+	Shell           string                `json:"shell,omitempty"`
+	Cwd             string                `json:"cwd,omitempty"`
+	Capabilities    []string              `json:"capabilities,omitempty"`
+	Env             []WorkflowEnvironment `json:"env,omitempty"`
+	TimeoutSeconds  int                   `json:"timeoutSeconds,omitempty"`
 }
 
 type WorkflowEnvironment struct {

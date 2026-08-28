@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -34,7 +35,7 @@ type compilerCacheRecord struct {
 	Platform      string `json:"platform"`
 }
 
-func buildScriptCTarget(root string, manifestPath string, ir *manifest.ManifestIR, pkg *manifest.Package, target manifest.Target) {
+func buildScriptCTarget(ctx context.Context, root string, manifestPath string, ir *manifest.ManifestIR, pkg *manifest.Package, target manifest.Target) {
 	packageRoot := resolvePackageRoot(root, manifestPath, ir, pkg)
 	configPath := target.CompilerConfig
 	if configPath == "" {
@@ -52,7 +53,7 @@ func buildScriptCTarget(root string, manifestPath string, ir *manifest.ManifestI
 	if _, err := os.Stat(compilerPath); err != nil {
 		failBuild("TSPACK_COMPILER_TOOL_MISSING", "project-managed ScriptC compiler is missing at "+compilerPath)
 	}
-	version, err := compilerVersionAt(compilerPath, packageRoot)
+	version, err := compilerVersionAt(ctx, compilerPath, packageRoot)
 	if err != nil {
 		failBuild("TSPACK_COMPILER_VERSION_FAILED", err.Error())
 	}
@@ -135,7 +136,7 @@ func buildScriptCTarget(root string, manifestPath string, ir *manifest.ManifestI
 	if err != nil {
 		failBuild("TSPACK_COMPILER_TARGET_INVALID", err.Error())
 	}
-	coverageOutput, coverageErr := runCompilerInvocation(coverageInvocation)
+	coverageOutput, coverageErr := runCompilerInvocation(ctx, coverageInvocation)
 	coveragePath := filepath.Join(packageRoot, filepath.FromSlash(scriptCCoverageRelativePath(pkg.Name, target.Name)))
 	if err := writeFileAtomically(coveragePath, coverageOutput, 0o644); err != nil {
 		failBuild("TSPACK_BUILD_IO", err.Error())
@@ -158,7 +159,7 @@ func buildScriptCTarget(root string, manifestPath string, ir *manifest.ManifestI
 	if err != nil {
 		failBuild("TSPACK_COMPILER_TARGET_INVALID", err.Error())
 	}
-	buildOutput, buildErr := runCompilerInvocation(invocation)
+	buildOutput, buildErr := runCompilerInvocation(ctx, invocation)
 	if len(buildOutput) > 0 {
 		fmt.Print(string(buildOutput))
 	}
@@ -252,8 +253,8 @@ func scriptCCoverageRequiresDynamic(output []byte) bool {
 	return strings.Contains(report, "runs with --dynamic")
 }
 
-func runCompilerInvocation(invocation compilerir.Invocation) ([]byte, error) {
-	command := exec.Command(invocation.Executable, invocation.Arguments...)
+func runCompilerInvocation(ctx context.Context, invocation compilerir.Invocation) ([]byte, error) {
+	command := exec.CommandContext(ctx, invocation.Executable, invocation.Arguments...)
 	command.Dir = invocation.Directory
 	command.Env = os.Environ()
 	keys := make([]string, 0, len(invocation.Environment))
@@ -264,7 +265,7 @@ func runCompilerInvocation(invocation compilerir.Invocation) ([]byte, error) {
 	for _, key := range keys {
 		command.Env = append(command.Env, key+"="+invocation.Environment[key])
 	}
-	return command.CombinedOutput()
+	return runOwnedBuildCommand(command)
 }
 
 func scriptCTargetPlatform(config scriptCConfig) string {

@@ -1,19 +1,25 @@
 package cli
 
 import (
+	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	compilerir "github.com/yuechen-li-dev/tspack/internal/compiler"
+	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/project"
 )
 
 // build is intentionally a narrow compiler-selection seam. Runtime process
@@ -92,44 +98,34 @@ func runBuildCommand(args []string) {
 	if manifestPath == "" {
 		manifestPath = filepath.Join(root, "manifest.tsx")
 	}
-	ir := workspace.LoadManifest(manifestPath)
-	packages := selectBuildPackages(ir, opts.PackageName)
-	if len(packages) == 0 {
-		failBuild("TSPACK_BUILD_PACKAGE_NOT_FOUND", "no package matched the requested build selection")
+	projectOptions := project.DefaultOptions(root)
+	projectOptions.ManifestPath = manifestPath
+	projectOptions.FrontendCLIPath = manifestFrontendCLIPath()
+	request := project.BuildRequest{Project: projectOptions, PreserveLastSuccessful: opts.PreserveLastSuccessful, Executor: cliBuildTargetExecutor{}}
+	if opts.PackageName != "" {
+		request.Packages = []string{opts.PackageName}
 	}
-	for _, pkg := range packages {
-		packageRoot := resolvePackageRoot(root, manifestPath, ir, pkg)
-		if err := validateCompilerSourceOwnership(packageRoot, pkg); err != nil {
-			failBuild("TSPACK_COMPILER_SOURCE_OWNERSHIP_INVALID", err.Error())
+	if opts.TargetName != "" {
+		request.Targets = []string{opts.TargetName}
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	result := project.RunBuild(ctx, request)
+	for _, diagnostic := range result.Diagnostics {
+		if diagnostic.Code == "TSPACK_BUILD_TARGET_FAILED" {
+			continue
 		}
-		targets, err := orderBuildTargets(pkg, opts.TargetName)
-		if err != nil || len(targets) == 0 {
-			message := "no target matched " + opts.TargetName
-			if err != nil {
-				message = err.Error()
-			}
-			failBuild("TSPACK_BUILD_TARGET_NOT_FOUND", message)
+		fmt.Fprintf(os.Stderr, "%s: %s\n", diagnostic.Code, diagnostic.Message)
+		for _, detail := range diagnostic.Details {
+			fmt.Fprintf(os.Stderr, "  %s\n", detail)
 		}
-		for _, target := range targets {
-			switch target.Compiler {
-			case "tsc":
-				buildTscTarget(root, manifestPath, ir, pkg, target)
-			case "tscl":
-				selectedPackage := *pkg
-				selectedPackage.Targets = []manifest.Target{target}
-				buildTsclPackage(root, manifestPath, ir, &selectedPackage, "", opts.PreserveLastSuccessful)
-			case "scriptc":
-				buildScriptCTarget(root, manifestPath, ir, pkg, target)
-			case "perry":
-				buildPerryTarget(root, manifestPath, ir, pkg, target)
-			default:
-				failBuild("TSPACK_BUILD_UNSUPPORTED_COMPILER", "unsupported compiler for target "+pkg.Name+":"+target.Name+": "+target.Compiler)
-			}
-		}
+	}
+	if hasDiagnosticErrors(result.Diagnostics) {
+		exit(1)
 	}
 }
 
-func buildTscTarget(root string, manifestPath string, ir *manifest.ManifestIR, pkg *manifest.Package, target manifest.Target) {
+func buildTscTarget(ctx context.Context, root string, manifestPath string, ir *manifest.ManifestIR, pkg *manifest.Package, target manifest.Target) {
 	packageRoot := resolvePackageRoot(root, manifestPath, ir, pkg)
 	configRef := compilerConfigRef(packageRoot, target.CompilerConfig, "tsconfig.json")
 	configPath := filepath.Join(packageRoot, filepath.FromSlash(configRef.Path))
@@ -156,7 +152,7 @@ func buildTscTarget(root string, manifestPath string, ir *manifest.ManifestIR, p
 	if _, err := os.Stat(compilerPath); err != nil {
 		failBuild("TSPACK_COMPILER_TOOL_MISSING", "project-managed TypeScript compiler is missing at "+compilerPath)
 	}
-	version, err := compilerVersionAt(compilerPath, packageRoot)
+	version, err := compilerVersionAt(ctx, compilerPath, packageRoot)
 	if err != nil {
 		failBuild("TSPACK_COMPILER_VERSION_FAILED", err.Error())
 	}
@@ -201,9 +197,9 @@ func buildTscTarget(root string, manifestPath string, ir *manifest.ManifestIR, p
 	if err != nil {
 		failBuild("TSPACK_COMPILER_TARGET_INVALID", err.Error())
 	}
-	command := exec.Command(invocation.Executable, invocation.Arguments...)
+	command := exec.CommandContext(ctx, invocation.Executable, invocation.Arguments...)
 	command.Dir = packageRoot
-	output, runErr := command.CombinedOutput()
+	output, runErr := runOwnedBuildCommand(command)
 	if len(output) > 0 {
 		fmt.Print(string(output))
 	}
@@ -272,7 +268,7 @@ func selectBuildPackages(ir *manifest.ManifestIR, packageName string) []*manifes
 	return packages
 }
 
-func buildTsclPackage(root string, manifestPath string, ir *manifest.ManifestIR, pkg *manifest.Package, requestedTarget string, preserveLastSuccessful bool) {
+func buildTsclPackage(ctx context.Context, root string, manifestPath string, ir *manifest.ManifestIR, pkg *manifest.Package, requestedTarget string, preserveLastSuccessful bool) {
 	packageRoot := resolvePackageRoot(root, manifestPath, ir, pkg)
 	compilerPath := ""
 	if len(pkg.Targets) == 1 {
@@ -288,7 +284,7 @@ func buildTsclPackage(root string, manifestPath string, ir *manifest.ManifestIR,
 	if _, err := os.Stat(compilerPath); err != nil {
 		failBuild("TSPACK_TSCL_NOT_FOUND", fmt.Sprintf("tscl executable missing at %s", compilerPath))
 	}
-	compilerVersion, err := compilerVersionAt(compilerPath, packageRoot)
+	compilerVersion, err := compilerVersionAt(ctx, compilerPath, packageRoot)
 	if err != nil {
 		failBuild("TSPACK_TSCL_VERSION_FAILED", "failed to query tscl --version: "+err.Error())
 	}
@@ -323,9 +319,9 @@ func buildTsclPackage(root string, manifestPath string, ir *manifest.ManifestIR,
 		if invocationErr != nil {
 			failBuild("TSPACK_COMPILER_TARGET_INVALID", invocationErr.Error())
 		}
-		cmd := exec.Command(invocation.Executable, invocation.Arguments...)
+		cmd := exec.CommandContext(ctx, invocation.Executable, invocation.Arguments...)
 		cmd.Dir = packageRoot
-		output, runErr := cmd.CombinedOutput()
+		output, runErr := runOwnedBuildCommand(cmd)
 		result, readErr := readTsclBuildResult(resultPath)
 		if runErr != nil || readErr != nil || !result.Success {
 			if !preserveLastSuccessful {
@@ -676,10 +672,10 @@ func contractsForPackage(contracts []manifest.CopelandNpmContract, packageName s
 	return nil
 }
 
-func compilerVersionAt(compilerPath string, directory string) (string, error) {
-	cmd := exec.Command(compilerPath, "--version")
+func compilerVersionAt(ctx context.Context, compilerPath string, directory string) (string, error) {
+	cmd := exec.CommandContext(ctx, compilerPath, "--version")
 	cmd.Dir = directory
-	output, err := cmd.Output()
+	output, err := runOwnedBuildCommand(cmd)
 	if err != nil {
 		return "", err
 	}
@@ -688,6 +684,28 @@ func compilerVersionAt(compilerPath string, directory string) (string, error) {
 		return "", fmt.Errorf("tscl --version returned no version")
 	}
 	return version, nil
+}
+
+func runOwnedBuildCommand(command *exec.Cmd) ([]byte, error) {
+	var output bytes.Buffer
+	command.Stdout = &output
+	command.Stderr = &output
+	configureRunTargetProcess(command)
+	if err := command.Start(); err != nil {
+		return output.Bytes(), err
+	}
+	cleanup, err := attachRunTargetCleanup(command)
+	if err != nil {
+		_ = command.Process.Kill()
+		_ = command.Wait()
+		return output.Bytes(), err
+	}
+	runErr := command.Wait()
+	cleanupErr := cleanupExitedRunTargetProcessTree(command.Process.Pid, cleanup)
+	if runErr == nil && cleanupErr != nil {
+		runErr = cleanupErr
+	}
+	return output.Bytes(), runErr
 }
 
 func tsclBuildFingerprint(version string, target manifest.Target, sources []tsclProjectSource, contracts []tsclNpmContract, configFingerprint string) string {
@@ -771,4 +789,59 @@ func safeBuildName(value string) string {
 func failBuild(code string, message string) {
 	fmt.Fprintf(os.Stderr, "%s: %s\n", code, message)
 	exit(1)
+}
+
+// cliBuildTargetExecutor is the temporary compiler adapter used by both the
+// build command and workflow application seams while compiler implementations
+// are moved out of the CLI package. It invokes compiler functions directly and
+// never shells back into tspack.
+type cliBuildTargetExecutor struct{}
+
+func (cliBuildTargetExecutor) BuildTarget(ctx context.Context, request project.BuildTargetRequest) (result project.BuildTargetResult) {
+	result.Package = request.Package.Name
+	result.Target = request.Target.Name
+	result.Compiler = request.Target.Compiler
+	if err := ctx.Err(); err != nil {
+		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_BUILD_CANCELLED", Severity: diag.SeverityError, Message: "build was cancelled", Details: []string{err.Error()}})
+		return result
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			if _, ok := recovered.(exitStatus); !ok {
+				panic(recovered)
+			}
+			result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_BUILD_TARGET_FAILED", Severity: diag.SeverityError, Message: "build target failed", Details: []string{request.Package.Name + ":" + request.Target.Name}})
+			result.Succeeded = false
+		}
+	}()
+	root := request.Project.RootDir
+	manifestPath := request.Project.ManifestPath
+	if manifestPath == "" {
+		manifestPath = filepath.Join(root, "manifest.tsx")
+	}
+	packageRoot := resolvePackageRoot(root, manifestPath, request.Manifest, request.Package)
+	if err := validateCompilerSourceOwnership(packageRoot, request.Package); err != nil {
+		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_COMPILER_SOURCE_OWNERSHIP_INVALID", Severity: diag.SeverityError, Message: err.Error()})
+		return result
+	}
+	switch request.Target.Compiler {
+	case "tsc":
+		buildTscTarget(ctx, root, manifestPath, request.Manifest, request.Package, request.Target)
+	case "tscl":
+		buildTsclPackage(ctx, root, manifestPath, request.Manifest, request.Package, request.Target.Name, request.PreserveLastSuccessful)
+	case "scriptc":
+		buildScriptCTarget(ctx, root, manifestPath, request.Manifest, request.Package, request.Target)
+	case "perry":
+		buildPerryTarget(ctx, root, manifestPath, request.Manifest, request.Package, request.Target)
+	default:
+		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_BUILD_UNSUPPORTED_COMPILER", Severity: diag.SeverityError, Message: "unsupported compiler for target " + request.Package.Name + ":" + request.Target.Name + ": " + request.Target.Compiler})
+		return result
+	}
+	artifactKind := request.Target.Artifact
+	if artifactKind == "" {
+		artifactKind = "javaScript"
+	}
+	result.Artifacts = append(result.Artifacts, project.BuildArtifact{Package: request.Package.Name, Target: request.Target.Name, Kind: artifactKind, Path: filepath.Join(packageRoot, filepath.FromSlash(request.Target.Runtime))})
+	result.Succeeded = true
+	return result
 }

@@ -5,11 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/yuechen-li-dev/tspack/internal/audit"
-	"github.com/yuechen-li-dev/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/project"
 )
 
 func runAuditCommand(args []string) {
@@ -35,31 +34,18 @@ func runAuditCommand(args []string) {
 			failAuditArgs("unknown audit argument: " + args[index])
 		}
 	}
-	threshold, err := audit.ParseThreshold(auditLevel)
-	if err != nil {
-		failAuditArgs(err.Error())
-	}
 	root = resolveWorkspaceRoot(root)
-	lockPath := filepath.Join(root, "ts-lock.toml")
-	lf, diagnostics, err := lockfile.LoadFile(lockPath)
-	if err != nil {
-		failAudit("TSPACK_AUDIT_LOCKFILE_FAILED", fmt.Sprintf("failed to read %s: %v", lockPath, err), jsonOutput)
-	}
-	for _, diagnostic := range diagnostics {
+	operation := project.RunAudit(context.Background(), project.AuditRequest{Project: project.DefaultOptions(root), AuditLevel: auditLevel})
+	for _, diagnostic := range operation.Diagnostics {
+		if diagnostic.Code == "TSPACK_AUDIT_POLICY_REJECTED" {
+			continue
+		}
 		if diagnostic.Severity == "error" {
-			failAudit("TSPACK_AUDIT_LOCKFILE_FAILED", diagnostic.Message+": "+strings.Join(diagnostic.Details, "; "), jsonOutput)
+			failAudit(diagnostic.Code, diagnostic.Message, jsonOutput)
 		}
 	}
-	report, err := audit.Scan(context.Background(), lf, &audit.HTTPClient{Endpoint: os.Getenv("TSPACK_OSV_API")})
-	if err != nil {
-		failAudit("TSPACK_AUDIT_SERVICE_FAILED", err.Error(), jsonOutput)
-	}
-	failing := 0
-	for _, finding := range report.Findings {
-		if audit.FailsThreshold(finding.Severity, threshold) {
-			failing++
-		}
-	}
+	report := operation.Report
+	failing := operation.Failing
 	if jsonOutput {
 		payload := struct {
 			OK         bool         `json:"ok"`

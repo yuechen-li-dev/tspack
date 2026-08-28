@@ -57,7 +57,7 @@ func runWorkflowCommand(args []string) {
 		executor := workflow.Executor{
 			Root:     workspace.Root,
 			Manifest: ir,
-			Native:   workflow.ProjectOperations{Options: projectOptions},
+			Native:   workflow.ProjectOperations{Options: projectOptions, BuildExecutor: cliBuildTargetExecutor{}},
 			Context: workflow.ExecutionContext{
 				IsCI:     options.Provider != "",
 				Provider: options.Provider,
@@ -202,6 +202,25 @@ func renderWorkflowPlan(plan workflow.Plan, jsonOutput bool) {
 			if step.Operation == "shellScript" {
 				fmt.Printf("      shell: %s\n", step.Shell)
 			}
+			switch step.Operation {
+			case "build":
+				if len(step.Targets) == 0 {
+					fmt.Println("      targets: project defaults")
+				} else {
+					fmt.Printf("      targets: %s\n", strings.Join(step.Targets, ", "))
+				}
+			case "test":
+				fmt.Println("      harness: TSPack")
+				if step.Filter != "" {
+					fmt.Printf("      filter: %s\n", step.Filter)
+				}
+			case "audit":
+				level := step.AuditLevel
+				if level == "" {
+					level = "any"
+				}
+				fmt.Printf("      policy: project source policy (threshold %s)\n", level)
+			}
 			if step.Cwd != "" {
 				fmt.Printf("      cwd: %s\n", step.Cwd)
 			}
@@ -244,6 +263,17 @@ func workflowEventRenderer(jsonOutput bool) workflow.EventSink {
 			}
 		case workflow.EventStepCompleted:
 			fmt.Printf("[%s] %s %s (%dms)\n", event.Job, event.Step, event.State, event.Duration)
+			if event.Result != nil && event.Result.Test != nil {
+				fmt.Printf("[%s]   %d passed, %d failed, %d skipped\n", event.Job, event.Result.Test.Passed, event.Result.Test.Failed, event.Result.Test.Skipped)
+			}
+			if event.Result != nil && event.Result.Build != nil {
+				for _, artifact := range event.Result.Build.Artifacts {
+					fmt.Printf("[%s]   %s:%s -> %s\n", event.Job, artifact.Package, artifact.Target, artifact.Path)
+				}
+			}
+			if event.Result != nil && event.Result.Audit != nil {
+				fmt.Printf("[%s]   %d blocking findings; coverage complete: %t\n", event.Job, event.Result.Audit.Failing, event.Result.Audit.Report.CoverageComplete)
+			}
 		case workflow.EventJobCompleted:
 			fmt.Printf("[%s] %s (%dms)\n", event.Job, event.State, event.Duration)
 		case workflow.EventWorkflowCompleted:

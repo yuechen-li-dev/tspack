@@ -114,12 +114,28 @@ func validateWorkflowJobs(add func(string, string, ...string), prefix string, wo
 
 func validateWorkflowStep(add func(string, string, ...string), prefix string, step WorkflowStep, packageNames map[string]struct{}) {
 	switch step.Operation {
-	case "sync", "check", "pack":
+	case "sync", "check", "build", "test", "pack", "audit":
 		if len(step.Command) > 0 || step.Script != "" || step.Cwd != "" || len(step.Env) > 0 || len(step.Capabilities) > 0 {
 			add("TSPACK_WORKFLOW_NATIVE_STEP_INVALID", prefix+" native operations cannot contain process, shell, cwd, environment, or capability fields")
 		}
-		if step.Operation != "pack" && len(step.Packages) > 0 {
-			add("TSPACK_WORKFLOW_TARGETING_UNSUPPORTED", prefix+" package targeting is currently supported only by Pack")
+		if step.Operation != "pack" && step.Operation != "build" && len(step.Packages) > 0 {
+			add("TSPACK_WORKFLOW_TARGETING_UNSUPPORTED", prefix+" package targeting is not supported by this operation")
+		}
+		if step.Operation != "build" && len(step.Targets) > 0 {
+			add("TSPACK_WORKFLOW_TARGETING_UNSUPPORTED", prefix+" target selection is supported only by Build")
+		}
+		if step.Operation != "test" && step.Filter != "" {
+			add("TSPACK_WORKFLOW_TEST_FILTER_INVALID", prefix+" filter is supported only by Test")
+		}
+		if step.Operation != "audit" && (step.AuditLevel != "" || step.RequireCoverage) {
+			add("TSPACK_WORKFLOW_AUDIT_OPTIONS_INVALID", prefix+" audit options are supported only by Audit")
+		}
+		if step.Operation == "audit" {
+			switch step.AuditLevel {
+			case "", "any", "low", "moderate", "high", "critical":
+			default:
+				add("TSPACK_WORKFLOW_AUDIT_OPTIONS_INVALID", prefix+" auditLevel must be any, low, moderate, high, or critical")
+			}
 		}
 	case "process":
 		if len(step.Command) == 0 {

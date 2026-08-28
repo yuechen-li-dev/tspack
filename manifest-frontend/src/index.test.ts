@@ -143,7 +143,7 @@ describe('JSR dependency source', () => {
 describe('workflow declarations', () => {
   it('normalizes semantic workflow intent without evaluating effects', () => {
     const manifestPath = writeFixture('manifest.tsx', `
-      import { Check, CurrentHost, Job, Package, Process, PullRequest, Push, Secret, Sync, Workflow, WorkflowEnv, Workflows, Workspace, define } from "tspack/manifest";
+      import { Audit, Build, Check, CurrentHost, Job, Package, Process, PullRequest, Push, Secret, Sync, Test, Workflow, WorkflowEnv, Workflows, Workspace, define } from "tspack/manifest";
       export default define(
         <Workspace name="demo">
           <Workflows rows={[
@@ -154,6 +154,9 @@ describe('workflow declarations', () => {
                 steps: [
                   Sync(),
                   Check(),
+                  Test({ filter: "unit" }),
+                  Build({ packages: ["app"], targets: ["browser"] }),
+                  Audit({ auditLevel: "high", requireCoverage: true }),
                   Process("verify", {
                     command: ["node", "--version"],
                     cwd: "workspace",
@@ -186,6 +189,9 @@ describe('workflow declarations', () => {
             steps: expect.arrayContaining([
               { operation: 'sync' },
               { operation: 'check' },
+              { operation: 'test', filter: 'unit' },
+              { operation: 'build', packages: ['app'], targets: ['browser'] },
+              { operation: 'audit', auditLevel: 'high', requireCoverage: true },
               expect.objectContaining({ operation: 'process', command: ['node', '--version'] }),
             ]),
           }),

@@ -401,6 +401,7 @@ const defaultIgnore = new Set([
   ".git",
   ".tspack",
   "dist",
+  "fixtures",
   "tspack-artifacts",
 ]);
 export function discoverNativeTestFiles(
