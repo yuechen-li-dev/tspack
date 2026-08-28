@@ -19,11 +19,11 @@ func TestTsclProjectRequestKeepsNodeRuntimeSeparateFromCompilerIdentity(t *testi
 		t.Fatal(err)
 	}
 
-	request, err := newTsclProjectRequest(root, manifest.Target{
+	request, err := newTsclProjectRequest(root, "app", "tscl", manifest.Target{
 		Name:    "app",
 		Entry:   "src/Main.ts",
 		Runtime: "dist/main.js",
-	}, "1.2.3", nil)
+	}, "1.2.3", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,15 +54,15 @@ func TestTsclProjectRequestSelectsBrowserRuntimeAndDistinctFingerprint(t *testin
 		Runtime:           "dist/browser/main.js",
 		JavaScriptRuntime: "browser",
 	}
-	browserRequest, err := newTsclProjectRequest(root, browserTarget, "1.2.3", nil)
+	browserRequest, err := newTsclProjectRequest(root, "app", "tscl", browserTarget, "1.2.3", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	nodeRequest, err := newTsclProjectRequest(root, manifest.Target{
+	nodeRequest, err := newTsclProjectRequest(root, "app", "tscl", manifest.Target{
 		Name:    "node",
 		Entry:   "src/Main.ts",
 		Runtime: "dist/node/main.js",
-	}, "1.2.3", nil)
+	}, "1.2.3", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

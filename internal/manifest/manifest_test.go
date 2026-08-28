@@ -118,6 +118,20 @@ func TestCompilerSelectionDefaultsToTscAndRestrictsTscl(t *testing.T) {
 	}
 }
 
+func TestCompilerSelectionCanVaryByTarget(t *testing.T) {
+	contents := []byte(`{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"app","version":"1.0.0","kind":"app","compiler":"tsc","compilerPath":"tscl","dependencies":[],"targets":[{"name":"web","compiler":"tsc","compilerConfig":"tsconfig.json","export":".","entry":"src/web.ts","runtime":"dist/web.js","types":"","peers":[],"deps":[]},{"name":"domain","compiler":"tscl","compilerConfig":"tsconfig.tsx","export":"./domain","entry":"src/domain.ts","runtime":"dist/domain.js","types":"","peers":[],"deps":[]}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":[],"exclude":[]}}]}`)
+	ir, diagnostics := LoadBytes("multi-compiler.json", contents)
+	if len(diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+	if ir.Packages[0].Targets[0].Compiler != "tsc" || ir.Packages[0].Targets[1].Compiler != "tscl" {
+		t.Fatalf("target compiler selection was collapsed: %#v", ir.Packages[0].Targets)
+	}
+	if ir.Packages[0].Targets[0].Language != "typescript" || ir.Packages[0].Targets[1].Language != "copeland-ts" {
+		t.Fatalf("target language identity was not defaulted by compiler: %#v", ir.Packages[0].Targets)
+	}
+}
+
 func TestRootCompatOnlyManifestValidates(t *testing.T) {
 	_, diags := LoadBytes("x.json", []byte(`{"format":1,"workspace":{"name":"mono"},"compatFiles":[{"format":"json","path":"tsconfig.tspack.json","value":{}}],"packages":[]}`))
 	if len(diags) != 0 {

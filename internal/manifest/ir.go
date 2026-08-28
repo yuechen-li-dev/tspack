@@ -273,6 +273,9 @@ type Source = authoring.PackageSource
 
 type Target struct {
 	Name              string                `json:"name"`
+	Language          string                `json:"language,omitempty"`
+	Compiler          string                `json:"compiler,omitempty"`
+	CompilerConfig    string                `json:"compilerConfig,omitempty"`
 	Export            string                `json:"export"`
 	Entry             string                `json:"entry"`
 	Runtime           string                `json:"runtime"`
@@ -670,6 +673,27 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 		seenExport := map[string]struct{}{}
 		for ti, t := range p.Targets {
 			tp := fmt.Sprintf("%s.targets[%d]", pp, ti)
+			compiler := t.Compiler
+			if compiler == "" {
+				compiler = p.Compiler
+				p.Targets[ti].Compiler = compiler
+			}
+			if compiler != "tsc" && compiler != "tscl" {
+				add("TSPACK_MANIFEST_INVALID_COMPILER", tp+".compiler must be tsc or tscl")
+			}
+			if compiler == "tscl" && strings.TrimSpace(p.CompilerPath) == "" {
+				add("TSPACK_TSCL_PATH_REQUIRED", tp+" requires package compilerPath for the Copeland tool")
+			}
+			if t.Language == "" {
+				if compiler == "tscl" {
+					p.Targets[ti].Language = "copeland-ts"
+				} else {
+					p.Targets[ti].Language = "typescript"
+				}
+			}
+			if t.CompilerConfig != "" && !pathutil.IsSafePackageFilePath(t.CompilerConfig) {
+				add("TSPACK_COMPILER_CONFIG_INVALID", tp+".compilerConfig must be a safe relative path")
+			}
 			if t.Name == "" || !targetNameRe.MatchString(t.Name) || strings.HasPrefix(t.Name, "/") || strings.HasSuffix(t.Name, "/") || strings.Contains(t.Name, "..") {
 				add("TSPACK_IR_INVALID_TARGET_NAME", tp+".name is invalid")
 			}

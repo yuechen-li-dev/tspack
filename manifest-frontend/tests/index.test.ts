@@ -660,6 +660,17 @@ export default defineWorkspace(
     expect(result.ir?.packages[0]?.compiler).toBe('tscl');
   });
 
+  it('preserves target-level language, compiler, and opaque config identity', () => {
+    const result = parseManifestFile(path.join(root, 'fixtures', 'tsc-m71', 'manifest.tsx'));
+    expect(result.ok).toBe(true);
+    expect(result.ir?.packages[0]?.targets[0]).toMatchObject({
+      name: 'app',
+      language: 'typescript',
+      compiler: 'tsc',
+      compilerConfig: 'tsconfig.json',
+    });
+  });
+
   it('uses canonical manifest editor defaults when no overrides are supplied', () => {
     withTemporaryManifest(
       'tmp-compat-json-helper-defaults-',

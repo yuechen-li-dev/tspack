@@ -224,6 +224,9 @@ declare module 'tspack/manifest' {
 
   export type TargetRow = {
     name: string;
+	language?: string;
+	compiler?: Compiler;
+	compilerConfig?: string;
     export?: string;
     entry: string;
     runtime: string;
