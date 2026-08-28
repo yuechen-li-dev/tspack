@@ -2,6 +2,7 @@ export const INSPECT_ANALYZER_SCRIPT = String.raw`
 ({ selector, points }) => {
   const styleTags = new Set(['script', 'style', 'template']);
   const interactiveTags = new Set(['button', 'a', 'input', 'select', 'textarea', 'summary', 'details']);
+  const maxSourceHintLength = 4096;
   let nextId = 1;
 
   const compact = (value) => value.trim().replace(/\s+/g, ' ').slice(0, 160);
@@ -36,6 +37,12 @@ export const INSPECT_ANALYZER_SCRIPT = String.raw`
   const isPositiveIntegerText = (value) => /^[1-9][0-9]*$/.test(value);
 
   const parseSourceLocation = (raw) => {
+    if (raw.length > maxSourceHintLength) {
+      return {
+        raw: raw.slice(0, maxSourceHintLength),
+        parseError: 'source hint exceeds 4096 characters'
+      };
+    }
     const source = { raw };
     const value = raw.trim();
 
@@ -93,10 +100,10 @@ export const INSPECT_ANALYZER_SCRIPT = String.raw`
 
     const source = raw === null ? {} : parseSourceLocation(raw);
     if (component) {
-      source.component = component;
+      source.component = component.slice(0, maxSourceHintLength);
     }
     if (symbol) {
-      source.symbol = symbol;
+      source.symbol = symbol.slice(0, maxSourceHintLength);
     }
 
     return source;
@@ -107,6 +114,7 @@ export const INSPECT_ANALYZER_SCRIPT = String.raw`
     const cs = window.getComputedStyle(el);
     const tag = el.tagName.toLowerCase();
     const visible = rect.width > 0 && rect.height > 0 && cs.display !== 'none' && cs.visibility !== 'hidden';
+    const disabled = el.matches(':disabled') || el.hasAttribute('inert');
 
     const node = {
       id: 'node-' + nextId++,
@@ -116,7 +124,7 @@ export const INSPECT_ANALYZER_SCRIPT = String.raw`
       text: compact(el.textContent ?? '') || undefined,
       bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       visible,
-      focusable: el.tabIndex >= 0,
+      focusable: visible && !disabled && el.tabIndex >= 0,
       source: sourceHintFor(el),
       style: {
         display: cs.display,

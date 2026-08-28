@@ -1,9 +1,14 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { formatInspectText, formatInspectJson } from './format.js';
 import { runInspect, resolveInspectBackend } from './backend.js';
 import type { InspectBackendName } from './backend.js';
 import { listCdpTargets, normalizeCdpEndpoint } from './cdp.js';
 import type { InspectBrowserName, UIInspectResult } from './types.js';
+import {
+  buildUIContextBundle,
+  serializeUiContextBundle,
+} from './context-bundle.js';
 
 export type InspectOptions = {
   url?: string;
@@ -16,6 +21,9 @@ export type InspectOptions = {
   json: boolean;
   out?: string;
   text?: string;
+  root?: string;
+  bundle?: boolean;
+  bundleOutput?: string;
   cdpEndpoint?: string;
   listTargets?: boolean;
   target?: string;
@@ -57,6 +65,28 @@ function inspectFailureBackend(options: Partial<InspectOptions>): UIInspectResul
     }
   } catch {
     return undefined;
+  }
+}
+
+function writeFileAtomically(filePath: string, contents: string): void {
+  const resolvedPath = path.resolve(filePath);
+  const directory = path.dirname(resolvedPath);
+  fs.mkdirSync(directory, { recursive: true });
+  const temporaryPath = path.join(
+    directory,
+    `.${path.basename(resolvedPath)}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`,
+  );
+
+  try {
+    fs.writeFileSync(temporaryPath, contents, { encoding: 'utf8', flag: 'wx' });
+    fs.renameSync(temporaryPath, resolvedPath);
+  } catch (error: unknown) {
+    try {
+      fs.rmSync(temporaryPath, { force: true });
+    } catch {
+      // Preserve the original write error.
+    }
+    throw error;
   }
 }
 
@@ -197,6 +227,9 @@ export async function inspectAndWrite(options: InspectOptions): Promise<void> {
   }
 
   if (options.listTargets) {
+    if (options.bundle || options.bundleOutput) {
+      throw new Error('TSPACK_INSPECT_INVALID_BUNDLE_OPTIONS');
+    }
     if (!options.cdpEndpoint) {
       throw new Error('TSPACK_INSPECT_CDP_ENDPOINT_REQUIRED');
     }
@@ -217,6 +250,28 @@ export async function inspectAndWrite(options: InspectOptions): Promise<void> {
 
   if (!options.url && !options.cdpEndpoint) throw new Error('TSPACK_INSPECT_TARGET_REQUIRED');
   const result = await runInspect(options);
+  if (options.bundle || options.bundleOutput) {
+    if (!result.root) {
+      throw new Error('TSPACK_INSPECT_BUNDLE_SELECTION_REQUIRED');
+    }
+
+    const workspaceRoot = path.resolve(options.root ?? process.cwd());
+    const bundle = await buildUIContextBundle(result, result.root, {
+      workspaceRoot,
+      workspaceRootName: path.basename(workspaceRoot),
+      selectionReason: options.selector
+        ? `CSS selector: ${options.selector}`
+        : 'inspect root',
+    });
+    const bundleJson = serializeUiContextBundle(bundle);
+    if (options.bundleOutput) {
+      writeFileAtomically(options.bundleOutput, bundleJson);
+      process.stderr.write(`Wrote UI context bundle: ${options.bundleOutput}\n`);
+      return;
+    }
+    process.stdout.write(bundleJson);
+    return;
+  }
   const jsonOut = formatInspectJson(result);
   const textOut = formatInspectText(result);
 

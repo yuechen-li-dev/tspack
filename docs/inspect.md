@@ -15,6 +15,7 @@ It is **not** screenshot matching, visual diffing, machine vision, component ren
 
 - structural DOM/layout/style/text/role extraction
 - JSON and text output
+- deterministic, versioned UI context bundles on stdout or through atomic file replacement
 - selector filtering and hit-test support
 - optional source hint extraction through `data-tspack-source`, `data-tspack-component`, and `data-tspack-symbol`; the VS Code extension can reveal existing workspace-contained files from those hints after safety validation
 - platform-webview backend scaffold/probe (intended future default)
@@ -53,7 +54,7 @@ The analyzer core is shared across backends. Backends are responsible for obtain
 4. **Playwright backends (`playwright-chromium`, `chromium`, `playwright-webkit`, `webkit`)**
    - Use Playwright automation.
    - This is the default backend for URL targets when `--browser` is omitted or `--browser auto` is used.
-   - May require matching Playwright browser binaries; the WebKit aliases require Playwright WebKit availability.
+   - Chromium discovery uses an explicit path when supplied, then Playwright's managed runtime, then a system Chromium/Chrome/Edge executable. No browser is downloaded implicitly. The WebKit aliases still require Playwright WebKit availability.
    - Useful for controlled browser inspection and CI when browsers are installed.
    - The browser-side analyzer is shared across Chromium and WebKit.
 
@@ -91,6 +92,29 @@ URL inspection:
 - `tspack inspect <url>` (Playwright Chromium backend by default; requires an available Playwright browser runtime)
 - `tspack inspect <url> --browser webkit` (Playwright WebKit backend when WebKit is available)
 - `tspack inspect <url> --host-path /path/to/chrome`
+- `tspack inspect <url> --selector '[role="alert"]' --bundle`
+- `tspack inspect <url> --bundle-output artifacts/ui-context.json`
+
+### Chromium discovery and launch provenance
+
+For Playwright Chromium inspection, TSPack tries the Playwright-managed
+Chromium executable first. If that executable is missing, it discovers a
+system browser without invoking a shell: `chromium`, `chromium-browser`,
+`google-chrome`, `google-chrome-stable`, then `chrome` on PATH, plus the
+existing Windows and macOS application locations. Explicit `--browser-path`
+and `--host-path` values remain authoritative for their respective backends.
+
+Inspect JSON reports the Chromium family separately from `launchBackend` and
+`executable.source` (`playwright-managed`, `system`, `explicit`, or
+`connected`). An executable path may appear in raw inspect JSON for diagnosis,
+but deterministic context bundles retain only the source category and omit the
+machine-specific path.
+
+Direct host subprocesses receive the inherited process environment, with any
+resolved `DISPLAY` override composed on top. TSPack does not serialize that
+environment into inspect JSON, bundles, or diagnostics. On Linux, an existing
+Xvfb session can therefore be qualified by setting `DISPLAY` before invoking
+inspect; TSPack does not start or install Xvfb automatically.
 
 ### Windows local requirements
 
@@ -159,11 +183,36 @@ VS Code/Electron inspection is an explicit editor/host path, not the generic URL
 - `--json`
 - `--out <file>`
 - `--text <file>`
+- `--bundle` (write UI context JSON only to stdout)
+- `--bundle-output <file>` (atomically replace the bundle and report success on stderr)
 - `--run <target>`
 - `--run-ready-timeout <seconds>` (default 30)
 
 When `--json` is set and `--run` is used, progress and run-target logs go to stderr and JSON output remains on stdout.
 When `--json` is set for direct URL/browser inspection, handled failures also emit valid JSON on stdout with structured diagnostics instead of mixing human error text into stdout.
+
+## UI context bundles
+
+`--bundle` builds a schema-version `1`, `tspack.uiContext` observation around
+the inspect root. With `--selector`, that root is the selected semantic
+subtree. The bundle includes the selected node, bounded ancestors/siblings/
+children, browser and viewport provenance, hit-test evidence when present,
+diagnostics, and source provenance. It contains no timestamp, process ID,
+temporary profile path, environment value, or executable path, so repeated
+runs under the same browser/layout environment are byte-comparable.
+
+Source hints are untrusted page data. Before a bundle reads the bounded source
+excerpt defined by the bundle schema, the shared validator rejects absolute
+paths, URL schemes, parent traversal, missing files, and symlink escapes. A
+rejected or malformed hint remains evidence with a validation error; it never
+grants filesystem authority and never fails browser inspection itself.
+
+For a RunTarget-backed CI flow, the following command owns process start, HTTP
+readiness, inspection, bundle replacement, and process-tree cleanup:
+
+```powershell
+tspack inspect --run dev --selector '[role="alert"]' --bundle-output artifacts/alert-context.json
+```
 
 ## Source hints
 
@@ -188,7 +237,7 @@ When present, the node may include:
 }
 ```
 
-Malformed source hints do not fail inspect. The raw value is preserved with `source.parseError`, and TSPack does not resolve, open, or trust source hint paths in M40b. See [Inspect Source Mapping Design](inspect-source-mapping.md) for the staged source mapping strategy and security model.
+Malformed source hints do not fail inspect. The bounded raw value is preserved with `source.parseError`. Inspect itself does not resolve or trust the path; only an explicit bundle/source consumer may validate it against a workspace before a bounded read. See [Inspect Source Mapping Design](inspect-source-mapping.md) for the staged source mapping strategy and security model.
 
 ## Inspect diagnostics
 
@@ -236,6 +285,9 @@ Page/analyzer:
 - `TSPACK_INSPECT_SELECTOR_NOT_FOUND`
 - `TSPACK_INSPECT_INVALID_VIEWPORT`
 - `TSPACK_INSPECT_INVALID_POINT`
+- `TSPACK_INSPECT_BUNDLE_SELECTION_REQUIRED`
+- `TSPACK_INSPECT_BUNDLE_TOO_LARGE`
+- `TSPACK_INSPECT_INVALID_BUNDLE_OPTIONS`
 
 ## Manual probes
 

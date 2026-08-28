@@ -214,6 +214,93 @@ describeIntegration('inspect browser integration', () => {
     expect(text).toContain('UI Inspect:');
     expect(chunks.join('')).toContain('"target"');
   });
+
+  it('writes deterministic selector-scoped bundles to stdout and atomic files', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'inspect-bundle-'));
+    const bundlePath = path.join(dir, 'context.json');
+    const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+    const originalStderrWrite = process.stderr.write.bind(process.stderr);
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
+    (process.stdout.write as unknown as (chunk: string) => boolean) = (chunk: string) => {
+      stdoutChunks.push(chunk);
+      return true;
+    };
+    (process.stderr.write as unknown as (chunk: string) => boolean) = (chunk: string) => {
+      stderrChunks.push(chunk);
+      return true;
+    };
+
+    try {
+      await inspectAndWrite({
+        url: `${server.baseUrl}/selector`,
+        browser: 'playwright-chromium',
+        viewport: { width: 800, height: 600 },
+        selector: '#root',
+        points: [],
+        json: false,
+        bundle: true,
+      });
+      const stdoutBundle = JSON.parse(stdoutChunks.join('')) as {
+        version: number;
+        kind: string;
+        node: { tag: string };
+      };
+      expect(stdoutBundle).toMatchObject({
+        version: 1,
+        kind: 'tspack.uiContext',
+        node: { tag: 'section' },
+      });
+
+      stdoutChunks.length = 0;
+      await inspectAndWrite({
+        url: `${server.baseUrl}/selector`,
+        browser: 'playwright-chromium',
+        viewport: { width: 800, height: 600 },
+        selector: '#root',
+        points: [],
+        json: false,
+        bundle: true,
+        bundleOutput: bundlePath,
+      });
+      const firstFile = fs.readFileSync(bundlePath, 'utf8');
+      await inspectAndWrite({
+        url: `${server.baseUrl}/selector`,
+        browser: 'playwright-chromium',
+        viewport: { width: 800, height: 600 },
+        selector: '#root',
+        points: [],
+        json: false,
+        bundle: true,
+        bundleOutput: bundlePath,
+      });
+      const secondFile = fs.readFileSync(bundlePath, 'utf8');
+
+      await expect(
+        inspectAndWrite({
+          url: `${server.baseUrl}/selector`,
+          browser: 'playwright-chromium',
+          viewport: { width: 800, height: 600 },
+          selector: '#missing',
+          points: [],
+          json: false,
+          bundle: true,
+          bundleOutput: bundlePath,
+        }),
+      ).rejects.toThrow('TSPACK_INSPECT_SELECTOR_NOT_FOUND');
+
+      expect(firstFile).toBe(secondFile);
+      expect(fs.readFileSync(bundlePath, 'utf8')).toBe(secondFile);
+      expect(stdoutChunks).toEqual([]);
+      expect(stderrChunks.join('')).toContain('Wrote UI context bundle:');
+      expect(
+        fs.readdirSync(dir).filter((name) => name.endsWith('.tmp')),
+      ).toEqual([]);
+    } finally {
+      process.stdout.write = originalStdoutWrite;
+      process.stderr.write = originalStderrWrite;
+    }
+  });
 });
 
 if (!chromium.available) {
@@ -268,8 +355,13 @@ describeHostIntegration('inspect installed host integration', () => {
 
       expect(result.root).toBeTruthy();
       expect(result.root?.tag).toBe('section');
-      expect(result.browser.name).toBe('cdp');
-      expect(result.browser.backend).toBe('cdp');
+      expect(result.browser.name).toBe('chromium');
+      expect(result.browser.backend).toBe('host-path');
+      expect(result.browser.launchBackend).toBe('host-path');
+      expect(result.browser.executable).toMatchObject({
+        source: 'explicit',
+        path: hostPath,
+      });
 
       const text = formatInspectText(result);
       expect(text).toContain('Inside Root');

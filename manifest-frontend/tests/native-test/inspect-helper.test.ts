@@ -62,6 +62,7 @@ function sampleResult(): InspectResult {
           text: "Save",
           bounds: { x: 20, y: 20, width: 80, height: 32 },
           visible: true,
+          focusable: true,
           source: {
             raw: "src/components/Button.tsx:42:7",
             file: "src/components/Button.tsx",
@@ -96,6 +97,7 @@ function sampleResult(): InspectResult {
             text: "Save",
             bounds: { x: 20, y: 20, width: 80, height: 32 },
             visible: true,
+            focusable: true,
             source: {
               raw: "src/components/Button.tsx:42:7",
               file: "src/components/Button.tsx",
@@ -140,6 +142,47 @@ describe("native inspect helper", () => {
     ]);
   });
 
+  it("resolves inspect.runTarget from the CLI-owned ready target URL", async () => {
+    const calls: BackendInspectOptions[] = [];
+    const helper = createInspectHelper(async (options) => {
+      calls.push(options);
+      return sampleResult();
+    });
+    const previousUrl = process.env.TSPACK_TEST_RUN_TARGET_URL;
+    process.env.TSPACK_TEST_RUN_TARGET_URL = "http://127.0.0.1:5198";
+    try {
+      await helper.runTarget({ selector: "[role=alert]" });
+    } finally {
+      if (previousUrl === undefined) {
+        delete process.env.TSPACK_TEST_RUN_TARGET_URL;
+      } else {
+        process.env.TSPACK_TEST_RUN_TARGET_URL = previousUrl;
+      }
+    }
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      url: "http://127.0.0.1:5198",
+      selector: "[role=alert]",
+      browser: "chromium",
+    });
+  });
+
+  it("fails clearly when inspect.runTarget has no CLI-owned target", async () => {
+    const helper = createInspectHelper(async () => sampleResult());
+    const previousUrl = process.env.TSPACK_TEST_RUN_TARGET_URL;
+    delete process.env.TSPACK_TEST_RUN_TARGET_URL;
+    try {
+      await expect(helper.runTarget()).rejects.toMatchObject({
+        code: "TSPACK_TEST_RUN_TARGET_URL_MISSING",
+      });
+    } finally {
+      if (previousUrl !== undefined) {
+        process.env.TSPACK_TEST_RUN_TARGET_URL = previousUrl;
+      }
+    }
+  });
+
   it("maps inspect.cdp target options to the shared inspect backend", async () => {
     const calls: BackendInspectOptions[] = [];
     const helper = createInspectHelper(async (options) => {
@@ -180,6 +223,25 @@ describe("native inspect helper", () => {
     expect(inspect.findByText(ui.root, /Save/)?.id).toBe("node-1");
   });
 
+  it("builds deterministic UI context bundles for native JSON snapshots", async () => {
+    const ui = sampleResult();
+    const save = inspect.findByRole(ui.root, "button", "Save");
+    const first = await inspect.bundle(ui, save, {
+      selectionReason: "save button regression context",
+    });
+    const second = await inspect.bundle(ui, save, {
+      selectionReason: "save button regression context",
+    });
+
+    expect(first).toEqual(second);
+    expect(first).toMatchObject({
+      version: 1,
+      kind: "tspack.uiContext",
+      selection: { nodeId: "node-2", path: [0] },
+      node: { role: "button", name: "Save" },
+    });
+  });
+
   it("assert.inspect helpers pass for existing inspect JSON facts", () => {
     const ui = sampleResult();
     const save = inspect.findByRole(ui.root, "button", "Save");
@@ -193,6 +255,11 @@ describe("native inspect helper", () => {
       save,
       "Save",
       "save control should keep accessible name",
+    );
+    assert.inspect.focusable(
+      save,
+      true,
+      "save control should remain keyboard focusable",
     );
     assert.inspect.boundsWithin(
       save,
@@ -259,6 +326,16 @@ describe("native inspect helper", () => {
           assert.inspect.name(save, "Submit", "name mismatch should fail"),
         code: "TSPACK_ASSERT_INSPECT_NAME_FAILED",
         reason: "name mismatch should fail",
+      },
+      {
+        call: () =>
+          assert.inspect.focusable(
+            save,
+            false,
+            "focusability mismatch should fail",
+          ),
+        code: "TSPACK_ASSERT_INSPECT_FOCUSABLE_FAILED",
+        reason: "focusability mismatch should fail",
       },
       {
         call: () =>
@@ -434,6 +511,8 @@ describe("native inspect helper", () => {
               viewport: "1280x800",
               points: [{ x: 1, y: 2 }],
             });
+            const runTargetUi = await inspect.runTarget({ selector: "main" });
+            const bundle = await inspect.bundle(ui, ui.root ?? undefined, { selectionReason: "typed bundle" });
             const cdp = await inspect.cdp("http://127.0.0.1:9229", {
               target: 0,
               selector: ".statusbar",
@@ -444,6 +523,7 @@ describe("native inspect helper", () => {
             assert.inspect.hidden(ui.root, "inspect assertion hidden helper is typed");
             assert.inspect.role(ui.root, "main", "inspect assertion role helper is typed");
             assert.inspect.name(ui.root, "Home", "inspect assertion name helper is typed");
+            assert.inspect.focusable(ui.root, false, "inspect assertion focusable helper is typed");
             assert.inspect.boundsWithin(ui.root, { minWidth: 1, minHeight: 1, maxX: 10000, maxY: 10000 }, "inspect assertion bounds helper is typed");
             assert.inspect.hitIncludes(ui.hitTests[0], { role: "button", name: "Save", tag: "button" }, "inspect assertion hit helper is typed");
             assert.inspect.source(ui.root, { file: "src/pages/Home.tsx", component: "Home", symbol: "Home" }, "inspect assertion source helper is typed");
@@ -451,6 +531,8 @@ describe("native inspect helper", () => {
             assert.type<string | undefined>(ui.root?.source?.file, "url inspect source file is typed");
             assert.type<number | undefined>(ui.root?.source?.line, "url inspect source line is typed");
             assert.type<string>(cdp.target.url, "cdp inspect target url is typed");
+            assert.type<string>(runTargetUi.target.url, "run target inspect URL is typed");
+            assert.type<1>(bundle.version, "UI context bundle version is typed");
           }}</Fact>
         </Suite>
       );
@@ -474,6 +556,21 @@ describe("native inspect helper", () => {
             data-tspack-component="Button"
             data-tspack-symbol="Button.Primary"
           >Save</button>
+          <div
+            role="alert"
+            aria-label="Save failed"
+            data-tspack-source="src/components/Toast.tsx:15:5"
+            data-tspack-component="Toast"
+            data-tspack-symbol="Toast.Error"
+          >
+            <span>Unable to save</span>
+            <button
+              disabled
+              data-tspack-source="src/components/Toast.tsx:25:7"
+              data-tspack-component="Toast"
+              data-tspack-symbol="Toast.DismissButton"
+            >Dismiss</button>
+          </div>
           <span data-tspack-source="src/components/Badge.tsx:17">Ready</span>
           <div data-tspack-source="src/components/Broken.tsx:line">Broken</div>
           <p>No source</p>
@@ -513,6 +610,31 @@ describe("native inspect helper", () => {
           component: "Button",
           symbol: "Button.Primary",
         });
+
+        const alert = inspect.findByRole(ui.root, "alert", "Save failed");
+        const dismiss = inspect.findByRole(alert, "button", "Dismiss");
+        assert.inspect.exists(alert, "live alert should be discoverable by role");
+        assert.inspect.visible(alert, "live alert should be visible");
+        assert.inspect.role(alert, "alert", "live toast should retain alert role");
+        assert.inspect.name(
+          alert,
+          "Save failed",
+          "live toast should retain its accessible name",
+        );
+        assert.inspect.focusable(
+          dismiss,
+          false,
+          "disabled dismiss button should not be focusable",
+        );
+        assert.inspect.source(
+          dismiss,
+          {
+            file: "src/components/Toast.tsx",
+            component: "Toast",
+            symbol: "Toast.DismissButton",
+          },
+          "live nested button should retain source provenance",
+        );
 
         const badge = ui.root?.children.find((node) => node.text === "Ready");
         expect(badge?.source).toMatchObject({

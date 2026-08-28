@@ -1,5 +1,9 @@
 import { runInspect } from "../inspect/backend.js";
 import { normalizeCdpEndpoint } from "../inspect/cdp.js";
+import {
+  buildUIContextBundle,
+  type UIContextBundle,
+} from "../inspect/context-bundle.js";
 import type { InspectOptions as BackendInspectOptions } from "../inspect/index.js";
 import type {
   Bounds as InspectBounds,
@@ -50,12 +54,22 @@ export type InspectCdpOptions = {
   points?: InspectPoint[];
 };
 
+export type InspectBundleOptions = {
+  selectionReason?: string;
+};
+
 type InspectBackend = (
   options: BackendInspectOptions,
 ) => Promise<InspectResult>;
 
 type InspectHelper = {
   url: (url: string, options?: InspectUrlOptions) => Promise<InspectResult>;
+  runTarget: (options?: InspectUrlOptions) => Promise<InspectResult>;
+  bundle: (
+    result: InspectResult,
+    selectedNode?: InspectNode,
+    options?: InspectBundleOptions,
+  ) => Promise<UIContextBundle>;
   cdp: (
     endpoint: string,
     options?: InspectCdpOptions,
@@ -120,6 +134,26 @@ export function createInspectHelper(
 
   return {
     url: inspectUrl,
+    runTarget: async (options: InspectUrlOptions = {}) => {
+      const targetUrl = process.env.TSPACK_TEST_RUN_TARGET_URL;
+      if (!targetUrl) {
+        throw inspectError("TSPACK_TEST_RUN_TARGET_URL_MISSING");
+      }
+      return inspectUrl(targetUrl, options);
+    },
+    bundle: async (
+      result: InspectResult,
+      selectedNode: InspectNode | undefined,
+      options: InspectBundleOptions = {},
+    ) => {
+      const selection = selectedNode ?? result.root;
+      if (!selection) {
+        throw inspectError("TSPACK_INSPECT_BUNDLE_SELECTION_REQUIRED");
+      }
+      return buildUIContextBundle(result, selection, {
+        selectionReason: options.selectionReason,
+      });
+    },
     cdp: inspectCdp,
     target: inspectCdp,
     cdpTarget: inspectCdp,

@@ -7,6 +7,9 @@ import { spawn, type ChildProcess } from 'node:child_process';
 export type LaunchHostOptions = {
   executablePath: string;
   url?: string;
+  env?: Record<string, string | undefined>;
+  display?: string;
+  headless?: boolean;
 };
 
 export type LaunchedHost = {
@@ -31,6 +34,16 @@ function tailOutput(text: string): string {
   return lines.join(' | ');
 }
 
+function diagnosticOutput(text: string): string {
+  if (!text) {
+    return '';
+  }
+  if (process.env.TSPACK_INSPECT_DEBUG === '1') {
+    return tailOutput(text).slice(0, 2000);
+  }
+  return `[captured ${text.length} characters; use TSPACK_INSPECT_DEBUG=1 for bounded output]`;
+}
+
 function formatLaunchFailure(prefix: string, details: {
   args: string[];
   exitCode: number | null;
@@ -38,8 +51,8 @@ function formatLaunchFailure(prefix: string, details: {
   stderr: string;
   stdout: string;
 }): Error {
-  const stderrTail = tailOutput(details.stderr);
-  const stdoutTail = tailOutput(details.stdout);
+  const stderrTail = diagnosticOutput(details.stderr);
+  const stdoutTail = diagnosticOutput(details.stdout);
   const argsText = details.args.join(' ');
   return new Error(
     `${prefix}: exit=${details.exitCode ?? 'null'} signal=${details.signal ?? 'null'} args="${argsText}" stderrTail="${stderrTail}" stdoutTail="${stdoutTail}"`
@@ -59,6 +72,56 @@ export function validateHostPath(executablePath: string): void {
   if (!stat.isFile()) {
     throw new Error('TSPACK_INSPECT_HOST_PATH_INVALID');
   }
+}
+
+export function buildHostEnvironment(
+  baseEnvironment: Record<string, string | undefined> = process.env,
+  display?: string,
+): Record<string, string | undefined> {
+  const environment = { ...baseEnvironment };
+  if (display !== undefined) {
+    environment.DISPLAY = display;
+  }
+  return environment;
+}
+
+async function terminateWindowsProfileProcesses(
+  userDataDir: string,
+  environment: Record<string, string | undefined>,
+): Promise<void> {
+  const script = [
+    "$profilePath = $env:TSPACK_INSPECT_CLEANUP_PROFILE;",
+    "$browserNames = @('msedge.exe', 'chrome.exe', 'chromium.exe', 'Code.exe');",
+    "Get-CimInstance Win32_Process |",
+    "  Where-Object { $browserNames -contains $_.Name -and $_.CommandLine -like ('*' + $profilePath + '*') } |",
+    "  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
+  ].join(' ');
+  const cleanupProcess = spawn(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-Command', script],
+    {
+      env: {
+        ...environment,
+        TSPACK_INSPECT_CLEANUP_PROFILE: userDataDir,
+      },
+      stdio: 'ignore',
+      windowsHide: true,
+    },
+  );
+  await new Promise<void>((resolve) => {
+    cleanupProcess.once('exit', () => resolve());
+    setTimeout(() => resolve(), 5000);
+  });
+}
+
+function needsWindowsProfileCleanup(executablePath: string): boolean {
+  const executableName = path.win32.basename(executablePath).toLowerCase();
+  return [
+    'msedge.exe',
+    'chrome.exe',
+    'chromium.exe',
+    'code.exe',
+  ].includes(executableName);
 }
 
 async function chooseFreePort(): Promise<number> {
@@ -98,6 +161,16 @@ export async function launchInspectableHost(options: LaunchHostOptions): Promise
     '--disable-background-networking'
   ];
 
+  const inheritedDisplay = options.env?.DISPLAY ?? process.env.DISPLAY;
+  const inheritedWayland =
+    options.env?.WAYLAND_DISPLAY ?? process.env.WAYLAND_DISPLAY;
+  const headless =
+    options.headless ??
+    !(options.display ?? inheritedDisplay ?? inheritedWayland);
+  if (headless) {
+    baseArgs.push('--headless=new');
+  }
+
   if (options.url) {
     baseArgs.push(options.url);
   }
@@ -114,7 +187,10 @@ export async function launchInspectableHost(options: LaunchHostOptions): Promise
     let child: ChildProcess;
 
     try {
-      child = spawn(options.executablePath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(options.executablePath, args, {
+        env: buildHostEnvironment(options.env, options.display),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       throw formatLaunchFailure('TSPACK_INSPECT_HOST_LAUNCH_FAILED', {
@@ -154,17 +230,46 @@ export async function launchInspectableHost(options: LaunchHostOptions): Promise
   let noSandboxUsed = forceNoSandbox;
 
   const cleanup = async (): Promise<void> => {
+    const launchEnvironment = buildHostEnvironment(options.env, options.display);
+    if (
+      process.platform === 'win32' &&
+      needsWindowsProfileCleanup(options.executablePath)
+    ) {
+      await terminateWindowsProfileProcesses(userDataDir, launchEnvironment);
+    }
     if (!child.killed && child.exitCode === null) {
-      child.kill('SIGTERM');
+      const childPID = (child as ChildProcess & { pid?: number }).pid;
+      if (process.platform === 'win32' && childPID) {
+        const treeKill = spawn(
+          'taskkill.exe',
+          ['/PID', String(childPID), '/T', '/F'],
+          {
+            env: launchEnvironment,
+            stdio: 'ignore',
+          },
+        );
+        await new Promise<void>((resolve) => {
+          treeKill.once('exit', () => resolve());
+          setTimeout(() => resolve(), 3000);
+        });
+      } else {
+        child.kill('SIGTERM');
+      }
       await new Promise<void>((resolve) => {
         child.once('exit', () => resolve());
         setTimeout(() => resolve(), 1500);
       });
     }
-    try {
-      fs.rmSync(userDataDir, { recursive: true, force: true });
-    } catch {
-      throw new Error('TSPACK_INSPECT_HOST_CLEANUP_FAILED');
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      try {
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+        return;
+      } catch {
+        if (attempt === 19) {
+          throw new Error('TSPACK_INSPECT_HOST_CLEANUP_FAILED');
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
     }
   };
 
@@ -181,7 +286,11 @@ export async function launchInspectableHost(options: LaunchHostOptions): Promise
           stdout: readStdout()
         });
       }
-      if (child.exitCode !== null) {
+      const detachedWindowsBrowser =
+        process.platform === 'win32' &&
+        needsWindowsProfileCleanup(options.executablePath) &&
+        child.exitCode === 0;
+      if (child.exitCode !== null && !detachedWindowsBrowser) {
         throw formatLaunchFailure('TSPACK_INSPECT_HOST_LAUNCH_FAILED', {
           args,
           exitCode: child.exitCode,

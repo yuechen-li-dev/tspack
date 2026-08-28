@@ -71,7 +71,13 @@ function makeFixture(): InspectResult {
 
   return {
     target: { url: 'http://localhost:3000/settings' },
-    browser: { name: 'chromium', backend: 'cdp' },
+    browser: {
+      name: 'chromium',
+      backend: 'cdp',
+      version: '140.0.0',
+      launchBackend: 'cdp',
+      executable: { source: 'connected', path: '/volatile/browser' },
+    },
     viewport: { width: 1280, height: 720 },
     diagnostics: [
       { code: 'TSPACK_TEST_DIAGNOSTIC', message: 'Fixture diagnostic' },
@@ -129,9 +135,13 @@ describe('UI context bundle shape', () => {
     });
     expect(bundle.runtime).toEqual({
       browser: 'chromium/cdp',
+      browserVersion: '140.0.0',
+      launchBackend: 'cdp',
+      executableSource: 'connected',
       url: 'http://localhost:3000/settings',
       viewport: { width: 1280, height: 720 },
     });
+    expect(serializeUiContextBundle(bundle)).not.toContain('/volatile/browser');
     expect(bundle.node).toBe(selected);
     expect(bundle.context.ancestors.map((node) => node.id)).toEqual([
       'root',

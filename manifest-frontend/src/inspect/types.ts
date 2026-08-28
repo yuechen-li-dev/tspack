@@ -55,6 +55,12 @@ export type UIInspectResult = {
   browser: {
     name: InspectBrowserName;
     backend?: 'playwright' | 'cdp' | 'vscode' | 'browser-path' | 'host-path' | 'platform-webview';
+    launchBackend?: 'playwright-chromium' | 'playwright-webkit' | 'cdp' | 'host-path' | 'vscode';
+    version?: string;
+    executable?: {
+      source: 'playwright-managed' | 'system' | 'explicit' | 'connected';
+      path?: string;
+    };
   };
   viewport: {
     width: number;

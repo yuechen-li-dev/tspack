@@ -85,6 +85,41 @@ type TspackInspectCdpOptions = {
   points?: TspackInspectPoint[];
 };
 
+type TspackUIContextBundle = {
+  version: 1;
+  kind: "tspack.uiContext";
+  selection: { nodeId?: string; path: number[]; reason?: string };
+  runtime: {
+    browser?: string;
+    browserVersion?: string;
+    launchBackend?: string;
+    executableSource?: string;
+    url?: string;
+    viewport?: { width: number; height: number };
+  };
+  node: TspackInspectNode;
+  context: {
+    ancestors: unknown[];
+    siblings: unknown[];
+    children: unknown[];
+    hitTests?: unknown[];
+  };
+  source?: {
+    hint?: TspackInspectSourceHint;
+    validated: boolean;
+    file?: string;
+    line?: number;
+    column?: number;
+    validationError?: string;
+  };
+  diagnostics?: Array<{
+    code: string;
+    severity: string;
+    message: string;
+  }>;
+  constraints: string[];
+};
+
 type TspackInspectBoundsConstraints = {
   minWidth?: number;
   minHeight?: number;
@@ -242,6 +277,11 @@ declare const assert: {
       name: string,
       reason: string,
     ): void;
+    focusable(
+      node: TspackInspectNode | null | undefined,
+      expected: boolean,
+      reason: string,
+    ): void;
     boundsWithin(
       node: TspackInspectNode | null | undefined,
       constraints: TspackInspectBoundsConstraints,
@@ -267,6 +307,12 @@ declare const runLifecycleScript: (
 ) => Promise<TspackLifecycleRunScriptResult>;
 declare const inspect: {
   url(url: string, options?: TspackInspectUrlOptions): Promise<TspackInspectResult>;
+  runTarget(options?: TspackInspectUrlOptions): Promise<TspackInspectResult>;
+  bundle(
+    result: TspackInspectResult,
+    selectedNode?: TspackInspectNode,
+    options?: { selectionReason?: string },
+  ): Promise<TspackUIContextBundle>;
   cdp(
     endpoint: string,
     options?: TspackInspectCdpOptions,

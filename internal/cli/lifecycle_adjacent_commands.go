@@ -166,7 +166,7 @@ func printLegacyHelp() {
 	fmt.Println("  tspack outdated [--root .] [--json]")
 	fmt.Println("  tspack how <diagnostic-code> [--json]")
 	fmt.Println("  tspack how --list [--json]")
-	fmt.Println("  tspack test [--root .] [-xtest] [-vitest] [--list] [--filter text] [--compact] [--batch] [--update-snapshots] [--watch] [--xtest-bridge path]")
+	fmt.Println("  tspack test [--root .] [-xtest] [-vitest] [--run target] [--run-ready-timeout seconds] [--env KEY=VALUE] [--list] [--filter text] [--compact] [--batch] [--update-snapshots] [--watch] [--xtest-bridge path]")
 	fmt.Println("  tspack artifact [--root .] [--out path] [--list] [--filter text] [--json]")
 	fmt.Println("  tspack bench [--root .] [--list] [--filter text] [--json]")
 	fmt.Println("  tspack doom [--root .] [--list] [--filter text] [--json] [--out path]")
@@ -175,7 +175,7 @@ func printLegacyHelp() {
 	fmt.Println("  tspack npm <npm-args...> [--root .]")
 	fmt.Println("  tspack format [paths...] [--root .] [--check]")
 	fmt.Println("  tspack lint [paths...] [--root .] [--fix] [--unsafe]")
-	fmt.Println("  tspack inspect <url> [experimental] [--run target] [--env KEY=VALUE] [--url <url>] [--browser auto|vscode|playwright-chromium|chromium|browser-path|host-path|cdp] [--host-path path] [--browser-path path] [--cdp endpoint] [--list-targets] [--target index-or-id] [--target-url substring] [--viewport WxH] [--selector css] [--point x,y] [--json] [--out file] [--text file]")
+	fmt.Println("  tspack inspect <url> [experimental] [--run target] [--env KEY=VALUE] [--url <url>] [--browser auto|vscode|playwright-chromium|chromium|browser-path|host-path|cdp] [--host-path path] [--browser-path path] [--cdp endpoint] [--list-targets] [--target index-or-id] [--target-url substring] [--viewport WxH] [--selector css] [--point x,y] [--json] [--out file] [--text file] [--bundle] [--bundle-output file]")
 	fmt.Println("  tspack doctor [format|run|runtime|inspect|security] [--root .] [--json]")
 	fmt.Println("  tspack init --kind <library|app> --name <package-name> [--version <version>] [--license <license>] [--force] [--dry-run]")
 	fmt.Println("  tspack migrate [--check] [--write] [--root .] [--package-json path] [--package-lock path] [--no-lock-evidence] [--scan-source] [--no-source-scan] [--out-manifest path] [--out-report path] [--force]")
@@ -560,6 +560,9 @@ func nextTestFlagValue(args []string, index *int, flag string) (string, bool) {
 
 func runTestCommand(args []string) {
 	opts := testcmd.Options{RootDir: "."}
+	runTarget := ""
+	runReadyTimeout := 30
+	runEnv := runEnvOverlay{}
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
 		case "--root":
@@ -568,6 +571,34 @@ func runTestCommand(args []string) {
 				return
 			}
 			opts.RootDir = value
+		case "--run":
+			value, ok := nextTestFlagValue(args, &i, "--run")
+			if !ok {
+				return
+			}
+			runTarget = value
+		case "--run-ready-timeout":
+			value, ok := nextTestFlagValue(args, &i, "--run-ready-timeout")
+			if !ok {
+				return
+			}
+			seconds, err := strconv.Atoi(value)
+			if err != nil || seconds <= 0 {
+				fmt.Fprintln(os.Stderr, "TSPACK_TEST_RUN_INVALID_OPTIONS: --run-ready-timeout must be positive seconds")
+				exit(1)
+			}
+			runReadyTimeout = seconds
+		case "--env":
+			value, ok := nextTestFlagValue(args, &i, "--env")
+			if !ok {
+				return
+			}
+			var envErr *runErr
+			runEnv, envErr = runEnv.WithAssignment(value)
+			if envErr != nil {
+				fmt.Fprintf(os.Stderr, "%s: %s\n", envErr.code, envErr.msg)
+				exit(1)
+			}
 		case "-xtest", "--xtest":
 			opts.UseXTest = true
 		case "-vitest", "--vitest":
@@ -603,6 +634,67 @@ func runTestCommand(args []string) {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if runTarget == "" && len(runEnv.Keys) > 0 {
+		fmt.Fprintln(os.Stderr, "TSPACK_TEST_RUN_INVALID_OPTIONS: --env requires --run")
+		exit(1)
+	}
+	if runTarget != "" && opts.List {
+		fmt.Fprintln(os.Stderr, "TSPACK_TEST_RUN_INVALID_OPTIONS: --run cannot be combined with --list")
+		exit(1)
+	}
+
+	var runSession *RunTargetSession
+	if runTarget != "" {
+		workspaceRoot := resolveWorkspaceRoot(opts.RootDir)
+		opts.RootDir = workspaceRoot
+		manifestPath := filepath.Join(workspaceRoot, "manifest.tsx")
+		ir := loadManifestPathForRun(workspaceRoot, manifestPath)
+		ref, ok := findRunTargetRefByName(workspaceRoot, manifestPath, ir, runTarget)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "TSPACK_TEST_RUN_TARGET_NOT_FOUND: %s\n", runTarget)
+			exit(1)
+		}
+		if strings.TrimSpace(ref.Target.URL) == "" {
+			fmt.Fprintf(os.Stderr, "TSPACK_TEST_RUN_TARGET_URL_MISSING: %s\n", runTarget)
+			exit(1)
+		}
+		cwdPath, cwdErr := resolveRunTargetCwd(ref)
+		if cwdErr != nil {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", cwdErr.code, cwdErr.msg)
+			exit(1)
+		}
+		resolvedRuntime := resolveRunTargetRuntime(
+			ref.Target,
+			workspaceRuntimeForRunTargets(ir),
+		)
+		ref.Target.Runtime = resolvedRuntime.Runtime
+		fmt.Fprintf(os.Stderr, "Starting test run target %q...\n", runTarget)
+		var readyErr *runErr
+		runSession, readyErr = startRunTargetInDir(
+			workspaceRoot,
+			cwdPath,
+			ref.Target,
+			time.Duration(runReadyTimeout)*time.Second,
+			os.Stderr,
+			os.Stderr,
+			runEnv,
+		)
+		if readyErr != nil {
+			fmt.Fprintf(os.Stderr, "TSPACK_TEST_RUN_TARGET_FAILED: %s\n", readyErr.msg)
+			exit(1)
+		}
+		defer func() {
+			if err := runSession.Stop(); err != nil {
+				fmt.Fprintf(os.Stderr, "TSPACK_TEST_RUN_SHUTDOWN_FAILED: %v\n", err)
+			}
+			fmt.Fprintf(os.Stderr, "Stopped test run target %q.\n", runTarget)
+		}()
+		fmt.Fprintf(os.Stderr, "Test run target ready: %s\n", runSession.URL)
+		opts.Environment = append(
+			opts.Environment,
+			"TSPACK_TEST_RUN_TARGET_URL="+runSession.URL,
+		)
+	}
 
 	result := testcmd.RunContext(ctx, opts)
 	for _, d := range result.Diagnostics {

@@ -13,6 +13,7 @@ import {
 } from "../src/inspect/index.js";
 import {
   buildInspectAnalyzerExpression,
+  findSystemChromiumExecutable,
   findVSCodeExecutable,
   findWindowsChromiumExecutable,
   resolveInspectBackend,
@@ -205,6 +206,29 @@ async function createFakeCdpServer(): Promise<{
 }
 
 describe("inspect parsing", () => {
+  it("discovers system Chromium from PATH on POSIX hosts", () => {
+    const executable = "/opt/tools/google-chrome-stable";
+    expect(
+      findSystemChromiumExecutable(
+        { PATH: "/usr/bin:/opt/tools" },
+        (candidate) => candidate === executable,
+        "linux",
+      ),
+    ).toBe(executable);
+  });
+
+  it("uses standard macOS application fallbacks after PATH discovery", () => {
+    const executable =
+      "/Applications/Chromium.app/Contents/MacOS/Chromium";
+    expect(
+      findSystemChromiumExecutable(
+        { PATH: "" },
+        (candidate) => candidate === executable,
+        "darwin",
+      ),
+    ).toBe(executable);
+  });
+
   it("parses viewport", () => {
     expect(parseViewport("1440x900")).toEqual({ width: 1440, height: 900 });
     expect(() => parseViewport("a")).toThrow("TSPACK_INSPECT_INVALID_VIEWPORT");

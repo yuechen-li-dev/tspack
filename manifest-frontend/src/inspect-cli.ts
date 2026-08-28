@@ -13,6 +13,9 @@ function parseInspectCliArgs(args: string[]): InspectOptions {
     json: false,
     out: undefined as string | undefined,
     text: undefined as string | undefined,
+    root: undefined as string | undefined,
+    bundle: false,
+    bundleOutput: undefined as string | undefined,
     browserPath: undefined as string | undefined,
     hostPath: undefined as string | undefined,
     cdpEndpoint: undefined as string | undefined,
@@ -31,6 +34,24 @@ function parseInspectCliArgs(args: string[]): InspectOptions {
     if (arg === '--json') { options.json = true; continue; }
     if (arg === '--out') { i += 1; options.out = args[i]; continue; }
     if (arg === '--text') { i += 1; options.text = args[i]; continue; }
+    if (arg === '--root') {
+      if (i + 1 >= args.length || args[i + 1].startsWith('--')) {
+        throw new Error('TSPACK_INSPECT_INVALID_TARGET_OPTIONS: --root requires a value');
+      }
+      i += 1;
+      options.root = args[i];
+      continue;
+    }
+    if (arg === '--bundle') { options.bundle = true; continue; }
+    if (arg === '--bundle-output') {
+      if (i + 1 >= args.length || args[i + 1].startsWith('--')) {
+        throw new Error('TSPACK_INSPECT_INVALID_BUNDLE_OPTIONS: --bundle-output requires a value');
+      }
+      i += 1;
+      options.bundleOutput = args[i];
+      options.bundle = true;
+      continue;
+    }
     if (arg === '--selector') { i += 1; options.selector = args[i]; continue; }
     if (arg === '--browser') { i += 1; options.browser = args[i] as typeof options.browser; continue; }
     if (arg === '--host-path') { i += 1; options.hostPath = args[i]; continue; }

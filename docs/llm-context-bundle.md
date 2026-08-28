@@ -136,6 +136,11 @@ The bundle is compact by construction:
 - Source excerpts use an eight-line-before and twelve-line-after window around the hinted line.
 - Source files with no line hint include only the first forty lines.
 - Diagnostics are capped at twenty entries and are supplied by the caller.
+- The selected subtree is capped at 250 nodes and depth 20; truncation emits
+  `TSPACK_UI_CONTEXT_TRUNCATED`.
+- Source-hint string fields are capped at 500 characters in bundle output,
+  source excerpts at 32,000 characters, hit tests at twenty points with ten
+  compact elements each, and serialized output at 512,000 characters.
 
 Future versions may add relevance scoring for diagnostics and hit-test points, but M40d keeps the prototype deterministic and easy to review.
 
@@ -162,8 +167,29 @@ This separates runtime observation from code mutation. M40d provides the packet,
 - Future: source-map and framework adapters.
 - Future: visual overlay for observation and review.
 
-## M40d prototype behavior
+## Product API and CLI behavior
 
-The VS Code extension prototype exposes `buildUiContextBundle(inspectResult, selectedNode, options)` as a pure async builder. The async part is limited to optional workspace-contained source excerpt reads.
+The shared manifest frontend inspect owner exposes
+`buildUIContextBundle(inspectResult, selectedNode, options)` and
+`serializeUiContextBundle(bundle)`. The CLI, native xTest helper, and future
+embeddable consumers can use this seam without invoking a CLI subprocess merely
+to construct context. The async part is limited to optional
+workspace-contained source excerpt reads.
+
+`tspack inspect <url> --bundle` emits only bundle JSON to stdout.
+`--bundle-output <path>` stages and atomically replaces a file, leaving a prior
+valid bundle untouched when inspection or generation fails. A CSS
+`--selector` scopes the inspect root and therefore the bundle context.
+
+The native xTest surface exposes `inspect.bundle(result, selectedNode?)` for
+deterministic `expect.snapshotJson` use. It does not read hinted source files;
+CLI/IDE source excerpts require explicit workspace validation.
 
 The extension command **TSPack: Copy Selected Inspect Node LLM Context** copies pretty-printed JSON to the clipboard. It does not call any model, mutate source, open network connections, run `tspack check`, or generate prompts. If the selected node has a source hint, the command asks for a workspace root when needed so the existing M40c validation rules can protect excerpt reads.
+
+Bounds remain viewport/browser facts and are intentionally retained by the
+M40d schema. Snapshot tests should use a fixed viewport and browser environment
+or snapshot a semantic projection when cross-machine pixel identity is not the
+contract. Runtime provenance keeps the browser family, version, launch backend,
+and executable source category, while omitting the machine-specific executable
+path from the bundle.

@@ -2,10 +2,33 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { launchInspectableHost, validateHostPath } from '../src/inspect/host-launch.js';
+import {
+  buildHostEnvironment,
+  launchInspectableHost,
+  validateHostPath,
+} from '../src/inspect/host-launch.js';
 import { runInspect } from '../src/inspect/backend.js';
 
 describe('inspect host launch', () => {
+  it('forwards the full environment while composing a display override', () => {
+    const environment = buildHostEnvironment(
+      {
+        PATH: '/tools',
+        HOME: '/home/tester',
+        TSPACK_TEST_SECRET: 'not-for-diagnostics',
+        DISPLAY: ':1',
+      },
+      ':99',
+    );
+
+    expect(environment).toMatchObject({
+      PATH: '/tools',
+      HOME: '/home/tester',
+      TSPACK_TEST_SECRET: 'not-for-diagnostics',
+      DISPLAY: ':99',
+    });
+  });
+
   it('validates host path', () => {
     expect(() => validateHostPath('/definitely/missing/host')).toThrow('TSPACK_INSPECT_HOST_PATH_NOT_FOUND');
     expect(() => validateHostPath(os.tmpdir())).toThrow('TSPACK_INSPECT_HOST_PATH_INVALID');
@@ -40,11 +63,25 @@ describe('inspect host launch', () => {
       process.platform === 'win32' ? 'fake-host.cmd' : 'fake-host.sh',
     );
     const script = process.platform === 'win32'
-      ? '@echo off\r\necho boom 1>&2\r\nexit /b 1\r\n'
-      : '#!/usr/bin/env sh\necho boom 1>&2\nexit 1\n';
+      ? '@echo off\r\necho boom %TSPACK_TEST_SECRET% 1>&2\r\nexit /b 1\r\n'
+      : '#!/usr/bin/env sh\necho "boom $TSPACK_TEST_SECRET" 1>&2\nexit 1\n';
     fs.writeFileSync(executablePath, script, { mode: 0o755 });
 
-    await expect(launchInspectableHost({ executablePath })).rejects.toThrow('TSPACK_INSPECT_HOST_LAUNCH_FAILED');
+    let message = '';
+    try {
+      await launchInspectableHost({
+        executablePath,
+        env: {
+          ...process.env,
+          TSPACK_TEST_SECRET: 'sentinel-secret-value',
+        },
+      });
+    } catch (error: unknown) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain('TSPACK_INSPECT_HOST_LAUNCH_FAILED');
+    expect(message).not.toContain('sentinel-secret-value');
+    expect(message).not.toContain('boom');
   });
 
   it('uses no-sandbox args when env flag is set', async () => {

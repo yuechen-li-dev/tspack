@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -213,6 +214,72 @@ export default define(
 			t.Fatalf("workspace runtime leaked into native xTest bridge args: %q", recordedText)
 		}
 	}
+}
+
+func TestCLITestRunTargetOwnsReadinessURLAndCleanup(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	root := t.TempDir()
+	port := reservePort(t)
+	marker := filepath.Join(root, "server-state.txt")
+	bridge := filepath.Join(root, "native-test-cli.js")
+
+	if err := os.WriteFile(filepath.Join(root, "manifest.tsx"), []byte("export default {}\n"), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "sample.xtest.tsx"), []byte("export default null\n"), 0o644); err != nil {
+		t.Fatalf("write xtest: %v", err)
+	}
+	server := fmt.Sprintf(`const fs=require('fs'); const http=require('http');
+const server=http.createServer((_,response)=>{response.statusCode=200;response.end('ok')});
+server.listen(%d,'127.0.0.1',()=>fs.writeFileSync(%q,'ready'));
+process.on('SIGTERM',()=>server.close(()=>{fs.writeFileSync(%q,'stopped');process.exit(0)}));
+setInterval(()=>{},1000);`, port, marker, marker)
+	if err := os.WriteFile(filepath.Join(root, "server.js"), []byte(server), 0o644); err != nil {
+		t.Fatalf("write server: %v", err)
+	}
+	bridgeSource := fmt.Sprintf(`#!/usr/bin/env node
+if(process.env.TSPACK_TEST_RUN_TARGET_URL !== 'http://127.0.0.1:%d') {
+  console.error('missing ready target URL');
+  process.exit(1);
+}
+console.log('PASS sample.xtest.tsx::live/inspect target');`, port)
+	if err := os.WriteFile(bridge, []byte(bridgeSource), 0o755); err != nil {
+		t.Fatalf("write bridge: %v", err)
+	}
+
+	writeRunFrontendStub(t, fmt.Sprintf(`{format:1,workspace:{name:"ws"},packages:[{name:"app",version:"1.0.0",kind:"app",dependencies:[],targets:[],tools:[],boundaries:[],publish:{include:["dist/**"],exclude:[]},policies:{},runTargets:[{name:"dev",runtime:"system",command:["node","server.js"],url:"http://127.0.0.1:%d",ready:{kind:"http",path:"/"}}]}]}`, port))
+	cmd := exec.Command(
+		testTspackBinary,
+		"test",
+		"--root",
+		root,
+		"--xtest",
+		"--run",
+		"dev",
+		"--xtest-bridge",
+		bridge,
+	)
+	cmd.Dir = repo
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("test run target failed: %v\n%s", err, string(output))
+	}
+	if !strings.Contains(string(output), "Test run target ready:") ||
+		!strings.Contains(string(output), "PASS sample.xtest.tsx::live/inspect target") ||
+		!strings.Contains(string(output), `Stopped test run target "dev".`) {
+		t.Fatalf("missing run target lifecycle evidence:\n%s", string(output))
+	}
+	address := fmt.Sprintf("127.0.0.1:%d", port)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		connection, dialErr := net.DialTimeout("tcp", address, 100*time.Millisecond)
+		if dialErr != nil {
+			return
+		}
+		_ = connection.Close()
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("run target still accepted connections after cleanup at %s", address)
 }
 
 func TestCLITestXTestBridgeMissingDiagnostic(t *testing.T) {

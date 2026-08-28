@@ -50,6 +50,12 @@ export type InspectResult = {
   browser?: {
     name?: string;
     backend?: string;
+    version?: string;
+    launchBackend?: string;
+    executable?: {
+      source?: string;
+      path?: string;
+    };
   };
   viewport?: {
     width?: number;

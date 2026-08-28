@@ -25,6 +25,7 @@ type Options struct {
 	JSON            bool
 	UpdateSnapshots bool
 	Batch           bool
+	Environment     []string
 }
 
 type Result struct {
@@ -164,6 +165,7 @@ func runXTestContext(ctx context.Context, opts Options, result *Result) {
 		args = append(args, "--batch")
 	}
 	cmd := exec.CommandContext(ctx, "node", args...)
+	cmd.Env = append(os.Environ(), opts.Environment...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -330,6 +332,7 @@ func runVitest(opts Options, result *Result) {
 	}
 	bin := filepath.Join(opts.RootDir, "node_modules", ".bin", "vitest")
 	cmd := exec.Command(bin, args...)
+	cmd.Env = append(os.Environ(), opts.Environment...)
 	cmd.Dir = opts.RootDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

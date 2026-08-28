@@ -102,6 +102,8 @@ function inspectFailureCode(assertion: string): string {
       return "TSPACK_ASSERT_INSPECT_ROLE_FAILED";
     case "inspect.name":
       return "TSPACK_ASSERT_INSPECT_NAME_FAILED";
+    case "inspect.focusable":
+      return "TSPACK_ASSERT_INSPECT_FOCUSABLE_FAILED";
     case "inspect.boundsWithin":
       return "TSPACK_ASSERT_INSPECT_BOUNDS_FAILED";
     case "inspect.hitIncludes":
@@ -465,6 +467,26 @@ export const assert = {
           reason,
           name,
           node.name,
+          { node: summarizeInspectNode(node) },
+        );
+      }
+    },
+    focusable(
+      node: InspectNodeLike,
+      expected: boolean,
+      reason: string,
+    ): void {
+      validateReason(reason);
+      if (!isInspectNode(node)) {
+        failMissingInspectNode("inspect.focusable", reason);
+      }
+      if (node.focusable !== expected) {
+        throw createInspectFailure(
+          "TSPACK_ASSERT_INSPECT_FOCUSABLE_FAILED",
+          "inspect.focusable",
+          reason,
+          expected,
+          node.focusable,
           { node: summarizeInspectNode(node) },
         );
       }

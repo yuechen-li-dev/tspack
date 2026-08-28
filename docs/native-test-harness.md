@@ -631,6 +631,7 @@ assert.inspect.visible(node, reason);
 assert.inspect.hidden(node, reason);
 assert.inspect.role(node, role, reason);
 assert.inspect.name(node, name, reason);
+assert.inspect.focusable(node, expected, reason);
 assert.inspect.boundsWithin(node, constraints, reason);
 assert.inspect.hitIncludes(hitTest, expected, reason);
 assert.inspect.source(node, expected, reason);
@@ -702,6 +703,91 @@ Failure diagnostics use inspect-specific assertion codes and include compact nod
 ### Snapshot guidance
 
 Inspect results are plain JSON and work with `expect.snapshotJson`. Prefer snapshotting a stable selector or subtree such as `ui.root` rather than an entire page when layout, generated IDs, or dynamic content may vary.
+
+The native helper can also build the same versioned context artifact as the
+CLI. This omits source-file reads because xTest has observation data, not
+filesystem authority:
+
+```tsx
+const bundle = await inspect.bundle(ui, save, {
+  selectionReason: "Save button regression context",
+});
+
+expect.snapshotJson(bundle, "save-button-context").because(
+  "semantic and source provenance should remain stable",
+);
+```
+
+Bundle snapshots include observed bounds. Use a fixed viewport and qualified
+browser environment when bounds matter; otherwise snapshot a normalized
+semantic projection or the selected node fields that the test owns. Bundle
+JSON omits timestamps, process IDs, executable paths, and temporary profiles.
+
+### RunTarget-owned live browser facts
+
+Declare a server target with HTTP readiness in `manifest.tsx`, then let the
+test command own its lifecycle:
+
+```tsx
+<RunTargets
+  rows={[{
+    name: "dev",
+    runtime: "system",
+    command: ["node", "server.js"],
+    url: "http://127.0.0.1:5173",
+    ready: { kind: "http", path: "/" },
+  }]}
+/>
+```
+
+```tsx
+export default (
+  <Suite name="live UI">
+    <Fact name="disabled dismiss control is grounded to source">
+      {async () => {
+        const page = await inspect.runTarget({ selector: "main" });
+        const alert = inspect.findByRole(page.root, "alert", "Save failed");
+        const dismiss = inspect.findByRole(alert, "button", "Dismiss");
+
+        assert.inspect.focusable(
+          dismiss,
+          false,
+          "disabled dismiss button should not be focusable",
+        );
+        assert.inspect.source(
+          dismiss,
+          { file: "src/Toast.tsx", component: "Toast" },
+          "dismiss button should retain source provenance",
+        );
+      }}
+    </Fact>
+  </Suite>
+);
+```
+
+Run it with:
+
+```powershell
+tspack test --root . --xtest --run dev
+```
+
+TSPack starts the RunTarget, waits for its declared readiness check, injects
+only the resolved target URL into the xTest bridge, and stops the process tree
+after pass, assertion failure, browser failure, or test timeout/interrupt. No
+sleep or test-owned background process is needed. `inspect.runTarget()` fails
+with `TSPACK_TEST_RUN_TARGET_URL_MISSING` when the command did not supply a
+ready target.
+
+Existing native xTest watch mode composes with this lifecycle:
+
+```powershell
+tspack test --xtest --watch --run dev
+```
+
+The target remains owned for the watch session and each selected xTest rerun
+gets a fresh `inspect.runTarget()` observation. Application reload remains the
+dev server's responsibility. The separate `tspack inspect <url> --watch` CLI
+wishlist is deferred; inspect does not busy-poll or pretend to own HMR.
 
 ### Pure traversal helpers
 
