@@ -1,0 +1,1737 @@
+{
+  "schemaVersion": 1,
+  "timestamp": "2026-08-28T03:56:57.779Z",
+  "host": {
+    "os": "win32 10.0.26200",
+    "architecture": "x64",
+    "cpu": "AMD Ryzen 7 7700X 8-Core Processor             ",
+    "logicalProcessors": 16,
+    "ramBytes": 33412775936,
+    "powerMode": "Balanced"
+  },
+  "tools": {
+    "node": "v26.2.0",
+    "v8": "14.6.202.34-node.20",
+    "bun": null,
+    "dotnetSdk": "10.0.302",
+    "dotnetRuntime": ".NET SDK:\r\n Version:           10.0.302\r\n Commit:            35b593bebf\r\n Workload version:  10.0.302\r\n MSBuild version:   18.6.11+35b593beb\r\n\r\nRuntime Environment:\r\n OS Name:     Windows\r\n OS Version:  10.0.26200\r\n OS Platform: Windows\r\n RID:         win-x64\r\n Base Path:   C:\\Program Files\\dotnet\\sdk\\10.0.302\\\r\n\r\n.NET workloads installed:\r\n [wasm-tools]\r\n   Installation Source: SDK 10.0.300\r\n   Manifest Version:    10.0.110/10.0.100\r\n   Manifest Path:       C:\\Program Files\\dotnet\\sdk-manifests\\10.0.100\\microsoft.net.workload.mono.toolchain.current\\10.0.110\\WorkloadManifest.json\r\n   Install Type:              Msi\r\n\r\nConfigured to use workload sets when installing new manifests.\r\n\r\nHost:\r\n  Version:      10.0.11\r\n  Architecture: x64\r\n  Commit:       e2f47b0110\r\n\r\n.NET SDKs installed:\r\n  8.0.424 [C:\\Program Files\\dotnet\\sdk]\r\n  9.0.317 [C:\\Program Files\\dotnet\\sdk]\r\n  10.0.111 [C:\\Program Files\\dotnet\\sdk]\r\n  10.0.302 [C:\\Program Files\\dotnet\\sdk]\r\n\r\n.NET runtimes installed:\r\n  Microsoft.AspNetCore.App 8.0.29 [C:\\Program Files\\dotnet\\shared\\Microsoft.AspNetCore.App]\r\n  Microsoft.AspNetCore.App 8.0.30 [C:\\Program Files\\dotnet\\shared\\Microsoft.AspNetCore.App]\r\n  Microsoft.AspNetCore.App 9.0.19 [C:\\Program Files\\dotnet\\shared\\Microsoft.AspNetCore.App]\r\n  Microsoft.AspNetCore.App 10.0.10 [C:\\Program Files\\dotnet\\shared\\Microsoft.AspNetCore.App]\r\n  Microsoft.AspNetCore.App 10.0.11 [C:\\Program Files\\dotnet\\shared\\Microsoft.AspNetCore.App]\r\n  Microsoft.NETCore.App 6.0.31 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]\r\n  Microsoft.NETCore.App 6.0.36 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]\r\n  Microsoft.NETCore.App 8.0.29 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]\r\n  Microsoft.NETCore.App 8.0.30 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]\r\n  Microsoft.NETCore.App 9.0.19 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]\r\n  Microsoft.NETCore.App 10.0.10 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]\r\n  Microsoft.NETCore.App 10.0.11 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]\r\n  Microsoft.WindowsDesktop.App 6.0.31 [C:\\Program Files\\dotnet\\shared\\Microsoft.WindowsDesktop.App]\r\n  Microsoft.WindowsDesktop.App 6.0.36 [C:\\Program Files\\dotnet\\shared\\Microsoft.WindowsDesktop.App]\r\n  Microsoft.WindowsDesktop.App 8.0.29 [C:\\Program Files\\dotnet\\shared\\Microsoft.WindowsDesktop.App]\r\n  Microsoft.WindowsDesktop.App 8.0.30 [C:\\Program Files\\dotnet\\shared\\Microsoft.WindowsDesktop.App]\r\n  Microsoft.WindowsDesktop.App 9.0.19 [C:\\Program Files\\dotnet\\shared\\Microsoft.WindowsDesktop.App]\r\n  Microsoft.WindowsDesktop.App 10.0.10 [C:\\Program Files\\dotnet\\shared\\Microsoft.WindowsDesktop.App]\r\n  Microsoft.WindowsDesktop.App 10.0.11 [C:\\Program Files\\dotnet\\shared\\Microsoft.WindowsDesktop.App]\r\n\r\nOther architectures found:\r\n  x86   [C:\\Program Files (x86)\\dotnet]\r\n    registered at [HKLM\\SOFTWARE\\dotnet\\Setup\\InstalledVersions\\x86\\InstallLocation]\r\n\r\nEnvironment variables:\r\n  DOTNET_ROOT_X64                          [C:\\Program Files\\dotnet]\r\n\r\nglobal.json file:\r\n  Not found\r\n\r\nLearn more:\r\n  https://aka.ms/dotnet/info\r\n\r\nDownload .NET:\r\n  https://aka.ms/dotnet/download",
+    "perry": "perry 0.5.1220",
+    "llvm": "clang version 22.1.3 (https://github.com/llvm/llvm-project e9846648fd6183ee6d8cbdb4502213fcf902a211)"
+  },
+  "commits": {
+    "tspack": "5961e45b221ccbdf2f9e739224353dc2403a61a2",
+    "copeland": "1f5e3c1c9af2176ac79be740d04c6164dd05cc66"
+  },
+  "methodology": {
+    "independentSuite": "one process per selected workload; five warmups and eleven internal samples",
+    "copelandSuite": "same post-static MIR emitted to production JS and C#, ten warmups and twenty internal samples",
+    "nativeAot": "the exact generated C# host used by RyuJIT, published Release win-x64 with PublishAot and internal timing",
+    "correctness": "performance samples are removed whenever the lane checksum differs from its reference",
+    "tiering": "Release, framework-dependent, default tiered compilation and dynamic PGO; no ReadyToRun publish, profiler, or debugger.",
+    "v8": "Default Node.js flags; no inspector or source maps. Heap delta is a coarse process-memory signal, not allocation equivalence."
+  },
+  "benchmarkDefinitions": {
+    "independent": [
+      "integer-loop-m71a",
+      "floating-point",
+      "image-convolution-5x5",
+      "primitive-array-rw",
+      "array-of-records",
+      "allocation-churn",
+      "byte-hash",
+      "json-roundtrip",
+      "branch-heavy",
+      "function-calls"
+    ],
+    "copeland": [
+      {
+        "name": "numeric-kernel",
+        "sourceFile": "NumericKernel.ts",
+        "iterationsPerRound": 10000000,
+        "checksum": 294727
+      },
+      {
+        "name": "machina-layout-subset",
+        "sourceFile": "MachinaSubset.ts",
+        "iterationsPerRound": 4000,
+        "checksum": 859540320
+      },
+      {
+        "name": "typed-reducer-batch",
+        "sourceFile": "ReducerBatch.ts",
+        "iterationsPerRound": 2000000,
+        "checksum": 1000001
+      },
+      {
+        "name": "record-array-transform",
+        "sourceFile": "RecordArrayTransform.ts",
+        "iterationsPerRound": 2000000,
+        "checksum": 999766
+      },
+      {
+        "name": "string-processing",
+        "sourceFile": "StringProcessing.ts",
+        "iterationsPerRound": 250000,
+        "checksum": 12248977
+      }
+    ],
+    "unsupportedCopelandSemanticFamilies": [
+      "mutable typed-array write",
+      "runtime JSON parse/stringify"
+    ]
+  },
+  "correctness": {
+    "perry": [
+      {
+        "workload": "integer-loop-m71a",
+        "match": true,
+        "nodeChecksum": -898670720,
+        "perryChecksum": -898670720
+      },
+      {
+        "workload": "floating-point",
+        "match": true,
+        "nodeChecksum": 13258651682,
+        "perryChecksum": 13258651682
+      },
+      {
+        "workload": "image-convolution-5x5",
+        "match": false,
+        "nodeChecksum": -374673474,
+        "perryChecksum": 1253226460
+      },
+      {
+        "workload": "primitive-array-rw",
+        "match": true,
+        "nodeChecksum": 630,
+        "perryChecksum": 630
+      },
+      {
+        "workload": "array-of-records",
+        "match": true,
+        "nodeChecksum": -1063537152,
+        "perryChecksum": -1063537152
+      },
+      {
+        "workload": "allocation-churn",
+        "match": true,
+        "nodeChecksum": 659414260,
+        "perryChecksum": 659414260
+      },
+      {
+        "workload": "byte-hash",
+        "match": true,
+        "nodeChecksum": -1668388411,
+        "perryChecksum": -1668388411
+      },
+      {
+        "workload": "json-roundtrip",
+        "match": true,
+        "nodeChecksum": 5985800,
+        "perryChecksum": 5985800
+      },
+      {
+        "workload": "branch-heavy",
+        "match": true,
+        "nodeChecksum": 1522022784,
+        "perryChecksum": 1522022784
+      },
+      {
+        "workload": "function-calls",
+        "match": true,
+        "nodeChecksum": 511506573,
+        "perryChecksum": 511506573
+      }
+    ],
+    "copelandBackendParity": [
+      {
+        "workload": "numeric-kernel",
+        "match": true
+      },
+      {
+        "workload": "machina-layout-subset",
+        "match": true
+      },
+      {
+        "workload": "typed-reducer-batch",
+        "match": true
+      },
+      {
+        "workload": "record-array-transform",
+        "match": true
+      },
+      {
+        "workload": "string-processing",
+        "match": true
+      }
+    ]
+  },
+  "publishedCrosscheck": [
+    {
+      "workload": "array_read",
+      "source": "array-read.ts",
+      "node": {
+        "samplesMs": [
+          6,
+          7,
+          7,
+          6,
+          7,
+          7,
+          6,
+          6,
+          7,
+          7,
+          7
+        ],
+        "statistics": {
+          "minMs": 6,
+          "p05Ms": 6,
+          "medianMs": 7,
+          "p95Ms": 7,
+          "maxMs": 7,
+          "madMs": 0,
+          "stddevMs": 0.4810456929208346
+        },
+        "checksum": 49999995000000
+      },
+      "perry": {
+        "samplesMs": [
+          78,
+          79,
+          79,
+          79,
+          79,
+          79,
+          79,
+          79,
+          80,
+          79,
+          79
+        ],
+        "statistics": {
+          "minMs": 78,
+          "p05Ms": 78,
+          "medianMs": 79,
+          "p95Ms": 80,
+          "maxMs": 80,
+          "madMs": 0,
+          "stddevMs": 0.4264014327112209
+        },
+        "checksum": 49999995000000
+      },
+      "checksumMatch": true
+    },
+    {
+      "workload": "loop_overhead",
+      "source": "loop-overhead.ts",
+      "node": {
+        "samplesMs": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31,
+          31,
+          31,
+          30,
+          30,
+          31
+        ],
+        "statistics": {
+          "minMs": 30,
+          "p05Ms": 30,
+          "medianMs": 31,
+          "p95Ms": 31,
+          "maxMs": 31,
+          "madMs": 0,
+          "stddevMs": 0.385694607919935
+        },
+        "checksum": 100000000
+      },
+      "perry": {
+        "samplesMs": [
+          55,
+          55,
+          55,
+          55,
+          55,
+          55,
+          55,
+          55,
+          55,
+          55,
+          55
+        ],
+        "statistics": {
+          "minMs": 55,
+          "p05Ms": 55,
+          "medianMs": 55,
+          "p95Ms": 55,
+          "maxMs": 55,
+          "madMs": 0,
+          "stddevMs": 0
+        },
+        "checksum": 100000000
+      },
+      "checksumMatch": true
+    }
+  ],
+  "workloads": [
+    {
+      "workload": "integer-loop-m71a",
+      "implementation": "Node/V8",
+      "warmup": 5,
+      "sampleCount": 11,
+      "checksum": -898670720,
+      "correct": true,
+      "statistics": {
+        "minMs": 4.831999999999994,
+        "p05Ms": 4.831999999999994,
+        "medianMs": 4.834299999999999,
+        "p95Ms": 4.875800000000012,
+        "maxMs": 4.875800000000012,
+        "madMs": 0.002300000000005298,
+        "stddevMs": 0.013727230583923673
+      },
+      "samplesMs": [
+        4.838900000000002,
+        4.8496000000000095,
+        4.832100000000011,
+        4.833500000000001,
+        4.83250000000001,
+        4.875800000000012,
+        4.860600000000005,
+        4.831999999999994,
+        4.840900000000005,
+        4.834299999999999,
+        4.8322
+      ]
+    },
+    {
+      "workload": "floating-point",
+      "implementation": "Node/V8",
+      "warmup": 5,
+      "sampleCount": 11,
+      "checksum": 13258651682,
+      "correct": true,
+      "statistics": {
+        "minMs": 16.481799999999993,
+        "p05Ms": 16.481799999999993,
+        "medianMs": 16.620199999999983,
+        "p95Ms": 17.069799999999987,
+        "maxMs": 17.069799999999987,
+        "madMs": 0.03180000000000405,
+        "stddevMs": 0.1513545533720249
+      },
+      "samplesMs": [
+        16.609700000000004,
+        16.481799999999993,
+        16.59049999999999,
+        16.60930000000002,
+        16.732100000000003,
+        17.069799999999987,
+        16.620199999999983,
+        16.651999999999987,
+        16.675200000000018,
+        16.600099999999998,
+        16.85129999999998
+      ]
+    },
+    {
+      "workload": "image-convolution-5x5",
+      "implementation": "Node/V8",
+      "warmup": 5,
+      "sampleCount": 11,
+      "checksum": -374673474,
+      "correct": true,
+      "statistics": {
+        "minMs": 18.056099999999958,
+        "p05Ms": 18.056099999999958,
+        "medianMs": 24.38190000000003,
+        "p95Ms": 48.13080000000002,
+        "maxMs": 48.13080000000002,
+        "madMs": 0.12210000000001742,
+        "stddevMs": 9.42054467060738
+      },
+      "samplesMs": [
+        24.45229999999998,
+        24.340599999999995,
+        24.661900000000003,
+        24.259800000000013,
+        24.38190000000003,
+        24.29820000000001,
+        24.481600000000014,
+        45.46179999999998,
+        48.13080000000002,
+        19.01800000000003,
+        18.056099999999958
+      ]
+    },
+    {
+      "workload": "primitive-array-rw",
+      "implementation": "Node/V8",
+      "warmup": 5,
+      "sampleCount": 11,
+      "checksum": 630,
+      "correct": true,
+      "statistics": {
+        "minMs": 9.615000000000009,
+        "p05Ms": 9.615000000000009,
+        "medianMs": 10.8733,
+        "p95Ms": 11.858399999999989,
+        "maxMs": 11.858399999999989,
+        "madMs": 0.07179999999999609,
+        "stddevMs": 0.4905432921645148
+      },
+      "samplesMs": [
+        10.811499999999995,
+        10.8733,
+        10.801500000000004,
+        10.812299999999993,
+        10.946200000000005,
+        10.891400000000004,
+        10.81710000000001,
+        11.044400000000024,
+        11.080000000000013,
+        11.858399999999989,
+        9.615000000000009
+      ]
+    },
+    {
+      "workload": "array-of-records",
+      "implementation": "Node/V8",
+      "warmup": 5,
+      "sampleCount": 11,
+      "checksum": -1063537152,
+      "correct": true,
+      "statistics": {
+        "minMs": 2.3256999999999977,
+        "p05Ms": 2.3256999999999977,
+        "medianMs": 2.6218000000000075,
+        "p95Ms": 6.656900000000007,
+        "maxMs": 6.656900000000007,
+        "madMs": 0.17849999999999966,
+        "stddevMs": 1.2101248488284466
+      },
+      "samplesMs": [
+        2.4546999999999883,
+        2.436800000000005,
+        2.6218000000000075,
+        2.443300000000008,
+        2.653899999999993,
+        3.7186999999999983,
+        3.6071999999999917,
+        6.656900000000007,
+        2.3256999999999977,
+        2.4617999999999967,
+        2.7912999999999926
+      ]
+    },
+    {
+      "workload": "allocation-churn",
+      "implementation": "Node/V8",
+      "warmup": 5,
+      "sampleCount": 11,
+      "checksum": 659414260,
+      "correct": true,
+      "statistics": {
+        "minMs": 11.472100000000012,
+        "p05Ms": 11.472100000000012,
+        "medianMs": 12.791200000000003,
+        "p95Ms": 14.157100000000014,
+        "maxMs": 14.157100000000014,
+        "madMs": 0.8648000000000025,
+        "stddevMs": 0.8940278857484658
+      },
+      "samplesMs": [
+        11.926400000000001,
+        14.157100000000014,
+        13.461700000000008,
+        14.052300000000002,
+        12.19059999999999,
+        12.791200000000003,
+        11.792900000000003,
+        13.002399999999994,
+        13.779300000000006,
+        11.472100000000012,
+        12.582499999999982
+      ]
+    },
+    {
+      "workload": "byte-hash",
+      "implementation": "Node/V8",
+      "warmup": 5,
+      "sampleCount": 11,
+      "checksum": -1668388411,
+      "correct": true,
+      "statistics": {
+        "minMs": 6.181200000000018,
+        "p05Ms": 6.181200000000018,
+        "medianMs": 6.234799999999993,
+        "p95Ms": 8.521999999999991,
+        "maxMs": 8.521999999999991,
+        "madMs": 0.018100000000004002,
+        "stddevMs": 0.6504981186091512
+      },
+      "samplesMs": [
+        6.2198999999999955,
+        6.232500000000002,
+        6.670999999999992,
+        6.234799999999993,
+        6.559599999999989,
+        6.233800000000002,
+        6.223600000000005,
+        6.252899999999997,
+        6.408900000000003,
+        8.521999999999991,
+        6.181200000000018
+      ]
+    },
+    {
+      "workload": "json-roundtrip",
+      "implementation": "Node/V8",
+      "warmup": 5,
+      "sampleCount": 11,
+      "checksum": 5985800,
+      "correct": true,
+      "statistics": {
+        "minMs": 24.8913,
+        "p05Ms": 24.8913,
+        "medianMs": 25.544399999999996,
+        "p95Ms": 29.22919999999999,
+        "maxMs": 29.22919999999999,
+        "madMs": 0.33770000000004075,
+        "stddevMs": 1.2152809194680552
+      },
+      "samplesMs": [
+        25.544399999999996,
+        25.678499999999985,
+        24.8913,
+        29.22919999999999,
+        24.998199999999997,
+        25.77230000000003,
+        27.342799999999954,
+        25.206699999999955,
+        25.968799999999987,
+        25.516400000000033,
+        25.231700000000046
+      ]
+    },
+    {
+      "workload": "branch-heavy",
+      "implementation": "Node/V8",
+      "warmup": 5,
+      "sampleCount": 11,
+      "checksum": 1522022784,
+      "correct": true,
+      "statistics": {
+        "minMs": 35.33440000000002,
+        "p05Ms": 35.33440000000002,
+        "medianMs": 35.47550000000001,
+        "p95Ms": 35.93830000000003,
+        "maxMs": 35.93830000000003,
+        "madMs": 0.09880000000003974,
+        "stddevMs": 0.17746588031980884
+      },
+      "samplesMs": [
+        35.36930000000001,
+        35.47550000000001,
+        35.37669999999997,
+        35.495900000000006,
+        35.33440000000002,
+        35.41500000000002,
+        35.48169999999999,
+        35.61689999999999,
+        35.77789999999993,
+        35.46629999999993,
+        35.93830000000003
+      ]
+    },
+    {
+      "workload": "function-calls",
+      "implementation": "Node/V8",
+      "warmup": 5,
+      "sampleCount": 11,
+      "checksum": 511506573,
+      "correct": true,
+      "statistics": {
+        "minMs": 7.288499999999999,
+        "p05Ms": 7.288499999999999,
+        "medianMs": 7.2978999999999985,
+        "p95Ms": 7.333299999999994,
+        "maxMs": 7.333299999999994,
+        "madMs": 0.005000000000009663,
+        "stddevMs": 0.0120046272070441
+      },
+      "samplesMs": [
+        7.333299999999994,
+        7.296199999999999,
+        7.304200000000009,
+        7.2988,
+        7.288499999999999,
+        7.302900000000008,
+        7.292700000000025,
+        7.2978999999999985,
+        7.295000000000016,
+        7.315100000000001,
+        7.294899999999984
+      ]
+    },
+    {
+      "workload": "integer-loop-m71a",
+      "implementation": "Perry",
+      "warmup": 5,
+      "sampleCount": 11,
+      "checksum": -898670720,
+      "correct": true,
+      "statistics": {
+        "minMs": 77.04500000000002,
+        "p05Ms": 77.04500000000002,
+        "medianMs": 77.19189999999992,
+        "p95Ms": 78.02880000000016,
+        "maxMs": 78.02880000000016,
+        "madMs": 0.07249999999987722,
+        "stddevMs": 0.27623918280309384
+      },
+      "samplesMs": [
+        77.04500000000002,
+        77.1434999999999,
+        77.3537,
+        77.60669999999993,
+        77.11940000000004,
+        77.07330000000002,
+        78.02880000000016,
+        77.19189999999992,
+        77.1898000000001,
+        77.21620000000007,
+        77.20899999999983
+      ]
+    },
+    {
+      "workload": "floating-point",
+      "implementation": "Perry",
+      "warmup": 5,
+      "sampleCount": 11,
+      "checksum": 13258651682,
+      "correct": true,
+      "statistics": {
+        "minMs": 45.06760000000003,
+        "p05Ms": 45.06760000000003,
+        "medianMs": 45.51800000000003,
+        "p95Ms": 46.321000000000026,
+        "maxMs": 46.321000000000026,
+        "madMs": 0.09769999999991796,
+        "stddevMs": 0.30857919299119874
+      },
+      "samplesMs": [
+        45.942399999999964,
+        45.06760000000003,
+        46.321000000000026,
+        45.483000000000004,
+        45.70629999999994,
+        45.51800000000003,
+        45.384700000000066,
+        45.615600000000086,
+        45.48899999999992,
+        45.42030000000011,
+        45.52640000000008
+      ]
+    },
+    {
+      "workload": "image-convolution-5x5",
+      "implementation": "Perry",
+      "warmup": 5,
+      "sampleCount": 0,
+      "checksum": 1253226460,
+      "correct": false,
+      "statistics": null,
+      "samplesMs": []
+    },
+    {
+      "workload": "primitive-array-rw",
+      "implementation": "Perry",
+      "warmup": 5,
+      "sampleCount": 11,
+      "checksum": 630,
+      "correct": true,
+      "statistics": {
+        "minMs": 156.26969999999983,
+        "p05Ms": 156.26969999999983,
+        "medianMs": 157.0504000000003,
+        "p95Ms": 187.80229999999983,
+        "maxMs": 187.80229999999983,
+        "madMs": 0.7062999999998283,
+        "stddevMs": 8.793584750917553
+      },
+      "samplesMs": [
+        161.96060000000023,
+        157.75670000000014,
+        157.0504000000003,
+        156.91679999999997,
+        158.94669999999996,
+        156.63789999999972,
+        157.77760000000012,
+        187.80229999999983,
+        156.8190999999997,
+        156.66949999999997,
+        156.26969999999983
+      ]
+    },
+    {
+      "workload": "array-of-records",
+      "implementation": "Perry",
+      "warmup": 5,
+      "sampleCount": 11,
+      "checksum": -1063537152,
+      "correct": true,
+      "statistics": {
+        "minMs": 1085.5596000000005,
+        "p05Ms": 1085.5596000000005,
+        "medianMs": 1103.1918000000005,
+        "p95Ms": 1997.880500000003,
+        "maxMs": 1997.880500000003,
+        "madMs": 10.198100000001432,
+        "stddevMs": 278.58934099855645
+      },
+      "samplesMs": [
+        1090.8019000000004,
+        1085.5596000000005,
+        1592.7729999999992,
+        1241.0992999999999,
+        1113.389900000002,
+        1101.7145,
+        1112.2333000000017,
+        1101.2834000000003,
+        1100.8906000000006,
+        1103.1918000000005,
+        1997.880500000003
+      ]
+    },
+    {
+      "workload": "allocation-churn",
+      "implementation": "Perry",
+      "warmup": 5,
+      "sampleCount": 11,
+      "checksum": 659414260,
+      "correct": true,
+      "statistics": {
+        "minMs": 1490.9108000000015,
+        "p05Ms": 1490.9108000000015,
+        "medianMs": 1520.9506000000001,
+        "p95Ms": 2281.7286999999997,
+        "maxMs": 2281.7286999999997,
+        "madMs": 14.116499999998268,
+        "stddevMs": 289.12589317676037
+      },
+      "samplesMs": [
+        1535.0670999999984,
+        1520.8011999999999,
+        2281.7286999999997,
+        1528.9442999999992,
+        1520.9506000000001,
+        1515.7393999999986,
+        1522.6395999999986,
+        2243.8014999999978,
+        1493.1722000000009,
+        1500.0316999999995,
+        1490.9108000000015
+      ]
+    },
+    {
+      "workload": "byte-hash",
+      "implementation": "Perry",
+      "warmup": 5,
+      "sampleCount": 11,
+      "checksum": -1668388411,
+      "correct": true,
+      "statistics": {
+        "minMs": 152.49680000000035,
+        "p05Ms": 152.49680000000035,
+        "medianMs": 162.7167999999997,
+        "p95Ms": 170.62980000000016,
+        "maxMs": 170.62980000000016,
+        "madMs": 2.900600000000395,
+        "stddevMs": 4.690908196106297
+      },
+      "samplesMs": [
+        157.1382000000001,
+        165.6174000000001,
+        163.93460000000027,
+        161.77959999999985,
+        161.8469,
+        161.25739999999996,
+        167.08469999999988,
+        162.7167999999997,
+        170.62980000000016,
+        166.0586000000003,
+        152.49680000000035
+      ]
+    },
+    {
+      "workload": "json-roundtrip",
+      "implementation": "Perry",
+      "warmup": 5,
+      "sampleCount": 11,
+      "checksum": 5985800,
+      "correct": true,
+      "statistics": {
+        "minMs": 108.66499999999996,
+        "p05Ms": 108.66499999999996,
+        "medianMs": 150.62829999999985,
+        "p95Ms": 175.44110000000023,
+        "maxMs": 175.44110000000023,
+        "madMs": 24.81280000000038,
+        "stddevMs": 28.447628535963535
+      },
+      "samplesMs": [
+        109.9430000000001,
+        175.10649999999987,
+        150.62829999999985,
+        109.07320000000004,
+        163.96789999999987,
+        109.07789999999977,
+        167.9748000000002,
+        109.85320000000002,
+        175.44110000000023,
+        155.45080000000007,
+        108.66499999999996
+      ]
+    },
+    {
+      "workload": "branch-heavy",
+      "implementation": "Perry",
+      "warmup": 5,
+      "sampleCount": 11,
+      "checksum": 1522022784,
+      "correct": true,
+      "statistics": {
+        "minMs": 102.35670000000005,
+        "p05Ms": 102.35670000000005,
+        "medianMs": 102.52259999999978,
+        "p95Ms": 104.08169999999996,
+        "maxMs": 104.08169999999996,
+        "madMs": 0.1658999999997377,
+        "stddevMs": 0.4560546744807027
+      },
+      "samplesMs": [
+        102.71529999999996,
+        104.08169999999996,
+        102.75040000000001,
+        102.89469999999994,
+        102.47409999999991,
+        102.52259999999978,
+        102.35670000000005,
+        102.75570000000016,
+        102.47959999999989,
+        102.50379999999996,
+        102.46410000000014
+      ]
+    },
+    {
+      "workload": "function-calls",
+      "implementation": "Perry",
+      "warmup": 5,
+      "sampleCount": 11,
+      "checksum": 511506573,
+      "correct": true,
+      "statistics": {
+        "minMs": 51.096100000000035,
+        "p05Ms": 51.096100000000035,
+        "medianMs": 51.2851,
+        "p95Ms": 51.733100000000036,
+        "maxMs": 51.733100000000036,
+        "madMs": 0.13139999999998508,
+        "stddevMs": 0.20364199139950373
+      },
+      "samplesMs": [
+        51.096100000000035,
+        51.2851,
+        51.33689999999996,
+        51.2713,
+        51.153700000000015,
+        51.18560000000002,
+        51.237300000000005,
+        51.4298,
+        51.69150000000002,
+        51.733100000000036,
+        51.53469999999993
+      ]
+    },
+    {
+      "workload": "numeric-kernel",
+      "implementation": "Copeland/V8",
+      "warmup": 10,
+      "sampleCount": 20,
+      "checksum": 294727,
+      "correct": true,
+      "statistics": {
+        "minMs": 33.7358,
+        "p05Ms": 33.7358,
+        "medianMs": 33.9679,
+        "p95Ms": 34.1757,
+        "maxMs": 34.3429,
+        "madMs": 0.06519999999999726,
+        "stddevMs": 0.12781801359745842
+      },
+      "samplesMs": [
+        33.9803,
+        33.9563,
+        34.0837,
+        34.1757,
+        33.8931,
+        33.8453,
+        34.0222,
+        33.8603,
+        33.7358,
+        33.9027,
+        33.9756,
+        33.9679,
+        33.9561,
+        34.0146,
+        33.9961,
+        34.3429,
+        33.8835,
+        33.845,
+        34.0317,
+        34.0568
+      ],
+      "heapDeltaBytes": 6576
+    },
+    {
+      "workload": "numeric-kernel",
+      "implementation": "Copeland/RyuJIT",
+      "warmup": 10,
+      "sampleCount": 20,
+      "checksum": 294727,
+      "correct": true,
+      "statistics": {
+        "minMs": 31.6049,
+        "p05Ms": 31.6049,
+        "medianMs": 31.8196,
+        "p95Ms": 32.2392,
+        "maxMs": 32.4299,
+        "madMs": 0.07050000000000267,
+        "stddevMs": 0.18804812788219966
+      },
+      "samplesMs": [
+        32.2392,
+        31.9052,
+        31.9296,
+        31.6348,
+        31.6584,
+        31.6575,
+        31.8908,
+        32.4299,
+        31.8934,
+        31.8415,
+        31.8365,
+        31.8062,
+        31.6049,
+        31.7815,
+        31.7868,
+        31.7826,
+        31.8196,
+        31.8531,
+        31.8442,
+        31.7491
+      ],
+      "allocatedBytes": 2656,
+      "gcCollections": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "workload": "machina-layout-subset",
+      "implementation": "Copeland/V8",
+      "warmup": 10,
+      "sampleCount": 20,
+      "checksum": 859540320,
+      "correct": true,
+      "statistics": {
+        "minMs": 3.4636,
+        "p05Ms": 3.4636,
+        "medianMs": 3.4772,
+        "p95Ms": 3.5458,
+        "maxMs": 3.5526,
+        "madMs": 0.009799999999999809,
+        "stddevMs": 0.027618410526313784
+      },
+      "samplesMs": [
+        3.4747,
+        3.5449,
+        3.5526,
+        3.5051,
+        3.4743,
+        3.4772,
+        3.4759,
+        3.5458,
+        3.472,
+        3.4869,
+        3.4688,
+        3.5123,
+        3.475,
+        3.4953,
+        3.4668,
+        3.4636,
+        3.5216,
+        3.4674,
+        3.4855,
+        3.4947
+      ],
+      "heapDeltaBytes": 489744
+    },
+    {
+      "workload": "machina-layout-subset",
+      "implementation": "Copeland/RyuJIT",
+      "warmup": 10,
+      "sampleCount": 20,
+      "checksum": 859540320,
+      "correct": true,
+      "statistics": {
+        "minMs": 2.225,
+        "p05Ms": 2.225,
+        "medianMs": 2.2568,
+        "p95Ms": 2.3952,
+        "maxMs": 2.4357,
+        "madMs": 0.011700000000000266,
+        "stddevMs": 0.05599730774778375
+      },
+      "samplesMs": [
+        2.3176,
+        2.4357,
+        2.2568,
+        2.2451,
+        2.247,
+        2.225,
+        2.2411,
+        2.2486,
+        2.3827,
+        2.3057,
+        2.2801,
+        2.2665,
+        2.2512,
+        2.2589,
+        2.3014,
+        2.3952,
+        2.2766,
+        2.2525,
+        2.2495,
+        2.2489
+      ],
+      "allocatedBytes": 312324512,
+      "gcCollections": [
+        19,
+        0,
+        0
+      ]
+    },
+    {
+      "workload": "typed-reducer-batch",
+      "implementation": "Copeland/V8",
+      "warmup": 10,
+      "sampleCount": 20,
+      "checksum": 1000001,
+      "correct": true,
+      "statistics": {
+        "minMs": 7.927,
+        "p05Ms": 7.927,
+        "medianMs": 10.13,
+        "p95Ms": 12.4579,
+        "maxMs": 14.8105,
+        "madMs": 0.06929999999999836,
+        "stddevMs": 1.4052120017634349
+      },
+      "samplesMs": [
+        9.8813,
+        10.0666,
+        10.1379,
+        10.0499,
+        10.133,
+        10.101,
+        10.375,
+        10.1339,
+        10.0089,
+        10.13,
+        10.1021,
+        12.0361,
+        10.3489,
+        10.151,
+        10.1048,
+        10.1993,
+        14.8105,
+        12.4579,
+        7.927,
+        8.0047
+      ],
+      "heapDeltaBytes": 7160
+    },
+    {
+      "workload": "typed-reducer-batch",
+      "implementation": "Copeland/RyuJIT",
+      "warmup": 10,
+      "sampleCount": 20,
+      "checksum": 1000001,
+      "correct": true,
+      "statistics": {
+        "minMs": 8.3672,
+        "p05Ms": 8.3672,
+        "medianMs": 8.4663,
+        "p95Ms": 8.7073,
+        "maxMs": 8.9757,
+        "madMs": 0.03640000000000043,
+        "stddevMs": 0.12731742722424133
+      },
+      "samplesMs": [
+        8.4602,
+        8.4938,
+        8.4163,
+        8.5512,
+        8.45,
+        8.5551,
+        8.4568,
+        8.5181,
+        8.4653,
+        8.4618,
+        8.7073,
+        8.444,
+        8.9757,
+        8.3672,
+        8.483,
+        8.4299,
+        8.5305,
+        8.5099,
+        8.6059,
+        8.4663
+      ],
+      "allocatedBytes": 2030863384,
+      "gcCollections": [
+        122,
+        0,
+        0
+      ]
+    },
+    {
+      "workload": "record-array-transform",
+      "implementation": "Copeland/V8",
+      "warmup": 10,
+      "sampleCount": 20,
+      "checksum": 999766,
+      "correct": true,
+      "statistics": {
+        "minMs": 11.1295,
+        "p05Ms": 11.1295,
+        "medianMs": 11.3691,
+        "p95Ms": 11.7255,
+        "maxMs": 11.773,
+        "madMs": 0.0649999999999995,
+        "stddevMs": 0.15616327633281774
+      },
+      "samplesMs": [
+        11.3326,
+        11.3163,
+        11.3691,
+        11.492,
+        11.2822,
+        11.3147,
+        11.6425,
+        11.4267,
+        11.2939,
+        11.3041,
+        11.7255,
+        11.1295,
+        11.2946,
+        11.4412,
+        11.773,
+        11.2178,
+        11.4056,
+        11.4243,
+        11.3858,
+        11.3731
+      ],
+      "heapDeltaBytes": -568144
+    },
+    {
+      "workload": "record-array-transform",
+      "implementation": "Copeland/RyuJIT",
+      "warmup": 10,
+      "sampleCount": 20,
+      "checksum": 999766,
+      "correct": true,
+      "statistics": {
+        "minMs": 5.0945,
+        "p05Ms": 5.0945,
+        "medianMs": 5.1352,
+        "p95Ms": 5.4507,
+        "maxMs": 5.6749,
+        "madMs": 0.024999999999999467,
+        "stddevMs": 0.1459517536722324
+      },
+      "samplesMs": [
+        5.1429,
+        5.1855,
+        5.3612,
+        5.1094,
+        5.1352,
+        5.4507,
+        5.1249,
+        5.1184,
+        5.4035,
+        5.123,
+        5.1265,
+        5.2538,
+        5.1799,
+        5.1219,
+        5.6749,
+        5.1602,
+        5.1237,
+        5.2095,
+        5.0945,
+        5.1272
+      ],
+      "allocatedBytes": 960013328,
+      "gcCollections": [
+        58,
+        0,
+        0
+      ]
+    },
+    {
+      "workload": "string-processing",
+      "implementation": "Copeland/V8",
+      "warmup": 10,
+      "sampleCount": 20,
+      "checksum": 12248977,
+      "correct": true,
+      "statistics": {
+        "minMs": 44.6562,
+        "p05Ms": 44.6562,
+        "medianMs": 44.8201,
+        "p95Ms": 45.5816,
+        "maxMs": 46.2766,
+        "madMs": 0.12199999999999989,
+        "stddevMs": 0.3993217092458168
+      },
+      "samplesMs": [
+        45.3522,
+        44.8831,
+        44.6981,
+        44.8201,
+        44.7734,
+        44.7577,
+        45.2408,
+        44.7951,
+        45.5816,
+        45.0241,
+        44.855,
+        44.7224,
+        44.6777,
+        46.2766,
+        44.9171,
+        45.4433,
+        44.6562,
+        44.6632,
+        44.7179,
+        45.1813
+      ],
+      "heapDeltaBytes": -975376
+    },
+    {
+      "workload": "string-processing",
+      "implementation": "Copeland/RyuJIT",
+      "warmup": 10,
+      "sampleCount": 20,
+      "checksum": 12248977,
+      "correct": true,
+      "statistics": {
+        "minMs": 9.6899,
+        "p05Ms": 9.6899,
+        "medianMs": 10.007,
+        "p95Ms": 10.1995,
+        "maxMs": 10.344,
+        "madMs": 0.13460000000000072,
+        "stddevMs": 0.16922647133353588
+      },
+      "samplesMs": [
+        9.8376,
+        10.0466,
+        9.969,
+        10.007,
+        10.191,
+        10.1416,
+        10.1727,
+        10.1995,
+        10.1124,
+        9.6899,
+        10.1873,
+        9.7006,
+        9.9803,
+        9.9181,
+        9.8566,
+        9.9439,
+        9.8849,
+        10.0847,
+        10.344,
+        10.1507
+      ],
+      "allocatedBytes": 1520002624,
+      "gcCollections": [
+        91,
+        0,
+        0
+      ]
+    },
+    {
+      "workload": "numeric-kernel",
+      "implementation": "Copeland/NativeAOT",
+      "warmup": 10,
+      "sampleCount": 20,
+      "checksum": 294727,
+      "correct": true,
+      "statistics": {
+        "minMs": 33.1575,
+        "p05Ms": 33.1575,
+        "medianMs": 33.2598,
+        "p95Ms": 33.6097,
+        "maxMs": 33.788,
+        "madMs": 0.049299999999995237,
+        "stddevMs": 0.1608084197888894
+      },
+      "samplesMs": [
+        33.1721,
+        33.1626,
+        33.2267,
+        33.1959,
+        33.5528,
+        33.6097,
+        33.2598,
+        33.2752,
+        33.2105,
+        33.1575,
+        33.226,
+        33.2721,
+        33.2408,
+        33.2847,
+        33.2036,
+        33.2987,
+        33.2796,
+        33.3165,
+        33.4367,
+        33.788
+      ],
+      "allocatedBytes": 2296,
+      "gcCollections": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "workload": "machina-layout-subset",
+      "implementation": "Copeland/NativeAOT",
+      "warmup": 10,
+      "sampleCount": 20,
+      "checksum": 859540320,
+      "correct": true,
+      "statistics": {
+        "minMs": 4.3336,
+        "p05Ms": 4.3336,
+        "medianMs": 4.3768,
+        "p95Ms": 4.4889,
+        "maxMs": 4.5319,
+        "madMs": 0.02320000000000011,
+        "stddevMs": 0.04920536048033791
+      },
+      "samplesMs": [
+        4.3768,
+        4.3665,
+        4.5319,
+        4.3336,
+        4.3448,
+        4.4452,
+        4.3894,
+        4.3822,
+        4.3627,
+        4.4173,
+        4.3509,
+        4.3536,
+        4.3412,
+        4.4889,
+        4.402,
+        4.3554,
+        4.3933,
+        4.3608,
+        4.3844,
+        4.4121
+      ],
+      "allocatedBytes": 312324176,
+      "gcCollections": [
+        19,
+        0,
+        0
+      ]
+    },
+    {
+      "workload": "typed-reducer-batch",
+      "implementation": "Copeland/NativeAOT",
+      "warmup": 10,
+      "sampleCount": 20,
+      "checksum": 1000001,
+      "correct": true,
+      "statistics": {
+        "minMs": 11.9738,
+        "p05Ms": 11.9738,
+        "medianMs": 12.113,
+        "p95Ms": 12.3058,
+        "maxMs": 12.3301,
+        "madMs": 0.036300000000000665,
+        "stddevMs": 0.08506226484170275
+      },
+      "samplesMs": [
+        12.1278,
+        12.0648,
+        11.9738,
+        12.0599,
+        12.3301,
+        12.0988,
+        12.1901,
+        12.116,
+        12.246,
+        12.0946,
+        12.3058,
+        12.1081,
+        12.0876,
+        12.1878,
+        12.0956,
+        12.0436,
+        12.211,
+        12.113,
+        12.1493,
+        12.1241
+      ],
+      "allocatedBytes": 2030863096,
+      "gcCollections": [
+        122,
+        0,
+        0
+      ]
+    },
+    {
+      "workload": "record-array-transform",
+      "implementation": "Copeland/NativeAOT",
+      "warmup": 10,
+      "sampleCount": 20,
+      "checksum": 999766,
+      "correct": true,
+      "statistics": {
+        "minMs": 7.7728,
+        "p05Ms": 7.7728,
+        "medianMs": 7.9192,
+        "p95Ms": 7.9952,
+        "maxMs": 7.9962,
+        "madMs": 0.035199999999999676,
+        "stddevMs": 0.058264284729154625
+      },
+      "samplesMs": [
+        7.9317,
+        7.8602,
+        7.9952,
+        7.9192,
+        7.9276,
+        7.8816,
+        7.9446,
+        7.9527,
+        7.9006,
+        7.9429,
+        7.8577,
+        7.9544,
+        7.8359,
+        7.9949,
+        7.7728,
+        7.9962,
+        7.8915,
+        7.8666,
+        7.8362,
+        7.941
+      ],
+      "allocatedBytes": 960012976,
+      "gcCollections": [
+        58,
+        0,
+        0
+      ]
+    },
+    {
+      "workload": "string-processing",
+      "implementation": "Copeland/NativeAOT",
+      "warmup": 10,
+      "sampleCount": 20,
+      "checksum": 12248977,
+      "correct": true,
+      "statistics": {
+        "minMs": 13.4534,
+        "p05Ms": 13.4534,
+        "medianMs": 13.7925,
+        "p95Ms": 14.1723,
+        "maxMs": 14.5747,
+        "madMs": 0.09940000000000104,
+        "stddevMs": 0.23684323396500045
+      },
+      "samplesMs": [
+        13.9743,
+        14.5747,
+        13.4534,
+        13.7737,
+        14.0325,
+        14.1723,
+        13.6881,
+        13.7925,
+        13.7132,
+        13.6931,
+        13.6958,
+        13.7993,
+        14.1542,
+        13.7328,
+        13.7315,
+        14.0811,
+        13.9138,
+        13.9037,
+        13.8206,
+        13.7485
+      ],
+      "allocatedBytes": 1520002304,
+      "gcCollections": [
+        91,
+        0,
+        0
+      ]
+    }
+  ],
+  "coldStart": {
+    "node": {
+      "samplesMs": [
+        56.23660000000382,
+        53.410699999993085,
+        53.029200000004494,
+        65.33950000000186,
+        62.23450000000594,
+        62.702900000003865,
+        52.80089999998745,
+        54.15209999999206,
+        52.65989999999874,
+        54.35129999999481
+      ],
+      "statistics": {
+        "minMs": 52.65989999999874,
+        "p05Ms": 52.65989999999874,
+        "medianMs": 54.15209999999206,
+        "p95Ms": 65.33950000000186,
+        "maxMs": 65.33950000000186,
+        "madMs": 1.35120000000461,
+        "stddevMs": 4.5754602123100785
+      }
+    },
+    "ryuJit": {
+      "samplesMs": [
+        28.263099999996484,
+        27.500599999999395,
+        27.933499999999185,
+        27.77150000000256,
+        27.799700000003213,
+        27.18189999999595,
+        28.917400000005728,
+        27.423099999999977,
+        27.46679999999469,
+        27.583199999993667
+      ],
+      "statistics": {
+        "minMs": 27.18189999999595,
+        "p05Ms": 27.18189999999595,
+        "medianMs": 27.583199999993667,
+        "p95Ms": 28.917400000005728,
+        "maxMs": 28.917400000005728,
+        "madMs": 0.18830000000889413,
+        "stddevMs": 0.4744376203486143
+      }
+    },
+    "nativeAot": {
+      "samplesMs": [
+        11.950400000001537,
+        11.199699999997392,
+        10.984900000010384,
+        11.204700000002049,
+        10.79769999999553,
+        11.12029999999504,
+        11.186000000001513,
+        10.835800000000745,
+        10.78059999999823,
+        10.9375
+      ],
+      "statistics": {
+        "minMs": 10.78059999999823,
+        "p05Ms": 10.78059999999823,
+        "medianMs": 10.984900000010384,
+        "p95Ms": 11.950400000001537,
+        "maxMs": 11.950400000001537,
+        "madMs": 0.1872000000148546,
+        "stddevMs": 0.3247687491129083
+      }
+    },
+    "perry": {
+      "samplesMs": [
+        20.884600000004866,
+        18.766400000007707,
+        18.398300000000745,
+        18.16120000000228,
+        18.56929999998829,
+        18.48990000000049,
+        18.27969999999914,
+        17.55580000000191,
+        17.924700000003213,
+        18.291099999987637
+      ],
+      "statistics": {
+        "minMs": 17.55580000000191,
+        "p05Ms": 17.55580000000191,
+        "medianMs": 18.291099999987637,
+        "p95Ms": 20.884600000004866,
+        "maxMs": 20.884600000004866,
+        "madMs": 0.19880000001285225,
+        "stddevMs": 0.8480371383390273
+      }
+    },
+    "bun": null
+  },
+  "compileBuild": {
+    "copelandBuildAndRunMs": 17094.86,
+    "perryCleanMs": 908.4393000000055,
+    "perryIncrementalMs": 791.0633000000016,
+    "nativeAot": [
+      {
+        "workload": "numeric-kernel",
+        "publishMs": 3563.110800000002
+      },
+      {
+        "workload": "machina-layout-subset",
+        "publishMs": 3461.374200000002
+      },
+      {
+        "workload": "typed-reducer-batch",
+        "publishMs": 3512.968200000003
+      },
+      {
+        "workload": "record-array-transform",
+        "publishMs": 3490.7848000000013
+      },
+      {
+        "workload": "string-processing",
+        "publishMs": 3527.8579000000027
+      }
+    ]
+  },
+  "artifacts": {
+    "independentSourceBytes": 6633,
+    "perryExecutableBytes": 11906048,
+    "nativeAot": [
+      {
+        "workload": "numeric-kernel",
+        "executableBytes": 976896,
+        "publishFootprintBytes": 976896
+      },
+      {
+        "workload": "machina-layout-subset",
+        "executableBytes": 978432,
+        "publishFootprintBytes": 978432
+      },
+      {
+        "workload": "typed-reducer-batch",
+        "executableBytes": 978432,
+        "publishFootprintBytes": 978432
+      },
+      {
+        "workload": "record-array-transform",
+        "executableBytes": 978432,
+        "publishFootprintBytes": 978432
+      },
+      {
+        "workload": "string-processing",
+        "executableBytes": 977408,
+        "publishFootprintBytes": 977408
+      }
+    ],
+    "copeland": [
+      {
+        "workload": "numeric-kernel",
+        "authoredSourceBytes": 285,
+        "generatedCSharpBytes": 527,
+        "generatedJavaScriptBytes": 341,
+        "compiledCSharpAssemblyBytes": 9728,
+        "javaScriptHostBytes": 1960
+      },
+      {
+        "workload": "machina-layout-subset",
+        "authoredSourceBytes": 2143,
+        "generatedCSharpBytes": 5077,
+        "generatedJavaScriptBytes": 8914,
+        "compiledCSharpAssemblyBytes": 11264,
+        "javaScriptHostBytes": 10533
+      },
+      {
+        "workload": "typed-reducer-batch",
+        "authoredSourceBytes": 964,
+        "generatedCSharpBytes": 3049,
+        "generatedJavaScriptBytes": 4642,
+        "compiledCSharpAssemblyBytes": 12800,
+        "javaScriptHostBytes": 6261
+      },
+      {
+        "workload": "record-array-transform",
+        "authoredSourceBytes": 1188,
+        "generatedCSharpBytes": 5100,
+        "generatedJavaScriptBytes": 6571,
+        "compiledCSharpAssemblyBytes": 11264,
+        "javaScriptHostBytes": 8190
+      },
+      {
+        "workload": "string-processing",
+        "authoredSourceBytes": 517,
+        "generatedCSharpBytes": 1030,
+        "generatedJavaScriptBytes": 594,
+        "compiledCSharpAssemblyBytes": 9728,
+        "javaScriptHostBytes": 2213
+      }
+    ]
+  },
+  "rss": {
+    "status": "not measured by the primary harness because process polling perturbs short kernels; retained as a documented deviation"
+  },
+  "runtimeMetadata": {
+    "ryuJit": {
+      "configuration": "Release, framework-dependent, default tiered compilation and dynamic PGO; no ReadyToRun publish, profiler, or debugger.",
+      "dynamicPgo": "production default; COMPlus overrides unset",
+      "readyToRun": false
+    },
+    "nativeAot": {
+      "rid": "win-x64",
+      "publishAot": true,
+      "selfContained": true,
+      "invariantGlobalization": true,
+      "debugType": "None",
+      "stripSymbols": true
+    },
+    "perry": {
+      "flags": [
+        "--target",
+        "windows",
+        "--no-codegen",
+        "--fp-contract",
+        "off"
+      ],
+      "fastMath": false,
+      "currentReleaseVerified": "0.5.1220"
+    }
+  }
+}
