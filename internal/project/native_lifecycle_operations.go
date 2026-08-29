@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/yuechen-li-dev/tspack/internal/audit"
 	"github.com/yuechen-li-dev/tspack/internal/diag"
@@ -48,6 +50,7 @@ type BuildArtifact struct {
 	Package      string `json:"package"`
 	Target       string `json:"target"`
 	Kind         string `json:"kind"`
+	Role         string `json:"role,omitempty"`
 	Path         string `json:"path"`
 	Identity     string `json:"identity,omitempty"`
 	ContentHash  string `json:"contentHash,omitempty"`
@@ -95,42 +98,160 @@ func RunBuild(ctx context.Context, request BuildRequest) BuildOperationResult {
 		))
 		return result
 	}
-	for _, pkg := range selectedPackages {
-		selectedTargets, selectionErr := orderLifecycleTargets(pkg, request.Targets)
-		if selectionErr != nil {
-			result.Diagnostics = append(result.Diagnostics, errDiag("TSPACK_BUILD_TARGET_NOT_FOUND", selectionErr.Error(), "package: "+pkg.Name))
-			continue
+	plannedTargets, selectionErr := orderWorkspaceBuildTargets(ir, selectedPackages, request.Targets)
+	if selectionErr != nil {
+		result.Diagnostics = append(result.Diagnostics, errDiag("TSPACK_BUILD_TARGET_NOT_FOUND", selectionErr.Error()))
+		return result
+	}
+	for _, planned := range plannedTargets {
+		pkg := planned.Package
+		target := planned.Target
+		if err := ctx.Err(); err != nil {
+			result.Diagnostics = append(result.Diagnostics, errDiag("TSPACK_BUILD_CANCELLED", "build was cancelled", err.Error()))
+			return result
 		}
-		for _, target := range selectedTargets {
-			if err := ctx.Err(); err != nil {
-				result.Diagnostics = append(result.Diagnostics, errDiag("TSPACK_BUILD_CANCELLED", "build was cancelled", err.Error()))
-				return result
-			}
-			targetResult := request.Executor.BuildTarget(ctx, BuildTargetRequest{
-				Project:                request.Project,
-				Manifest:               ir,
-				Package:                pkg,
-				Target:                 target,
-				PreserveLastSuccessful: request.PreserveLastSuccessful,
-			})
-			if targetResult.Package == "" {
-				targetResult.Package = pkg.Name
-			}
-			if targetResult.Target == "" {
-				targetResult.Target = target.Name
-			}
-			if targetResult.Compiler == "" {
-				targetResult.Compiler = target.Compiler
-			}
-			result.Targets = append(result.Targets, targetResult)
-			result.Artifacts = append(result.Artifacts, targetResult.Artifacts...)
-			result.Diagnostics = append(result.Diagnostics, targetResult.Diagnostics...)
-			if !targetResult.Succeeded || hasErrors(targetResult.Diagnostics) {
-				return result
-			}
+		targetResult := request.Executor.BuildTarget(ctx, BuildTargetRequest{
+			Project:                request.Project,
+			Manifest:               ir,
+			Package:                pkg,
+			Target:                 target,
+			PreserveLastSuccessful: request.PreserveLastSuccessful,
+		})
+		if targetResult.Package == "" {
+			targetResult.Package = pkg.Name
+		}
+		if targetResult.Target == "" {
+			targetResult.Target = target.Name
+		}
+		if targetResult.Compiler == "" {
+			targetResult.Compiler = target.Compiler
+		}
+		result.Targets = append(result.Targets, targetResult)
+		result.Artifacts = append(result.Artifacts, targetResult.Artifacts...)
+		result.Diagnostics = append(result.Diagnostics, targetResult.Diagnostics...)
+		if !targetResult.Succeeded || hasErrors(targetResult.Diagnostics) {
+			return result
 		}
 	}
 	return result
+}
+
+type plannedBuildTarget struct {
+	Package *manifest.Package
+	Target  manifest.Target
+}
+
+func orderWorkspaceBuildTargets(ir *manifest.ManifestIR, selectedPackages []*manifest.Package, requested []string) ([]plannedBuildTarget, error) {
+	byIdentity := map[string]plannedBuildTarget{}
+	for packageIndex := range ir.Packages {
+		pkg := &ir.Packages[packageIndex]
+		for _, target := range pkg.Targets {
+			byIdentity[pkg.Name+":"+target.Name] = plannedBuildTarget{Package: pkg, Target: target}
+		}
+	}
+
+	roots := []string{}
+	for _, pkg := range selectedPackages {
+		if len(requested) == 0 {
+			for _, target := range pkg.Targets {
+				roots = append(roots, pkg.Name+":"+target.Name)
+			}
+			continue
+		}
+		for _, name := range requested {
+			identity := pkg.Name + ":" + name
+			if _, ok := byIdentity[identity]; !ok {
+				return nil, fmt.Errorf("unknown build target %s for package %s%s", name, pkg.Name, buildTargetSuggestion(name, pkg.Targets))
+			}
+			roots = append(roots, identity)
+		}
+	}
+
+	state := map[string]int{}
+	ordered := []plannedBuildTarget{}
+	var visit func(string) error
+	visit = func(identity string) error {
+		if state[identity] == 2 {
+			return nil
+		}
+		if state[identity] == 1 {
+			return fmt.Errorf("build target dependency cycle includes %s", identity)
+		}
+		planned, ok := byIdentity[identity]
+		if !ok {
+			return fmt.Errorf("unknown build target dependency %s", identity)
+		}
+		state[identity] = 1
+		for _, reference := range planned.Target.DependsOn {
+			dependencyPackage, dependencyTarget := manifest.ResolveBuildTargetReference(planned.Package.Name, reference)
+			if err := visit(dependencyPackage + ":" + dependencyTarget); err != nil {
+				return err
+			}
+		}
+		state[identity] = 2
+		ordered = append(ordered, planned)
+		return nil
+	}
+	for _, identity := range roots {
+		if err := visit(identity); err != nil {
+			return nil, err
+		}
+	}
+	return ordered, nil
+}
+
+func buildTargetSuggestion(requested string, targets []manifest.Target) string {
+	type candidate struct {
+		name     string
+		distance int
+	}
+	candidates := []candidate{}
+	for _, target := range targets {
+		distance := editDistance(requested, target.Name)
+		if distance <= 3 || strings.Contains(target.Name, requested) || strings.Contains(requested, target.Name) {
+			candidates = append(candidates, candidate{name: target.Name, distance: distance})
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].distance != candidates[j].distance {
+			return candidates[i].distance < candidates[j].distance
+		}
+		return candidates[i].name < candidates[j].name
+	})
+	if len(candidates) > 3 {
+		candidates = candidates[:3]
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		names = append(names, candidate.name)
+	}
+	return "; did you mean " + strings.Join(names, ", ") + "?"
+}
+
+func editDistance(left string, right string) int {
+	previous := make([]int, len(right)+1)
+	for index := range previous {
+		previous[index] = index
+	}
+	for leftIndex, leftRune := range []rune(left) {
+		current := make([]int, len([]rune(right))+1)
+		current[0] = leftIndex + 1
+		for rightIndex, rightRune := range []rune(right) {
+			cost := 0
+			if leftRune != rightRune {
+				cost = 1
+			}
+			deletion := previous[rightIndex+1] + 1
+			insertion := current[rightIndex] + 1
+			replacement := previous[rightIndex] + cost
+			current[rightIndex+1] = min(deletion, insertion, replacement)
+		}
+		previous = current
+	}
+	return previous[len(previous)-1]
 }
 
 func selectLifecyclePackages(ir *manifest.ManifestIR, requested []string) []*manifest.Package {
@@ -142,71 +263,6 @@ func selectLifecyclePackages(ir *manifest.ManifestIR, requested []string) []*man
 		}
 	}
 	return selected
-}
-
-func orderLifecycleTargets(pkg *manifest.Package, requested []string) ([]manifest.Target, error) {
-	byName := map[string]manifest.Target{}
-	for _, target := range pkg.Targets {
-		byName[target.Name] = target
-	}
-	selected := map[string]bool{}
-	var selectTarget func(string) error
-	selectTarget = func(name string) error {
-		if selected[name] {
-			return nil
-		}
-		target, ok := byName[name]
-		if !ok {
-			return fmt.Errorf("unknown compiler target dependency %s", name)
-		}
-		selected[name] = true
-		for _, dependency := range target.DependsOn {
-			if err := selectTarget(dependency); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if len(requested) == 0 {
-		for _, target := range pkg.Targets {
-			if err := selectTarget(target.Name); err != nil {
-				return nil, err
-			}
-		}
-	} else {
-		for _, name := range requested {
-			if err := selectTarget(name); err != nil {
-				return nil, err
-			}
-		}
-	}
-	state := map[string]int{}
-	ordered := []manifest.Target{}
-	var visit func(string) error
-	visit = func(name string) error {
-		if state[name] == 2 || !selected[name] {
-			return nil
-		}
-		if state[name] == 1 {
-			return fmt.Errorf("TSPACK_COMPILER_TARGET_DEPENDENCY_CYCLE: cycle includes %s", name)
-		}
-		state[name] = 1
-		target := byName[name]
-		for _, dependency := range target.DependsOn {
-			if err := visit(dependency); err != nil {
-				return err
-			}
-		}
-		state[name] = 2
-		ordered = append(ordered, target)
-		return nil
-	}
-	for _, target := range pkg.Targets {
-		if err := visit(target.Name); err != nil {
-			return nil, err
-		}
-	}
-	return ordered, nil
 }
 
 func containsLifecycleSelection(values []string, candidate string) bool {
@@ -251,7 +307,11 @@ func RunTest(ctx context.Context, request TestRequest) TestOperationResult {
 		}
 		target := selectTestTarget(pkg, request.Target)
 		if target == nil {
-			return TestOperationResult{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_TEST_NO_TARGETS", "no test target matched the requested package selection", "selected package: "+pkg.Name, "Declare TestTargets in the package manifest or select a configured target.")}, ExitCode: 1}
+			details := []string{"selected package: " + pkg.Name, "Declare TestTargets in the package manifest or select a configured target."}
+			if suggestion := testTargetSuggestion(request.Target, pkg.TestTargets); suggestion != "" {
+				details = append(details, suggestion)
+			}
+			return TestOperationResult{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_TEST_NO_TARGETS", "no test target matched the requested package selection", details...)}, ExitCode: 1}
 		}
 		if target.Harness != "vitest" {
 			return TestOperationResult{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_TEST_HARNESS_UNSUPPORTED", "unsupported declared test harness: "+target.Harness)}, ExitCode: 1}
@@ -292,6 +352,37 @@ func selectTestTarget(pkg *manifest.Package, requested string) *manifest.TestTar
 		}
 	}
 	return nil
+}
+
+func testTargetSuggestion(requested string, targets []manifest.TestTarget) string {
+	type candidate struct {
+		name     string
+		distance int
+	}
+	candidates := []candidate{}
+	for _, target := range targets {
+		distance := editDistance(requested, target.Name)
+		if distance <= 3 || strings.Contains(target.Name, requested) || strings.Contains(requested, target.Name) {
+			candidates = append(candidates, candidate{name: target.Name, distance: distance})
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].distance != candidates[j].distance {
+			return candidates[i].distance < candidates[j].distance
+		}
+		return candidates[i].name < candidates[j].name
+	})
+	if len(candidates) > 3 {
+		candidates = candidates[:3]
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		names = append(names, candidate.name)
+	}
+	return "did you mean: " + strings.Join(names, ", ")
 }
 
 type AuditRequest struct {

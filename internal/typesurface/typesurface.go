@@ -143,9 +143,14 @@ func validateExternal(p *graph.PackageNode, t *graph.TargetNode, file, pkg, seve
 func resolveDTSRelative(base, spec string) (string, bool) {
 	cand := filepath.Clean(filepath.Join(filepath.Dir(base), spec))
 	tries := []string{}
-	if ext := filepath.Ext(cand); ext == ".d.ts" || ext == ".d.mts" || ext == ".d.cts" {
+	ext := filepath.Ext(cand)
+	if ext == ".d.ts" || ext == ".d.mts" || ext == ".d.cts" {
 		tries = append(tries, cand)
 	} else {
+		if ext == ".js" || ext == ".mjs" || ext == ".cjs" {
+			withoutRuntimeExtension := strings.TrimSuffix(cand, ext)
+			tries = append(tries, withoutRuntimeExtension+".d.ts", withoutRuntimeExtension+".d.mts", withoutRuntimeExtension+".d.cts")
+		}
 		tries = append(tries, cand+".d.ts", cand+".d.mts", cand+".d.cts", filepath.Join(cand, "index.d.ts"), filepath.Join(cand, "index.d.mts"), filepath.Join(cand, "index.d.cts"))
 	}
 	for _, p := range tries {

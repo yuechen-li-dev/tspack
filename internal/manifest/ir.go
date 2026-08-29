@@ -412,6 +412,7 @@ type Target struct {
 	CompilerConfig    string                `json:"compilerConfig,omitempty"`
 	Inputs            []string              `json:"inputs,omitempty"`
 	DependsOn         []string              `json:"dependsOn,omitempty"`
+	Artifacts         []TargetArtifact      `json:"artifacts,omitempty"`
 	Artifact          string                `json:"artifact,omitempty"`
 	Export            string                `json:"export"`
 	Entry             string                `json:"entry"`
@@ -425,6 +426,15 @@ type Target struct {
 	Peers             []string              `json:"peers"`
 	Deps              []string              `json:"deps"`
 	Optional          bool                  `json:"optional,omitempty"`
+}
+
+// TargetArtifact declares one stable member of a build target's output set.
+// Name is target-local identity; Path is the package-relative materialization.
+type TargetArtifact struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+	Path string `json:"path"`
+	Role string `json:"role,omitempty"`
 }
 
 // CopelandNpmContract is static package metadata selected by TSPack after the
@@ -846,6 +856,31 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 					add("TSPACK_COMPILER_INPUT_INVALID", tp+".inputs must contain safe relative paths or globs")
 				}
 			}
+			seenArtifactNames := map[string]struct{}{}
+			seenArtifactPaths := map[string]struct{}{}
+			for artifactIndex, artifact := range t.Artifacts {
+				artifactPath := fmt.Sprintf("%s.artifacts[%d]", tp, artifactIndex)
+				if artifact.Name == "" || !targetNameRe.MatchString(artifact.Name) {
+					add("TSPACK_COMPILER_ARTIFACT_NAME_INVALID", artifactPath+".name is invalid")
+				}
+				if _, ok := seenArtifactNames[artifact.Name]; ok {
+					add("TSPACK_COMPILER_ARTIFACT_DUPLICATE", tp+" has duplicate artifact name: "+artifact.Name)
+				}
+				seenArtifactNames[artifact.Name] = struct{}{}
+				if !validTargetArtifactKind(artifact.Kind) {
+					add("TSPACK_COMPILER_ARTIFACT_KIND_INVALID", artifactPath+".kind is invalid")
+				}
+				if !validTargetArtifactRole(artifact.Role) {
+					add("TSPACK_COMPILER_ARTIFACT_ROLE_INVALID", artifactPath+".role is invalid")
+				}
+				if !pathutil.IsSafePackageFilePath(artifact.Path) && !pathutil.IsSafeRelativeGlob(artifact.Path) {
+					add("TSPACK_COMPILER_ARTIFACT_PATH_INVALID", artifactPath+".path must be a safe relative path or glob")
+				}
+				if _, ok := seenArtifactPaths[artifact.Path]; ok {
+					add("TSPACK_COMPILER_ARTIFACT_DUPLICATE", tp+" has duplicate artifact path: "+artifact.Path)
+				}
+				seenArtifactPaths[artifact.Path] = struct{}{}
+			}
 			if compiler == "scriptc" {
 				if len(t.Inputs) == 0 {
 					add("TSPACK_COMPILER_INPUTS_REQUIRED", tp+".inputs is required for a bounded ScriptC target")
@@ -915,14 +950,6 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 		inputOwners := map[string]string{}
 		for ti, target := range p.Targets {
 			tp := fmt.Sprintf("%s.targets[%d]", pp, ti)
-			for _, dependencyTarget := range target.DependsOn {
-				if _, ok := seenTarget[dependencyTarget]; !ok {
-					add("TSPACK_COMPILER_TARGET_DEPENDENCY_UNKNOWN", tp+".dependsOn has unknown target: "+dependencyTarget)
-				}
-				if dependencyTarget == target.Name {
-					add("TSPACK_COMPILER_TARGET_DEPENDENCY_CYCLE", tp+".dependsOn cannot reference itself")
-				}
-			}
 			for _, input := range target.Inputs {
 				if owner, ok := inputOwners[input]; ok && owner != target.Name {
 					add("TSPACK_COMPILER_SOURCE_OVERLAP", tp+".inputs overlaps target "+owner+" through identical pattern "+input)
@@ -1067,8 +1094,99 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 			}
 		}
 	}
+	validateBuildTargetDependencies(add, ir)
 	diag.SortDiagnostics(out)
 	return out
+}
+
+func validTargetArtifactKind(kind string) bool {
+	switch kind {
+	case "javaScript", "typeDeclarations", "sourceMap", "metadata":
+		return true
+	default:
+		return false
+	}
+}
+
+func validTargetArtifactRole(role string) bool {
+	switch role {
+	case "", "runtimeEntry", "runtimeChunk", "typeDeclaration", "declarationChunk", "sourceMap", "metadata":
+		return true
+	default:
+		return false
+	}
+}
+
+// ResolveBuildTargetReference expands a package-local or package-qualified
+// dependency reference into its stable workspace identity parts.
+func ResolveBuildTargetReference(ownerPackage string, reference string) (string, string) {
+	separator := strings.LastIndex(reference, ":")
+	if separator <= 0 {
+		return ownerPackage, reference
+	}
+	return reference[:separator], reference[separator+1:]
+}
+
+func validateBuildTargetDependencies(add func(string, string, ...string), ir *ManifestIR) {
+	targets := map[string]Target{}
+	paths := map[string]string{}
+	for packageIndex, pkg := range ir.Packages {
+		for targetIndex, target := range pkg.Targets {
+			identity := pkg.Name + ":" + target.Name
+			targets[identity] = target
+			paths[identity] = fmt.Sprintf("packages[%d].targets[%d]", packageIndex, targetIndex)
+		}
+	}
+
+	edges := map[string][]string{}
+	for _, pkg := range ir.Packages {
+		for _, target := range pkg.Targets {
+			identity := pkg.Name + ":" + target.Name
+			for _, reference := range target.DependsOn {
+				dependencyPackage, dependencyTarget := ResolveBuildTargetReference(pkg.Name, reference)
+				dependencyIdentity := dependencyPackage + ":" + dependencyTarget
+				if _, ok := targets[dependencyIdentity]; !ok {
+					add("TSPACK_COMPILER_TARGET_DEPENDENCY_UNKNOWN", paths[identity]+".dependsOn has unknown target: "+reference)
+					continue
+				}
+				if dependencyIdentity == identity {
+					add("TSPACK_COMPILER_TARGET_DEPENDENCY_CYCLE", paths[identity]+".dependsOn cannot reference itself")
+					continue
+				}
+				edges[identity] = append(edges[identity], dependencyIdentity)
+			}
+		}
+	}
+	for identity := range edges {
+		sort.Strings(edges[identity])
+	}
+
+	state := map[string]int{}
+	cycleReported := false
+	var visit func(string)
+	visit = func(identity string) {
+		if state[identity] == 2 || cycleReported {
+			return
+		}
+		if state[identity] == 1 {
+			add("TSPACK_COMPILER_TARGET_DEPENDENCY_CYCLE", "build target dependency cycle includes "+identity)
+			cycleReported = true
+			return
+		}
+		state[identity] = 1
+		for _, dependency := range edges[identity] {
+			visit(dependency)
+		}
+		state[identity] = 2
+	}
+	identities := make([]string, 0, len(targets))
+	for identity := range targets {
+		identities = append(identities, identity)
+	}
+	sort.Strings(identities)
+	for _, identity := range identities {
+		visit(identity)
+	}
 }
 
 func validateRegistryPolicy(add func(string, string, ...string), policy RegistryPolicy) {

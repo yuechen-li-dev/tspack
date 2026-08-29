@@ -230,6 +230,7 @@ declare module 'tspack/manifest' {
 	compilerConfig?: string;
 	inputs?: string[];
 	dependsOn?: string[];
+	artifacts?: TargetArtifactRow[];
 	artifact?: 'javaScript' | 'managedExecutable' | 'nativeExecutable' | 'wasmModule';
     export?: string;
     entry: string;
@@ -243,7 +244,14 @@ declare module 'tspack/manifest' {
     deps?: TargetDependencyRefLike[];
     peers?: TargetDependencyRefLike[];
     optional?: boolean;
-    [key: string]: Primitive | Primitive[] | TargetDependencyRefLike[] | CopelandNpmContract[] | undefined;
+    [key: string]: Primitive | Primitive[] | TargetDependencyRefLike[] | CopelandNpmContract[] | TargetArtifactRow[] | undefined;
+  };
+
+  export type TargetArtifactRow = {
+    name: string;
+    kind: 'javaScript' | 'typeDeclarations' | 'sourceMap' | 'metadata';
+    path: string;
+    role?: 'runtimeEntry' | 'runtimeChunk' | 'typeDeclaration' | 'declarationChunk' | 'sourceMap' | 'metadata';
   };
 
   export type RunTargetReady =

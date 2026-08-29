@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -74,6 +75,47 @@ func TestRunBuildSelectsTargetsAndReturnsTypedArtifactsWithoutCLI(t *testing.T) 
 	}
 	if len(executor.targets) != 1 || executor.targets[0] != "app:browser" {
 		t.Fatalf("targets=%v", executor.targets)
+	}
+}
+
+func TestRunBuildPlansQualifiedPrerequisiteOnceBeforeDownstream(t *testing.T) {
+	root := t.TempDir()
+	irPath := filepath.Join(root, "ir.json")
+	ir := map[string]any{
+		"format":    1,
+		"workspace": map[string]any{"name": "demo"},
+		"packages": []any{
+			map[string]any{
+				"name": "base", "version": "1.0.0", "kind": "library",
+				"targets": []any{map[string]any{"name": "package", "export": ".", "compiler": "tsc", "entry": "src.ts", "runtime": "dist/base.js", "types": "dist/base.d.ts"}},
+				"publish": map[string]any{"include": []string{"dist/**"}},
+			},
+			map[string]any{
+				"name": "app", "version": "1.0.0", "kind": "app",
+				"targets": []any{map[string]any{"name": "package", "export": ".", "compiler": "tsc", "entry": "src.ts", "runtime": "dist/app.js", "types": "dist/app.d.ts", "dependsOn": []string{"base:package"}}},
+			},
+		},
+	}
+	contents, err := json.Marshal(ir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(irPath, contents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	executor := &recordingBuildExecutor{}
+	result := RunBuild(context.Background(), BuildRequest{
+		Project:  Options{RootDir: root, ManifestIRPath: irPath},
+		Packages: []string{"app"},
+		Targets:  []string{"package"},
+		Executor: executor,
+	})
+	if hasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics=%v", result.Diagnostics)
+	}
+	want := []string{"base:package", "app:package"}
+	if !reflect.DeepEqual(executor.targets, want) {
+		t.Fatalf("targets=%v want=%v", executor.targets, want)
 	}
 }
 

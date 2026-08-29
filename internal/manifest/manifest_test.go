@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/yuechen-li-dev/tspack/internal/diag"
@@ -93,6 +94,32 @@ func TestInvalidCases(t *testing.T) {
 				t.Fatalf("expected code %s got %#v", tc.code, diags)
 			}
 		})
+	}
+}
+
+func TestBuildArtifactSetsAndQualifiedDependenciesValidate(t *testing.T) {
+	valid := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"base","version":"1.0.0","kind":"library","dependencies":[],"targets":[{"name":"package","compiler":"rollup","export":".","entry":"src/index.ts","runtime":"dist/index.js","types":"dist/index.d.ts","artifacts":[{"name":"index-js","kind":"javaScript","role":"runtimeEntry","path":"dist/index.js"},{"name":"shared-dts","kind":"typeDeclarations","role":"declarationChunk","path":"dist/index.d-*.d.ts"}],"peers":[],"deps":[]}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}},{"name":"app","version":"1.0.0","kind":"app","dependencies":[],"targets":[{"name":"package","export":".","entry":"src/index.ts","runtime":"dist/index.js","types":"dist/index.d.ts","dependsOn":["base:package"],"peers":[],"deps":[]}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":[],"exclude":[]}}]}`
+	if _, diagnostics := LoadBytes("valid.json", []byte(valid)); len(diagnostics) != 0 {
+		t.Fatalf("diagnostics=%v", diagnostics)
+	}
+
+	unknown := strings.Replace(valid, `"base:package"`, `"missing:package"`, 1)
+	if _, diagnostics := LoadBytes("unknown.json", []byte(unknown)); !hasDiagnosticCode(diagnostics, "TSPACK_COMPILER_TARGET_DEPENDENCY_UNKNOWN") {
+		t.Fatalf("diagnostics=%v", diagnostics)
+	}
+	self := strings.Replace(valid, `"base:package"`, `"package"`, 1)
+	if _, diagnostics := LoadBytes("self.json", []byte(self)); !hasDiagnosticCode(diagnostics, "TSPACK_COMPILER_TARGET_DEPENDENCY_CYCLE") {
+		t.Fatalf("diagnostics=%v", diagnostics)
+	}
+
+	cycle := strings.Replace(valid, `"peers":[],"deps":[]}],"policies"`, `"dependsOn":["app:package"],"peers":[],"deps":[]}],"policies"`, 1)
+	if _, diagnostics := LoadBytes("cycle.json", []byte(cycle)); !hasDiagnosticCode(diagnostics, "TSPACK_COMPILER_TARGET_DEPENDENCY_CYCLE") {
+		t.Fatalf("diagnostics=%v", diagnostics)
+	}
+
+	duplicateArtifact := strings.Replace(valid, `"name":"shared-dts"`, `"name":"index-js"`, 1)
+	if _, diagnostics := LoadBytes("duplicate.json", []byte(duplicateArtifact)); !hasDiagnosticCode(diagnostics, "TSPACK_COMPILER_ARTIFACT_DUPLICATE") {
+		t.Fatalf("diagnostics=%v", diagnostics)
 	}
 }
 

@@ -2,6 +2,7 @@ package typesurface
 
 import (
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -9,6 +10,19 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/graph"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
 )
+
+func TestResolveDTSRelativeMapsJavaScriptSpecifierToDeclaration(t *testing.T) {
+	directory := t.TempDir()
+	entry := filepath.Join(directory, "index.d.ts")
+	chunk := filepath.Join(directory, "index.d-generated.d.ts")
+	if err := os.WriteFile(chunk, []byte("export type Value = string;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resolved, ok := resolveDTSRelative(entry, "./index.d-generated.js")
+	if !ok || resolved != chunk {
+		t.Fatalf("resolved=%q ok=%v", resolved, ok)
+	}
+}
 
 func loadGraph(t *testing.T, fixture string) *graph.WorkspaceGraph {
 	b, _ := os.ReadFile(fixture)

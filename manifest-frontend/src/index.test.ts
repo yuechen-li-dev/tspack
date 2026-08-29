@@ -12,6 +12,36 @@ function writeFixture(name: string, contents: string): string {
 }
 
 describe('package annotation manifests', () => {
+  it('preserves declared multi-entry build artifact sets', () => {
+    const file = writeFixture('package.manifest.tsx', `
+      import { Package, Publish, Targets, definePackage } from "tspack/manifest";
+      export default definePackage(
+        <Package name="snapshot" version="1.0.0" kind="library">
+          <Targets rows={[{
+            name: "package",
+            compiler: "rollup",
+            entry: "src/index.ts",
+            runtime: "dist/index.js",
+            types: "dist/index.d.ts",
+            artifacts: [
+              { name: "index-js", kind: "javaScript", role: "runtimeEntry", path: "dist/index.js" },
+              { name: "shared-dts", kind: "typeDeclarations", role: "declarationChunk", path: "dist/index.d-*.d.ts" },
+            ],
+          }]} />
+          <Publish include={["dist"]} exclude={[]} />
+        </Package>,
+      );
+    `);
+
+    const result = parsePackageManifestFile(file);
+
+    expect(result.ok).toBe(true);
+    expect(result.ir?.packages[0]?.targets[0]?.artifacts).toEqual([
+      { name: 'index-js', kind: 'javaScript', role: 'runtimeEntry', path: 'dist/index.js' },
+      { name: 'shared-dts', kind: 'typeDeclarations', role: 'declarationChunk', path: 'dist/index.d-*.d.ts' },
+    ]);
+  });
+
   it('preserves distinct project and publication identities with declared test targets', () => {
     const file = writeFixture('package.manifest.tsx', `
       import { Package, TestTargets, definePackage } from "tspack/manifest";

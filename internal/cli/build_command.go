@@ -890,32 +890,59 @@ func buildRollupTarget(ctx context.Context, root string, manifestPath string, ir
 	if err != nil {
 		return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_BUILD_FAILED", Severity: diag.SeverityError, Message: "Rollup build failed for " + pkg.Name + ":" + target.Name, Details: []string{err.Error()}}}
 	}
+	declaredArtifacts := target.Artifacts
+	if len(declaredArtifacts) == 0 {
+		declaredArtifacts = []manifest.TargetArtifact{
+			{Name: "javaScript", Kind: "javaScript", Path: target.Runtime, Role: "runtimeEntry"},
+			{Name: "typeDeclarations", Kind: "typeDeclarations", Path: target.Types, Role: "typeDeclaration"},
+		}
+	}
 	artifacts := []project.BuildArtifact{}
-	for _, declared := range []struct {
-		kind string
-		path string
-	}{
-		{kind: "javaScript", path: target.Runtime},
-		{kind: "typeDeclarations", path: target.Types},
-	} {
-		if declared.path == "" {
+	for _, declared := range declaredArtifacts {
+		if declared.Path == "" {
 			continue
 		}
-		artifactPath := filepath.Join(packageRoot, filepath.FromSlash(declared.path))
-		contents, readErr := os.ReadFile(artifactPath)
-		if readErr != nil {
-			return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_MISSING", Severity: diag.SeverityError, Message: "Rollup did not materialize a declared artifact", Details: []string{declared.path, readErr.Error()}}}
+		artifactPattern := filepath.Join(packageRoot, filepath.FromSlash(declared.Path))
+		artifactPaths := []string{artifactPattern}
+		if strings.ContainsAny(declared.Path, "*?[") {
+			matches, globErr := filepath.Glob(artifactPattern)
+			if globErr != nil {
+				return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_INVALID", Severity: diag.SeverityError, Message: "declared Rollup artifact glob is invalid", Details: []string{declared.Path, globErr.Error()}}}
+			}
+			artifactPaths = matches
 		}
-		hash := sha256.Sum256(contents)
-		artifacts = append(artifacts, project.BuildArtifact{
-			Package:     pkg.Name,
-			Target:      target.Name,
-			Kind:        declared.kind,
-			Path:        artifactPath,
-			Identity:    pkg.Name + ":" + target.Name + ":" + declared.kind,
-			ContentHash: hex.EncodeToString(hash[:]),
-		})
+		if len(artifactPaths) == 0 {
+			return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_MISSING", Severity: diag.SeverityError, Message: "Rollup did not materialize a declared artifact", Details: []string{declared.Path}}}
+		}
+		sort.Strings(artifactPaths)
+		for _, artifactPath := range artifactPaths {
+			contents, readErr := os.ReadFile(artifactPath)
+			if readErr != nil {
+				return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_MISSING", Severity: diag.SeverityError, Message: "Rollup did not materialize a declared artifact", Details: []string{declared.Path, readErr.Error()}}}
+			}
+			hash := sha256.Sum256(contents)
+			identity := pkg.Name + ":" + target.Name + ":" + declared.Name
+			if len(artifactPaths) > 1 {
+				relativePath, relativeErr := filepath.Rel(packageRoot, artifactPath)
+				if relativeErr != nil {
+					return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_INVALID", Severity: diag.SeverityError, Message: "could not identify Rollup artifact", Details: []string{artifactPath, relativeErr.Error()}}}
+				}
+				identity += ":" + filepath.ToSlash(relativePath)
+			}
+			artifacts = append(artifacts, project.BuildArtifact{
+				Package:     pkg.Name,
+				Target:      target.Name,
+				Kind:        declared.Kind,
+				Role:        declared.Role,
+				Path:        artifactPath,
+				Identity:    identity,
+				ContentHash: hex.EncodeToString(hash[:]),
+			})
+		}
 	}
+	sort.Slice(artifacts, func(i, j int) bool {
+		return artifacts[i].Identity < artifacts[j].Identity
+	})
 	fmt.Printf("Built %s:%s with Rollup -> %s\n", pkg.Name, target.Name, target.Runtime)
 	return artifacts, nil
 }
