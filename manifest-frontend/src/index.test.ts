@@ -12,6 +12,26 @@ function writeFixture(name: string, contents: string): string {
 }
 
 describe('package annotation manifests', () => {
+  it('preserves distinct project and publication identities with declared test targets', () => {
+    const file = writeFixture('package.manifest.tsx', `
+      import { Package, TestTargets, definePackage } from "tspack/manifest";
+      export default definePackage(
+        <Package name="fixture-a" publicationName="shared-fixture" version="1.0.0" kind="app">
+          <TestTargets rows={[{ name: "unit", harness: "vitest", config: "vite.config.ts", sources: ["test/basic.test.ts"], project: "threads" }]} />
+        </Package>,
+      );
+    `);
+
+    const result = parsePackageManifestFile(file);
+
+    expect(result.ok).toBe(true);
+    expect(result.ir?.packages[0]?.name).toBe('fixture-a');
+    expect(result.ir?.packages[0]?.publicationName).toBe('shared-fixture');
+    expect(result.ir?.packages[0]?.testTargets).toEqual([
+      { name: 'unit', harness: 'vitest', config: 'vite.config.ts', sources: ['test/basic.test.ts'], project: 'threads' },
+    ]);
+  });
+
   it('parses annotatePackage as a package annotation and not a full package', () => {
     const file = writeFixture('package.manifest.tsx', `
       import { PackageAnnotations, annotatePackage, defineDeps, npm, peer, tool } from "tspack/manifest";

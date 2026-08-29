@@ -79,6 +79,22 @@ func RunBuild(ctx context.Context, request BuildRequest) BuildOperationResult {
 		result.Diagnostics = append(result.Diagnostics, errDiag("TSPACK_BUILD_PACKAGE_NOT_FOUND", "no package matched the requested build selection"))
 		return result
 	}
+	configuredTargetCount := 0
+	for _, pkg := range selectedPackages {
+		configuredTargetCount += len(pkg.Targets)
+	}
+	if configuredTargetCount == 0 {
+		details := []string{}
+		for _, pkg := range selectedPackages {
+			details = append(details, "selected package: "+pkg.Name+" (0 build targets)")
+		}
+		result.Diagnostics = append(result.Diagnostics, errDiag(
+			"TSPACK_BUILD_NO_TARGETS",
+			"no build targets are configured for the selected package set",
+			append(details, "Declare a compiler target in manifest.tsx or select a package with a declared build contract.")...,
+		))
+		return result
+	}
 	for _, pkg := range selectedPackages {
 		selectedTargets, selectionErr := orderLifecycleTargets(pkg, request.Targets)
 		if selectionErr != nil {
@@ -205,6 +221,8 @@ func containsLifecycleSelection(values []string, candidate string) bool {
 type TestRequest struct {
 	Project Options
 	Options testcmd.Options
+	Package string
+	Target  string
 }
 
 type TestOperationResult struct {
@@ -222,6 +240,29 @@ func RunTest(ctx context.Context, request TestRequest) TestOperationResult {
 	if options.RootDir == "" {
 		options.RootDir = request.Project.RootDir
 	}
+	if request.Package != "" || request.Target != "" {
+		ir, diagnostics := loadManifestIR(request.Project)
+		if hasErrors(diagnostics) {
+			return TestOperationResult{Diagnostics: diagnostics, ExitCode: 1}
+		}
+		pkg := selectTestPackage(ir, request.Package)
+		if pkg == nil {
+			return TestOperationResult{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_TEST_PACKAGE_NOT_FOUND", "no package matched the requested test selection", "package: "+request.Package)}, ExitCode: 1}
+		}
+		target := selectTestTarget(pkg, request.Target)
+		if target == nil {
+			return TestOperationResult{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_TEST_NO_TARGETS", "no test target matched the requested package selection", "selected package: "+pkg.Name, "Declare TestTargets in the package manifest or select a configured target.")}, ExitCode: 1}
+		}
+		if target.Harness != "vitest" {
+			return TestOperationResult{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_TEST_HARNESS_UNSUPPORTED", "unsupported declared test harness: "+target.Harness)}, ExitCode: 1}
+		}
+		options.UseVitest = true
+		options.CaptureStructured = true
+		options.VitestCwd = filepath.Join(request.Project.RootDir, filepath.FromSlash(pkg.Root))
+		options.VitestConfig = target.Config
+		options.VitestFiles = append([]string{}, target.Sources...)
+		options.VitestProject = target.Project
+	}
 	result := testcmd.RunContext(ctx, options)
 	operation := TestOperationResult{
 		Diagnostics: result.Diagnostics,
@@ -233,6 +274,24 @@ func RunTest(ctx context.Context, request TestRequest) TestOperationResult {
 		Tests:       result.Tests,
 	}
 	return operation
+}
+
+func selectTestPackage(ir *manifest.ManifestIR, requested string) *manifest.Package {
+	for index := range ir.Packages {
+		if ir.Packages[index].Name == requested {
+			return &ir.Packages[index]
+		}
+	}
+	return nil
+}
+
+func selectTestTarget(pkg *manifest.Package, requested string) *manifest.TestTarget {
+	for index := range pkg.TestTargets {
+		if pkg.TestTargets[index].Name == requested {
+			return &pkg.TestTargets[index]
+		}
+	}
+	return nil
 }
 
 type AuditRequest struct {

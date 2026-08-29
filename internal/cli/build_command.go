@@ -833,6 +833,15 @@ func (cliBuildTargetExecutor) BuildTarget(ctx context.Context, request project.B
 		buildScriptCTarget(ctx, root, manifestPath, request.Manifest, request.Package, request.Target)
 	case "perry":
 		buildPerryTarget(ctx, root, manifestPath, request.Manifest, request.Package, request.Target)
+	case "rollup":
+		artifacts, diagnostics := buildRollupTarget(ctx, root, manifestPath, request.Manifest, request.Package, request.Target)
+		result.Artifacts = append(result.Artifacts, artifacts...)
+		result.Diagnostics = append(result.Diagnostics, diagnostics...)
+		if hasDiagnosticErrors(diagnostics) {
+			return result
+		}
+		result.Succeeded = true
+		return result
 	default:
 		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_BUILD_UNSUPPORTED_COMPILER", Severity: diag.SeverityError, Message: "unsupported compiler for target " + request.Package.Name + ":" + request.Target.Name + ": " + request.Target.Compiler})
 		return result
@@ -844,4 +853,69 @@ func (cliBuildTargetExecutor) BuildTarget(ctx context.Context, request project.B
 	result.Artifacts = append(result.Artifacts, project.BuildArtifact{Package: request.Package.Name, Target: request.Target.Name, Kind: artifactKind, Path: filepath.Join(packageRoot, filepath.FromSlash(request.Target.Runtime))})
 	result.Succeeded = true
 	return result
+}
+
+func buildRollupTarget(ctx context.Context, root string, manifestPath string, ir *manifest.ManifestIR, pkg *manifest.Package, target manifest.Target) ([]project.BuildArtifact, []diag.Diagnostic) {
+	packageRoot := resolvePackageRoot(root, manifestPath, ir, pkg)
+	configPath := target.CompilerConfig
+	if configPath == "" {
+		configPath = "rollup.config.js"
+	}
+	absoluteConfigPath := filepath.Join(packageRoot, filepath.FromSlash(configPath))
+	if _, err := os.Stat(absoluteConfigPath); err != nil {
+		return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_CONFIG_MISSING", Severity: diag.SeverityError, Message: "Rollup compiler config is missing", Details: []string{absoluteConfigPath}}}
+	}
+	entryPath := filepath.Join(packageRoot, filepath.FromSlash(target.Entry))
+	if _, err := os.Stat(entryPath); err != nil {
+		return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_SOURCE_MISSING", Severity: diag.SeverityError, Message: "Rollup entry source is missing", Details: []string{entryPath}}}
+	}
+	compilerPath := target.CompilerPath
+	if compilerPath == "" {
+		compilerPath = filepath.Join(root, "node_modules", ".bin", "rollup")
+		if os.PathSeparator == '\\' {
+			compilerPath += ".cmd"
+		}
+	} else if !filepath.IsAbs(compilerPath) {
+		compilerPath = filepath.Join(packageRoot, filepath.FromSlash(compilerPath))
+	}
+	if _, err := os.Stat(compilerPath); err != nil {
+		return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_TOOL_MISSING", Severity: diag.SeverityError, Message: "project-managed Rollup compiler is missing", Details: []string{compilerPath}}}
+	}
+	command := exec.CommandContext(ctx, compilerPath, "-c", absoluteConfigPath)
+	command.Dir = packageRoot
+	output, err := runOwnedBuildCommand(command)
+	if len(output) > 0 {
+		fmt.Print(string(output))
+	}
+	if err != nil {
+		return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_BUILD_FAILED", Severity: diag.SeverityError, Message: "Rollup build failed for " + pkg.Name + ":" + target.Name, Details: []string{err.Error()}}}
+	}
+	artifacts := []project.BuildArtifact{}
+	for _, declared := range []struct {
+		kind string
+		path string
+	}{
+		{kind: "javaScript", path: target.Runtime},
+		{kind: "typeDeclarations", path: target.Types},
+	} {
+		if declared.path == "" {
+			continue
+		}
+		artifactPath := filepath.Join(packageRoot, filepath.FromSlash(declared.path))
+		contents, readErr := os.ReadFile(artifactPath)
+		if readErr != nil {
+			return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_MISSING", Severity: diag.SeverityError, Message: "Rollup did not materialize a declared artifact", Details: []string{declared.path, readErr.Error()}}}
+		}
+		hash := sha256.Sum256(contents)
+		artifacts = append(artifacts, project.BuildArtifact{
+			Package:     pkg.Name,
+			Target:      target.Name,
+			Kind:        declared.kind,
+			Path:        artifactPath,
+			Identity:    pkg.Name + ":" + target.Name + ":" + declared.kind,
+			ContentHash: hex.EncodeToString(hash[:]),
+		})
+	}
+	fmt.Printf("Built %s:%s with Rollup -> %s\n", pkg.Name, target.Name, target.Runtime)
+	return artifacts, nil
 }

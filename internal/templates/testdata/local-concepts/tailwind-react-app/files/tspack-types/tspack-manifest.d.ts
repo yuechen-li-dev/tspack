@@ -31,7 +31,7 @@ declare module 'tspack/manifest' {
   };
 
   export type RuntimeProfile = 'nodejs' | 'bun' | 'deno';
-  export type Compiler = 'tsc' | 'tscl' | 'scriptc' | 'perry';
+  export type Compiler = 'tsc' | 'tscl' | 'scriptc' | 'perry' | 'rollup';
 
   export type NpmSource = {
     kind: 'npm';
@@ -294,6 +294,14 @@ declare module 'tspack/manifest' {
     requires?: RunTargetServiceRequirementRow[];
   };
 
+  export type TestTargetRow = {
+    name: string;
+    harness: 'vitest' | 'xtest';
+    config?: string;
+    sources: string[];
+    project?: string;
+  };
+
   export type DevProxyRoute = {
     path: string;
     target?: string;
@@ -329,6 +337,7 @@ declare module 'tspack/manifest' {
 
   export type PackageProps = {
     name: string;
+    publicationName?: string;
     version: string;
     kind: 'library' | 'app' | 'service';
     compiler?: Compiler;
@@ -363,6 +372,10 @@ declare module 'tspack/manifest' {
 
   export type RunTargetsProps = {
     rows: RunTargetRow[];
+  };
+
+  export type TestTargetsProps = {
+    rows: TestTargetRow[];
   };
 
   export type WorkflowPlatform = 'linux' | 'windows' | 'macos' | 'currentHost';
@@ -738,6 +751,7 @@ declare module 'tspack/manifest' {
   export const Policies: ManifestComponent<PoliciesProps>;
   export const Targets: ManifestComponent<TargetsProps>;
   export const RunTargets: ManifestComponent<RunTargetsProps>;
+  export const TestTargets: ManifestComponent<TestTargetsProps>;
   export const Workflows: ManifestComponent<WorkflowsProps>;
   export const SkyrimTarget: ManifestComponent<SkyrimTargetProps>;
   export const Tools: ManifestComponent<ToolsProps>;

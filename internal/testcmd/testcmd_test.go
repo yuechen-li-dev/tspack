@@ -208,6 +208,24 @@ func TestWorkspaceVitestAutodetectionAcceptsRootConfig(t *testing.T) {
 	}
 }
 
+func TestParseVitestReportPreservesFailedAssertionEvidence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vitest-report.json")
+	contents := []byte(`{"numTotalTests":1,"numPassedTests":0,"numFailedTests":1,"numPendingTests":0,"startTime":100,"testResults":[{"name":"test/failing.test.ts","endTime":125,"assertionResults":[{"fullName":"suite fails clearly","status":"failed","duration":4,"failureMessages":["expected 1 to be 2"]}]}]}`)
+	if err := os.WriteFile(path, contents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := Result{ExitCode: 1}
+
+	parseVitestReport(path, &result)
+
+	if result.Summary.Failed != 1 || result.Summary.DurationMs != 25 {
+		t.Fatalf("summary=%+v", result.Summary)
+	}
+	if len(result.Tests) != 1 || result.Tests[0].Status != "failed" || result.Tests[0].Failure == nil {
+		t.Fatalf("tests=%+v", result.Tests)
+	}
+}
+
 func TestDefaultXTestBridgeCandidatesPreferCurrentDistPath(t *testing.T) {
 	root := t.TempDir()
 	current := filepath.Join(root, "manifest-frontend", "dist", "native-test-cli.js")

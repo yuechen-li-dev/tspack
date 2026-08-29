@@ -29,6 +29,10 @@ type Options struct {
 	Batch             bool
 	Environment       []string
 	CaptureStructured bool
+	VitestCwd         string
+	VitestConfig      string
+	VitestFiles       []string
+	VitestProject     string
 }
 
 type Result struct {
@@ -416,22 +420,99 @@ func runVitestContext(ctx context.Context, opts Options, result *Result) {
 		return
 	}
 	args := []string{"run"}
+	args = append(args, opts.VitestFiles...)
+	if opts.VitestConfig != "" {
+		args = append(args, "--config", opts.VitestConfig)
+	}
+	if opts.VitestProject != "" {
+		args = append(args, "--project", opts.VitestProject)
+	}
 	if opts.Filter != "" {
 		args = append(args, "-t", opts.Filter)
 	}
 	bin := filepath.Join(opts.RootDir, "node_modules", ".bin", "vitest")
+	var reportPath string
+	if opts.CaptureStructured {
+		reportFile, err := os.CreateTemp("", "tspack-vitest-report-*.json")
+		if err != nil {
+			result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_RESULT_IO", Severity: diag.SeverityError, Message: err.Error()})
+			result.ExitCode = 1
+			return
+		}
+		reportPath = reportFile.Name()
+		_ = reportFile.Close()
+		defer os.Remove(reportPath)
+		args = append(args, "--reporter=json", "--outputFile="+reportPath)
+	}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = append(os.Environ(), opts.Environment...)
-	cmd.Dir = opts.RootDir
+	cmd.Dir = opts.VitestCwd
+	if cmd.Dir == "" {
+		cmd.Dir = opts.RootDir
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		if _, ok := err.(*exec.ExitError); ok {
 			result.ExitCode = 1
+		} else {
+			result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_VITEST_FAILED_TO_START", Severity: diag.SeverityError, Message: "failed to start vitest", Details: []string{fmt.Sprintf("%v", err)}})
+			result.ExitCode = 1
 			return
 		}
-		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_VITEST_FAILED_TO_START", Severity: diag.SeverityError, Message: "failed to start vitest", Details: []string{fmt.Sprintf("%v", err)}})
+	}
+	if opts.CaptureStructured {
+		parseVitestReport(reportPath, result)
+	}
+}
+
+func parseVitestReport(path string, result *Result) {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_RESULT_INVALID", Severity: diag.SeverityError, Message: "Vitest did not produce its structured report", Details: []string{err.Error()}})
 		result.ExitCode = 1
+		return
+	}
+	var report struct {
+		Start   float64 `json:"startTime"`
+		Total   int     `json:"numTotalTests"`
+		Passed  int     `json:"numPassedTests"`
+		Failed  int     `json:"numFailedTests"`
+		Skipped int     `json:"numPendingTests"`
+		Results []struct {
+			Name       string  `json:"name"`
+			End        float64 `json:"endTime"`
+			Assertions []struct {
+				FullName        string   `json:"fullName"`
+				Status          string   `json:"status"`
+				Duration        float64  `json:"duration"`
+				FailureMessages []string `json:"failureMessages"`
+			} `json:"assertionResults"`
+		} `json:"testResults"`
+	}
+	if err := json.Unmarshal(contents, &report); err != nil {
+		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_RESULT_INVALID", Severity: diag.SeverityError, Message: "Vitest returned an invalid structured report", Details: []string{err.Error()}})
+		result.ExitCode = 1
+		return
+	}
+	result.Summary.Passed += report.Passed
+	result.Summary.Failed += report.Failed
+	result.Summary.Skipped += report.Skipped
+	latestEnd := report.Start
+	for _, suite := range report.Results {
+		if suite.End > latestEnd {
+			latestEnd = suite.End
+		}
+		for _, assertion := range suite.Assertions {
+			evidence := TestEvidence{ID: suite.Name + "::" + assertion.FullName, Name: assertion.FullName, Status: assertion.Status, DurationMs: assertion.Duration}
+			if len(assertion.FailureMessages) > 0 {
+				evidence.Failure = assertion.FailureMessages
+			}
+			result.Tests = append(result.Tests, evidence)
+		}
+	}
+	if report.Start > 0 && latestEnd >= report.Start {
+		result.Summary.DurationMs += latestEnd - report.Start
 	}
 }
 

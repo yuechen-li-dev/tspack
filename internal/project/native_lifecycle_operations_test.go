@@ -77,6 +77,26 @@ func TestRunBuildSelectsTargetsAndReturnsTypedArtifactsWithoutCLI(t *testing.T) 
 	}
 }
 
+func TestRunBuildRejectsSelectedPackagesWithoutTargets(t *testing.T) {
+	root := t.TempDir()
+	irPath := filepath.Join(root, "ir.json")
+	contents := []byte(`{"format":1,"workspace":{"name":"demo"},"packages":[{"name":"app","version":"1.0.0","kind":"app","targets":[]}]}`)
+	if err := os.WriteFile(irPath, contents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := RunBuild(context.Background(), BuildRequest{
+		Project:  Options{RootDir: root, ManifestIRPath: irPath},
+		Packages: []string{"app"},
+		Executor: &recordingBuildExecutor{},
+	})
+	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "TSPACK_BUILD_NO_TARGETS" {
+		t.Fatalf("diagnostics=%v", result.Diagnostics)
+	}
+	if len(result.Diagnostics[0].Details) == 0 || result.Diagnostics[0].Details[0] != "selected package: app (0 build targets)" {
+		t.Fatalf("details=%v", result.Diagnostics[0].Details)
+	}
+}
+
 func TestRunBuildHonorsCancellationBeforeTarget(t *testing.T) {
 	root := t.TempDir()
 	irPath := filepath.Join(root, "ir.json")

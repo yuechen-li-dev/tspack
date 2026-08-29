@@ -565,6 +565,8 @@ func nextTestFlagValue(args []string, index *int, flag string) (string, bool) {
 
 func runTestCommand(args []string) {
 	opts := testcmd.Options{RootDir: "."}
+	packageName := ""
+	testTarget := ""
 	runTarget := ""
 	runReadyTimeout := 30
 	runEnv := runEnvOverlay{}
@@ -576,6 +578,18 @@ func runTestCommand(args []string) {
 				return
 			}
 			opts.RootDir = value
+		case "--package":
+			value, ok := nextTestFlagValue(args, &i, "--package")
+			if !ok {
+				return
+			}
+			packageName = value
+		case "--target":
+			value, ok := nextTestFlagValue(args, &i, "--target")
+			if !ok {
+				return
+			}
+			testTarget = value
 		case "--run":
 			value, ok := nextTestFlagValue(args, &i, "--run")
 			if !ok {
@@ -704,7 +718,13 @@ func runTestCommand(args []string) {
 		)
 	}
 
-	operation := project.RunTest(ctx, project.TestRequest{Project: project.DefaultOptions(opts.RootDir), Options: opts})
+	operation := project.RunTest(ctx, project.TestRequest{Project: project.DefaultOptions(opts.RootDir), Options: opts, Package: packageName, Target: testTarget})
+	if packageName != "" || testTarget != "" {
+		fmt.Printf("Test result: package=%s target=%s passed=%d failed=%d skipped=%d durationMs=%.1f\n", packageName, testTarget, operation.Passed, operation.Failed, operation.Skipped, operation.DurationMs)
+		for _, evidence := range operation.Tests {
+			fmt.Printf("  %s %s\n", evidence.Status, evidence.ID)
+		}
+	}
 	for _, d := range operation.Diagnostics {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", d.Code, d.Message)
 		for _, detail := range d.Details {

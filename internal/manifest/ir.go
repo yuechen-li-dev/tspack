@@ -246,6 +246,7 @@ func (a AcknowledgedLifecycleCategory) Key() string {
 
 type Package struct {
 	Name                string                    `json:"name"`
+	PublicationName     string                    `json:"publicationName,omitempty"`
 	ManifestPath        string                    `json:"manifestPath,omitempty"`
 	Version             string                    `json:"version"`
 	Compiler            string                    `json:"compiler,omitempty"`
@@ -262,8 +263,17 @@ type Package struct {
 	Boundaries          []BoundaryRule            `json:"boundaries"`
 	Publish             PublishPolicy             `json:"publish"`
 	RunTargets          []RunTarget               `json:"runTargets,omitempty"`
+	TestTargets         []TestTarget              `json:"testTargets,omitempty"`
 	DevBackend          *DevBackend               `json:"devBackend,omitempty"`
 	Skyrim              *SkyrimTarget             `json:"skyrim,omitempty"`
+}
+
+type TestTarget struct {
+	Name    string   `json:"name"`
+	Harness string   `json:"harness"`
+	Config  string   `json:"config,omitempty"`
+	Sources []string `json:"sources"`
+	Project string   `json:"project,omitempty"`
 }
 
 type SkyrimTarget struct {
@@ -808,8 +818,8 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 				compiler = p.Compiler
 				p.Targets[ti].Compiler = compiler
 			}
-			if compiler != "tsc" && compiler != "tscl" && compiler != "scriptc" && compiler != "perry" {
-				add("TSPACK_MANIFEST_INVALID_COMPILER", tp+".compiler must be tsc, tscl, scriptc, or perry")
+			if compiler != "tsc" && compiler != "tscl" && compiler != "scriptc" && compiler != "perry" && compiler != "rollup" {
+				add("TSPACK_MANIFEST_INVALID_COMPILER", tp+".compiler must be tsc, tscl, scriptc, perry, or rollup")
 			}
 			if compiler == "tscl" && strings.TrimSpace(p.CompilerPath) == "" {
 				add("TSPACK_TSCL_PATH_REQUIRED", tp+" requires package compilerPath for the Copeland tool")
@@ -934,6 +944,31 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 			skyrimTargetCount++
 			if skyrimTargetCount > 1 {
 				add("TSPACK_SKYRIM_BRIDGE_DUPLICATE", "only one Skyrim bridge target may be declared per workspace")
+			}
+		}
+		seenTestTargets := map[string]struct{}{}
+		for testIndex, target := range p.TestTargets {
+			testPrefix := fmt.Sprintf("%s.testTargets[%d]", pp, testIndex)
+			if target.Name == "" || !targetNameRe.MatchString(target.Name) {
+				add("TSPACK_TEST_INVALID_TARGET", testPrefix+".name is invalid")
+			}
+			if _, ok := seenTestTargets[target.Name]; ok {
+				add("TSPACK_TEST_DUPLICATE_TARGET", "duplicate test target name: "+target.Name)
+			}
+			seenTestTargets[target.Name] = struct{}{}
+			if target.Harness != "vitest" && target.Harness != "xtest" {
+				add("TSPACK_TEST_INVALID_HARNESS", testPrefix+".harness must be vitest or xtest")
+			}
+			if len(target.Sources) == 0 {
+				add("TSPACK_TEST_SOURCES_REQUIRED", testPrefix+".sources must not be empty")
+			}
+			if target.Config != "" && !pathutil.IsSafePackageFilePath(target.Config) {
+				add("TSPACK_TEST_CONFIG_INVALID", testPrefix+".config must be a safe package-relative path")
+			}
+			for _, source := range target.Sources {
+				if !pathutil.IsSafeRelativeGlob(source) && !pathutil.IsSafePackageFilePath(source) {
+					add("TSPACK_TEST_SOURCE_INVALID", testPrefix+".sources must contain safe package-relative paths or globs")
+				}
 			}
 		}
 		seenRunTargets := map[string]struct{}{}

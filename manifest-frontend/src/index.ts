@@ -30,7 +30,7 @@ export type ManifestIr = {
 };
 
 type RuntimeProfile = 'nodejs' | 'bun' | 'deno';
-type Compiler = 'tsc' | 'tscl' | 'scriptc' | 'perry';
+type Compiler = 'tsc' | 'tscl' | 'scriptc' | 'perry' | 'rollup';
 type ParseMode = 'root' | 'package';
 type DocMode = 'single' | 'split' | 'package' | 'annotation';
 type PackageRow = { name: string; root: string; manifest: string };
@@ -85,7 +85,7 @@ export type DependencySourceAnalysis = {
 
 const ALLOWED_IMPORT = 'tspack/manifest';
 const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'annotatePackage', 'defineDeps', 'npm', 'jsr', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service', 'json', 'Workflow', 'Job', 'Sequence', 'Parallel', 'Branch', 'On', 'MatchResult', 'Finally', 'ForEach', 'ParallelForEach', 'CollectAll', 'FailFast', 'Transfer', 'When', 'GreaterThan', 'LessThan', 'NotEmpty', 'IsEmpty', 'And', 'Or', 'Not', 'Manual', 'Push', 'PullRequest', 'Linux', 'Windows', 'MacOS', 'CurrentHost', 'Sync', 'Check', 'Build', 'Test', 'Pack', 'Audit', 'Process', 'ShellScript', 'Plain', 'Secret', 'WorkflowEnv']);
-const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'PackageAnnotations', 'Policies', 'Targets', 'RunTargets', 'Workflows', 'SkyrimTarget', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy', 'RegistryPolicy', 'RegistrySource', 'CompatFiles', 'JsonFile']);
+const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'PackageAnnotations', 'Policies', 'Targets', 'RunTargets', 'TestTargets', 'Workflows', 'SkyrimTarget', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy', 'RegistryPolicy', 'RegistrySource', 'CompatFiles', 'JsonFile']);
 const APPROVED_PROPERTY_HELPERS = new Set(['TsConfig.manifestEditor', 'VSCode.settings', 'VSCode.extensions']);
 const DEFAULT_MANIFEST_EDITOR_INCLUDE = [
   'manifest.tsx',
@@ -1650,6 +1650,7 @@ function mapPackage(p: any, includeRoot: boolean, context: AuthoringContext): Re
   };
   return {
     name: p.name,
+    ...(p.publicationName !== undefined ? { publicationName: p.publicationName } : {}),
     version: p.version,
     ...(includeRoot ? { root: '.' } : {}),
     license: p.license,
@@ -1661,6 +1662,7 @@ function mapPackage(p: any, includeRoot: boolean, context: AuthoringContext): Re
     dependencyAuthoring: mapDependencyAuthoring(dependencyValues, authoringContext),
     targets: mapTargets(p.__children?.find((x: any) => x.__tag === 'Targets')?.rows ?? []),
     ...(p.__children?.find((x: any) => x.__tag === 'RunTargets') ? { runTargets: p.__children?.find((x: any) => x.__tag === 'RunTargets')?.rows ?? [] } : {}),
+    ...(p.__children?.find((x: any) => x.__tag === 'TestTargets') ? { testTargets: p.__children?.find((x: any) => x.__tag === 'TestTargets')?.rows ?? [] } : {}),
     ...(p.__children?.find((x: any) => x.__tag === 'SkyrimTarget') ? { skyrim: mapSkyrimTarget(p.__children?.find((x: any) => x.__tag === 'SkyrimTarget')) } : {}),
     tools: mapDependencyRefs(p.__children?.find((x: any) => x.__tag === 'Tools')?.values ?? []),
     boundaries: p.__children?.find((x: any) => x.__tag === 'Boundaries')?.rows ?? [],
@@ -1844,7 +1846,7 @@ function mapSkyrimTarget(target: any): Record<string, unknown> {
 
 function compilerIdentity(value: unknown): Compiler {
   if (value === undefined) return 'tsc';
-  if (value === 'tsc' || value === 'tscl' || value === 'scriptc' || value === 'perry') return value;
+  if (value === 'tsc' || value === 'tscl' || value === 'scriptc' || value === 'perry' || value === 'rollup') return value;
   return value as Compiler;
 }
 
