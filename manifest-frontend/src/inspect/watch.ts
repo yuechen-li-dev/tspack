@@ -293,7 +293,8 @@ export async function runInspectWatch(options: InspectWatchOptions): Promise<voi
       watchHandles.push(handle);
     }
 
-    await runCycle();
+    cyclePromise = runCycle();
+    await cyclePromise;
     if (!stopped) {
       await stopPromise;
       stopped = true;
