@@ -15,6 +15,7 @@ func TestDiscoverTargetsProjectsStableBuildAndTestContracts(t *testing.T) {
 		"workspace": map[string]any{"name": "demo"},
 		"packages": []any{map[string]any{
 			"name": "internal-snapshot", "publicationName": "@demo/snapshot", "root": "packages/snapshot", "version": "1.0.0", "kind": "library",
+			"dependencies": []any{map[string]any{"key": "fixture", "kind": "tool", "source": map[string]any{"kind": "path", "path": "fixtures/local"}}},
 			"targets": []any{map[string]any{
 				"name": "package", "export": ".", "compiler": "rollup", "entry": "src/index.ts", "runtime": "dist/index.js", "types": "dist/index.d.ts",
 				"artifacts": []any{
@@ -22,8 +23,12 @@ func TestDiscoverTargetsProjectsStableBuildAndTestContracts(t *testing.T) {
 					map[string]any{"name": "index-dts", "kind": "typeDeclarations", "role": "typeDeclaration", "path": "dist/index.d.ts"},
 				},
 			}},
-			"testTargets": []any{map[string]any{"name": "unit", "harness": "vitest", "sources": []string{"test/b.test.ts", "test/a.test.ts"}, "project": "threads"}},
-			"publish":     map[string]any{"include": []string{"dist/**"}},
+			"testTargets": []any{map[string]any{
+				"name": "unit", "harness": "vitest", "sources": []string{"test/b.test.ts", "test/a.test.ts"}, "project": "threads",
+				"requirements": []string{"fixture"},
+				"fixtures":     []any{map[string]any{"name": "local", "dependency": "fixture", "binding": "local-fixture", "mode": "source"}},
+			}},
+			"publish": map[string]any{"include": []string{"dist/**"}},
 		}},
 	}
 	contents, err := json.Marshal(ir)
@@ -47,5 +52,11 @@ func TestDiscoverTargetsProjectsStableBuildAndTestContracts(t *testing.T) {
 	testTarget := result.Targets[1]
 	if testTarget.Identity != "test:internal-snapshot:unit" || testTarget.Sources[0] != "test/a.test.ts" || testTarget.HarnessProject != "threads" {
 		t.Fatalf("test=%+v", testTarget)
+	}
+	if len(testTarget.Requirements) != 1 || testTarget.Requirements[0].Producer != "path:fixtures/local" {
+		t.Fatalf("requirements=%+v", testTarget.Requirements)
+	}
+	if len(testTarget.Fixtures) != 1 || testTarget.Fixtures[0].RealizedPath != "packages/snapshot/node_modules/local-fixture" {
+		t.Fatalf("fixtures=%+v", testTarget.Fixtures)
 	}
 }

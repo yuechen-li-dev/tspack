@@ -82,7 +82,7 @@ func (r *resolverState) resolvePathDependency(dep *graph.DependencyNode, from, k
 	}
 	rel := filepath.ToSlash(filepath.Clean(resolved))
 	id := fmt.Sprintf("path:%s#%s", rel, hash)
-	r.addPackageAndEdge(lockfile.Package{ID: id, Name: pkg.Name, Version: pkg.Version, Source: "path", Path: rel, Hash: "sha256:" + hash, Capabilities: capability.FromPackageJSONScripts(pkg.Scripts)}, from, kind, dep.Optional)
+	r.addPackageAndEdge(lockfile.Package{ID: id, Name: pkg.Name, Version: pkg.Version, Source: "path", Path: rel, Hash: "sha256:" + hash, Capabilities: capability.FromPackageJSONScripts(pkg.Scripts)}, from, kind, dep.Optional, dep.Key)
 }
 
 func (r *resolverState) resolveWorkspaceDependency(dep *graph.DependencyNode, from, kind string) {
@@ -105,7 +105,7 @@ func (r *resolverState) resolveWorkspaceDependency(dep *graph.DependencyNode, fr
 		return
 	}
 	id := fmt.Sprintf("workspace:%s#%s", target.Name, hash)
-	r.addPackageAndEdge(lockfile.Package{ID: id, Name: target.Name, Version: target.Version, Source: "workspace", Workspace: target.Name, Path: filepath.ToSlash(filepath.Clean(target.Root)), Hash: "sha256:" + hash}, from, kind, dep.Optional)
+	r.addPackageAndEdge(lockfile.Package{ID: id, Name: target.Name, Version: target.Version, Source: "workspace", Workspace: target.Name, Path: filepath.ToSlash(filepath.Clean(target.Root)), Hash: "sha256:" + hash}, from, kind, dep.Optional, dep.Key)
 }
 
 func (r *resolverState) resolveGitDependency(ctx context.Context, dep *graph.DependencyNode, from, kind string) {
@@ -149,7 +149,7 @@ func (r *resolverState) resolveGitDependency(ctx context.Context, dep *graph.Dep
 		return
 	}
 	id := fmt.Sprintf("git:%s#%s", filepath.ToSlash(repo), strings.TrimSpace(commit))
-	r.addPackageAndEdge(lockfile.Package{ID: id, Name: pkg.Name, Version: pkg.Version, Source: "git", Repo: filepath.ToSlash(repo), Rev: strings.TrimSpace(commit), TreeHash: strings.TrimSpace(treeHash), Capabilities: capability.FromPackageJSONScripts(pkg.Scripts)}, from, kind, dep.Optional)
+	r.addPackageAndEdge(lockfile.Package{ID: id, Name: pkg.Name, Version: pkg.Version, Source: "git", Repo: filepath.ToSlash(repo), Rev: strings.TrimSpace(commit), TreeHash: strings.TrimSpace(treeHash), Capabilities: capability.FromPackageJSONScripts(pkg.Scripts)}, from, kind, dep.Optional, dep.Key)
 }
 
 type localPkgMeta struct {
@@ -248,12 +248,12 @@ func shouldSkipLocalArtifactFile(name string) bool {
 	}
 }
 
-func (r *resolverState) addPackageAndEdge(pkg lockfile.Package, from, kind string, optional bool) {
+func (r *resolverState) addPackageAndEdge(pkg lockfile.Package, from, kind string, optional bool, reference string) {
 	if !r.seenPkg[pkg.ID] {
 		r.result.Lock.Packages = append(r.result.Lock.Packages, pkg)
 		r.seenPkg[pkg.ID] = true
 	}
-	r.result.Lock.Edges = append(r.result.Lock.Edges, lockfile.Edge{From: from, To: pkg.ID, Kind: kind, Optional: optional})
+	r.result.Lock.Edges = append(r.result.Lock.Edges, lockfile.Edge{From: from, To: pkg.ID, Kind: kind, Optional: optional, Reference: reference})
 }
 
 func gitOut(ctx context.Context, repo string, args ...string) (string, error) {

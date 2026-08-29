@@ -1,6 +1,7 @@
 package project
 
 import (
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -21,17 +22,33 @@ type TargetDiscoveryResult struct {
 }
 
 type DiscoveredTarget struct {
-	Identity        string               `json:"identity"`
-	Kind            string               `json:"kind"`
-	Package         string               `json:"package"`
-	PublicationName string               `json:"publicationName,omitempty"`
-	Root            string               `json:"root"`
-	Name            string               `json:"name"`
-	Tool            string               `json:"tool"`
-	Artifacts       []DiscoveredArtifact `json:"artifacts,omitempty"`
-	Prerequisites   []string             `json:"prerequisites,omitempty"`
-	Sources         []string             `json:"sources,omitempty"`
-	HarnessProject  string               `json:"harnessProject,omitempty"`
+	Identity        string                  `json:"identity"`
+	Kind            string                  `json:"kind"`
+	Package         string                  `json:"package"`
+	PublicationName string                  `json:"publicationName,omitempty"`
+	Root            string                  `json:"root"`
+	Name            string                  `json:"name"`
+	Tool            string                  `json:"tool"`
+	Artifacts       []DiscoveredArtifact    `json:"artifacts,omitempty"`
+	Prerequisites   []string                `json:"prerequisites,omitempty"`
+	Sources         []string                `json:"sources,omitempty"`
+	HarnessProject  string                  `json:"harnessProject,omitempty"`
+	Requirements    []DiscoveredRequirement `json:"requirements,omitempty"`
+	Fixtures        []DiscoveredFixture     `json:"fixtures,omitempty"`
+}
+
+type DiscoveredRequirement struct {
+	Identity string `json:"identity"`
+	Source   string `json:"source"`
+	Producer string `json:"producer"`
+}
+
+type DiscoveredFixture struct {
+	Identity     string `json:"identity"`
+	Producer     string `json:"producer"`
+	Binding      string `json:"binding"`
+	Mode         string `json:"mode"`
+	RealizedPath string `json:"realizedPath"`
 }
 
 type DiscoveredArtifact struct {
@@ -117,6 +134,32 @@ func discoverBuildTarget(pkg manifest.Package, target manifest.Target) Discovere
 func discoverTestTarget(pkg manifest.Package, target manifest.TestTarget) DiscoveredTarget {
 	sources := append([]string{}, target.Sources...)
 	sort.Strings(sources)
+	dependencies := map[string]manifest.DependencyIntent{}
+	for _, dependency := range pkg.Dependencies {
+		dependencies[manifest.DependencyIdentity(dependency)] = dependency
+	}
+	requirements := make([]DiscoveredRequirement, 0, len(target.Requirements))
+	for _, identity := range target.Requirements {
+		dependency := dependencies[identity]
+		requirements = append(requirements, DiscoveredRequirement{
+			Identity: identity,
+			Source:   dependency.Source.Kind,
+			Producer: dependencySourceIdentity(dependency.Source),
+		})
+	}
+	sort.Slice(requirements, func(i, j int) bool { return requirements[i].Identity < requirements[j].Identity })
+	fixtures := make([]DiscoveredFixture, 0, len(target.Fixtures))
+	for _, fixture := range target.Fixtures {
+		dependency := dependencies[fixture.Dependency]
+		fixtures = append(fixtures, DiscoveredFixture{
+			Identity:     fixture.Name,
+			Producer:     dependencySourceIdentity(dependency.Source),
+			Binding:      fixture.Binding,
+			Mode:         fixture.Mode,
+			RealizedPath: filepath.ToSlash(filepath.Join(packageDisplayRoot(pkg.Root), "node_modules", filepath.FromSlash(fixture.Binding))),
+		})
+	}
+	sort.Slice(fixtures, func(i, j int) bool { return fixtures[i].Identity < fixtures[j].Identity })
 	return DiscoveredTarget{
 		Identity:        "test:" + pkg.Name + ":" + target.Name,
 		Kind:            "test",
@@ -127,7 +170,22 @@ func discoverTestTarget(pkg manifest.Package, target manifest.TestTarget) Discov
 		Tool:            target.Harness,
 		Sources:         sources,
 		HarnessProject:  target.Project,
+		Requirements:    requirements,
+		Fixtures:        fixtures,
 	}
+}
+
+func dependencySourceIdentity(source manifest.Source) string {
+	if source.Kind == "workspace" {
+		if source.Name != "" {
+			return "workspace:" + source.Name
+		}
+		return "workspace:" + source.Package
+	}
+	if source.Kind == "path" {
+		return "path:" + filepath.ToSlash(source.Path)
+	}
+	return source.Kind + ":" + source.Package
 }
 
 func packageDisplayRoot(root string) string {

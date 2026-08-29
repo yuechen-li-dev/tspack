@@ -109,6 +109,51 @@ func TestResolveNPMM7Coverage(t *testing.T) {
 	assertHasEdge(t, res.Lock, "npm:dep-a@1.0.0", "npm:left-pad@1.2.0", "runtime", false)
 }
 
+func TestResolveTargetScopedPackageRequirementThroughRequirementTape(t *testing.T) {
+	fc := buildFakeRegistry()
+	ir := &manifest.ManifestIR{Format: 1, Workspace: manifest.Workspace{Name: "w"}, Packages: []manifest.Package{{
+		Name:    "app",
+		Root:    ".",
+		Version: "1.0.0",
+		Kind:    "app",
+		Dependencies: []manifest.DependencyIntent{{
+			Key: "dep-a", Kind: "tool", Source: manifest.Source{Kind: "npm", Package: "dep-a", Range: "1.0.0"},
+		}},
+		TestTargets: []manifest.TestTarget{{Name: "unit", Harness: "vitest", Sources: []string{"test/unit.test.ts"}, Requirements: []string{"dep-a"}}},
+	}}}
+	g, diagnostics := graph.Build(ir)
+	if len(diagnostics) > 0 {
+		t.Fatalf("diagnostics=%v", diagnostics)
+	}
+	res := ResolveNPM(context.Background(), ResolverOptions{Client: fc, Mode: ResolveModeUpdate}, ResolveRequest{Graph: g})
+	assertHasEdge(t, res.Lock, "app:test:unit", "npm:dep-a@1.0.0", "test", false)
+	if len(res.Lock.Requirements) != 1 || res.Lock.Requirements[0].Kind != "target-explicit" || res.Lock.Requirements[0].Reference != "dep-a" {
+		t.Fatalf("requirements=%#v", res.Lock.Requirements)
+	}
+}
+
+func TestResolveTargetScopedNPMAliasesIndependently(t *testing.T) {
+	fc := buildFakeRegistry()
+	ir := &manifest.ManifestIR{Format: 1, Workspace: manifest.Workspace{Name: "w"}, Packages: []manifest.Package{{
+		Name: "app", Root: ".", Version: "1.0.0", Kind: "app",
+		Dependencies: []manifest.DependencyIntent{
+			{Key: "left-pad", Kind: "tool", Source: manifest.Source{Kind: "npm", Package: "left-pad", Range: "1.2.0"}},
+			{Key: "left-pad-old", Kind: "tool", Source: manifest.Source{Kind: "npm", Package: "left-pad", Range: "1.1.0"}},
+		},
+		TestTargets: []manifest.TestTarget{{Name: "unit", Harness: "vitest", Sources: []string{"test/unit.test.ts"}, Requirements: []string{"left-pad", "left-pad-old"}}},
+	}}}
+	g, diagnostics := graph.Build(ir)
+	if len(diagnostics) > 0 {
+		t.Fatalf("diagnostics=%v", diagnostics)
+	}
+	res := ResolveNPM(context.Background(), ResolverOptions{Client: fc, Mode: ResolveModeUpdate}, ResolveRequest{Graph: g})
+	if len(res.Diagnostics) > 0 {
+		t.Fatalf("resolve diagnostics=%v", res.Diagnostics)
+	}
+	assertHasEdgeReference(t, res.Lock, "app:test:unit", "npm:left-pad@1.2.0", "left-pad")
+	assertHasEdgeReference(t, res.Lock, "app:test:unit", "npm:left-pad@1.1.0", "left-pad-old")
+}
+
 func TestIntegrityVariants(t *testing.T) {
 	fc := buildFakeRegistry()
 	mustCodeAbsent(t, resolveOne(fc, "left-pad", "1.2.0"), "TSPACK_RESOLVE_NPM_INTEGRITY_MISMATCH")
@@ -727,6 +772,16 @@ func assertHasEdge(t *testing.T, lf *lockfile.Lockfile, from, to, kind string, o
 		}
 	}
 	t.Fatalf("missing edge %s->%s %s optional=%v", from, to, kind, optional)
+}
+
+func assertHasEdgeReference(t *testing.T, lf *lockfile.Lockfile, from string, to string, reference string) {
+	t.Helper()
+	for _, edge := range lf.Edges {
+		if edge.From == from && edge.To == to && edge.Reference == reference {
+			return
+		}
+	}
+	t.Fatalf("missing edge %s -> %s with reference %s in %#v", from, to, reference, lf.Edges)
 }
 func sortCheck(lf *lockfile.Lockfile) bool {
 	for i := 1; i < len(lf.Packages); i++ {

@@ -206,6 +206,38 @@ func TestBuildInfersLifecycleToolRequirementsFromAuthoredDependencies(t *testing
 	}
 }
 
+func TestBuildPreservesTargetScopedRequirementsAndFixtureBindings(t *testing.T) {
+	ir := &manifest.ManifestIR{Format: 1, Workspace: manifest.Workspace{Name: "w"}, Packages: []manifest.Package{{
+		Name:    "tests",
+		Root:    "test/unit",
+		Version: "1.0.0",
+		Kind:    "app",
+		Dependencies: []manifest.DependencyIntent{
+			{Key: "sinon", Kind: "tool", Source: manifest.Source{Kind: "npm", Package: "sinon", Range: "^22.0.0"}},
+			{Key: "http-client", Kind: "tool", Source: manifest.Source{Kind: "path", Path: "projects/http-client"}},
+		},
+		TestTargets: []manifest.TestTarget{{
+			Name:         "unit",
+			Harness:      "vitest",
+			Sources:      []string{"test/unit.test.ts"},
+			Requirements: []string{"sinon", "http-client"},
+			Fixtures:     []manifest.TestFixture{{Name: "http-client", Dependency: "http-client", Binding: "http-client", Mode: "source"}},
+		}},
+	}}}
+	g, diagnostics := Build(ir)
+	if len(diagnostics) > 0 {
+		t.Fatalf("diagnostics=%v", diagnostics)
+	}
+	pkg, _ := g.Package("tests")
+	targets := pkg.AllTestTargets()
+	if len(targets) != 1 || len(targets[0].Requirements) != 2 || len(targets[0].Fixtures) != 1 {
+		t.Fatalf("test targets=%#v", targets)
+	}
+	if targets[0].Fixtures[0].Dependency.Key != "http-client" || targets[0].Fixtures[0].Binding != "http-client" {
+		t.Fatalf("fixture=%#v", targets[0].Fixtures[0])
+	}
+}
+
 func TestBuildDoesNotInferProjectManagedCompilerWhenPathIsExplicit(t *testing.T) {
 	ir := &manifest.ManifestIR{Format: 1, Workspace: manifest.Workspace{Name: "w"}, Packages: []manifest.Package{{
 		Name:    "lib",

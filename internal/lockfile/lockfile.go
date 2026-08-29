@@ -122,6 +122,29 @@ func CheckGraphConsistency(g *graph.WorkspaceGraph, lf *Lockfile) ConsistencyRes
 				out.Diagnostics = append(out.Diagnostics, errD("TSPACK_LOCK_STALE_TARGET_MISMATCH", "graph target differs from lockfile target", p.Name, t.Name))
 			}
 		}
+		for _, testTarget := range p.AllTestTargets() {
+			targetIdentity := p.Name + ":test:" + testTarget.Name
+			expectedRequirements := map[string]struct{}{}
+			for _, requirement := range testTarget.Requirements {
+				expectedRequirements[requirement.Key] = struct{}{}
+			}
+			lockedRequirements := map[string]struct{}{}
+			for _, edge := range lf.Edges {
+				if edge.From == targetIdentity && edge.Kind == "test" {
+					lockedRequirements[edge.Reference] = struct{}{}
+				}
+			}
+			for requirement := range expectedRequirements {
+				if _, ok := lockedRequirements[requirement]; !ok {
+					out.Diagnostics = append(out.Diagnostics, errD("TSPACK_LOCK_STALE_TEST_REQUIREMENT_MISSING", "test target requirement missing in lockfile", targetIdentity, requirement))
+				}
+			}
+			for requirement := range lockedRequirements {
+				if _, ok := expectedRequirements[requirement]; !ok {
+					out.Diagnostics = append(out.Diagnostics, errD("TSPACK_LOCK_STALE_TEST_REQUIREMENT_UNEXPECTED", "lockfile contains a requirement no longer declared by the test target", targetIdentity, requirement))
+				}
+			}
+		}
 	}
 	for _, t := range lf.Targets {
 		p, ok := g.Package(t.Package)
@@ -540,7 +563,7 @@ func validEdgeKind(k string) bool {
 
 func validRequirementKind(kind string) bool {
 	switch kind {
-	case "transitive-runtime", "transitive-optional", "peer", "package-explicit", "project-explicit", "override":
+	case "transitive-runtime", "transitive-optional", "peer", "package-explicit", "project-explicit", "target-explicit", "override":
 		return true
 	}
 	return false

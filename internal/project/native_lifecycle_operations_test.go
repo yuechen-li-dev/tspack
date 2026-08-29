@@ -6,12 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/yuechen-li-dev/tspack/internal/audit"
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/testcmd"
 )
 
 type recordingBuildExecutor struct {
@@ -226,5 +228,22 @@ func TestRunTestIsCallableWithoutCLI(t *testing.T) {
 	result := RunTest(context.Background(), TestRequest{Project: DefaultOptions(t.TempDir())})
 	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "TSPACK_TEST_NO_BACKENDS" {
 		t.Fatalf("diagnostics=%v", result.Diagnostics)
+	}
+}
+
+func TestFailedTestDiagnosticsPreserveTargetIdentityAndFailure(t *testing.T) {
+	diagnostics := failedTestDiagnostics("@scope/tests", "fixture-family", []testcmd.TestEvidence{{
+		ID:      "test/fixture.test.ts::reports context",
+		Status:  "failed",
+		Failure: []string{"AssertionError: expected fixture value"},
+	}})
+	if len(diagnostics) != 1 || diagnostics[0].Code != "TSPACK_TEST_ASSERTION_FAILED" {
+		t.Fatalf("diagnostics=%#v", diagnostics)
+	}
+	details := strings.Join(diagnostics[0].Details, "\n")
+	for _, expected := range []string{"@scope/tests:test:fixture-family", "test/fixture.test.ts::reports context", "AssertionError: expected fixture value"} {
+		if !strings.Contains(details, expected) {
+			t.Fatalf("details=%q, want %q", details, expected)
+		}
 	}
 }

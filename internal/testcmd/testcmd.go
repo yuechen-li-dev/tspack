@@ -443,7 +443,12 @@ func runVitestContext(ctx context.Context, opts Options, result *Result) {
 	if opts.Filter != "" {
 		args = append(args, "-t", opts.Filter)
 	}
-	bin := projectManagedBin(opts.RootDir, "vitest")
+	bin, err := resolvedProjectManagedBin(opts.RootDir, "vitest")
+	if err != nil {
+		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_VITEST_FAILED_TO_START", Severity: diag.SeverityError, Message: "failed to resolve the Vitest executable", Details: []string{err.Error()}})
+		result.ExitCode = 1
+		return
+	}
 	var reportPath string
 	if opts.CaptureStructured {
 		reportFile, err := os.CreateTemp("", "tspack-vitest-report-*.json")
@@ -482,6 +487,14 @@ func runVitestContext(ctx context.Context, opts Options, result *Result) {
 	if opts.CaptureStructured {
 		parseVitestReport(reportPath, result)
 	}
+}
+
+func resolvedProjectManagedBin(root string, name string) (string, error) {
+	bin := projectManagedBin(root, name)
+	if filepath.IsAbs(bin) {
+		return bin, nil
+	}
+	return filepath.Abs(bin)
 }
 
 func parseVitestReport(path string, result *Result) {

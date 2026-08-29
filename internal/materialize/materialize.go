@@ -136,7 +136,12 @@ func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) R
 		case markerReadHit:
 			observer.RecordMaterializationMarkerHit()
 			if markerSanityCheck(nmRoot, plan) {
-				observer.RecordMaterializationNoop(marker.PackageCount, marker.FileCount, marker.DirectoryCount)
+				fixtureResult := materializeTestFixtures(req, nmRoot, mode)
+				out.Diagnostics = append(out.Diagnostics, fixtureResult.Diagnostics...)
+				out.Written = append(out.Written, fixtureResult.Written...)
+				if len(out.Diagnostics) == 0 {
+					observer.RecordMaterializationNoop(marker.PackageCount, marker.FileCount, marker.DirectoryCount)
+				}
 				return finalize(out)
 			}
 			observer.RecordMaterializationMarkerMismatch()
@@ -213,6 +218,11 @@ func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) R
 			return finalize(out)
 		}
 		observer.RecordMaterializationMarkerWrite()
+	}
+	if len(out.Diagnostics) == 0 {
+		fixtureResult := materializeTestFixtures(req, nmRoot, mode)
+		out.Diagnostics = append(out.Diagnostics, fixtureResult.Diagnostics...)
+		out.Written = append(out.Written, fixtureResult.Written...)
 	}
 	return finalize(out)
 }
@@ -551,7 +561,7 @@ func appendMaterializePlan(plan *[]lockfile.Package, pkgs map[string]lockfile.Pa
 }
 
 func edgeMaterializationName(edge lockfile.Edge, pkg lockfile.Package) string {
-	if strings.TrimSpace(edge.Reference) != "" {
+	if pkg.Source != "jsr" && strings.TrimSpace(edge.Reference) != "" {
 		return edge.Reference
 	}
 	return materializedPackageName(pkg)
@@ -705,7 +715,7 @@ func replaceMaterializedDirectory(dest string, populate func(stage string) error
 }
 
 func removeMaterializedPath(path string) error {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	if _, err := os.Lstat(path); os.IsNotExist(err) {
 		return nil
 	}
 	return retryMaterializeFileOp("remove", path, func() error {

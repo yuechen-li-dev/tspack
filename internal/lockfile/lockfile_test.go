@@ -185,6 +185,38 @@ func TestConsistency(t *testing.T) {
 	}
 }
 
+func TestConsistencyIncludesTestTargetRequirements(t *testing.T) {
+	ir := &manifest.ManifestIR{Format: 1, Workspace: manifest.Workspace{Name: "workspace"}, Packages: []manifest.Package{{
+		Name:    "tests",
+		Root:    "tests",
+		Version: "1.0.0",
+		Kind:    "app",
+		Dependencies: []manifest.DependencyIntent{{
+			Key: "sinon", Kind: "tool", Source: manifest.Source{Kind: "npm", Package: "sinon", Range: "22.0.0"},
+		}},
+		TestTargets: []manifest.TestTarget{{Name: "unit", Harness: "vitest", Sources: []string{"test/unit.test.ts"}, Requirements: []string{"sinon"}}},
+	}}}
+	g, diagnostics := graph.Build(ir)
+	if len(diagnostics) != 0 {
+		t.Fatalf("graph diagnostics: %#v", diagnostics)
+	}
+	consistent := &Lockfile{Edges: []Edge{{From: "tests:test:unit", To: "npm:sinon@22.0.0", Kind: "test", Reference: "sinon"}}}
+	if diagnostics := CheckGraphConsistency(g, consistent).Diagnostics; len(diagnostics) != 0 {
+		t.Fatalf("consistent diagnostics: %#v", diagnostics)
+	}
+	missing := &Lockfile{}
+	if diagnostics := CheckGraphConsistency(g, missing).Diagnostics; !hasLockDiagnosticCode(diagnostics, "TSPACK_LOCK_STALE_TEST_REQUIREMENT_MISSING") {
+		t.Fatalf("missing requirement diagnostics: %#v", diagnostics)
+	}
+	unexpected := &Lockfile{Edges: []Edge{
+		{From: "tests:test:unit", To: "npm:sinon@22.0.0", Kind: "test", Reference: "sinon"},
+		{From: "tests:test:unit", To: "npm:chai@6.0.0", Kind: "test", Reference: "chai"},
+	}}
+	if diagnostics := CheckGraphConsistency(g, unexpected).Diagnostics; !hasLockDiagnosticCode(diagnostics, "TSPACK_LOCK_STALE_TEST_REQUIREMENT_UNEXPECTED") {
+		t.Fatalf("unexpected requirement diagnostics: %#v", diagnostics)
+	}
+}
+
 func TestLockfileTargetPathsRejectBareDot(t *testing.T) {
 	lf := []byte("[lock]\nformat = 1\n\n[[target]]\npackage = 'p'\nname = 'core'\nexport = '.'\nentry = '.'\nruntime = 'dist/index.js'\ntypes = 'dist/index.d.ts'\n")
 	_, diags := Parse("x.ts-lock.toml", lf)

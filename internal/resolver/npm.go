@@ -279,6 +279,12 @@ func ResolveNPM(ctx context.Context, opts ResolverOptions, req ResolveRequest) R
 		for _, requirement := range pkg.LifecycleToolDependencies() {
 			frontier = state.enqueueDirectRequest(ctx, frontier, requirement.Dependency, requirement.From, "tool")
 		}
+		for _, target := range pkg.AllTestTargets() {
+			from := fmt.Sprintf("%s:test:%s", pkg.Name, target.Name)
+			for _, dependency := range target.Requirements {
+				frontier = state.enqueueSharedDirectRequest(ctx, frontier, dependency, from, "test", requirements.KindTargetExplicit)
+			}
+		}
 	}
 	frontier = state.applyRequirementControllers(frontier)
 
@@ -328,6 +334,11 @@ func (r *resolverState) enqueueSharedDirectRequest(ctx context.Context, frontier
 		r.resolveNonNPMDependency(ctx, dep, from, edgeKind)
 		return frontier
 	}
+	requirementScope := "workspace"
+	if dep.Source.Kind == SourceNPM && dep.Key != "" && dep.Source.Package != "" && dep.Key != dep.Source.Package {
+		requirementScope = "workspace:alias:" + dep.Key
+	}
+	reference := dep.Key
 	requirement := requirements.PackageRequirement{
 		ID:         fmt.Sprintf("direct:%s:%s:%06d", from, dep.Key, r.requirementOrder),
 		Target:     packageidentity.PackageIdentity{Source: dep.Source.Kind, Name: dep.Source.Package},
@@ -340,19 +351,20 @@ func (r *resolverState) enqueueSharedDirectRequest(ctx context.Context, frontier
 			DependencyKey:    dep.Key,
 			Source:           "manifest",
 		},
-		Scope: requirements.Scope{Environment: "workspace"},
+		Scope: requirements.Scope{Environment: requirementScope},
 		Order: r.requirementOrder,
 	}
 	r.requirementOrder++
 	r.requirementFacts = append(r.requirementFacts, requirement)
 	return append(frontier, resolveWorkItem{
-		source:   dep.Source.Kind,
-		name:     dep.Source.Package,
-		rng:      dep.Source.Range,
-		from:     from,
-		kind:     edgeKind,
-		optional: dep.Optional,
-		slot:     requirements.SlotKey(requirement),
+		source:    dep.Source.Kind,
+		name:      dep.Source.Package,
+		rng:       dep.Source.Range,
+		from:      from,
+		kind:      edgeKind,
+		optional:  dep.Optional,
+		slot:      requirements.SlotKey(requirement),
+		reference: reference,
 	})
 }
 

@@ -123,6 +123,33 @@ func TestBuildArtifactSetsAndQualifiedDependenciesValidate(t *testing.T) {
 	}
 }
 
+func TestTestTargetRequirementsAndLocalFixturesValidate(t *testing.T) {
+	valid := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"tests","version":"1.0.0","kind":"app","dependencies":[{"key":"sinon","kind":"tool","source":{"kind":"npm","package":"sinon","range":"^22.0.0"}},{"key":"http-client","kind":"tool","source":{"kind":"path","path":"projects/http-client"}}],"targets":[],"testTargets":[{"name":"unit","harness":"vitest","sources":["test/unit.test.ts"],"requirements":["sinon","http-client"],"fixtures":[{"name":"http-client","dependency":"http-client","binding":"http-client","mode":"source"}]}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":[],"exclude":[]}}]}`
+	if _, diagnostics := LoadBytes("valid.json", []byte(valid)); len(diagnostics) != 0 {
+		t.Fatalf("diagnostics=%v", diagnostics)
+	}
+
+	cases := []struct {
+		name string
+		old  string
+		new  string
+		code string
+	}{
+		{name: "unknown requirement", old: `"sinon","http-client"`, new: `"missing","http-client"`, code: "TSPACK_TEST_REQUIREMENT_UNKNOWN"},
+		{name: "missing fixture requirement", old: `"sinon","http-client"`, new: `"sinon"`, code: "TSPACK_TEST_FIXTURE_REQUIREMENT_MISSING"},
+		{name: "invalid fixture binding", old: `"binding":"http-client"`, new: `"binding":"../escape"`, code: "TSPACK_TEST_FIXTURE_BINDING_INVALID"},
+		{name: "invalid fixture mode", old: `"mode":"source"`, new: `"mode":"mutable"`, code: "TSPACK_TEST_FIXTURE_MODE_INVALID"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			contents := strings.Replace(valid, testCase.old, testCase.new, 1)
+			if _, diagnostics := LoadBytes("invalid.json", []byte(contents)); !hasDiagnosticCode(diagnostics, testCase.code) {
+				t.Fatalf("diagnostics=%v", diagnostics)
+			}
+		})
+	}
+}
+
 func TestCompilerSelectionDefaultsToTscAndRestrictsTscl(t *testing.T) {
 	base := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"app","version":"1.0.0","kind":"app","dependencies":[],"targets":[],"policies":{},"boundaries":[],"tools":[],"publish":{"include":[],"exclude":[]}%s}]}`
 

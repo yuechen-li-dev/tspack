@@ -293,6 +293,8 @@ type TestOperationResult struct {
 
 func RunTest(ctx context.Context, request TestRequest) TestOperationResult {
 	options := request.Options
+	selectedPackageName := ""
+	selectedTargetName := ""
 	if options.RootDir == "" {
 		options.RootDir = request.Project.RootDir
 	}
@@ -316,12 +318,18 @@ func RunTest(ctx context.Context, request TestRequest) TestOperationResult {
 		if target.Harness != "vitest" {
 			return TestOperationResult{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_TEST_HARNESS_UNSUPPORTED", "unsupported declared test harness: "+target.Harness)}, ExitCode: 1}
 		}
+		selectedPackageName = pkg.Name
+		selectedTargetName = target.Name
 		options.UseVitest = true
 		options.CaptureStructured = true
 		options.VitestCwd = filepath.Join(request.Project.RootDir, filepath.FromSlash(pkg.Root))
 		options.VitestConfig = target.Config
 		options.VitestFiles = append([]string{}, target.Sources...)
 		options.VitestProject = target.Project
+		fixtureDiagnostics := validateRealizedTestFixtures(request.Project.RootDir, pkg, target)
+		if len(fixtureDiagnostics) > 0 {
+			return TestOperationResult{Diagnostics: fixtureDiagnostics, ExitCode: 1}
+		}
 	}
 	result := testcmd.RunContext(ctx, options)
 	operation := TestOperationResult{
@@ -333,7 +341,62 @@ func RunTest(ctx context.Context, request TestRequest) TestOperationResult {
 		DurationMs:  result.Summary.DurationMs,
 		Tests:       result.Tests,
 	}
+	operation.Diagnostics = append(operation.Diagnostics, failedTestDiagnostics(selectedPackageName, selectedTargetName, result.Tests)...)
 	return operation
+}
+
+func failedTestDiagnostics(packageName string, targetName string, tests []testcmd.TestEvidence) []diag.Diagnostic {
+	if packageName == "" || targetName == "" {
+		return nil
+	}
+	diagnostics := []diag.Diagnostic{}
+	for _, test := range tests {
+		if test.Status != "failed" {
+			continue
+		}
+		details := []string{
+			"consumer target: " + packageName + ":test:" + targetName,
+			"test identity: " + test.ID,
+		}
+		switch failure := test.Failure.(type) {
+		case []string:
+			details = append(details, failure...)
+		case string:
+			if failure != "" {
+				details = append(details, failure)
+			}
+		case nil:
+		default:
+			details = append(details, fmt.Sprint(failure))
+		}
+		diagnostics = append(diagnostics, diag.Diagnostic{
+			Code:     "TSPACK_TEST_ASSERTION_FAILED",
+			Severity: diag.SeverityError,
+			Message:  "test assertion failed",
+			Details:  details,
+		})
+	}
+	return diagnostics
+}
+
+func validateRealizedTestFixtures(workspaceRoot string, pkg *manifest.Package, target *manifest.TestTarget) []diag.Diagnostic {
+	diagnostics := []diag.Diagnostic{}
+	packageRoot := filepath.Join(workspaceRoot, filepath.FromSlash(pkg.Root))
+	for _, fixture := range target.Fixtures {
+		path := filepath.Join(packageRoot, "node_modules", filepath.FromSlash(fixture.Binding))
+		if _, err := os.Stat(path); err == nil {
+			continue
+		}
+		diagnostics = append(diagnostics, errDiag(
+			"TSPACK_TEST_FIXTURE_MISSING",
+			"test fixture is not realized; run tspack sync",
+			"consumer target: "+pkg.Name+":test:"+target.Name,
+			"fixture binding: "+fixture.Name+" -> "+fixture.Binding,
+			"producer requirement: "+fixture.Dependency,
+			"expected path: "+path,
+		))
+	}
+	return diagnostics
 }
 
 func selectTestPackage(ir *manifest.ManifestIR, requested string) *manifest.Package {

@@ -13,7 +13,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/yuechen-li-dev/tspack/internal/graph"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/manifest"
 	"github.com/yuechen-li-dev/tspack/internal/store"
 )
 
@@ -84,6 +86,166 @@ func TestMaterializeDirectDependencyRootEdge(t *testing.T) {
 		t.Fatalf("direct dependency materialization diagnostics: %#v", result.Diagnostics)
 	}
 	mustExist(t, filepath.Join(workspace, "node_modules", "@jsr", "luca__flag", "package.json"))
+}
+
+func TestMaterializeSourceFixtureIntoConsumerPackage(t *testing.T) {
+	workspace := t.TempDir()
+	contentStore, _ := store.Open(t.TempDir())
+	fixtureSource := filepath.Join(workspace, "test", "unit", "projects", "http-client")
+	if err := os.MkdirAll(fixtureSource, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixtureSource, "package.json"), []byte(`{"name":"http-client","source":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fixtureID := "path:test/unit/projects/http-client#fixture"
+	fixtureHash := putPkg(t, contentStore, fixtureID, "http-client")
+	ir := &manifest.ManifestIR{Format: 1, Workspace: manifest.Workspace{Name: "w"}, Packages: []manifest.Package{{
+		Name:    "tests",
+		Root:    "test/unit",
+		Version: "1.0.0",
+		Kind:    "app",
+		Dependencies: []manifest.DependencyIntent{{
+			Key: "http-client", Kind: "tool", Source: manifest.Source{Kind: "path", Path: "projects/http-client"},
+		}},
+		TestTargets: []manifest.TestTarget{{
+			Name:         "unit",
+			Harness:      "vitest",
+			Sources:      []string{"test/unit.test.ts"},
+			Requirements: []string{"http-client"},
+			Fixtures:     []manifest.TestFixture{{Name: "http-client", Dependency: "http-client", Binding: "http-client", Mode: "source"}},
+		}},
+	}}}
+	g, diagnostics := graph.Build(ir)
+	if len(diagnostics) > 0 {
+		t.Fatalf("graph diagnostics=%v", diagnostics)
+	}
+	locked := &lockfile.Lockfile{
+		Packages: []lockfile.Package{{ID: fixtureID, Name: "http-client", Source: "path", Hash: fixtureHash}},
+		Edges:    []lockfile.Edge{{From: "tests:test:unit", To: fixtureID, Kind: "test", Reference: "http-client"}},
+	}
+	request := Request{WorkspaceRoot: workspace, Graph: g, Lock: locked, Store: contentStore, Options: Options{LinkMode: LinkModeCopy}}
+	first := NodeModulesMaterializer{}.Materialize(context.Background(), request)
+	if len(first.Diagnostics) > 0 {
+		t.Fatalf("first diagnostics=%#v", first.Diagnostics)
+	}
+	destination := filepath.Join(workspace, "test", "unit", "node_modules", "http-client", "package.json")
+	mustExist(t, destination)
+	contents, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contents), `"source":true`) {
+		t.Fatalf("fixture did not expose authoritative source: %s", contents)
+	}
+	firstInfo, err := os.Stat(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := NodeModulesMaterializer{}.Materialize(context.Background(), request)
+	if len(second.Diagnostics) > 0 {
+		t.Fatalf("second diagnostics=%#v", second.Diagnostics)
+	}
+	secondInfo, err := os.Stat(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !firstInfo.ModTime().Equal(secondInfo.ModTime()) {
+		t.Fatalf("unchanged fixture was rematerialized: first=%v second=%v", firstInfo.ModTime(), secondInfo.ModTime())
+	}
+	if err := os.WriteFile(filepath.Join(fixtureSource, "updated.txt"), []byte("updated"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustExist(t, filepath.Join(workspace, "test", "unit", "node_modules", "http-client", "updated.txt"))
+}
+
+func TestMaterializePackageFixtureUsesLockedStoreContent(t *testing.T) {
+	workspace := t.TempDir()
+	contentStore, _ := store.Open(t.TempDir())
+	fixtureID := "path:test/unit/deps/dep-cjs#fixture"
+	fixtureHash := putPkgWithPackageJSON(
+		t,
+		contentStore,
+		fixtureID,
+		"@vitest/test-dep-cjs",
+		`{"name":"@vitest/test-dep-cjs","locked":true}`,
+		nil,
+	)
+	ir := &manifest.ManifestIR{Format: 1, Workspace: manifest.Workspace{Name: "w"}, Packages: []manifest.Package{{
+		Name:    "tests",
+		Root:    "test/unit",
+		Version: "1.0.0",
+		Kind:    "app",
+		Dependencies: []manifest.DependencyIntent{{
+			Key: "dep-cjs", Kind: "tool", Source: manifest.Source{Kind: "path", Path: "deps/dep-cjs"},
+		}},
+		TestTargets: []manifest.TestTarget{{
+			Name:         "unit",
+			Harness:      "vitest",
+			Sources:      []string{"test/unit.test.ts"},
+			Requirements: []string{"dep-cjs"},
+			Fixtures:     []manifest.TestFixture{{Name: "dep-cjs", Dependency: "dep-cjs", Binding: "@vitest/test-dep-cjs", Mode: "package"}},
+		}},
+	}}}
+	g, diagnostics := graph.Build(ir)
+	if len(diagnostics) > 0 {
+		t.Fatalf("graph diagnostics=%v", diagnostics)
+	}
+	locked := &lockfile.Lockfile{
+		Packages: []lockfile.Package{{ID: fixtureID, Name: "@vitest/test-dep-cjs", Source: "path", Hash: fixtureHash}},
+		Edges:    []lockfile.Edge{{From: "tests:test:unit", To: fixtureID, Kind: "test", Reference: "dep-cjs"}},
+	}
+	result := NodeModulesMaterializer{}.Materialize(context.Background(), Request{
+		WorkspaceRoot: workspace,
+		Graph:         g,
+		Lock:          locked,
+		Store:         contentStore,
+		Options:       Options{LinkMode: LinkModeCopy},
+	})
+	if len(result.Diagnostics) > 0 {
+		t.Fatalf("diagnostics=%#v", result.Diagnostics)
+	}
+	destination := filepath.Join(workspace, "test", "unit", "node_modules", "@vitest", "test-dep-cjs", "package.json")
+	contents, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contents), `"locked":true`) {
+		t.Fatalf("package fixture did not use locked store content: %s", contents)
+	}
+}
+
+func TestMaterializeSourceFixtureRejectsSymlinkEscape(t *testing.T) {
+	workspace := t.TempDir()
+	outside := t.TempDir()
+	consumerRoot := filepath.Join(workspace, "test", "unit")
+	if err := os.MkdirAll(filepath.Join(consumerRoot, "projects"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fixtureSource := filepath.Join(consumerRoot, "projects", "escaped")
+	if err := createWorkspaceDirectoryLink(outside, fixtureSource); err != nil {
+		t.Skipf("directory links are unavailable: %v", err)
+	}
+	if existingPathContainedByWorkspace(workspace, fixtureSource) {
+		t.Fatalf("escaped fixture source was incorrectly contained in the workspace")
+	}
+	contentStore, _ := store.Open(t.TempDir())
+	fixtureID := "path:test/unit/projects/escaped#fixture"
+	fixtureHash := putPkg(t, contentStore, fixtureID, "escaped")
+	ir := &manifest.ManifestIR{Format: 1, Workspace: manifest.Workspace{Name: "w"}, Packages: []manifest.Package{{
+		Name: "tests", Root: "test/unit", Version: "1.0.0", Kind: "app",
+		Dependencies: []manifest.DependencyIntent{{Key: "escaped", Kind: "tool", Source: manifest.Source{Kind: "path", Path: "projects/escaped"}}},
+		TestTargets:  []manifest.TestTarget{{Name: "unit", Harness: "vitest", Sources: []string{"test/unit.test.ts"}, Requirements: []string{"escaped"}, Fixtures: []manifest.TestFixture{{Name: "escaped", Dependency: "escaped", Binding: "escaped", Mode: "source"}}}},
+	}}}
+	g, diagnostics := graph.Build(ir)
+	if len(diagnostics) > 0 {
+		t.Fatalf("graph diagnostics=%v", diagnostics)
+	}
+	locked := &lockfile.Lockfile{Packages: []lockfile.Package{{ID: fixtureID, Name: "escaped", Source: "path", Hash: fixtureHash}}, Edges: []lockfile.Edge{{From: "tests:test:unit", To: fixtureID, Kind: "test", Reference: "escaped"}}}
+	result := NodeModulesMaterializer{}.Materialize(context.Background(), Request{WorkspaceRoot: workspace, Graph: g, Lock: locked, Store: contentStore, Options: Options{LinkMode: LinkModeCopy}})
+	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "TSPACK_TEST_FIXTURE_PATH_ESCAPES_WORKSPACE" {
+		t.Fatalf("diagnostics=%#v", result.Diagnostics)
+	}
 }
 
 func TestMaterializeNPMAliasAtReferenceName(t *testing.T) {

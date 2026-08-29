@@ -350,7 +350,7 @@ func lifecyclePulledByPaths(lf *lockfile.Lockfile) map[string][][]string {
 
 	roots := []string{}
 	for from := range edgesByFrom {
-		if strings.Contains(from, ":target:") || strings.HasSuffix(from, ":tool") {
+		if isLifecycleRootEdge(from) {
 			roots = append(roots, from)
 		}
 	}
@@ -382,4 +382,8 @@ func lifecyclePulledByPaths(lf *lockfile.Lockfile) map[string][][]string {
 		})
 	}
 	return pathsByPackage
+}
+
+func isLifecycleRootEdge(from string) bool {
+	return strings.Contains(from, ":target:") || strings.Contains(from, ":test:") || strings.HasSuffix(from, ":tool")
 }

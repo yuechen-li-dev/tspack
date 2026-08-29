@@ -308,6 +308,18 @@ declare module 'tspack/manifest' {
     config?: string;
     sources: string[];
     project?: string;
+    requirements?: TargetDependencyRefLike[];
+    fixtures?: LocalFixtureIntent[];
+  };
+
+  export type LocalFixtureOptions = {
+    name: string;
+    binding?: string;
+    mode?: 'package' | 'source';
+  };
+
+  export type LocalFixtureIntent = LocalFixtureOptions & {
+    dependency: TargetDependencyRefLike;
   };
 
   export type DevProxyRoute = {
@@ -698,6 +710,7 @@ declare module 'tspack/manifest' {
   export function dep(source: DependencySource, options?: DependencyOptions): DepIntent;
   export function peer(source: DependencySource, options?: PeerOptions): PeerIntent;
   export function tool(source: DependencySource, options?: DependencyOptions): ToolIntent;
+  export function localFixture(dependency: TargetDependencyRefLike, options: LocalFixtureOptions): LocalFixtureIntent;
   export function Env(name: string, options?: Omit<RunTargetEnvRow, 'name'>): RunTargetEnvRow;
   export function Service(name: string, options?: Omit<RunTargetServiceRequirementRow, 'name' | 'kind'>): RunTargetServiceRequirementRow;
   export function Workflow(identity: string, options: WorkflowOptions): WorkflowDeclaration;

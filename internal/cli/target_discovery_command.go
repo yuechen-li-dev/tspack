@@ -77,6 +77,12 @@ func renderDiscoveredTargets(result project.TargetDiscoveryResult) {
 			if target.HarnessProject != "" {
 				summary += "; project=" + target.HarnessProject
 			}
+			if len(target.Requirements) > 0 {
+				summary += fmt.Sprintf("; %d requirement(s)", len(target.Requirements))
+			}
+			if len(target.Fixtures) > 0 {
+				summary += fmt.Sprintf("; %d fixture(s)", len(target.Fixtures))
+			}
 		}
 		prerequisites := "-"
 		if len(target.Prerequisites) > 0 {
@@ -86,6 +92,13 @@ func renderDiscoveredTargets(result project.TargetDiscoveryResult) {
 		if target.Kind == "build" {
 			for _, artifact := range target.Artifacts {
 				fmt.Fprintf(writer, "\t\t\t\t\t%s [%s/%s]\t\n", artifact.Path, artifact.Kind, artifact.Role)
+			}
+		} else {
+			for _, requirement := range target.Requirements {
+				fmt.Fprintf(writer, "\t\t\t\t\trequires %s -> %s\t\n", requirement.Identity, requirement.Producer)
+			}
+			for _, fixture := range target.Fixtures {
+				fmt.Fprintf(writer, "\t\t\t\t\tfixture %s -> %s [%s]\t\n", fixture.Identity, fixture.RealizedPath, fixture.Producer)
 			}
 		}
 	}

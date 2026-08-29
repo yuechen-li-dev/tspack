@@ -21,6 +21,7 @@ const (
 	KindPeer               Kind = "peer"
 	KindPackageExplicit    Kind = "package-explicit"
 	KindProjectExplicit    Kind = "project-explicit"
+	KindTargetExplicit     Kind = "target-explicit"
 	KindOverride           Kind = "override"
 )
 
@@ -203,6 +204,8 @@ func kindRank(kind Kind) int {
 		return 30
 	case KindPackageExplicit:
 		return 40
+	case KindTargetExplicit:
+		return 45
 	case KindProjectExplicit:
 		return 50
 	case KindOverride:

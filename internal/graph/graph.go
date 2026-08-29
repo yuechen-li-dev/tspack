@@ -47,6 +47,8 @@ type PackageNode struct {
 	TargetsByExport   map[string]*TargetNode
 	Tools             []*DependencyNode
 	LifecycleTools    []*LifecycleToolRequirement
+	TestTargets       []*TestTargetNode
+	TestTargetsByName map[string]*TestTargetNode
 	Boundaries        []manifest.BoundaryRule
 	Publish           manifest.PublishPolicy
 	Policies          manifest.Policies
@@ -60,6 +62,20 @@ type LifecycleToolRequirement struct {
 	Dependency *DependencyNode
 	From       string
 	Tool       string
+}
+
+type TestTargetNode struct {
+	Package      *PackageNode
+	Name         string
+	Requirements []*DependencyNode
+	Fixtures     []TestFixtureNode
+}
+
+type TestFixtureNode struct {
+	Name       string
+	Dependency *DependencyNode
+	Binding    string
+	Mode       string
 }
 
 type TargetNode struct {
@@ -110,7 +126,7 @@ func Build(ir *manifest.ManifestIR) (*WorkspaceGraph, []diag.Diagnostic) {
 			add("TSPACK_GRAPH_DUPLICATE_PACKAGE", "duplicate package", p.Name)
 			continue
 		}
-		pn := &PackageNode{Name: p.Name, Version: p.Version, Root: p.Root, License: p.License, Kind: p.Kind, DependenciesByKey: map[string]*DependencyNode{}, TargetsByName: map[string]*TargetNode{}, TargetsByExport: map[string]*TargetNode{}, Boundaries: append([]manifest.BoundaryRule(nil), p.Boundaries...), Publish: p.Publish, Policies: p.Policies}
+		pn := &PackageNode{Name: p.Name, Version: p.Version, Root: p.Root, License: p.License, Kind: p.Kind, DependenciesByKey: map[string]*DependencyNode{}, TargetsByName: map[string]*TargetNode{}, TargetsByExport: map[string]*TargetNode{}, TestTargetsByName: map[string]*TestTargetNode{}, Boundaries: append([]manifest.BoundaryRule(nil), p.Boundaries...), Publish: p.Publish, Policies: p.Policies}
 		g.PackagesByName[p.Name] = pn
 		g.Packages = append(g.Packages, pn)
 
@@ -197,9 +213,39 @@ func Build(ir *manifest.ManifestIR) (*WorkspaceGraph, []diag.Diagnostic) {
 			pn.Tools = append(pn.Tools, dn)
 		}
 
+		for _, target := range p.TestTargets {
+			testNode := &TestTargetNode{Package: pn, Name: target.Name}
+			pn.TestTargets = append(pn.TestTargets, testNode)
+			pn.TestTargetsByName[target.Name] = testNode
+			for _, reference := range target.Requirements {
+				dependency, ok := pn.DependenciesByKey[reference]
+				if !ok {
+					add("TSPACK_GRAPH_UNKNOWN_TEST_REQUIREMENT", "unknown test target requirement", p.Name, target.Name, reference)
+					continue
+				}
+				testNode.Requirements = append(testNode.Requirements, dependency)
+			}
+			for _, fixture := range target.Fixtures {
+				dependency, ok := pn.DependenciesByKey[fixture.Dependency]
+				if !ok {
+					add("TSPACK_GRAPH_UNKNOWN_TEST_FIXTURE", "unknown test fixture dependency", p.Name, target.Name, fixture.Dependency)
+					continue
+				}
+				testNode.Fixtures = append(testNode.Fixtures, TestFixtureNode{
+					Name:       fixture.Name,
+					Dependency: dependency,
+					Binding:    fixture.Binding,
+					Mode:       fixture.Mode,
+				})
+			}
+			sort.SliceStable(testNode.Requirements, func(i, j int) bool { return testNode.Requirements[i].Key < testNode.Requirements[j].Key })
+			sort.SliceStable(testNode.Fixtures, func(i, j int) bool { return testNode.Fixtures[i].Name < testNode.Fixtures[j].Name })
+		}
+
 		sort.SliceStable(pn.Dependencies, func(i, j int) bool { return pn.Dependencies[i].Key < pn.Dependencies[j].Key })
 		sort.SliceStable(pn.Targets, func(i, j int) bool { return pn.Targets[i].Name < pn.Targets[j].Name })
 		sort.SliceStable(pn.Tools, func(i, j int) bool { return pn.Tools[i].Key < pn.Tools[j].Key })
+		sort.SliceStable(pn.TestTargets, func(i, j int) bool { return pn.TestTargets[i].Name < pn.TestTargets[j].Name })
 		for _, t := range pn.Targets {
 			sort.SliceStable(t.RuntimeDeps, func(i, j int) bool { return t.RuntimeDeps[i].Key < t.RuntimeDeps[j].Key })
 			sort.SliceStable(t.BuildDeps, func(i, j int) bool { return t.BuildDeps[i].Key < t.BuildDeps[j].Key })
@@ -250,6 +296,9 @@ func (p *PackageNode) ToolDependencies() []*DependencyNode {
 }
 func (p *PackageNode) LifecycleToolDependencies() []*LifecycleToolRequirement {
 	return append([]*LifecycleToolRequirement(nil), p.LifecycleTools...)
+}
+func (p *PackageNode) AllTestTargets() []*TestTargetNode {
+	return append([]*TestTargetNode(nil), p.TestTargets...)
 }
 
 func inferLifecycleToolRequirements(ir *manifest.ManifestIR, g *WorkspaceGraph) {

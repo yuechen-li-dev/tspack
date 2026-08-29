@@ -270,11 +270,23 @@ type Package struct {
 }
 
 type TestTarget struct {
-	Name    string   `json:"name"`
-	Harness string   `json:"harness"`
-	Config  string   `json:"config,omitempty"`
-	Sources []string `json:"sources"`
-	Project string   `json:"project,omitempty"`
+	Name         string        `json:"name"`
+	Harness      string        `json:"harness"`
+	Config       string        `json:"config,omitempty"`
+	Sources      []string      `json:"sources"`
+	Project      string        `json:"project,omitempty"`
+	Requirements []string      `json:"requirements,omitempty"`
+	Fixtures     []TestFixture `json:"fixtures,omitempty"`
+}
+
+// TestFixture binds one target-scoped local package requirement into the
+// consumer package's Node resolution environment. Dependency is authoritative
+// identity; Binding is the derived filesystem-facing package name.
+type TestFixture struct {
+	Name       string `json:"name"`
+	Dependency string `json:"dependency"`
+	Binding    string `json:"binding"`
+	Mode       string `json:"mode"`
 }
 
 type SkyrimTarget struct {
@@ -808,6 +820,7 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 		seenPkg[p.Name] = struct{}{}
 		preparePackageAuthoring(add, pp, p)
 		depKinds := map[string]string{}
+		depSources := map[string]Source{}
 		for i, d := range p.Dependencies {
 			k := depIdentity(d)
 			if k == "" {
@@ -818,6 +831,7 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 				add("TSPACK_IR_DUPLICATE_DEPENDENCY", "duplicate dependency key: "+k)
 			}
 			depKinds[k] = d.Kind
+			depSources[k] = d.Source
 			validateDep(add, pp, i, d)
 		}
 		seenTarget := map[string]struct{}{}
@@ -998,6 +1012,50 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 					add("TSPACK_TEST_SOURCE_INVALID", testPrefix+".sources must contain safe package-relative paths or globs")
 				}
 			}
+			seenRequirements := map[string]struct{}{}
+			for _, requirement := range target.Requirements {
+				if _, ok := depKinds[requirement]; !ok {
+					add("TSPACK_TEST_REQUIREMENT_UNKNOWN", testPrefix+".requirements has unknown dependency: "+requirement)
+					continue
+				}
+				if _, ok := seenRequirements[requirement]; ok {
+					add("TSPACK_TEST_REQUIREMENT_DUPLICATE", testPrefix+".requirements repeats dependency: "+requirement)
+				}
+				seenRequirements[requirement] = struct{}{}
+			}
+			seenFixtureNames := map[string]struct{}{}
+			seenFixtureBindings := map[string]struct{}{}
+			for fixtureIndex, fixture := range target.Fixtures {
+				fixturePrefix := fmt.Sprintf("%s.fixtures[%d]", testPrefix, fixtureIndex)
+				if fixture.Name == "" || !targetNameRe.MatchString(fixture.Name) {
+					add("TSPACK_TEST_FIXTURE_NAME_INVALID", fixturePrefix+".name is invalid")
+				}
+				if _, ok := seenFixtureNames[fixture.Name]; ok {
+					add("TSPACK_TEST_FIXTURE_DUPLICATE", testPrefix+" has duplicate fixture name: "+fixture.Name)
+				}
+				seenFixtureNames[fixture.Name] = struct{}{}
+				source, ok := depSources[fixture.Dependency]
+				if !ok {
+					add("TSPACK_TEST_FIXTURE_PRODUCER_UNKNOWN", fixturePrefix+".dependency is unknown: "+fixture.Dependency)
+				} else if source.Kind != "path" && source.Kind != "workspace" {
+					add("TSPACK_TEST_FIXTURE_PRODUCER_INVALID", fixturePrefix+".dependency must reference a path or workspace package")
+				} else if source.Kind == "workspace" && (source.Name == p.Name || source.Package == p.Name) {
+					add("TSPACK_TEST_FIXTURE_SELF_REFERENCE", fixturePrefix+" cannot reference its owning package")
+				}
+				if _, ok := seenRequirements[fixture.Dependency]; !ok {
+					add("TSPACK_TEST_FIXTURE_REQUIREMENT_MISSING", fixturePrefix+".dependency must also appear in requirements: "+fixture.Dependency)
+				}
+				if !validTestFixtureBinding(fixture.Binding) {
+					add("TSPACK_TEST_FIXTURE_BINDING_INVALID", fixturePrefix+".binding must be a safe npm package binding")
+				}
+				if _, ok := seenFixtureBindings[fixture.Binding]; ok {
+					add("TSPACK_TEST_FIXTURE_BINDING_DUPLICATE", testPrefix+" has duplicate fixture binding: "+fixture.Binding)
+				}
+				seenFixtureBindings[fixture.Binding] = struct{}{}
+				if fixture.Mode != "package" && fixture.Mode != "source" {
+					add("TSPACK_TEST_FIXTURE_MODE_INVALID", fixturePrefix+".mode must be package or source")
+				}
+			}
 		}
 		seenRunTargets := map[string]struct{}{}
 		for ri, rt := range p.RunTargets {
@@ -1116,6 +1174,10 @@ func validTargetArtifactRole(role string) bool {
 	default:
 		return false
 	}
+}
+
+func validTestFixtureBinding(binding string) bool {
+	return pkgNameRe.MatchString(binding)
 }
 
 // ResolveBuildTargetReference expands a package-local or package-qualified

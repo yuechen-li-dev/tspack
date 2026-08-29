@@ -84,7 +84,7 @@ export type DependencySourceAnalysis = {
 };
 
 const ALLOWED_IMPORT = 'tspack/manifest';
-const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'annotatePackage', 'defineDeps', 'npm', 'jsr', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service', 'json', 'Workflow', 'Job', 'Sequence', 'Parallel', 'Branch', 'On', 'MatchResult', 'Finally', 'ForEach', 'ParallelForEach', 'CollectAll', 'FailFast', 'Transfer', 'When', 'GreaterThan', 'LessThan', 'NotEmpty', 'IsEmpty', 'And', 'Or', 'Not', 'Manual', 'Push', 'PullRequest', 'Linux', 'Windows', 'MacOS', 'CurrentHost', 'Sync', 'Check', 'Build', 'Test', 'Pack', 'Audit', 'Process', 'ShellScript', 'Plain', 'Secret', 'WorkflowEnv']);
+const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'annotatePackage', 'defineDeps', 'npm', 'jsr', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'localFixture', 'Env', 'Service', 'json', 'Workflow', 'Job', 'Sequence', 'Parallel', 'Branch', 'On', 'MatchResult', 'Finally', 'ForEach', 'ParallelForEach', 'CollectAll', 'FailFast', 'Transfer', 'When', 'GreaterThan', 'LessThan', 'NotEmpty', 'IsEmpty', 'And', 'Or', 'Not', 'Manual', 'Push', 'PullRequest', 'Linux', 'Windows', 'MacOS', 'CurrentHost', 'Sync', 'Check', 'Build', 'Test', 'Pack', 'Audit', 'Process', 'ShellScript', 'Plain', 'Secret', 'WorkflowEnv']);
 const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'PackageAnnotations', 'Policies', 'Targets', 'RunTargets', 'TestTargets', 'Workflows', 'SkyrimTarget', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy', 'RegistryPolicy', 'RegistrySource', 'CompatFiles', 'JsonFile']);
 const APPROVED_PROPERTY_HELPERS = new Set(['TsConfig.manifestEditor', 'VSCode.settings', 'VSCode.extensions']);
 const DEFAULT_MANIFEST_EDITOR_INCLUDE = [
@@ -384,6 +384,7 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
     if (name === 'git') return { kind: 'git', ref: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'path') return { kind: 'path', path: args[0] };
     if (name === 'dep' || name === 'peer' || name === 'tool') return { kind: name, source: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
+    if (name === 'localFixture') return { dependency: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'workspace') return { kind: 'workspace', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'Env') return { name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'Service') return { kind: 'service', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
@@ -1662,7 +1663,7 @@ function mapPackage(p: any, includeRoot: boolean, context: AuthoringContext): Re
     dependencyAuthoring: mapDependencyAuthoring(dependencyValues, authoringContext),
     targets: mapTargets(p.__children?.find((x: any) => x.__tag === 'Targets')?.rows ?? []),
     ...(p.__children?.find((x: any) => x.__tag === 'RunTargets') ? { runTargets: p.__children?.find((x: any) => x.__tag === 'RunTargets')?.rows ?? [] } : {}),
-    ...(p.__children?.find((x: any) => x.__tag === 'TestTargets') ? { testTargets: p.__children?.find((x: any) => x.__tag === 'TestTargets')?.rows ?? [] } : {}),
+    ...(p.__children?.find((x: any) => x.__tag === 'TestTargets') ? { testTargets: mapTestTargets(p.__children?.find((x: any) => x.__tag === 'TestTargets')?.rows ?? []) } : {}),
     ...(p.__children?.find((x: any) => x.__tag === 'SkyrimTarget') ? { skyrim: mapSkyrimTarget(p.__children?.find((x: any) => x.__tag === 'SkyrimTarget')) } : {}),
     tools: mapDependencyRefs(p.__children?.find((x: any) => x.__tag === 'Tools')?.values ?? []),
     boundaries: p.__children?.find((x: any) => x.__tag === 'Boundaries')?.rows ?? [],
@@ -1837,6 +1838,26 @@ function jsxEval(node: ts.JsxElement | ts.JsxSelfClosingElement, sf: ts.SourceFi
 
 function isSafeRel(p: string): boolean {
   return !!p && !path.isAbsolute(p) && !p.includes('..') && !p.includes('\\');
+}
+
+function mapTestTargets(rows: any[]): any[] {
+  return rows.map((row) => {
+    const requirements = Array.isArray(row?.requirements) ? row.requirements : [];
+    const fixtures = Array.isArray(row?.fixtures) ? row.fixtures : [];
+    return {
+      ...row,
+      ...(requirements.length > 0 ? { requirements: mapDependencyRefs(requirements) } : {}),
+      ...(fixtures.length > 0
+        ? {
+            fixtures: fixtures.map((fixture: any) => ({
+              ...fixture,
+              dependency: dependencyRefKey(fixture?.dependency),
+              mode: fixture?.mode ?? 'package',
+            })),
+          }
+        : {}),
+    };
+  });
 }
 
 function mapSkyrimTarget(target: any): Record<string, unknown> {

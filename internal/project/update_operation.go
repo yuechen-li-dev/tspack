@@ -600,7 +600,7 @@ func preserveNonSelectedNPMLocks(g *graph.WorkspaceGraph, old *lockfile.Lockfile
 	}
 	lockedVersionByName := map[string]string{}
 	for _, e := range old.Edges {
-		if !strings.Contains(e.From, ":target:") && !strings.HasSuffix(e.From, ":tool") {
+		if !isLifecycleRootEdge(e.From) {
 			continue
 		}
 		if !strings.HasPrefix(e.To, "npm:") {
@@ -691,7 +691,7 @@ func packageClosureForNames(lf *lockfile.Lockfile, selectedNames map[string]bool
 		if !ok || !selectedNames[pkg.Name] {
 			continue
 		}
-		if !strings.Contains(edge.From, ":target:") && !strings.HasSuffix(edge.From, ":tool") {
+		if !isLifecycleRootEdge(edge.From) {
 			continue
 		}
 		if !closure[pkg.ID] {

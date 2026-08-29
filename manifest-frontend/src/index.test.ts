@@ -62,6 +62,41 @@ describe('package annotation manifests', () => {
     ]);
   });
 
+  it('lowers typed test requirements and local fixtures to stable dependency identities', () => {
+    const file = writeFixture('package.manifest.tsx', `
+      import { Package, TestTargets, defineDeps, definePackage, localFixture, npm, path, tool } from "tspack/manifest";
+      const deps = defineDeps({
+        sinon: tool(npm("sinon", "^22.0.0")),
+        httpClient: tool(path("projects/http-client"), { key: "http-client" }),
+      });
+      export default definePackage(
+        <Package name="tests" version="1.0.0" kind="app" dependencies={{ values: [deps.sinon, deps.httpClient] }}>
+          <TestTargets rows={[{
+            name: "unit",
+            harness: "vitest",
+            sources: ["test/unit.test.ts"],
+            requirements: [deps.sinon, deps.httpClient],
+            fixtures: [
+              localFixture(deps.httpClient, { name: "http-client", binding: "http-client" }),
+              localFixture(deps.httpClient, { name: "http-client-source", binding: "http-client-source", mode: "source" }),
+            ],
+          }]} />
+        </Package>,
+      );
+    `);
+
+    const result = parsePackageManifestFile(file);
+
+    expect(result.ok).toBe(true);
+    expect(result.ir?.packages[0]?.testTargets[0]).toMatchObject({
+      requirements: ['sinon', 'http-client'],
+      fixtures: [
+        { name: 'http-client', dependency: 'http-client', binding: 'http-client', mode: 'package' },
+        { name: 'http-client-source', dependency: 'http-client', binding: 'http-client-source', mode: 'source' },
+      ],
+    });
+  });
+
   it('parses annotatePackage as a package annotation and not a full package', () => {
     const file = writeFixture('package.manifest.tsx', `
       import { PackageAnnotations, annotatePackage, defineDeps, npm, peer, tool } from "tspack/manifest";

@@ -20,6 +20,16 @@ func TestProjectManagedBinUsesPlatformShim(t *testing.T) {
 	}
 }
 
+func TestResolvedProjectManagedBinIsAbsoluteForPackageScopedWorkingDirectory(t *testing.T) {
+	path, err := resolvedProjectManagedBin("workspace", "vitest")
+	if err != nil {
+		t.Fatalf("resolve project-managed bin: %v", err)
+	}
+	if !filepath.IsAbs(path) {
+		t.Fatalf("resolved bin path=%q, want absolute path", path)
+	}
+}
+
 func TestResolveXTestBridgeExplicitPath(t *testing.T) {
 	root := t.TempDir()
 	bridge := filepath.Join(root, "bridge.js")
