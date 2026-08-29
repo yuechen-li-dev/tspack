@@ -72,6 +72,24 @@ func RunContext(ctx context.Context, opts Options) Result {
 	selected := selectedBackends(opts)
 	if len(selected) == 0 {
 		selected = autoDetectBackends(opts.RootDir)
+		if len(selected) == 1 && selected[0] == "vitest" && ambiguousWorkspaceVitestRoot(opts.RootDir) {
+			return Result{
+				Diagnostics: []diag.Diagnostic{{
+					Code:     "TSPACK_TEST_AMBIGUOUS_WORKSPACE_VITEST",
+					Severity: diag.SeverityError,
+					Message:  "refusing to auto-run Vitest across an unconfigured package-manager workspace root",
+					Details: []string{
+						"workspace root: " + opts.RootDir,
+						"Vitest was discovered in node_modules, but no root Vite/Vitest config declares repository-level test intent.",
+					},
+					Fixes: []string{
+						"Run `tspack test --vitest` only if an unconfigured root Vitest run is intentional.",
+						"Otherwise declare package-scoped TSPack test intent before running from the workspace root.",
+					},
+				}},
+				ExitCode: 1,
+			}
+		}
 		if opts.Batch && containsString(selected, "xtest") {
 			selected = []string{"xtest"}
 		}
@@ -93,6 +111,31 @@ func RunContext(ctx context.Context, opts Options) Result {
 		result.ExitCode = 1
 	}
 	return result
+}
+
+func ambiguousWorkspaceVitestRoot(root string) bool {
+	if _, err := os.Stat(filepath.Join(root, "pnpm-workspace.yaml")); err != nil {
+		return false
+	}
+	for _, name := range []string{
+		"vitest.config.ts",
+		"vitest.config.mts",
+		"vitest.config.cts",
+		"vitest.config.js",
+		"vitest.config.mjs",
+		"vitest.config.cjs",
+		"vite.config.ts",
+		"vite.config.mts",
+		"vite.config.cts",
+		"vite.config.js",
+		"vite.config.mjs",
+		"vite.config.cjs",
+	} {
+		if info, err := os.Stat(filepath.Join(root, name)); err == nil && !info.IsDir() {
+			return false
+		}
+	}
+	return true
 }
 
 func selectedBackends(opts Options) []string {

@@ -713,6 +713,9 @@ func runTestCommand(args []string) {
 			}
 			fmt.Fprintf(os.Stderr, "  %s\n", detail)
 		}
+		for _, fix := range d.Fixes {
+			fmt.Fprintf(os.Stderr, "  suggested fix: %s\n", fix)
+		}
 	}
 	if operation.ExitCode != 0 || hasDiagnosticErrors(operation.Diagnostics) {
 		exit(1)

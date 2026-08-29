@@ -36,6 +36,8 @@ The default outputs are:
 
 `tspack migrate` never writes `manifest.tsx` by default and does not mutate `package.json`.
 
+After validation and review, promote the draft to the root `manifest.tsx` before running lifecycle commands. The draft filename is deliberately inert: `check`, `update`, `sync`, and `pack` require the authoritative root manifest rather than accepting `manifest.migrated.tsx` as project truth.
+
 Without `--force`, any existing output file causes the command to fail before writing anything. This all-or-nothing behavior means that if `manifest.migrated.tsx` exists and `tspack-migration.md` does not, neither output is written. Pass `--force` to overwrite only the migration output paths.
 
 ## Flags
@@ -71,6 +73,8 @@ Validation is layered:
 If validation fails, the diagnostics distinguish structural frontend/IR failures from TODO accounting. `remainingTodos` reports review work still present, and `todosAreErrors: false` makes clear that `MIGRATION_TODO_*` comments did not fail validation by themselves. Unknown dependency-reference failures may also include an alias/key mismatch hint when generated refs do not match declared dependency identities.
 
 A passed check means the draft is structurally valid and accepted by the current manifest frontend and Go IR validator. It does **not** mean the migration is semantically complete, dependencies are resolved, targets are correct, scripts are migrated, or publish contents are verified.
+
+After resolving the draft TODOs, promote it to `manifest.tsx`, then run `tspack update` and `tspack check`. Do not pass the draft filename to lifecycle commands; those commands intentionally require an authoritative root manifest.
 
 With `--write --check`, TSPack validates first. If validation fails, no migration outputs are written. If validation passes, it writes the manifest draft and migration report. Existing output collisions are still checked before validation unless `--force` is passed.
 

@@ -179,6 +179,35 @@ func TestVitestBatchUnsupported(t *testing.T) {
 	}
 }
 
+func TestAutoDetectedVitestRefusesUnconfiguredPnpmWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	mustWriteTestFile(t, filepath.Join(root, "node_modules", ".bin", "vitest"))
+	if err := os.WriteFile(filepath.Join(root, "pnpm-workspace.yaml"), []byte("packages:\n  - packages/*\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := Run(Options{RootDir: root})
+	if result.ExitCode == 0 {
+		t.Fatalf("expected ambiguous workspace failure")
+	}
+	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "TSPACK_TEST_AMBIGUOUS_WORKSPACE_VITEST" {
+		t.Fatalf("expected workspace Vitest diagnostic, got %#v", result.Diagnostics)
+	}
+}
+
+func TestWorkspaceVitestAutodetectionAcceptsRootConfig(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pnpm-workspace.yaml"), []byte("packages:\n  - packages/*\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "vitest.config.ts"), []byte("export default {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if ambiguousWorkspaceVitestRoot(root) {
+		t.Fatalf("root Vitest config should make workspace intent explicit")
+	}
+}
+
 func TestDefaultXTestBridgeCandidatesPreferCurrentDistPath(t *testing.T) {
 	root := t.TempDir()
 	current := filepath.Join(root, "manifest-frontend", "dist", "native-test-cli.js")

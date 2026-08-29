@@ -85,6 +85,7 @@ type migrateConfig struct {
 type packageJSONModel struct {
 	Name                 string
 	Version              string
+	PackageManager       string
 	License              string
 	Private              bool
 	HasPrivate           bool
@@ -135,6 +136,7 @@ type migrationDraft struct {
 	Validation           migrationValidationResult
 	TodoCounts           map[string]int
 	TotalTodos           int
+	PnpmWorkspacePath    string
 }
 
 type migratedDependency struct {
@@ -709,6 +711,21 @@ func buildMigrationDraft(cfg migrateConfig) (migrationDraft, *migrationDiagnosti
 	draft.SourceEvidence = loadSourceScanEvidence(cfg, pkg)
 	draft.Diagnostics = migrationDiagnosticsFromLockEvidence(lockEvidence)
 	draft.Diagnostics = append(draft.Diagnostics, migrationDiagnosticsFromSourceEvidence(draft.SourceEvidence)...)
+	draft.PnpmWorkspacePath = detectPnpmWorkspace(cfg, pkg)
+	if draft.PnpmWorkspacePath != "" {
+		draft.Diagnostics = append(draft.Diagnostics, migrationDiagnostic{
+			Code:    "TSPACK_MIGRATE_PNPM_WORKSPACE_UNSUPPORTED",
+			Message: "pnpm workspace migration is not yet supported; this draft covers only the root package.json",
+			Details: []string{
+				"workspaceConfig: " + draft.PnpmWorkspacePath,
+				"packageManager: " + pkg.PackageManager,
+			},
+			Fixes: []string{
+				"Keep pnpm-workspace.yaml and package.json files as compatibility truth.",
+				"Do not treat this root-only draft as a migrated workspace; migrate individual packages only for bounded exploration.",
+			},
+		})
+	}
 	draft.Targets = inferMigrationTargets(pkg, draft.Kind, &draft)
 	draft.PublishInclude = inferMigrationPublishInclude(pkg, &draft)
 	draft.LifecycleScripts = findMigrationLifecycleScripts(pkg.Scripts)
@@ -763,6 +780,7 @@ func loadPackageJSONForMigration(cfg migrateConfig) (packageJSONModel, *migratio
 	pkg := packageJSONModel{
 		Name:                 readStringField(raw, "name"),
 		Version:              readStringField(raw, "version"),
+		PackageManager:       readStringField(raw, "packageManager"),
 		License:              readStringField(raw, "license"),
 		Type:                 readStringField(raw, "type"),
 		Main:                 readStringField(raw, "main"),
@@ -789,6 +807,18 @@ func loadPackageJSONForMigration(cfg migrateConfig) (packageJSONModel, *migratio
 	}
 	pkg.InvalidFields = findInvalidMigrationFields(raw)
 	return pkg, nil
+}
+
+func detectPnpmWorkspace(cfg migrateConfig, pkg packageJSONModel) string {
+	if !strings.HasPrefix(strings.ToLower(pkg.PackageManager), "pnpm@") {
+		return ""
+	}
+	path := filepath.Join(cfg.root, "pnpm-workspace.yaml")
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return ""
+	}
+	return path
 }
 
 func readStringField(raw map[string]any, field string) string {
@@ -1835,6 +1865,13 @@ func renderMigrationReport(draft *migrationDraft) string {
 		builder.WriteString("\n")
 	}
 	builder.WriteString("\n")
+	if draft.PnpmWorkspacePath != "" {
+		builder.WriteString("## Workspace migration limit\n")
+		builder.WriteString("TSPack detected the pnpm workspace config at `")
+		builder.WriteString(draft.PnpmWorkspacePath)
+		builder.WriteString("`, but this migration draft covers only the root `package.json`. ")
+		builder.WriteString("Keep the pnpm workspace metadata as compatibility truth and do not treat this draft as a complete workspace migration.\n\n")
+	}
 
 	builder.WriteString("## Mechanical mappings\n")
 	builder.WriteString("| package.json field | TSPack draft mapping |\n")
@@ -1921,15 +1958,10 @@ func renderMigrationReport(draft *migrationDraft) string {
 	builder.WriteString(filepath.Base(draft.Config.outManifestPath))
 	builder.WriteString("`.\n")
 	builder.WriteString("- Resolve `MIGRATION_TODO_*` comments.\n")
-	builder.WriteString("- Run: `tspack check --manifest ")
-	builder.WriteString(filepath.Base(draft.Config.outManifestPath))
-	builder.WriteString("`.\n")
-	builder.WriteString("- Run: `tspack update --manifest ")
-	builder.WriteString(filepath.Base(draft.Config.outManifestPath))
-	builder.WriteString("`.\n")
-	builder.WriteString("- Run: `tspack pack --dry-run --manifest ")
-	builder.WriteString(filepath.Base(draft.Config.outManifestPath))
-	builder.WriteString("`.\n")
+	builder.WriteString("- Promote the reviewed draft to the root `manifest.tsx`; lifecycle commands intentionally reject draft filenames.\n")
+	builder.WriteString("- Run: `tspack update`.\n")
+	builder.WriteString("- Run: `tspack check`.\n")
+	builder.WriteString("- Run: `tspack pack --dry-run`.\n")
 	builder.WriteString("\nThis report does not claim migration is complete. It is a mechanical draft for human/LLM review.\n")
 	return builder.String()
 }
@@ -2082,12 +2114,16 @@ func renderScriptSuggestionsSection(builder *strings.Builder, draft *migrationDr
 		builder.WriteString("No shell-composite or environment-prefix script review items were detected.\n\n")
 	} else {
 		for _, analysis := range reviewScripts {
+			reviewNotes := uniqueStrings(analysis.ReviewNotes)
+			if len(reviewNotes) == 0 {
+				reviewNotes = []string{"manual classification required"}
+			}
 			builder.WriteString("- `")
 			builder.WriteString(analysis.Name)
 			builder.WriteString("`: `")
 			builder.WriteString(analysis.Command)
 			builder.WriteString("` — ")
-			builder.WriteString(strings.Join(uniqueStrings(analysis.ReviewNotes), "; "))
+			builder.WriteString(strings.Join(reviewNotes, "; "))
 			builder.WriteString("\n")
 		}
 		builder.WriteString("\n")
@@ -2341,7 +2377,8 @@ func printMigrationWriteSummary(draft migrationDraft) {
 		fmt.Println()
 		printMigrationValidationSummary(draft.Validation)
 	}
-	fmt.Println("  Run tspack check --manifest " + draft.Config.outManifestPath)
+	fmt.Println("  Promote the reviewed draft to root manifest.tsx.")
+	fmt.Println("  Run tspack update, then tspack check.")
 }
 
 func printMigrationValidationSummary(result migrationValidationResult) {
