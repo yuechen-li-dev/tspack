@@ -10,10 +10,13 @@ import (
 )
 
 const (
-	FlowSchemaVersion          = 2
+	FlowSchemaVersion          = 3
 	DefaultStepLimit           = 10_000
 	DefaultTraceLimit          = 256
 	DefaultForEachLimit        = 256
+	DefaultForEachConcurrency  = 4
+	MaxForEachConcurrency      = 32
+	DefaultPredicateDepthLimit = 8
 	DefaultFinallyNestingLimit = 8
 	DefaultCleanupTimeout      = 30 * time.Second
 )
@@ -28,6 +31,7 @@ const (
 	NodeBranchExit NodeKind = "branchExit"
 	NodeMatch      NodeKind = "match"
 	NodeIterator   NodeKind = "iterator"
+	NodePredicate  NodeKind = "predicate"
 	NodeTerminal   NodeKind = "terminal"
 )
 
@@ -53,15 +57,45 @@ const (
 )
 
 type Flow struct {
-	SchemaVersion int               `json:"schemaVersion"`
-	Identity      string            `json:"identity"`
-	Triggers      []Trigger         `json:"triggers"`
-	Entry         string            `json:"entry"`
-	Terminals     FlowTerminals     `json:"terminals"`
-	Regions       []ExecutionRegion `json:"regions"`
-	Values        []ValueDefinition `json:"values,omitempty"`
-	Nodes         []FlowNode        `json:"nodes"`
-	Transitions   []Transition      `json:"transitions"`
+	SchemaVersion int                   `json:"schemaVersion"`
+	Identity      string                `json:"identity"`
+	Triggers      []Trigger             `json:"triggers"`
+	Entry         string                `json:"entry"`
+	Terminals     FlowTerminals         `json:"terminals"`
+	Regions       []ExecutionRegion     `json:"regions"`
+	Values        []ValueDefinition     `json:"values,omitempty"`
+	Aggregates    []AggregateDefinition `json:"aggregates,omitempty"`
+	Nodes         []FlowNode            `json:"nodes"`
+	Transitions   []Transition          `json:"transitions"`
+}
+
+type AggregateDefinition struct {
+	Identity      string   `json:"identity"`
+	ResultType    string   `json:"resultType"`
+	Elements      []string `json:"elements"`
+	Mode          string   `json:"mode"`
+	Concurrency   int      `json:"concurrency"`
+	FailurePolicy string   `json:"failurePolicy"`
+}
+
+type AggregateValue struct {
+	Identity string             `json:"identity"`
+	Elements []AggregateElement `json:"elements"`
+}
+
+type AggregateElement struct {
+	Index   int          `json:"index"`
+	Value   string       `json:"value"`
+	Outcome TerminalKind `json:"outcome,omitempty"`
+}
+
+type Predicate struct {
+	Kind     string      `json:"kind"`
+	Input    *ValueRef   `json:"input,omitempty"`
+	Number   *float64    `json:"number,omitempty"`
+	Boolean  *bool       `json:"boolean,omitempty"`
+	String   string      `json:"string,omitempty"`
+	Children []Predicate `json:"children,omitempty"`
 }
 
 type ValueCategory string
@@ -84,8 +118,9 @@ type ValueRef struct {
 
 type ValueDefinition struct {
 	ValueRef
-	Producer string `json:"producer,omitempty"`
-	Region   string `json:"region,omitempty"`
+	Producer    string `json:"producer,omitempty"`
+	Region      string `json:"region,omitempty"`
+	Transported bool   `json:"transported,omitempty"`
 }
 
 type IteratorCursor struct {
@@ -96,6 +131,8 @@ type IteratorCursor struct {
 	Value          IterationValue `json:"value"`
 	Mode           string         `json:"mode"`
 	FailurePolicy  string         `json:"failurePolicy"`
+	Concurrency    int            `json:"concurrency"`
+	Aggregate      string         `json:"aggregate,omitempty"`
 }
 
 type IterationValue struct {
@@ -127,6 +164,7 @@ type FlowNode struct {
 	Value        string          `json:"value,omitempty"`
 	Source       string          `json:"source,omitempty"`
 	Iterator     *IteratorCursor `json:"iterator,omitempty"`
+	Predicate    *Predicate      `json:"predicate,omitempty"`
 	Cleanup      bool            `json:"cleanup,omitempty"`
 	CleanupCause TerminalKind    `json:"cleanupCause,omitempty"`
 	Targets      []string        `json:"targets,omitempty"`
@@ -165,6 +203,7 @@ type Snapshot struct {
 	Values          map[string]NativeResult   `json:"values,omitempty"`
 	Outcomes        map[string]TerminalKind   `json:"outcomes,omitempty"`
 	Iterators       map[string]IteratorCursor `json:"iterators,omitempty"`
+	Aggregates      map[string]AggregateValue `json:"aggregates,omitempty"`
 	CleanupFailures []CleanupFailure          `json:"cleanupFailures,omitempty"`
 	StepCount       int                       `json:"stepCount"`
 	StepLimit       int                       `json:"stepLimit"`
@@ -201,6 +240,7 @@ type flowBuilder struct {
 	timeoutTarget   string
 	cleanupCause    TerminalKind
 	finallyDepth    int
+	forEachDepth    int
 	effects         map[string]string
 	authoredEffects map[string]int
 	matchTargets    map[string]string
@@ -357,7 +397,10 @@ func (builder *flowBuilder) compileAuthoringNode(node manifest.WorkflowFlowNode,
 		return fork, nil
 	case "region":
 		region := builder.addNode("region", NodeEntry)
-		regionIdentity := "region/" + strings.TrimPrefix(region, "node/")
+		regionIdentity := "region/" + node.RunsOn
+		if len(node.Env) > 0 {
+			regionIdentity = "region/" + strings.TrimPrefix(region, "node/")
+		}
 		builder.addRegion(regionIdentity, node.RunsOn, normalizeEnvironment(node.Env))
 		previous := builder.currentRegion
 		builder.currentRegion = regionIdentity
@@ -445,48 +488,243 @@ func (builder *flowBuilder) compileAuthoringNode(node manifest.WorkflowFlowNode,
 		builder.timeoutTarget = previousTimeout
 		return entry, bodyErr
 	case "forEach":
-		if len(node.Items) == 0 || len(node.Items) > DefaultForEachLimit {
-			return "", fmt.Errorf("TSPACK_WORKFLOW_FOREACH_LIMIT_INVALID: ForEach %s requires 1..%d finite items", node.Identity, DefaultForEachLimit)
+		return builder.compileForEach(node, continuation)
+	case "when":
+		if node.Predicate == nil || node.Then == nil {
+			return "", errorsForFlowNode(node.Kind, "predicate and true branch are required")
 		}
-		next := continuation
-		for index := len(node.Items) - 1; index >= 0; index-- {
-			item := node.Items[index]
-			entry, err := builder.compileAuthoringNode(item.Flow, next)
+		predicate, err := predicateFromManifest(*node.Predicate)
+		if err != nil {
+			return "", err
+		}
+		builder.normalizePredicate(&predicate)
+		falseEntry := continuation
+		if node.Else != nil {
+			falseEntry, err = builder.compileAuthoringNode(*node.Else, continuation)
 			if err != nil {
 				return "", err
 			}
-			cursor := builder.addNode(fmt.Sprintf("foreach-%s-%03d", node.Identity, item.Index), NodeIterator)
-			binding := builder.valueIdentity(fmt.Sprintf("foreach/%s/%03d", node.Identity, item.Index))
-			iterationValue := IterationValue{
-				Kind:    item.Value.Kind,
-				String:  item.Value.String,
-				Number:  item.Value.Number,
-				Boolean: item.Value.Boolean,
-			}
-			builder.node(cursor).Iterator = &IteratorCursor{
-				SourceIdentity: node.Identity,
-				Index:          item.Index,
-				Count:          len(node.Items),
-				Binding:        binding,
-				Value:          iterationValue,
-				Mode:           "sequential",
-				FailurePolicy:  "failFast",
-			}
-			category := ValueControl
-			if item.Value.Kind == "platform" {
-				category = ValuePlacement
-			}
-			builder.flow.Values = append(builder.flow.Values, ValueDefinition{
-				ValueRef: ValueRef{Identity: binding, Source: binding, ResultType: "iterationBinding", Category: category},
-				Producer: cursor,
-				Region:   builder.currentRegion,
-			})
-			builder.addTransition(cursor, MachineContinue, entry)
-			next = cursor
 		}
-		return next, nil
+		trueEntry, err := builder.compileAuthoringNode(*node.Then, continuation)
+		if err != nil {
+			return "", err
+		}
+		condition := builder.addNode("when", NodePredicate)
+		builder.node(condition).Predicate = &predicate
+		builder.addTransitionGuard(condition, MachineContinue, "true", trueEntry)
+		builder.addTransitionGuard(condition, MachineContinue, "false", falseEntry)
+		return condition, nil
 	default:
 		return "", errorsForFlowNode(node.Kind, "unsupported authoring node")
+	}
+}
+
+func (builder *flowBuilder) compileForEach(node manifest.WorkflowFlowNode, continuation string) (string, error) {
+	if len(node.Items) == 0 || len(node.Items) > DefaultForEachLimit {
+		return "", fmt.Errorf("TSPACK_WORKFLOW_FOREACH_LIMIT_INVALID: ForEach %s requires 1..%d finite items", node.Identity, DefaultForEachLimit)
+	}
+	if builder.forEachDepth > 0 {
+		return "", errorsForFlowNode("forEach", "nested ForEach is not supported in schema v3")
+	}
+	mode := node.Mode
+	if mode == "" {
+		mode = "sequential"
+	}
+	if mode != "sequential" && mode != "parallel" {
+		return "", fmt.Errorf("TSPACK_WORKFLOW_FOREACH_MODE_INVALID: ForEach %s mode must be sequential or parallel", node.Identity)
+	}
+	failurePolicy := node.FailurePolicy
+	if failurePolicy == "" {
+		failurePolicy = "failFast"
+	}
+	if failurePolicy != "failFast" && failurePolicy != "collectAll" {
+		return "", fmt.Errorf("TSPACK_WORKFLOW_FOREACH_FAILURE_POLICY_INVALID: ForEach %s failure policy must be failFast or collectAll", node.Identity)
+	}
+	concurrency := 1
+	if mode == "parallel" {
+		concurrency = node.Concurrency
+		if concurrency == 0 {
+			concurrency = DefaultForEachConcurrency
+		}
+		if concurrency < 1 || concurrency > MaxForEachConcurrency {
+			return "", fmt.Errorf("TSPACK_WORKFLOW_FOREACH_CONCURRENCY_INVALID: ForEach %s concurrency must be 1..%d", node.Identity, MaxForEachConcurrency)
+		}
+	}
+
+	aggregate, err := builder.addForEachAggregate(node, mode, concurrency, failurePolicy)
+	if err != nil {
+		return "", err
+	}
+	builder.forEachDepth++
+	defer func() { builder.forEachDepth-- }()
+
+	if mode == "sequential" {
+		next := continuation
+		for index := len(node.Items) - 1; index >= 0; index-- {
+			entry, compileErr := builder.compileForEachItem(node, node.Items[index], next, mode, concurrency, failurePolicy, aggregate.Identity)
+			if compileErr != nil {
+				return "", compileErr
+			}
+			next = entry
+		}
+		return next, nil
+	}
+
+	join := builder.addNode("foreach-"+node.Identity+"-join", NodeJoin)
+	builder.addTransition(join, MachineContinue, continuation)
+	fork := builder.addNode("foreach-"+node.Identity+"-fork", NodeFork)
+	exits := make([]string, len(node.Items))
+	entries := make([]string, len(node.Items))
+	for index, item := range node.Items {
+		exits[index] = builder.addNode(fmt.Sprintf("foreach-%s-%03d-exit", node.Identity, item.Index), NodeBranchExit)
+		builder.node(join).WaitFor = append(builder.node(join).WaitFor, exits[index])
+	}
+	for index, item := range node.Items {
+		entry, compileErr := builder.compileForEachItem(node, item, exits[index], mode, concurrency, failurePolicy, aggregate.Identity)
+		if compileErr != nil {
+			return "", compileErr
+		}
+		entries[index] = entry
+	}
+	for index, exit := range exits {
+		nextIndex := index + concurrency
+		if nextIndex < len(entries) {
+			builder.addTransition(exit, MachineContinue, entries[nextIndex])
+		}
+	}
+	for index := 0; index < concurrency && index < len(entries); index++ {
+		builder.node(fork).Targets = append(builder.node(fork).Targets, entries[index])
+	}
+	builder.node(fork).Targets = append(builder.node(fork).Targets, join)
+	return fork, nil
+}
+
+func (builder *flowBuilder) compileForEachItem(node manifest.WorkflowFlowNode, item manifest.WorkflowForEachItem, continuation string, mode string, concurrency int, failurePolicy string, aggregate string) (string, error) {
+	previousFailure := builder.failureTarget
+	previousCancel := builder.cancelTarget
+	previousTimeout := builder.timeoutTarget
+	if failurePolicy == "collectAll" {
+		builder.failureTarget = continuation
+		builder.cancelTarget = continuation
+		builder.timeoutTarget = continuation
+	}
+	entry, err := builder.compileAuthoringNode(item.Flow, continuation)
+	builder.failureTarget = previousFailure
+	builder.cancelTarget = previousCancel
+	builder.timeoutTarget = previousTimeout
+	if err != nil {
+		return "", err
+	}
+	cursor := builder.addNode(fmt.Sprintf("foreach-%s-%03d", node.Identity, item.Index), NodeIterator)
+	binding := builder.valueIdentity(fmt.Sprintf("foreach/%s/%03d", node.Identity, item.Index))
+	builder.node(cursor).Iterator = &IteratorCursor{
+		SourceIdentity: node.Identity,
+		Index:          item.Index,
+		Count:          len(node.Items),
+		Binding:        binding,
+		Value: IterationValue{
+			Kind:    item.Value.Kind,
+			String:  item.Value.String,
+			Number:  item.Value.Number,
+			Boolean: item.Value.Boolean,
+		},
+		Mode:          mode,
+		FailurePolicy: failurePolicy,
+		Concurrency:   concurrency,
+		Aggregate:     aggregate,
+	}
+	category := ValueControl
+	if item.Value.Kind == "platform" {
+		category = ValuePlacement
+	}
+	builder.flow.Values = append(builder.flow.Values, ValueDefinition{
+		ValueRef: ValueRef{Identity: binding, Source: binding, ResultType: "iterationBinding", Category: category},
+		Producer: cursor,
+		Region:   builder.currentRegion,
+	})
+	builder.addTransition(cursor, MachineContinue, entry)
+	return cursor, nil
+}
+
+func (builder *flowBuilder) addForEachAggregate(node manifest.WorkflowFlowNode, mode string, concurrency int, failurePolicy string) (AggregateDefinition, error) {
+	aggregate := AggregateDefinition{
+		Identity:      builder.valueIdentity("aggregate/" + node.Identity),
+		Mode:          mode,
+		Concurrency:   concurrency,
+		FailurePolicy: failurePolicy,
+	}
+	if node.Aggregate != nil {
+		aggregate.Identity = builder.valueIdentity(node.Aggregate.Identity)
+		aggregate.ResultType = node.Aggregate.ResultType
+		for _, element := range node.Aggregate.Elements {
+			aggregate.Elements = append(aggregate.Elements, builder.valueIdentity(element))
+		}
+	} else {
+		for _, item := range node.Items {
+			identity, resultType, ok := singleTypedEffect(item.Flow)
+			if !ok {
+				return aggregate, nil
+			}
+			if aggregate.ResultType == "" {
+				aggregate.ResultType = resultType
+			}
+			if aggregate.ResultType != resultType {
+				return AggregateDefinition{}, errorsForFlowNode("forEach", "aggregate elements must have one result type")
+			}
+			aggregate.Elements = append(aggregate.Elements, builder.valueIdentity(identity))
+		}
+	}
+	if len(aggregate.Elements) == len(node.Items) {
+		if failurePolicy == "collectAll" {
+			aggregate.ResultType = "iterationOutcome<" + aggregate.ResultType + ">"
+		}
+		builder.flow.Aggregates = append(builder.flow.Aggregates, aggregate)
+	}
+	return aggregate, nil
+}
+
+func singleTypedEffect(node manifest.WorkflowFlowNode) (string, string, bool) {
+	if node.Kind == "effect" && node.Effect != nil && node.Effect.ResultIdentity != "" {
+		switch node.Effect.Operation {
+		case "build", "test", "audit":
+			return node.Effect.ResultIdentity, node.Effect.Operation, true
+		}
+	}
+	if node.Kind == "region" && len(node.Children) == 1 {
+		return singleTypedEffect(node.Children[0])
+	}
+	return "", "", false
+}
+
+func predicateFromManifest(source manifest.WorkflowPredicate) (Predicate, error) {
+	predicate := Predicate{
+		Kind:    source.Kind,
+		Number:  source.Number,
+		Boolean: source.Boolean,
+		String:  source.String,
+	}
+	if source.Input != nil {
+		input := valueRefsFromManifest([]manifest.WorkflowValueRef{*source.Input})[0]
+		predicate.Input = &input
+	}
+	for _, child := range source.Children {
+		converted, err := predicateFromManifest(child)
+		if err != nil {
+			return Predicate{}, err
+		}
+		predicate.Children = append(predicate.Children, converted)
+	}
+	return predicate, nil
+}
+
+func (builder *flowBuilder) normalizePredicate(predicate *Predicate) {
+	if predicate.Input != nil {
+		predicate.Input.Identity = builder.valueIdentity(predicate.Input.Identity)
+		predicate.Input.Source = builder.valueIdentity(predicate.Input.Source)
+		builder.addProjection(*predicate.Input)
+	}
+	for index := range predicate.Children {
+		builder.normalizePredicate(&predicate.Children[index])
 	}
 }
 
@@ -528,6 +766,10 @@ func (builder *flowBuilder) compileEffect(step PlanStep, continuation string) st
 	node := builder.node(identity)
 	step.Identity = identity
 	node.Region = builder.currentRegion
+	if step.Operation == "transfer" {
+		node.Region = "region/" + step.TransferTarget
+		builder.addRegion(node.Region, step.TransferTarget, nil)
+	}
 	node.Branch = builder.currentBranch
 	node.Effect = &step
 	node.Cleanup = builder.cleanupCause != ""
@@ -537,14 +779,18 @@ func (builder *flowBuilder) compileEffect(step PlanStep, continuation string) st
 	}
 	node.Value = builder.valueIdentity(step.ResultIdentity)
 	step.Inputs = builder.normalizeInputs(step.Inputs)
+	if step.Operation == "transfer" && len(step.Inputs) == 1 {
+		step.TransferSourceRegion = builder.valueRegion(step.Inputs[0].Source)
+	}
 	if original := strings.TrimPrefix(step.ResultIdentity, "value/"); original != "" {
 		builder.effects[original] = identity
 	}
 	producerType := step.Operation
 	builder.flow.Values = append(builder.flow.Values, ValueDefinition{
-		ValueRef: ValueRef{Identity: node.Value, Source: node.Value, ResultType: producerType, Category: ValueRegionLocal},
-		Producer: identity,
-		Region:   builder.currentRegion,
+		ValueRef:    ValueRef{Identity: node.Value, Source: node.Value, ResultType: producerType, Category: ValueRegionLocal},
+		Producer:    identity,
+		Region:      node.Region,
+		Transported: step.Operation == "transfer",
 	})
 	for _, input := range step.Inputs {
 		if input.Identity == input.Source {
@@ -621,6 +867,7 @@ func planStepFromManifest(step manifest.WorkflowStep, ordinal int, prefix string
 		Capabilities:    capabilities,
 		Environment:     normalizeEnvironment(step.Env),
 		TimeoutSeconds:  step.TimeoutSeconds,
+		TransferTarget:  step.TransferTarget,
 	}
 }
 
@@ -662,6 +909,15 @@ func (builder *flowBuilder) addProjection(reference ValueRef) {
 		}
 	}
 	builder.flow.Values = append(builder.flow.Values, ValueDefinition{ValueRef: reference})
+}
+
+func (builder *flowBuilder) valueRegion(identity string) string {
+	for _, value := range builder.flow.Values {
+		if value.Identity == identity {
+			return value.Region
+		}
+	}
+	return ""
 }
 
 func (builder *flowBuilder) addNode(label string, kind NodeKind) string {
@@ -749,6 +1005,9 @@ func ValidateFlow(flow Flow) []string {
 		if node.Kind == NodeJoin && len(node.WaitFor) == 0 {
 			add("TSPACK_WORKFLOW_JOIN_INVALID", node.Identity+" has no branches to join")
 		}
+		if node.Kind == NodePredicate && node.Predicate == nil {
+			add("TSPACK_WORKFLOW_PREDICATE_INVALID", node.Identity+" has no predicate")
+		}
 	}
 	if _, exists := nodes[flow.Entry]; !exists {
 		add("TSPACK_WORKFLOW_ENTRY_UNKNOWN", "entry node does not exist")
@@ -774,7 +1033,7 @@ func ValidateFlow(flow Flow) []string {
 			add("TSPACK_WORKFLOW_TRANSITION_TARGET_UNKNOWN", transition.Identity+" has unknown target "+transition.To)
 		}
 		caseKey := transition.From + "\x00" + string(transition.Event)
-		if source, exists := nodes[transition.From]; exists && source.Kind == NodeMatch {
+		if source, exists := nodes[transition.From]; exists && (source.Kind == NodeMatch || source.Kind == NodePredicate) {
 			caseKey += "\x00" + transition.Guard
 		}
 		if _, exists := transitionCases[caseKey]; exists {
@@ -807,6 +1066,13 @@ func ValidateFlow(flow Flow) []string {
 				}
 			}
 		}
+		if node.Kind == NodePredicate {
+			for _, outcome := range []string{"true", "false"} {
+				if _, exists := transitionCases[node.Identity+"\x00"+string(MachineContinue)+"\x00"+outcome]; !exists {
+					add("TSPACK_WORKFLOW_PREDICATE_NON_EXHAUSTIVE", node.Identity+" does not handle "+outcome)
+				}
+			}
+		}
 	}
 	validateFlowValues(add, flow, nodes)
 	adjacency := map[string][]string{}
@@ -834,7 +1100,7 @@ func ValidateFlow(flow Flow) []string {
 	}
 	markReachable(flow.Entry)
 	for _, node := range flow.Nodes {
-		if !reachable[node.Identity] {
+		if !reachable[node.Identity] && node.Kind != NodeTerminal && !node.Cleanup {
 			add("TSPACK_WORKFLOW_NODE_UNREACHABLE", node.Identity+" cannot be reached from entry")
 		}
 	}
@@ -886,6 +1152,9 @@ func validateFlowValues(add func(string, string), flow Flow, nodes map[string]Fl
 				add("TSPACK_WORKFLOW_VALUE_SCOPE_ILLEGAL", node.Source+" is not produced on a path reaching "+node.Identity)
 			}
 		}
+		if node.Kind == NodePredicate && node.Predicate != nil {
+			validatePredicateValues(add, flow, node.Identity, node.Predicate, definitions, 1)
+		}
 		if node.Effect == nil {
 			continue
 		}
@@ -901,10 +1170,73 @@ func validateFlowValues(add func(string, string), flow Flow, nodes map[string]Fl
 			}
 			if source.Region != "" && node.Region != "" && source.Region != node.Region {
 				if input.Category == ValueArtifactReference || input.Category == ValueRegionLocal {
-					add("TSPACK_WORKFLOW_VALUE_REGION_ILLEGAL", input.Identity+" cannot cross from "+source.Region+" to "+node.Region+" without semantic transport")
+					transportAvailable := source.Transported && input.Category == ValueArtifactReference && regionsSharePlatform(flow, source.Region, node.Region)
+					if (node.Effect.Operation != "transfer" || input.Category != ValueArtifactReference) && !transportAvailable {
+						add("TSPACK_WORKFLOW_VALUE_REGION_ILLEGAL", input.Identity+" cannot cross from "+source.Region+" to "+node.Region+" without semantic transport")
+					}
 				}
 			}
 		}
+	}
+	aggregateIdentities := map[string]bool{}
+	for _, aggregate := range flow.Aggregates {
+		if aggregateIdentities[aggregate.Identity] {
+			add("TSPACK_WORKFLOW_AGGREGATE_DUPLICATE", "aggregate "+aggregate.Identity+" is defined more than once")
+		}
+		aggregateIdentities[aggregate.Identity] = true
+		if aggregate.Identity == "" || len(aggregate.Elements) == 0 || len(aggregate.Elements) > DefaultForEachLimit {
+			add("TSPACK_WORKFLOW_AGGREGATE_INVALID", "aggregate requires deterministic identity and bounded elements")
+		}
+		if aggregate.Mode != "sequential" && aggregate.Mode != "parallel" {
+			add("TSPACK_WORKFLOW_FOREACH_MODE_INVALID", aggregate.Identity+" has invalid mode "+aggregate.Mode)
+		}
+		if aggregate.Concurrency < 1 || aggregate.Concurrency > MaxForEachConcurrency || (aggregate.Mode == "sequential" && aggregate.Concurrency != 1) {
+			add("TSPACK_WORKFLOW_FOREACH_CONCURRENCY_INVALID", aggregate.Identity+" has invalid concurrency")
+		}
+		if aggregate.FailurePolicy != "failFast" && aggregate.FailurePolicy != "collectAll" {
+			add("TSPACK_WORKFLOW_FOREACH_FAILURE_POLICY_INVALID", aggregate.Identity+" has invalid failure policy")
+		}
+		for _, element := range aggregate.Elements {
+			definition, exists := definitions[element]
+			if !exists || definition.Producer == "" {
+				add("TSPACK_WORKFLOW_AGGREGATE_ELEMENT_UNKNOWN", aggregate.Identity+" references unknown element "+element)
+			}
+		}
+	}
+}
+
+func regionsSharePlatform(flow Flow, leftIdentity string, rightIdentity string) bool {
+	left := ""
+	right := ""
+	for _, region := range flow.Regions {
+		if region.Identity == leftIdentity {
+			left = region.Platform
+		}
+		if region.Identity == rightIdentity {
+			right = region.Platform
+		}
+	}
+	return left != "" && left == right
+}
+
+func validatePredicateValues(add func(string, string), flow Flow, consumer string, predicate *Predicate, definitions map[string]ValueDefinition, depth int) {
+	if depth > DefaultPredicateDepthLimit {
+		add("TSPACK_WORKFLOW_PREDICATE_LIMIT_EXCEEDED", consumer+" predicate exceeds depth limit")
+		return
+	}
+	if predicate.Input != nil {
+		definition, exists := definitions[predicate.Input.Identity]
+		if !exists {
+			add("TSPACK_WORKFLOW_VALUE_UNKNOWN", consumer+" predicate consumes unknown value "+predicate.Input.Identity)
+		} else {
+			source := definitions[definition.Source]
+			if source.Producer != "" && !flowNodeReaches(flow, source.Producer, consumer) {
+				add("TSPACK_WORKFLOW_VALUE_SCOPE_ILLEGAL", predicate.Input.Identity+" is not produced on a path reaching "+consumer)
+			}
+		}
+	}
+	for index := range predicate.Children {
+		validatePredicateValues(add, flow, consumer, &predicate.Children[index], definitions, depth+1)
 	}
 }
 
@@ -943,9 +1275,10 @@ func validProjection(resultType string, path []string) bool {
 		return false
 	}
 	fields := map[string]map[string]bool{
-		"build": {"artifacts": true, "targets": true, "diagnostics": true},
-		"test":  {"passed": true, "failed": true, "skipped": true, "durationMs": true, "tests": true, "diagnostics": true},
-		"audit": {"source": true, "auditLevel": true, "failing": true, "report": true, "diagnostics": true},
+		"build":    {"artifacts": true, "targets": true, "diagnostics": true},
+		"transfer": {"artifacts": true, "targets": true, "diagnostics": true},
+		"test":     {"passed": true, "failed": true, "skipped": true, "durationMs": true, "tests": true, "diagnostics": true},
+		"audit":    {"source": true, "auditLevel": true, "failing": true, "report": true, "diagnostics": true},
 	}
 	return fields[resultType][path[0]]
 }

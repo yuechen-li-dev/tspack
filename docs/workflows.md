@@ -86,7 +86,7 @@ to the workspace.
 
 ## Flow machine
 
-`tspack workflow inspect CI --json` emits stable schema version 2. A conceptual
+`tspack workflow inspect CI --json` emits stable schema version 3. A conceptual
 view is:
 
 ```text
@@ -97,7 +97,7 @@ entry -> Sync -> Check -> fork
 ```
 
 The JSON contains nodes, transitions, regions, effects, value definitions,
-projections, match nodes, iterator cursors, cleanup metadata, fork targets,
+ordered aggregate references, typed predicate nodes, projections, match nodes, iterator cursors, cleanup metadata, fork targets,
 join dependencies, and four explicit effect outcome paths:
 `effectSucceeded`, `effectFailed`, `cancelRequested`, and `timeout`.
 Transitions contain semantic enum kinds, never provider expressions.
@@ -143,20 +143,48 @@ Logic is independent of placement. `On(platform, options, ...nodes)` creates an
 execution region containing platform and environment facts. Regions answer
 where effects run; sequence, branch, and join answer what happens.
 
-Native finite iteration is explicit:
+Native finite iteration is explicit. Ordinary `ForEach` remains sequential and
+fail-fast. Parallelism and collect-all behavior must be authored:
 
 ```tsx
 ForEach("platform", [Linux(), Windows()], platform =>
   On(platform, Test()),
+  {
+    mode: ParallelForEach({ concurrency: 2 }),
+    failure: CollectAll(),
+  },
 )
 ```
 
-M77 `ForEach` is sequential, ordered, and fail-fast. It accepts 1 to 256
-statically materialized string, number, boolean, or platform values. Lowering
-emits one cursor node per source item with source identity, index, count,
-binding, value, mode, and failure policy. It uses no generator or hidden
-program counter. Per-iteration effects retain distinct typed result identities;
-a first-class aggregate collection is intentionally reserved for M78.
+`ForEach` accepts 1 to 256 statically materialized string, number, boolean, or
+platform values. Parallel concurrency is 1..32. Lowering emits one cursor node
+per source item with source identity, index, count, binding, value, mode,
+concurrency, failure policy, and aggregate identity. The executor starts the
+first bounded window and each completed slot admits the next source item;
+completions ready together are applied by stable iteration identity.
+Aggregate elements are ordered value identities, not copied result payloads.
+`CollectAll()` records `succeeded`, `failed`, `cancelled`, or `timedOut` for
+every element and attempts all source items. Nested `ForEach` is deliberately
+rejected in schema v3 pending a total expansion-budget design.
+
+Typed successful-result facts use serializable builders rather than expression
+strings or runtime callbacks:
+
+```tsx
+const audit = Audit();
+
+Sequence(
+  audit,
+  When(
+    GreaterThan(audit.failing, 0),
+    Process("report", { command: ["report"] }),
+  ),
+)
+```
+
+M78 supports numeric `GreaterThan`/`LessThan`, collection-metadata
+`NotEmpty`/`IsEmpty`, and bounded `And`/`Or`/`Not`. Guards read already-produced
+snapshot values. Missing values are errors, never accidental false values.
 
 M74/M75 `jobs`, `needs`, `steps`, and `matrix` declarations remain accepted as
 compatibility authoring. They lower to the same Flow IR and executor. Jobs are
@@ -167,10 +195,15 @@ concurrency is intended.
 
 Values are classified as control, small serialized, artifact reference,
 region-local, or placement values. Artifact and region-local values cannot
-cross execution regions without semantic transport; M77 rejects such uses.
-Artifact values remain path/hash-style references and are not copied into
-projection nodes or traces. Values from parallel branches become available
-after the deterministic join; no race selects a winner.
+cross execution regions implicitly. `Transfer(build.artifacts, Windows())` is
+an explicit semantic effect which stages authorized workspace files into a
+bounded content-addressed local transport area, verifies SHA-256 integrity, and
+produces a new artifact reference owned by the target region. It accepts at
+most 64 regular, non-symlink files of at most 256 MiB each. Paths must remain
+inside the workspace. Transport metadata contains no environment or secret
+material. Provider artifact publishing, caches, and deployment are distinct
+concepts. Values from parallel branches become available after the
+deterministic join; no race selects a winner.
 
 General cycles are rejected with `TSPACK_WORKFLOW_CYCLE_UNBOUNDED`. Future
 retry/loop syntax must mark a cycle explicitly and provide a bound. Validation
@@ -204,10 +237,11 @@ provider secret spelling. It does not reimplement the Flow graph as a GitHub
 DAG. Core Flow data contains no GitHub, GitLab, YAML, `${{ }}`, `needs`, or
 `runs-on` concepts.
 
-Migration is direct: legacy `matrix` becomes `ForEach`, a status condition
-becomes `MatchResult`, provider `always()` becomes `Finally`, and a named output
-string becomes a typed effect result or field projection. Provider adapters do
-not change the core meaning.
+Migration is direct: legacy `matrix` becomes `ForEach`, upload/download used for
+in-workflow movement becomes `Transfer`, a successful-result `if` becomes typed
+`When`, a status condition becomes `MatchResult`, provider `always()` becomes
+`Finally`, and a named output string becomes a typed effect result, aggregate,
+or projection. Provider adapters do not change the core meaning.
 
-For the complete M77 laws, limits, and deferrals, see
-[`docs/dev/m77-typed-workflow-values.md`](dev/m77-typed-workflow-values.md).
+For the complete M78 laws, limits, and boundaries, see
+[`docs/dev/m78-typed-fanout-artifact-transport.md`](dev/m78-typed-fanout-artifact-transport.md).

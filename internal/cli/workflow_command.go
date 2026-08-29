@@ -202,6 +202,15 @@ func renderWorkflowFlow(flow workflow.Flow, jsonOutput bool) {
 			}
 		}
 	}
+	if len(flow.Aggregates) > 0 {
+		fmt.Println("\nAggregates:")
+		for _, aggregate := range flow.Aggregates {
+			fmt.Printf("  %s: %s[%d] (%s, concurrency %d, %s)\n", aggregate.Identity, aggregate.ResultType, len(aggregate.Elements), aggregate.Mode, aggregate.Concurrency, aggregate.FailurePolicy)
+			for index, element := range aggregate.Elements {
+				fmt.Printf("    [%d] -> %s\n", index, element)
+			}
+		}
+	}
 	fmt.Println("\nTransitions:")
 	for _, transition := range flow.Transitions {
 		guard := ""
@@ -241,6 +250,9 @@ func renderFlowProgram(flow workflow.Flow, identity string, indent string, visit
 		if node.Effect.Operation == "process" {
 			fmt.Printf("%s  argv: %s\n", indent, strings.Join(node.Effect.Command, " "))
 		}
+		if node.Effect.Operation == "transfer" {
+			fmt.Printf("%s  transport target: %s\n", indent, node.Effect.TransferTarget)
+		}
 		if next := flowTransitionTarget(flow, identity, workflow.MachineEffectSucceeded); next != "" {
 			renderFlowProgram(flow, next, indent, visited)
 		}
@@ -269,6 +281,10 @@ func renderFlowProgram(flow workflow.Flow, identity string, indent string, visit
 		}
 	case workflow.NodeBranchExit:
 		fmt.Printf("%sbranch complete\n", indent)
+		if next := flowTransitionTarget(flow, identity, workflow.MachineContinue); next != "" {
+			fmt.Printf("%s  admits next source item:\n", indent)
+			renderFlowProgram(flow, next, indent+"    ", visited)
+		}
 	case workflow.NodeJoin:
 		fmt.Printf("%sjoin all\n", indent)
 		if next := flowTransitionTarget(flow, identity, workflow.MachineContinue); next != "" {
@@ -287,15 +303,54 @@ func renderFlowProgram(flow workflow.Flow, identity string, indent string, visit
 			fmt.Printf("%siterator (invalid)\n", indent)
 			break
 		}
-		fmt.Printf("%sforeach %s cursor %d/%d = %s (%s, %s)\n", indent, node.Iterator.SourceIdentity, node.Iterator.Index+1, node.Iterator.Count, renderIterationValue(node.Iterator.Value), node.Iterator.Mode, node.Iterator.FailurePolicy)
+		fmt.Printf("%sforeach %s cursor %d/%d = %s (%s, concurrency %d, %s)\n", indent, node.Iterator.SourceIdentity, node.Iterator.Index+1, node.Iterator.Count, renderIterationValue(node.Iterator.Value), node.Iterator.Mode, node.Iterator.Concurrency, node.Iterator.FailurePolicy)
 		if next := flowTransitionTarget(flow, identity, workflow.MachineContinue); next != "" {
 			renderFlowProgram(flow, next, indent+"  ", visited)
+		}
+	case workflow.NodePredicate:
+		fmt.Printf("%swhen %s:\n", indent, renderWorkflowPredicate(node.Predicate))
+		for _, transition := range flow.Transitions {
+			if transition.From == identity && transition.Event == workflow.MachineContinue {
+				fmt.Printf("%s  %s:\n", indent, transition.Guard)
+				renderFlowProgram(flow, transition.To, indent+"    ", visited)
+			}
 		}
 	case workflow.NodeTerminal:
 		fmt.Printf("%sexit %s\n", indent, node.Terminal)
 	default:
 		fmt.Printf("%s%s [%s]\n", indent, identity, node.Kind)
 	}
+}
+
+func renderWorkflowPredicate(predicate *workflow.Predicate) string {
+	if predicate == nil {
+		return "<invalid>"
+	}
+	switch predicate.Kind {
+	case "greaterThan", "lessThan":
+		operator := ">"
+		if predicate.Kind == "lessThan" {
+			operator = "<"
+		}
+		if predicate.Input != nil && predicate.Number != nil {
+			return fmt.Sprintf("%s %s %v", predicate.Input.Identity, operator, *predicate.Number)
+		}
+	case "notEmpty", "isEmpty":
+		if predicate.Input != nil {
+			return predicate.Kind + "(" + predicate.Input.Identity + ")"
+		}
+	case "and", "or":
+		parts := make([]string, 0, len(predicate.Children))
+		for index := range predicate.Children {
+			parts = append(parts, renderWorkflowPredicate(&predicate.Children[index]))
+		}
+		return "(" + strings.Join(parts, " "+predicate.Kind+" ") + ")"
+	case "not":
+		if len(predicate.Children) == 1 {
+			return "not(" + renderWorkflowPredicate(&predicate.Children[0]) + ")"
+		}
+	}
+	return "<invalid>"
 }
 
 func renderIterationValue(value workflow.IterationValue) string {
@@ -368,6 +423,12 @@ func workflowEventRenderer(jsonOutput bool) workflow.EventSink {
 			if event.Result != nil && event.Result.Audit != nil {
 				fmt.Printf("[%s]   %d blocking findings; coverage complete: %t\n", event.Job, event.Result.Audit.Failing, event.Result.Audit.Report.CoverageComplete)
 			}
+		case workflow.EventArtifactTransferStarted:
+			fmt.Printf("[%s] artifact transfer started\n", event.Job)
+		case workflow.EventArtifactTransferCompleted:
+			fmt.Printf("[%s] artifact transfer completed (%dms)\n", event.Job, event.Duration)
+		case workflow.EventArtifactTransferFailed:
+			fmt.Printf("[%s] artifact transfer failed\n", event.Job)
 		case workflow.EventJobCompleted:
 			fmt.Printf("[%s] %s (%dms)\n", event.Job, event.State, event.Duration)
 		case workflow.EventWorkflowCompleted:

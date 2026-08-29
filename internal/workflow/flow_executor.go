@@ -39,30 +39,67 @@ func (executor *Executor) RunFlow(ctx context.Context, flow Flow) Result {
 		return executor.machineResult(flow, snapshot, StateFailed)
 	}
 
-	for snapshot.Status == StateRunning {
+	completionChannel := make(chan completedEffect, len(flow.Nodes))
+	semaphore := make(chan struct{}, executor.Concurrency)
+	running := map[string]FlowNode{}
+	for snapshot.Status == StateRunning || len(running) > 0 {
 		active := activeEffectNodes(flow, snapshot)
-		if len(active) == 0 {
-			snapshot.Status = StateFailed
-			break
-		}
-		if ctx.Err() != nil && !containsCleanupEffect(active) {
+		if ctx.Err() != nil && len(running) == 0 && !containsCleanupEffect(active) {
 			snapshot, _, _ = executor.applyMachineEvent(flow, snapshot, MachineEvent{Kind: MachineCancelRequested, Error: ctx.Err().Error()})
 			break
 		}
-		for _, node := range active {
-			snapshot, _, err = executor.applyMachineEvent(flow, snapshot, MachineEvent{Kind: MachineEffectStarted, Node: node.Identity})
-			if err != nil {
-				snapshot.Status = StateFailed
-				break
+		if snapshot.Status == StateRunning {
+			for _, node := range active {
+				if ctx.Err() != nil && !node.Cleanup {
+					continue
+				}
+				snapshot, _, err = executor.applyMachineEvent(flow, snapshot, MachineEvent{Kind: MachineEffectStarted, Node: node.Identity})
+				if err != nil {
+					snapshot.Status = StateFailed
+					break
+				}
+				running[node.Identity] = node
+				executor.emit(Event{Kind: EventStepStarted, Workflow: flow.Identity, Job: effectRegionLabel(node), Step: node.Identity, State: StateRunning})
+				if node.Effect.Operation == "transfer" {
+					executor.emit(Event{Kind: EventArtifactTransferStarted, Workflow: flow.Identity, Job: effectRegionLabel(node), Step: node.Identity, State: StateRunning})
+				}
+				go func(effectNode FlowNode, launchSnapshot Snapshot) {
+					if effectNode.Cleanup {
+						semaphore <- struct{}{}
+					} else {
+						select {
+						case semaphore <- struct{}{}:
+						case <-ctx.Done():
+							completionChannel <- completedEffect{node: effectNode, err: ctx.Err()}
+							return
+						}
+					}
+					defer func() { <-semaphore }()
+					completionChannel <- executor.runOneFlowEffect(ctx, flow, effectNode, launchSnapshot)
+				}(node, snapshot)
 			}
-			executor.emit(Event{Kind: EventStepStarted, Workflow: flow.Identity, Job: effectRegionLabel(node), Step: node.Identity, State: StateRunning})
 		}
-		if snapshot.Status != StateRunning {
+		if len(running) == 0 {
+			if snapshot.Status == StateRunning {
+				snapshot.Status = StateFailed
+			}
 			break
 		}
-
-		completed := executor.runEffectWave(ctx, flow, active, snapshot)
+		completed := []completedEffect{<-completionChannel}
+		for {
+			select {
+			case completion := <-completionChannel:
+				completed = append(completed, completion)
+			default:
+				sort.Slice(completed, func(left, right int) bool {
+					return completed[left].node.Identity < completed[right].node.Identity
+				})
+				goto applyCompletions
+			}
+		}
+	applyCompletions:
 		for _, completion := range completed {
+			delete(running, completion.node.Identity)
 			eventKind := MachineEffectSucceeded
 			state := StateSucceeded
 			if completion.err != nil {
@@ -80,9 +117,9 @@ func (executor *Executor) RunFlow(ctx context.Context, flow Flow) Result {
 					state = StateFailed
 				}
 			}
-			if eventKind == MachineCancelRequested {
+			if eventKind == MachineCancelRequested && snapshot.Status == StateRunning {
 				snapshot, _, _ = executor.applyMachineEvent(flow, snapshot, MachineEvent{Kind: MachineCancelRequested, Node: completion.node.Identity, Result: completion.result, Error: completion.err.Error()})
-			} else {
+			} else if snapshot.Nodes[completion.node.Identity].State == StateRunning {
 				machineEvent := MachineEvent{Kind: eventKind, Node: completion.node.Identity, Result: completion.result}
 				if completion.err != nil {
 					machineEvent.Error = completion.err.Error()
@@ -101,12 +138,49 @@ func (executor *Executor) RunFlow(ctx context.Context, flow Flow) Result {
 				Duration: completion.duration,
 				Result:   completion.result,
 			})
+			if completion.node.Effect.Operation == "transfer" {
+				kind := EventArtifactTransferCompleted
+				if completion.err != nil {
+					kind = EventArtifactTransferFailed
+				}
+				executor.emit(Event{Kind: kind, Workflow: flow.Identity, Job: effectRegionLabel(completion.node), Step: completion.node.Identity, State: state, Duration: completion.duration, Result: completion.result})
+			}
 		}
 	}
 
 	result := executor.machineResult(flow, snapshot, snapshot.Status)
 	executor.emit(Event{Kind: EventWorkflowCompleted, Workflow: flow.Identity, State: result.State})
 	return result
+}
+
+func (executor *Executor) runOneFlowEffect(ctx context.Context, flow Flow, effectNode FlowNode, snapshot Snapshot) completedEffect {
+	effectStep := *effectNode.Effect
+	for _, input := range effectNode.Effect.Inputs {
+		value, exists := snapshot.Values[input.Source]
+		if !exists {
+			return completedEffect{node: effectNode, err: errors.New("TSPACK_WORKFLOW_VALUE_UNAVAILABLE: " + input.Identity + " is not available to " + effectNode.Identity)}
+		}
+		valueCopy := value
+		effectStep.ResolvedInputs = append(effectStep.ResolvedInputs, ResolvedValue{Reference: input, Result: &valueCopy})
+	}
+	effectContext := ctx
+	cancelCleanup := func() {}
+	if effectNode.Cleanup {
+		effectContext, cancelCleanup = context.WithTimeout(context.WithoutCancel(ctx), DefaultCleanupTimeout)
+	}
+	defer cancelCleanup()
+	started := time.Now()
+	region := findRegion(flow, effectNode.Region)
+	job := PlanJob{
+		Identity:    effectRegionLabel(effectNode),
+		Platform:    region.Platform,
+		Environment: region.Environment,
+	}
+	if !platformCompatible(job.Platform) {
+		return completedEffect{node: effectNode, err: errors.New("TSPACK_WORKFLOW_PLATFORM_UNAVAILABLE: region requires " + job.Platform)}
+	}
+	result, err := executor.runStep(effectContext, flow.Identity, job, effectStep)
+	return completedEffect{node: effectNode, result: result, err: err, duration: time.Since(started).Milliseconds()}
 }
 
 func (executor *Executor) applyMachineEvent(flow Flow, snapshot Snapshot, event MachineEvent) (Snapshot, StepTrace, error) {

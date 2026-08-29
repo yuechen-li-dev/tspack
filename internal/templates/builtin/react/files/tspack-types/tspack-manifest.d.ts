@@ -470,13 +470,21 @@ declare module 'tspack/manifest' {
   export type WorkflowBuildEffect = (Omit<WorkflowBuildStepOptions, 'targets'> & { operation: 'build' }) & WorkflowBuildResultRef;
   export type WorkflowTestEffect = (WorkflowTestStepOptions & { operation: 'test' }) & WorkflowTestResultRef;
   export type WorkflowAuditEffect = (Omit<WorkflowAuditStepOptions, 'auditLevel'> & { operation: 'audit' }) & WorkflowAuditResultRef;
-  export type WorkflowTypedEffect = WorkflowBuildEffect | WorkflowTestEffect | WorkflowAuditEffect;
+  export type WorkflowTransferEffect = { operation: 'transfer' } & WorkflowBuildResultRef;
+  export type WorkflowTypedEffect = WorkflowBuildEffect | WorkflowTestEffect | WorkflowAuditEffect | WorkflowTransferEffect;
   export type WorkflowFailureRef = {
     kind: 'failed' | 'cancelled' | 'timedOut';
     error: WorkflowValueRef<string, 'smallSerialized'>;
     diagnostics: WorkflowValueRef<WorkflowDiagnostic[], 'smallSerialized'>;
   };
   export type WorkflowNodeInput = WorkflowStep | WorkflowTypedEffect | WorkflowFlowNode;
+  export type WorkflowPredicate = { readonly __workflowPredicate: true };
+  export type WorkflowForEachMode = { readonly kind: 'parallel'; readonly concurrency: number };
+  export type WorkflowForEachFailure = { readonly kind: 'failFast' | 'collectAll' };
+  export type WorkflowForEachOptions = {
+    mode?: WorkflowForEachMode;
+    failure?: WorkflowForEachFailure;
+  };
   export type WorkflowMatchArms<T extends WorkflowTypedEffect> = {
     succeeded: (result: T) => WorkflowNodeInput;
     failed: (failure: WorkflowFailureRef & { kind: 'failed' }) => WorkflowNodeInput;
@@ -661,7 +669,18 @@ declare module 'tspack/manifest' {
   export function On(platform: WorkflowPlatform, options: { env?: WorkflowEnvRow[] }, ...nodes: WorkflowNodeInput[]): WorkflowFlowNode;
   export function MatchResult<T extends WorkflowTypedEffect>(source: T, arms: WorkflowMatchArms<T>): WorkflowFlowNode;
   export function Finally(body: WorkflowNodeInput, cleanup: WorkflowNodeInput): WorkflowFlowNode;
-  export function ForEach<T extends string | number | boolean>(identity: string, source: readonly T[], body: (value: T) => WorkflowNodeInput): WorkflowFlowNode;
+  export function ForEach<T extends string | number | boolean>(identity: string, source: readonly T[], body: (value: T) => WorkflowNodeInput, options?: WorkflowForEachOptions): WorkflowFlowNode;
+  export function ParallelForEach(options: { concurrency: number }): WorkflowForEachMode;
+  export function CollectAll(): WorkflowForEachFailure & { readonly kind: 'collectAll' };
+  export function FailFast(): WorkflowForEachFailure & { readonly kind: 'failFast' };
+  export function GreaterThan(value: WorkflowValueRef<number, 'control'>, threshold: number): WorkflowPredicate;
+  export function LessThan(value: WorkflowValueRef<number, 'control'>, threshold: number): WorkflowPredicate;
+  export function NotEmpty<T>(value: WorkflowValueRef<readonly T[], 'artifactReference' | 'smallSerialized'>): WorkflowPredicate;
+  export function IsEmpty<T>(value: WorkflowValueRef<readonly T[], 'artifactReference' | 'smallSerialized'>): WorkflowPredicate;
+  export function And(first: WorkflowPredicate, second: WorkflowPredicate, ...rest: WorkflowPredicate[]): WorkflowPredicate;
+  export function Or(first: WorkflowPredicate, second: WorkflowPredicate, ...rest: WorkflowPredicate[]): WorkflowPredicate;
+  export function Not(predicate: WorkflowPredicate): WorkflowPredicate;
+  export function When(predicate: WorkflowPredicate, whenTrue: WorkflowNodeInput, whenFalse?: WorkflowNodeInput): WorkflowFlowNode;
   export function Manual(options?: WorkflowTriggerFilter): WorkflowTrigger;
   export function Push(options?: WorkflowTriggerFilter): WorkflowTrigger;
   export function PullRequest(options?: WorkflowTriggerFilter): WorkflowTrigger;
@@ -675,6 +694,7 @@ declare module 'tspack/manifest' {
   export function Test(options?: WorkflowTestStepOptions): WorkflowTestEffect;
   export function Pack(options?: WorkflowStepOptions): WorkflowStep;
   export function Pack(artifacts: WorkflowValueRef<WorkflowBuildArtifact[], 'artifactReference'>): WorkflowStep;
+  export function Transfer(artifacts: WorkflowValueRef<WorkflowBuildArtifact[], 'artifactReference'>, target: WorkflowPlatform): WorkflowTransferEffect;
   export function Audit(options?: WorkflowAuditStepOptions): WorkflowAuditEffect;
   export function Process(name: string, options: WorkflowProcessStepOptions): WorkflowStep;
   export function ShellScript(name: string, options: WorkflowShellStepOptions): WorkflowStep;

@@ -78,7 +78,7 @@ func TestWorkflowM77FixtureInspectExposesValueAndControlFlow(t *testing.T) {
 	if err := json.Unmarshal([]byte(inspected.Stdout), &flow); err != nil {
 		t.Fatalf("decode M77 inspect flow: %v\n%s", err, inspected.Stdout)
 	}
-	if flow.SchemaVersion != 2 || len(flow.Values) == 0 {
+	if flow.SchemaVersion != workflow.FlowSchemaVersion || len(flow.Values) == 0 {
 		t.Fatalf("M77 flow=%#v", flow)
 	}
 	if countCLIFlowNodes(flow, workflow.NodeMatch) != 1 || countCLIFlowNodes(flow, workflow.NodeIterator) != 2 {
@@ -88,6 +88,32 @@ func TestWorkflowM77FixtureInspectExposesValueAndControlFlow(t *testing.T) {
 	human := runTestApp(t, "workflow", "inspect", "CI", "--root", root)
 	clitest.AssertExit(t, human, 0)
 	for _, expected := range []string{"match value/ci/", "foreach suite cursor", "cleanup(", "consumes:", "Values:"} {
+		if !strings.Contains(human.Stdout, expected) {
+			t.Fatalf("human inspect missing %q:\n%s", expected, human.Stdout)
+		}
+	}
+}
+
+func TestWorkflowM78FixtureInspectExposesFanOutTransportAndFacts(t *testing.T) {
+	repository := repoRootForMigrateTest(t)
+	root := filepath.Join(repository, "fixtures", "workflow-m78")
+
+	inspected := runTestApp(t, "workflow", "inspect", "M78", "--root", root, "--json")
+	clitest.AssertExit(t, inspected, 0)
+	var flow workflow.Flow
+	if err := json.Unmarshal([]byte(inspected.Stdout), &flow); err != nil {
+		t.Fatalf("decode M78 inspect flow: %v\n%s", err, inspected.Stdout)
+	}
+	if flow.SchemaVersion != 3 || len(flow.Aggregates) != 1 || flow.Aggregates[0].Concurrency != 2 || flow.Aggregates[0].FailurePolicy != "collectAll" {
+		t.Fatalf("M78 flow=%#v", flow)
+	}
+	if countCLIFlowNodes(flow, workflow.NodePredicate) != 1 || countCLIFlowNodes(flow, workflow.NodeIterator) != 2 {
+		t.Fatalf("M78 nodes=%#v", flow.Nodes)
+	}
+
+	human := runTestApp(t, "workflow", "inspect", "M78", "--root", root)
+	clitest.AssertExit(t, human, 0)
+	for _, expected := range []string{"parallel, concurrency 2, collectAll", "transport target: windows", "when value/m78/", "Aggregates:", "iterationOutcome<test>"} {
 		if !strings.Contains(human.Stdout, expected) {
 			t.Fatalf("human inspect missing %q:\n%s", expected, human.Stdout)
 		}

@@ -256,6 +256,55 @@ describe('workflow declarations', () => {
     expect(result.diagnostics.map(diagnostic => diagnostic.code)).toContain('TSPACK_WORKFLOW_MATCH_NON_EXHAUSTIVE');
   });
 
+  it('lowers bounded fan-out, transfer, and typed predicates as inert data', () => {
+    const manifestPath = writeFixture('manifest.tsx', `
+      import { Audit, Build, CollectAll, CurrentHost, ForEach, GreaterThan, On, Pack, ParallelForEach, Sequence, Test, Transfer, When, Windows, Workflow, Workflows, Workspace, define } from "tspack/manifest";
+      const build = Build();
+      const portable = Transfer(build.artifacts, Windows());
+      const audit = Audit();
+      export default define(
+        <Workspace name="demo">
+          <Workflows rows={[
+            Workflow("M78", {
+              triggers: [],
+              flow: Sequence(
+                ForEach("platform", [CurrentHost(), Windows()], platform => On(platform, Test()), {
+                  mode: ParallelForEach({ concurrency: 2 }),
+                  failure: CollectAll(),
+                }),
+                build,
+                portable,
+                On(Windows(), Pack(portable.artifacts)),
+                audit,
+                When(GreaterThan(audit.failing, 0), Audit()),
+              ),
+            }),
+          ]} />
+        </Workspace>,
+      );
+    `);
+
+    const result = parseWorkspace(manifestPath);
+    expect(result.ok).toBe(true);
+    const flow = result.ir?.workflows?.[0]?.flow as Record<string, any>;
+    expect(flow.children[0]).toEqual(expect.objectContaining({
+      kind: 'forEach',
+      mode: 'parallel',
+      concurrency: 2,
+      failurePolicy: 'collectAll',
+      aggregate: expect.objectContaining({ resultType: 'test', elements: expect.any(Array) }),
+    }));
+    expect(flow.children[2].effect).toEqual(expect.objectContaining({
+      operation: 'transfer',
+      transferTarget: 'windows',
+      inputs: [expect.objectContaining({ category: 'artifactReference' })],
+    }));
+    expect(flow.children[5]).toEqual(expect.objectContaining({
+      kind: 'when',
+      predicate: expect.objectContaining({ kind: 'greaterThan', number: 0 }),
+    }));
+  });
+
   it('normalizes semantic workflow intent without evaluating effects', () => {
     const manifestPath = writeFixture('manifest.tsx', `
       import { Audit, Build, Check, CurrentHost, Job, Package, Process, PullRequest, Push, Secret, Sync, Test, Workflow, WorkflowEnv, Workflows, Workspace, define } from "tspack/manifest";

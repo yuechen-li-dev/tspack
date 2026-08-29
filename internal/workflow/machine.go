@@ -22,6 +22,7 @@ func NewSnapshot(flow Flow, stepLimit int, traceLimit int) Snapshot {
 		Values:     map[string]NativeResult{},
 		Outcomes:   map[string]TerminalKind{},
 		Iterators:  map[string]IteratorCursor{},
+		Aggregates: initialAggregates(flow),
 		StepLimit:  stepLimit,
 		TraceLimit: traceLimit,
 	}
@@ -111,6 +112,7 @@ func Step(flow Flow, current Snapshot, event MachineEvent) (Snapshot, StepTrace,
 		}
 		if node.Value != "" {
 			next.Outcomes[node.Value] = TerminalKind(trace.ResultKind)
+			recordAggregateOutcome(flow, &next, node.Value, TerminalKind(trace.ResultKind))
 			trace.ValueIdentity = node.Value
 		}
 		if node.Cleanup && event.Kind != MachineEffectSucceeded {
@@ -215,12 +217,30 @@ func settleControl(flow Flow, snapshot *Snapshot) error {
 					return err
 				}
 				activateNode(flow, snapshot, transition.To)
+			case NodePredicate:
+				matched, err := evaluatePredicate(snapshot, node.Predicate)
+				if err != nil {
+					return err
+				}
+				guard := "false"
+				if matched {
+					guard = "true"
+				}
+				transition, _, err := selectGuardedTransition(flow, node.Identity, MachineContinue, guard)
+				if err != nil {
+					return err
+				}
+				activateNode(flow, snapshot, transition.To)
 			case NodeFork:
 				for _, target := range node.Targets {
 					activateNode(flow, snapshot, target)
 				}
 			case NodeBranchExit:
-				// Joins observe this explicit completion node through WaitFor.
+				// Joins observe this explicit completion node through WaitFor. A
+				// bounded fan-out exit may also admit the next source item.
+				if transition, exists := optionalTransition(flow, node.Identity, MachineContinue); exists {
+					activateNode(flow, snapshot, transition.To)
+				}
 			case NodeTerminal:
 				snapshot.Active = nil
 				switch node.Terminal {
@@ -242,6 +262,15 @@ func settleControl(flow Flow, snapshot *Snapshot) error {
 	}
 	sort.Strings(snapshot.Active)
 	return nil
+}
+
+func optionalTransition(flow Flow, from string, event MachineEventKind) (Transition, bool) {
+	for _, transition := range flow.Transitions {
+		if transition.From == from && transition.Event == event {
+			return transition, true
+		}
+	}
+	return Transition{}, false
 }
 
 func activateNode(flow Flow, snapshot *Snapshot, identity string) {
@@ -312,9 +341,145 @@ func cloneSnapshot(source Snapshot) Snapshot {
 	for identity, cursor := range source.Iterators {
 		clone.Iterators[identity] = cursor
 	}
+	clone.Aggregates = make(map[string]AggregateValue, len(source.Aggregates))
+	for identity, aggregate := range source.Aggregates {
+		copy := aggregate
+		copy.Elements = append([]AggregateElement(nil), aggregate.Elements...)
+		clone.Aggregates[identity] = copy
+	}
 	clone.CleanupFailures = append([]CleanupFailure(nil), source.CleanupFailures...)
 	clone.Trace = append([]StepTrace(nil), source.Trace...)
 	return clone
+}
+
+func initialAggregates(flow Flow) map[string]AggregateValue {
+	values := make(map[string]AggregateValue, len(flow.Aggregates))
+	for _, definition := range flow.Aggregates {
+		aggregate := AggregateValue{Identity: definition.Identity}
+		for index, element := range definition.Elements {
+			aggregate.Elements = append(aggregate.Elements, AggregateElement{Index: index, Value: element})
+		}
+		values[definition.Identity] = aggregate
+	}
+	return values
+}
+
+func recordAggregateOutcome(flow Flow, snapshot *Snapshot, value string, outcome TerminalKind) {
+	for _, definition := range flow.Aggregates {
+		aggregate := snapshot.Aggregates[definition.Identity]
+		for index := range aggregate.Elements {
+			if aggregate.Elements[index].Value == value {
+				aggregate.Elements[index].Outcome = outcome
+				snapshot.Aggregates[definition.Identity] = aggregate
+				return
+			}
+		}
+	}
+}
+
+func evaluatePredicate(snapshot *Snapshot, predicate *Predicate) (bool, error) {
+	if predicate == nil {
+		return false, fmt.Errorf("TSPACK_WORKFLOW_PREDICATE_INVALID: predicate is missing")
+	}
+	switch predicate.Kind {
+	case "and":
+		for index := range predicate.Children {
+			matched, err := evaluatePredicate(snapshot, &predicate.Children[index])
+			if err != nil || !matched {
+				return false, err
+			}
+		}
+		return true, nil
+	case "or":
+		for index := range predicate.Children {
+			matched, err := evaluatePredicate(snapshot, &predicate.Children[index])
+			if err != nil {
+				return false, err
+			}
+			if matched {
+				return true, nil
+			}
+		}
+		return false, nil
+	case "not":
+		if len(predicate.Children) != 1 {
+			return false, fmt.Errorf("TSPACK_WORKFLOW_PREDICATE_INVALID: not requires one child")
+		}
+		matched, err := evaluatePredicate(snapshot, &predicate.Children[0])
+		return !matched, err
+	}
+	if predicate.Input == nil {
+		return false, fmt.Errorf("TSPACK_WORKFLOW_PREDICATE_INVALID: %s requires an input", predicate.Kind)
+	}
+	result, exists := snapshot.Values[predicate.Input.Source]
+	if !exists {
+		return false, fmt.Errorf("TSPACK_WORKFLOW_VALUE_UNKNOWN: predicate source %s is unavailable", predicate.Input.Source)
+	}
+	value, err := projectedFact(result, *predicate.Input)
+	if err != nil {
+		return false, err
+	}
+	switch predicate.Kind {
+	case "greaterThan", "lessThan":
+		number, ok := value.(float64)
+		if !ok || predicate.Number == nil {
+			return false, fmt.Errorf("TSPACK_WORKFLOW_PREDICATE_TYPE_INVALID: %s requires numeric facts", predicate.Kind)
+		}
+		if predicate.Kind == "greaterThan" {
+			return number > *predicate.Number, nil
+		}
+		return number < *predicate.Number, nil
+	case "notEmpty", "isEmpty":
+		length, ok := value.(int)
+		if !ok {
+			return false, fmt.Errorf("TSPACK_WORKFLOW_PREDICATE_TYPE_INVALID: %s requires collection metadata", predicate.Kind)
+		}
+		if predicate.Kind == "notEmpty" {
+			return length > 0, nil
+		}
+		return length == 0, nil
+	default:
+		return false, fmt.Errorf("TSPACK_WORKFLOW_PREDICATE_INVALID: unknown kind %s", predicate.Kind)
+	}
+}
+
+func projectedFact(result NativeResult, reference ValueRef) (any, error) {
+	if len(reference.FieldPath) != 1 {
+		return nil, fmt.Errorf("TSPACK_WORKFLOW_PROJECTION_INVALID: predicate inputs require one field")
+	}
+	field := reference.FieldPath[0]
+	switch reference.ResultType {
+	case "test":
+		if result.Test == nil {
+			break
+		}
+		switch field {
+		case "passed":
+			return float64(result.Test.Passed), nil
+		case "failed":
+			return float64(result.Test.Failed), nil
+		case "skipped":
+			return float64(result.Test.Skipped), nil
+		case "durationMs":
+			return float64(result.Test.DurationMs), nil
+		case "tests":
+			return len(result.Test.Tests), nil
+		}
+	case "audit":
+		if result.Audit != nil && field == "failing" {
+			return float64(result.Audit.Failing), nil
+		}
+	case "build":
+		if result.Build != nil {
+			switch field {
+			case "artifacts":
+				return len(result.Build.Artifacts), nil
+			case "targets":
+				return len(result.Build.Targets), nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("TSPACK_WORKFLOW_VALUE_UNKNOWN: predicate fact %s.%s is unavailable", reference.ResultType, field)
 }
 
 func selectGuardedTransition(flow Flow, from string, event MachineEventKind, guard string) (Transition, []string, error) {

@@ -45,10 +45,13 @@ type BuildTargetResult struct {
 }
 
 type BuildArtifact struct {
-	Package string `json:"package"`
-	Target  string `json:"target"`
-	Kind    string `json:"kind"`
-	Path    string `json:"path"`
+	Package      string `json:"package"`
+	Target       string `json:"target"`
+	Kind         string `json:"kind"`
+	Path         string `json:"path"`
+	Identity     string `json:"identity,omitempty"`
+	ContentHash  string `json:"contentHash,omitempty"`
+	OriginRegion string `json:"originRegion,omitempty"`
 }
 
 type BuildOperationResult struct {

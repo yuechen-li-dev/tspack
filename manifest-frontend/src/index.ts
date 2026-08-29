@@ -84,7 +84,7 @@ export type DependencySourceAnalysis = {
 };
 
 const ALLOWED_IMPORT = 'tspack/manifest';
-const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'annotatePackage', 'defineDeps', 'npm', 'jsr', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service', 'json', 'Workflow', 'Job', 'Sequence', 'Parallel', 'Branch', 'On', 'MatchResult', 'Finally', 'ForEach', 'Manual', 'Push', 'PullRequest', 'Linux', 'Windows', 'MacOS', 'CurrentHost', 'Sync', 'Check', 'Build', 'Test', 'Pack', 'Audit', 'Process', 'ShellScript', 'Plain', 'Secret', 'WorkflowEnv']);
+const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'annotatePackage', 'defineDeps', 'npm', 'jsr', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'Env', 'Service', 'json', 'Workflow', 'Job', 'Sequence', 'Parallel', 'Branch', 'On', 'MatchResult', 'Finally', 'ForEach', 'ParallelForEach', 'CollectAll', 'FailFast', 'Transfer', 'When', 'GreaterThan', 'LessThan', 'NotEmpty', 'IsEmpty', 'And', 'Or', 'Not', 'Manual', 'Push', 'PullRequest', 'Linux', 'Windows', 'MacOS', 'CurrentHost', 'Sync', 'Check', 'Build', 'Test', 'Pack', 'Audit', 'Process', 'ShellScript', 'Plain', 'Secret', 'WorkflowEnv']);
 const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'PackageAnnotations', 'Policies', 'Targets', 'RunTargets', 'Workflows', 'SkyrimTarget', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy', 'RegistryPolicy', 'RegistrySource', 'CompatFiles', 'JsonFile']);
 const APPROVED_PROPERTY_HELPERS = new Set(['TsConfig.manifestEditor', 'VSCode.settings', 'VSCode.extensions']);
 const DEFAULT_MANIFEST_EDITOR_INCLUDE = [
@@ -364,6 +364,39 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
         cleanup: asWorkflowFlowNode(args[1]),
       };
     }
+    if (name === 'ParallelForEach') {
+      const options = typeof args[0] === 'object' && args[0] !== null
+        ? args[0] as Record<string, unknown>
+        : {};
+      return { kind: 'parallel', concurrency: options.concurrency };
+    }
+    if (name === 'CollectAll') return { kind: 'collectAll' };
+    if (name === 'FailFast') return { kind: 'failFast' };
+    if (name === 'GreaterThan' || name === 'LessThan') {
+      return {
+        kind: name === 'GreaterThan' ? 'greaterThan' : 'lessThan',
+        input: args[0],
+        number: args[1],
+      };
+    }
+    if (name === 'NotEmpty' || name === 'IsEmpty') {
+      return {
+        kind: name === 'NotEmpty' ? 'notEmpty' : 'isEmpty',
+        input: args[0],
+      };
+    }
+    if (name === 'And' || name === 'Or') {
+      return { kind: name.toLowerCase(), children: args };
+    }
+    if (name === 'Not') return { kind: 'not', children: [args[0]] };
+    if (name === 'When') {
+      return {
+        kind: 'when',
+        predicate: args[0],
+        then: asWorkflowFlowNode(args[1]),
+        ...(args[2] === undefined ? {} : { else: asWorkflowFlowNode(args[2]) }),
+      };
+    }
     if (name === 'Manual' || name === 'Push' || name === 'PullRequest') {
       const kind = name === 'Manual' ? 'manual' : name === 'Push' ? 'push' : 'pullRequest';
       return { kind, ...(typeof args[0] === 'object' ? (args[0] as object) : {}) };
@@ -381,6 +414,9 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
         ? args[0] as Record<string, unknown>
         : {};
       return workflowEffect(operation, resultIdentity, options);
+    }
+    if (name === 'Transfer') {
+      return workflowEffect('transfer', `effect/${node.getStart(sf)}`, { transferTarget: args[1] }, [args[0]]);
     }
     if (name === 'Process') return { operation: 'process', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'ShellScript') return { operation: 'shellScript', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
@@ -480,6 +516,7 @@ function workflowStep(record: Record<string, unknown>): Record<string, unknown> 
     'capabilities',
     'env',
     'timeoutSeconds',
+    'transferTarget',
   ];
   for (const field of fields) {
     if (record[field] !== undefined) {
@@ -539,6 +576,11 @@ function workflowResultRef(operation: string, source: string): Record<string, un
       ['auditLevel', 'control'],
       ['failing', 'control'],
       ['report', 'smallSerialized'],
+      ['diagnostics', 'smallSerialized'],
+    ],
+    transfer: [
+      ['artifacts', 'artifactReference'],
+      ['targets', 'smallSerialized'],
       ['diagnostics', 'smallSerialized'],
     ],
   };
@@ -697,6 +739,9 @@ function evalForEach(
   const identity = evalNode(node.arguments[0], sf, diags, file, env);
   const values = evalNode(node.arguments[1], sf, diags, file, env);
   const callback = node.arguments[2];
+  const options = node.arguments[3]
+    ? evalNode(node.arguments[3], sf, diags, file, env) as Record<string, unknown>
+    : {};
   if (typeof identity !== 'string' || !Array.isArray(values) || !callback || !ts.isArrowFunction(callback)) {
     diags.push({
       code: 'TSPACK_WORKFLOW_FOREACH_SOURCE_INVALID',
@@ -714,15 +759,61 @@ function evalForEach(
       file,
     });
   }
-  const items = values.slice(0, 256).map((value, index) => ({
-    index,
-    value: workflowIterationValue(value),
-    flow: namespaceWorkflowValues(
-      asWorkflowFlowNode(evalWorkflowArm(callback, value, sf, diags, file, env)),
-      `foreach/${identity}/${index}`,
-    ),
-  }));
-  return { kind: 'forEach', identity, items };
+  const elementSources: string[] = [];
+  let resultType = '';
+  const items = values.slice(0, 256).map((value, index) => {
+    const evaluated = evalWorkflowArm(callback, value, sf, diags, file, env);
+    const namespaced = namespaceWorkflowValues(evaluated, `foreach/${identity}/${index}`) as Record<string, unknown>;
+    const reference = namespaced?.__workflowRef as Record<string, unknown> | undefined;
+    if (isWorkflowValueRef(reference)) {
+      elementSources.push(reference.source as string);
+      resultType ||= reference.resultType as string;
+    } else {
+      const typedEffect = singleWorkflowTypedEffect(asWorkflowFlowNode(namespaced));
+      if (typedEffect) {
+        elementSources.push(typedEffect.source);
+        resultType ||= typedEffect.resultType;
+      }
+    }
+    return {
+      index,
+      value: workflowIterationValue(value),
+      flow: asWorkflowFlowNode(namespaced),
+    };
+  });
+  const mode = options.mode as Record<string, unknown> | undefined;
+  const failure = options.failure as Record<string, unknown> | undefined;
+  const aggregateIdentity = `aggregate/${identity}/${node.getStart(sf)}`;
+  return {
+    kind: 'forEach',
+    identity,
+    items,
+    mode: mode?.kind === 'parallel' ? 'parallel' : 'sequential',
+    ...(mode?.kind === 'parallel' ? { concurrency: mode.concurrency } : {}),
+    failurePolicy: failure?.kind === 'collectAll' ? 'collectAll' : 'failFast',
+    ...(elementSources.length === items.length ? {
+      aggregate: {
+        identity: aggregateIdentity,
+        resultType,
+        elements: elementSources,
+      },
+    } : {}),
+  };
+}
+
+function singleWorkflowTypedEffect(node: Record<string, unknown>): { source: string; resultType: string } | undefined {
+  if (node.kind === 'effect') {
+    const effect = node.effect as Record<string, unknown> | undefined;
+    const operation = effect?.operation;
+    const resultIdentity = effect?.resultIdentity;
+    if (typeof resultIdentity === 'string' && (operation === 'build' || operation === 'test' || operation === 'audit' || operation === 'transfer')) {
+      return { source: resultIdentity, resultType: operation };
+    }
+  }
+  if (node.kind === 'region' && Array.isArray(node.children) && node.children.length === 1) {
+    return singleWorkflowTypedEffect(node.children[0] as Record<string, unknown>);
+  }
+  return undefined;
 }
 
 function workflowIterationValue(value: unknown): Record<string, unknown> {

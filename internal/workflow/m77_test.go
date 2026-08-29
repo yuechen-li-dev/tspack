@@ -16,7 +16,7 @@ func TestMatchResultLowersTypedProjectionAndSelectsEveryOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if flow.SchemaVersion != 2 || countNodeKind(flow, NodeMatch) != 1 {
+	if flow.SchemaVersion != FlowSchemaVersion || countNodeKind(flow, NodeMatch) != 1 {
 		t.Fatalf("schema=%d matchNodes=%d", flow.SchemaVersion, countNodeKind(flow, NodeMatch))
 	}
 	if !hasValueDefinition(flow, "artifacts", ValueArtifactReference) {

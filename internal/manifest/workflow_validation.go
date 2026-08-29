@@ -166,6 +166,26 @@ func validateWorkflowFlowNode(add func(string, string, ...string), prefix string
 		if len(node.Items) == 0 || len(node.Items) > 256 {
 			add("TSPACK_WORKFLOW_FOREACH_LIMIT_INVALID", prefix+" must contain between 1 and 256 finite items")
 		}
+		mode := node.Mode
+		if mode == "" {
+			mode = "sequential"
+		}
+		if mode != "sequential" && mode != "parallel" {
+			add("TSPACK_WORKFLOW_FOREACH_MODE_INVALID", prefix+".mode must be sequential or parallel")
+		}
+		if mode == "sequential" && node.Concurrency != 0 && node.Concurrency != 1 {
+			add("TSPACK_WORKFLOW_FOREACH_CONCURRENCY_INVALID", prefix+" sequential mode has concurrency 1")
+		}
+		if mode == "parallel" && (node.Concurrency < 0 || node.Concurrency > 32) {
+			add("TSPACK_WORKFLOW_FOREACH_CONCURRENCY_INVALID", prefix+" parallel concurrency must be omitted or between 1 and 32")
+		}
+		failurePolicy := node.FailurePolicy
+		if failurePolicy == "" {
+			failurePolicy = "failFast"
+		}
+		if failurePolicy != "failFast" && failurePolicy != "collectAll" {
+			add("TSPACK_WORKFLOW_FOREACH_FAILURE_POLICY_INVALID", prefix+".failurePolicy must be failFast or collectAll")
+		}
 		for index := range node.Items {
 			item := &node.Items[index]
 			if item.Index != index {
@@ -174,8 +194,58 @@ func validateWorkflowFlowNode(add func(string, string, ...string), prefix string
 			validateWorkflowIterationValue(add, fmt.Sprintf("%s.items[%d].value", prefix, index), item.Value)
 			validateWorkflowFlowNode(add, fmt.Sprintf("%s.items[%d].flow", prefix, index), &item.Flow, packageNames, inheritedPlatform)
 		}
+	case "when":
+		if node.Predicate == nil || node.Then == nil {
+			add("TSPACK_WORKFLOW_PREDICATE_INVALID", prefix+" When requires a predicate and true branch")
+			return
+		}
+		validateWorkflowPredicate(add, prefix+".predicate", node.Predicate, 1)
+		validateWorkflowFlowNode(add, prefix+".then", node.Then, packageNames, inheritedPlatform)
+		if node.Else != nil {
+			validateWorkflowFlowNode(add, prefix+".else", node.Else, packageNames, inheritedPlatform)
+		}
 	default:
 		add("TSPACK_WORKFLOW_FLOW_NODE_INVALID", prefix+" has unknown flow node kind "+node.Kind)
+	}
+}
+
+func validateWorkflowPredicate(add func(string, string, ...string), prefix string, predicate *WorkflowPredicate, depth int) {
+	if depth > 8 {
+		add("TSPACK_WORKFLOW_PREDICATE_LIMIT_EXCEEDED", prefix+" exceeds depth 8")
+		return
+	}
+	switch predicate.Kind {
+	case "greaterThan", "lessThan":
+		if predicate.Input == nil || predicate.Number == nil || len(predicate.Children) != 0 {
+			add("TSPACK_WORKFLOW_PREDICATE_INVALID", prefix+" numeric comparison requires one input and number")
+			return
+		}
+		validateWorkflowValueRef(add, prefix+".input", *predicate.Input)
+		if predicate.Input.Category != "control" {
+			add("TSPACK_WORKFLOW_PREDICATE_TYPE_INVALID", prefix+" numeric comparison requires a control value")
+		}
+	case "notEmpty", "isEmpty":
+		if predicate.Input == nil || len(predicate.Children) != 0 {
+			add("TSPACK_WORKFLOW_PREDICATE_INVALID", prefix+" collection predicate requires one input")
+			return
+		}
+		validateWorkflowValueRef(add, prefix+".input", *predicate.Input)
+		if predicate.Input.Category != "artifactReference" && predicate.Input.Category != "smallSerialized" {
+			add("TSPACK_WORKFLOW_PREDICATE_TYPE_INVALID", prefix+" collection predicate requires safe collection metadata")
+		}
+	case "and", "or":
+		if len(predicate.Children) < 2 || len(predicate.Children) > 8 {
+			add("TSPACK_WORKFLOW_PREDICATE_INVALID", prefix+" boolean composition requires 2..8 children")
+		}
+	case "not":
+		if len(predicate.Children) != 1 {
+			add("TSPACK_WORKFLOW_PREDICATE_INVALID", prefix+" Not requires one child")
+		}
+	default:
+		add("TSPACK_WORKFLOW_PREDICATE_INVALID", prefix+" has unknown predicate kind "+predicate.Kind)
+	}
+	for index := range predicate.Children {
+		validateWorkflowPredicate(add, fmt.Sprintf("%s.children[%d]", prefix, index), &predicate.Children[index], depth+1)
 	}
 }
 
@@ -269,7 +339,7 @@ func validateWorkflowStep(add func(string, string, ...string), prefix string, st
 		validateWorkflowValueRef(add, fmt.Sprintf("%s.inputs[%d]", prefix, index), input)
 	}
 	switch step.Operation {
-	case "sync", "check", "build", "test", "pack", "audit":
+	case "sync", "check", "build", "test", "pack", "audit", "transfer":
 		if len(step.Command) > 0 || step.Script != "" || step.Cwd != "" || len(step.Env) > 0 || len(step.Capabilities) > 0 {
 			add("TSPACK_WORKFLOW_NATIVE_STEP_INVALID", prefix+" native operations cannot contain process, shell, cwd, environment, or capability fields")
 		}
@@ -291,6 +361,16 @@ func validateWorkflowStep(add func(string, string, ...string), prefix string, st
 			default:
 				add("TSPACK_WORKFLOW_AUDIT_OPTIONS_INVALID", prefix+" auditLevel must be any, low, moderate, high, or critical")
 			}
+		}
+		if step.Operation == "transfer" {
+			if step.TransferTarget != "linux" && step.TransferTarget != "windows" && step.TransferTarget != "macos" && step.TransferTarget != "currentHost" {
+				add("TSPACK_WORKFLOW_TRANSFER_TARGET_INVALID", prefix+" transfer target must be linux, windows, macos, or currentHost")
+			}
+			if len(step.Inputs) != 1 || step.Inputs[0].Category != "artifactReference" {
+				add("TSPACK_WORKFLOW_TRANSFER_INPUT_INVALID", prefix+" transfer requires one artifact reference")
+			}
+		} else if step.TransferTarget != "" {
+			add("TSPACK_WORKFLOW_TRANSFER_TARGET_INVALID", prefix+" transferTarget is supported only by transfer")
 		}
 	case "process":
 		if len(step.Command) == 0 {

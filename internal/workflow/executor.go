@@ -38,15 +38,18 @@ const (
 type EventKind string
 
 const (
-	EventWorkflowStarted   EventKind = "workflowStarted"
-	EventJobStarted        EventKind = "jobStarted"
-	EventStepStarted       EventKind = "stepStarted"
-	EventStepOutput        EventKind = "stepOutput"
-	EventStepDiagnostic    EventKind = "stepDiagnostic"
-	EventStepCompleted     EventKind = "stepCompleted"
-	EventJobCompleted      EventKind = "jobCompleted"
-	EventWorkflowCompleted EventKind = "workflowCompleted"
-	EventMachineStepped    EventKind = "machineStepped"
+	EventWorkflowStarted           EventKind = "workflowStarted"
+	EventJobStarted                EventKind = "jobStarted"
+	EventStepStarted               EventKind = "stepStarted"
+	EventStepOutput                EventKind = "stepOutput"
+	EventStepDiagnostic            EventKind = "stepDiagnostic"
+	EventStepCompleted             EventKind = "stepCompleted"
+	EventJobCompleted              EventKind = "jobCompleted"
+	EventWorkflowCompleted         EventKind = "workflowCompleted"
+	EventMachineStepped            EventKind = "machineStepped"
+	EventArtifactTransferStarted   EventKind = "artifactTransferStarted"
+	EventArtifactTransferCompleted EventKind = "artifactTransferCompleted"
+	EventArtifactTransferFailed    EventKind = "artifactTransferFailed"
 )
 
 type Event struct {
@@ -218,6 +221,10 @@ func (executor *Executor) runStep(parent context.Context, workflowIdentity strin
 		ctx, cancel = context.WithTimeout(parent, time.Duration(step.TimeoutSeconds)*time.Second)
 	}
 	defer cancel()
+	if step.Operation == "transfer" {
+		result, err := executor.runArtifactTransfer(ctx, step)
+		return &result, err
+	}
 	if step.Operation == "sync" || step.Operation == "check" || step.Operation == "build" || step.Operation == "test" || step.Operation == "pack" || step.Operation == "audit" {
 		if executor.Native == nil {
 			return nil, errors.New("TSPACK_WORKFLOW_NATIVE_EXECUTOR_MISSING: native lifecycle operations are unavailable")

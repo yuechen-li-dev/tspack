@@ -40,17 +40,39 @@ type Workflow struct {
 // manifest frontend. It deliberately contains data only; execution semantics
 // belong to internal/workflow's normalized Flow IR.
 type WorkflowFlowNode struct {
-	Kind     string                `json:"kind"`
-	Identity string                `json:"identity,omitempty"`
-	Children []WorkflowFlowNode    `json:"children,omitempty"`
-	Effect   *WorkflowStep         `json:"effect,omitempty"`
-	Source   *WorkflowValueRef     `json:"source,omitempty"`
-	Arms     []WorkflowMatchArm    `json:"arms,omitempty"`
-	Body     *WorkflowFlowNode     `json:"body,omitempty"`
-	Cleanup  *WorkflowFlowNode     `json:"cleanup,omitempty"`
-	Items    []WorkflowForEachItem `json:"items,omitempty"`
-	RunsOn   string                `json:"runsOn,omitempty"`
-	Env      []WorkflowEnvironment `json:"env,omitempty"`
+	Kind          string                `json:"kind"`
+	Identity      string                `json:"identity,omitempty"`
+	Children      []WorkflowFlowNode    `json:"children,omitempty"`
+	Effect        *WorkflowStep         `json:"effect,omitempty"`
+	Source        *WorkflowValueRef     `json:"source,omitempty"`
+	Arms          []WorkflowMatchArm    `json:"arms,omitempty"`
+	Body          *WorkflowFlowNode     `json:"body,omitempty"`
+	Cleanup       *WorkflowFlowNode     `json:"cleanup,omitempty"`
+	Items         []WorkflowForEachItem `json:"items,omitempty"`
+	Mode          string                `json:"mode,omitempty"`
+	Concurrency   int                   `json:"concurrency,omitempty"`
+	FailurePolicy string                `json:"failurePolicy,omitempty"`
+	Aggregate     *WorkflowAggregateRef `json:"aggregate,omitempty"`
+	Predicate     *WorkflowPredicate    `json:"predicate,omitempty"`
+	Then          *WorkflowFlowNode     `json:"then,omitempty"`
+	Else          *WorkflowFlowNode     `json:"else,omitempty"`
+	RunsOn        string                `json:"runsOn,omitempty"`
+	Env           []WorkflowEnvironment `json:"env,omitempty"`
+}
+
+type WorkflowAggregateRef struct {
+	Identity   string   `json:"identity"`
+	ResultType string   `json:"resultType"`
+	Elements   []string `json:"elements"`
+}
+
+type WorkflowPredicate struct {
+	Kind     string              `json:"kind"`
+	Input    *WorkflowValueRef   `json:"input,omitempty"`
+	Number   *float64            `json:"number,omitempty"`
+	Boolean  *bool               `json:"boolean,omitempty"`
+	String   string              `json:"string,omitempty"`
+	Children []WorkflowPredicate `json:"children,omitempty"`
 }
 
 type WorkflowValueRef struct {
@@ -111,6 +133,7 @@ type WorkflowStep struct {
 	Capabilities    []string              `json:"capabilities,omitempty"`
 	Env             []WorkflowEnvironment `json:"env,omitempty"`
 	TimeoutSeconds  int                   `json:"timeoutSeconds,omitempty"`
+	TransferTarget  string                `json:"transferTarget,omitempty"`
 }
 
 type WorkflowEnvironment struct {
