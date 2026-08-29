@@ -512,6 +512,8 @@ func parseVitestReport(path string, result *Result) {
 		Skipped int     `json:"numPendingTests"`
 		Results []struct {
 			Name       string  `json:"name"`
+			Status     string  `json:"status"`
+			Message    string  `json:"message"`
 			End        float64 `json:"endTime"`
 			Assertions []struct {
 				FullName        string   `json:"fullName"`
@@ -540,6 +542,18 @@ func parseVitestReport(path string, result *Result) {
 				evidence.Failure = assertion.FailureMessages
 			}
 			result.Tests = append(result.Tests, evidence)
+		}
+		if suite.Status == "failed" && len(suite.Assertions) == 0 {
+			details := []string{"suite: " + suite.Name}
+			if suite.Message != "" {
+				details = append(details, suite.Message)
+			}
+			result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{
+				Code:     "TSPACK_TEST_SUITE_FAILED",
+				Severity: diag.SeverityError,
+				Message:  "Vitest suite failed before producing test evidence",
+				Details:  details,
+			})
 		}
 	}
 	if report.Start > 0 && latestEnd >= report.Start {

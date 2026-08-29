@@ -248,6 +248,25 @@ func TestParseVitestReportPreservesFailedAssertionEvidence(t *testing.T) {
 	}
 }
 
+func TestParseVitestReportPreservesCollectionFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vitest-report.json")
+	contents := []byte(`{"numTotalTests":0,"numPassedTests":0,"numFailedTests":0,"numPendingTests":0,"startTime":100,"testResults":[{"name":"test/collection.test.ts","status":"failed","message":"Cannot find package 'fixture-package'","assertionResults":[]}]}`)
+	if err := os.WriteFile(path, contents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := Result{ExitCode: 1}
+
+	parseVitestReport(path, &result)
+
+	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "TSPACK_TEST_SUITE_FAILED" {
+		t.Fatalf("diagnostics=%#v", result.Diagnostics)
+	}
+	details := strings.Join(result.Diagnostics[0].Details, "\n")
+	if !strings.Contains(details, "test/collection.test.ts") || !strings.Contains(details, "fixture-package") {
+		t.Fatalf("details=%q", details)
+	}
+}
+
 func TestDefaultXTestBridgeCandidatesPreferCurrentDistPath(t *testing.T) {
 	root := t.TempDir()
 	current := filepath.Join(root, "manifest-frontend", "dist", "native-test-cli.js")
