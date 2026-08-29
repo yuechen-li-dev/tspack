@@ -128,9 +128,9 @@ func (s *Store) PutArtifact(a Artifact) (StoreRef, []diag.Diagnostic) {
 			}
 		}
 	} else {
-		if !localExtractedArtifactMatches(ref.ExtractedPath, hash) {
+		if !localExtractedArtifactMatches(ref.ExtractedPath, hash, a.Source) {
 			_ = os.RemoveAll(ref.ExtractedPath)
-			if d := copyTree(a.RootDir, ref.ExtractedPath); d != nil {
+			if d := copyTree(a.RootDir, ref.ExtractedPath, a.Kind == ArtifactWorkspace); d != nil {
 				return StoreRef{}, d
 			}
 		}
@@ -315,7 +315,7 @@ func (s *Store) Verify(hash string) []diag.Diagnostic {
 		}
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_EXTRACTED_ARTIFACT_MISSING", "extracted artifact is missing")}
 	}
-	if isLocalArtifactSource(md.Source) && !localExtractedArtifactMatches(ref.ExtractedPath, normalizeHash(hash)) {
+	if isLocalArtifactSource(md.Source) && !localExtractedArtifactMatches(ref.ExtractedPath, normalizeHash(hash), md.Source) {
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_HASH_MISMATCH", "local extracted artifact content hash mismatch")}
 	}
 	return nil
@@ -325,8 +325,8 @@ func isLocalArtifactSource(source string) bool {
 	return source == "path" || source == "workspace" || source == "git"
 }
 
-func localExtractedArtifactMatches(root string, expectedHash string) bool {
-	actualHash, err := hashDirectory(root)
+func localExtractedArtifactMatches(root string, expectedHash string, source string) bool {
+	actualHash, err := hashDirectoryWithOptions(root, source == "workspace")
 	return err == nil && actualHash == normalizeHash(expectedHash)
 }
 
@@ -336,7 +336,7 @@ func (s *Store) computeHash(a Artifact) (string, error) {
 		return "sha256:" + hex.EncodeToString(sum[:]), nil
 	}
 	if a.RootDir != "" {
-		return hashDirectory(a.RootDir)
+		return hashDirectoryWithOptions(a.RootDir, a.Kind == ArtifactWorkspace)
 	}
 	return "", fmt.Errorf("artifact has neither bytes nor rootDir")
 }
@@ -457,10 +457,7 @@ func extractTarGz(data []byte, dest string) []diag.Diagnostic {
 		}
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			mode := os.FileMode(hdr.Mode) & 0o777
-			if mode == 0 {
-				mode = 0o755
-			}
+			mode := extractedDirectoryMode(hdr.Mode)
 			_ = os.MkdirAll(out, mode)
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
@@ -490,6 +487,14 @@ func extractTarGz(data []byte, dest string) []diag.Diagnostic {
 	return nil
 }
 
+func extractedDirectoryMode(headerMode int64) os.FileMode {
+	mode := os.FileMode(headerMode) & 0o777
+	if mode == 0 {
+		return 0o755
+	}
+	return mode | ((mode & 0o444) >> 2)
+}
+
 func tarballRelativePath(name string) (string, bool, error) {
 	slashPath := strings.ReplaceAll(name, "\\", "/")
 	clean := path.Clean(slashPath)
@@ -514,6 +519,10 @@ func tarballRelativePath(name string) (string, bool, error) {
 }
 
 func hashDirectory(root string) (string, error) {
+	return hashDirectoryWithOptions(root, false)
+}
+
+func hashDirectoryWithOptions(root string, skipWorkspaceBuildOutput bool) (string, error) {
 	h := sha256.New()
 	files := []string{}
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -525,6 +534,9 @@ func hashDirectory(root string) (string, error) {
 			return nil
 		}
 		if d.IsDir() && shouldSkipLocalArtifactDir(d.Name()) {
+			return filepath.SkipDir
+		}
+		if d.IsDir() && skipWorkspaceBuildOutput && d.Name() == "dist" {
 			return filepath.SkipDir
 		}
 		if d.Type()&os.ModeSymlink != 0 {
@@ -549,12 +561,19 @@ func hashDirectory(root string) (string, error) {
 		}
 		h.Write([]byte(filepath.ToSlash(rel)))
 		h.Write([]byte{0})
-		h.Write(b)
+		h.Write(canonicalLocalFileBytes(b))
 		h.Write([]byte{0})
 	}
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
-func copyTree(root, dest string) []diag.Diagnostic {
+
+func canonicalLocalFileBytes(contents []byte) []byte {
+	if bytes.IndexByte(contents, 0) >= 0 {
+		return contents
+	}
+	return bytes.ReplaceAll(contents, []byte("\r\n"), []byte("\n"))
+}
+func copyTree(root, dest string, skipWorkspaceBuildOutput bool) []diag.Diagnostic {
 	cleanRoot, rootErr := filepath.Abs(filepath.Clean(root))
 	if rootErr != nil {
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_WRITE_FAILED", rootErr.Error())}
@@ -595,6 +614,9 @@ func copyTree(root, dest string) []diag.Diagnostic {
 			return filepath.SkipDir
 		}
 		if d.IsDir() && shouldSkipLocalArtifactDir(d.Name()) {
+			return filepath.SkipDir
+		}
+		if d.IsDir() && skipWorkspaceBuildOutput && d.Name() == "dist" {
 			return filepath.SkipDir
 		}
 		if d.Type()&os.ModeSymlink != 0 {

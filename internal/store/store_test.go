@@ -312,6 +312,23 @@ func TestPathTreeArtifactSkipsInternalDirsAndKeepsDist(t *testing.T) {
 	mustNotExist(t, filepath.Join(ref.ExtractedPath, "ts-lock.toml"))
 }
 
+func TestWorkspaceArtifactSkipsGeneratedDist(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "package.json"), `{"name":"workspace","version":"1.0.0"}`)
+	mustWrite(t, filepath.Join(root, "dist", "index.js"), "generated\n")
+
+	contentStore, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, diagnostics := contentStore.PutArtifact(Artifact{ID: "workspace:workspace", Name: "workspace", Version: "1.0.0", Source: "workspace", Kind: ArtifactWorkspace, RootDir: root})
+	if len(diagnostics) > 0 {
+		t.Fatalf("put diagnostics: %#v", diagnostics)
+	}
+	mustExist(t, filepath.Join(ref.ExtractedPath, "package.json"))
+	mustNotExist(t, filepath.Join(ref.ExtractedPath, "dist"))
+}
+
 func TestPathTreeArtifactHashIgnoresGeneratedLockfile(t *testing.T) {
 	root := t.TempDir()
 	mustWrite(t, filepath.Join(root, "package.json"), `{"name":"local","version":"1.0.0"}`)
@@ -331,6 +348,47 @@ func TestPathTreeArtifactHashIgnoresGeneratedLockfile(t *testing.T) {
 	if first != second {
 		t.Fatalf("expected lockfile changes to be ignored, got %q then %q", first, second)
 	}
+}
+
+func TestPathTreeArtifactHashNormalizesCheckoutLineEndings(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "index.ts")
+	mustWrite(t, path, "export const value = 1\r\n")
+	crlfHash, crlfErr := hashDirectory(root)
+	mustWrite(t, path, "export const value = 1\n")
+	lfHash, lfErr := hashDirectory(root)
+
+	if crlfErr != nil || lfErr != nil || crlfHash != lfHash {
+		t.Fatalf("checkout line endings changed local artifact identity: %q != %q", crlfHash, lfHash)
+	}
+}
+
+func TestTarballDirectoryWithoutExecuteBitsRemainsExtractable(t *testing.T) {
+	var buffer bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+	if err := tarWriter.WriteHeader(&tar.Header{Name: "package", Typeflag: tar.TypeDir, Mode: 0o666}); err != nil {
+		t.Fatal(err)
+	}
+	packageJSON := `{"name":"legacy","version":"1.0.0"}`
+	if err := tarWriter.WriteHeader(&tar.Header{Name: "package/package.json", Mode: 0o666, Size: int64(len(packageJSON))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tarWriter.Write([]byte(packageJSON)); err != nil {
+		t.Fatal(err)
+	}
+	_ = tarWriter.Close()
+	_ = gzipWriter.Close()
+
+	contentStore, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, diagnostics := contentStore.PutArtifact(Artifact{ID: "npm:legacy@1.0.0", Name: "legacy", Version: "1.0.0", Source: "npm", Kind: ArtifactNPMTarball, Bytes: buffer.Bytes()})
+	if len(diagnostics) > 0 {
+		t.Fatalf("put diagnostics: %#v", diagnostics)
+	}
+	mustExist(t, filepath.Join(ref.ExtractedPath, "package.json"))
 }
 
 func TestVerifyRejectsAndPutRepairsStaleLocalExtractedArtifact(t *testing.T) {
@@ -367,7 +425,7 @@ func TestCopyTreeRejectsSourceAsDestination(t *testing.T) {
 	root := t.TempDir()
 	mustWrite(t, filepath.Join(root, "package.json"), `{"name":"local","version":"1.0.0"}`)
 
-	diags := copyTree(root, root)
+	diags := copyTree(root, root, false)
 	if len(diags) == 0 || diags[0].Code != "TSPACK_STORE_SELF_COPY_DETECTED" {
 		t.Fatalf("expected self-copy diagnostic, got %v", diags)
 	}
@@ -381,7 +439,7 @@ func TestCopyTreeSkipsDestinationInsideSource(t *testing.T) {
 	mustWrite(t, filepath.Join(root, "package.json"), `{"name":"local","version":"1.0.0"}`)
 	mustWrite(t, filepath.Join(dest, "old.txt"), "old")
 
-	diags := copyTree(root, dest)
+	diags := copyTree(root, dest, false)
 	if len(diags) > 0 {
 		t.Fatalf("diags: %v", diags)
 	}

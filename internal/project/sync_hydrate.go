@@ -249,7 +249,7 @@ func remapSyncHydrateStoreDiagnostics(pkg lockfile.Package, diags []diag.Diagnos
 			details := append([]string{"downloaded artifact did not match the locked content hash", "lock hash: " + pkg.Hash}, d.Details...)
 			out = append(out, syncArtifactIntegrityDiagnostic(pkg, details...))
 		default:
-			details := append([]string{pkg.ID}, d.Details...)
+			details := append([]string{pkg.ID, d.Code + ": " + d.Message}, d.Details...)
 			out = append(out, diag.Diagnostic{
 				Code:     "TSPACK_SYNC_HYDRATE_FAILED",
 				Severity: diag.SeverityError,

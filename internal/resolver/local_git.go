@@ -1,6 +1,7 @@
 package resolver
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -98,7 +99,7 @@ func (r *resolverState) resolveWorkspaceDependency(dep *graph.DependencyNode, fr
 		return
 	}
 	absRoot := filepath.Clean(filepath.Join(r.opts.RootDir, target.Root))
-	hash, ok := hashDirectory(absRoot)
+	hash, ok := hashDirectoryWithOptions(absRoot, true)
 	if !ok {
 		r.result.Diagnostics = append(r.result.Diagnostics, dErr("TSPACK_RESOLVE_WORKSPACE_ROOT_INVALID", "workspace package root is invalid", name, target.Root))
 		return
@@ -174,6 +175,10 @@ func (r *resolverState) localPackageMetadata(root, fallbackName, invalidCode str
 }
 
 func hashDirectory(root string) (string, bool) {
+	return hashDirectoryWithOptions(root, false)
+}
+
+func hashDirectoryWithOptions(root string, skipWorkspaceBuildOutput bool) (string, bool) {
 	h := sha256.New()
 	files := []string{}
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -185,6 +190,9 @@ func hashDirectory(root string) (string, bool) {
 			return nil
 		}
 		if d.IsDir() && shouldSkipLocalArtifactDir(d.Name()) {
+			return filepath.SkipDir
+		}
+		if d.IsDir() && skipWorkspaceBuildOutput && d.Name() == "dist" {
 			return filepath.SkipDir
 		}
 		if d.Type()&os.ModeSymlink != 0 {
@@ -209,10 +217,17 @@ func hashDirectory(root string) (string, bool) {
 		}
 		h.Write([]byte(filepath.ToSlash(rel)))
 		h.Write([]byte{0})
-		h.Write(b)
+		h.Write(canonicalLocalFileBytes(b))
 		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil)), true
+}
+
+func canonicalLocalFileBytes(contents []byte) []byte {
+	if bytes.IndexByte(contents, 0) >= 0 {
+		return contents
+	}
+	return bytes.ReplaceAll(contents, []byte("\r\n"), []byte("\n"))
 }
 
 func shouldSkipLocalArtifactDir(name string) bool {

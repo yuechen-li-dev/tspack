@@ -169,6 +169,32 @@ func TestPathHashIgnoresGeneratedLockfile(t *testing.T) {
 	}
 }
 
+func TestPathHashNormalizesCheckoutLineEndings(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "index.ts")
+	_ = os.WriteFile(path, []byte("export const value = 1\r\n"), 0o644)
+	crlfHash, crlfOK := hashDirectory(root)
+	_ = os.WriteFile(path, []byte("export const value = 1\n"), 0o644)
+	lfHash, lfOK := hashDirectory(root)
+
+	if !crlfOK || !lfOK || crlfHash != lfHash {
+		t.Fatalf("checkout line endings changed local artifact identity: %q != %q", crlfHash, lfHash)
+	}
+}
+
+func TestWorkspaceHashIgnoresGeneratedDist(t *testing.T) {
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"workspace","version":"1.0.0"}`), 0o644)
+	before, beforeOK := hashDirectoryWithOptions(root, true)
+	_ = os.MkdirAll(filepath.Join(root, "dist"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "dist", "index.js"), []byte("generated\n"), 0o644)
+	after, afterOK := hashDirectoryWithOptions(root, true)
+
+	if !beforeOK || !afterOK || before != after {
+		t.Fatalf("generated dist changed workspace identity: %q != %q", before, after)
+	}
+}
+
 func TestWorkspaceResolveAndMissing(t *testing.T) {
 	res := ResolveNPM(context.Background(), ResolverOptions{Mode: ResolveModeUpdate, Client: buildFakeRegistry()}, ResolveRequest{Graph: localGraph(".", []manifest.DependencyIntent{{Key: "dep", Kind: "dep", Source: manifest.Source{Kind: "workspace", Name: "app"}}}, []string{"dep"})})
 	if len(res.Lock.Packages) != 1 || res.Lock.Packages[0].Source != "workspace" || res.Lock.Packages[0].Hash == "" {

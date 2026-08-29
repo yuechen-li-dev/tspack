@@ -432,7 +432,11 @@ func populateOneStorePackage(ctx context.Context, st *store.Store, client resolv
 		result.Hash = ref.Hash
 	case "path", "workspace":
 		abs := filepath.Join(rootDir, filepath.FromSlash(pkg.Path))
-		ref, diags := st.PutArtifact(store.Artifact{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, Hash: pkg.Hash, Kind: store.ArtifactPathTree, RootDir: abs, Metadata: store.PackageMetadata{Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, PackageID: pkg.ID, Capabilities: pkg.Capabilities}})
+		kind := store.ArtifactPathTree
+		if pkg.Source == "workspace" {
+			kind = store.ArtifactWorkspace
+		}
+		ref, diags := st.PutArtifact(store.Artifact{ID: pkg.ID, Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, Hash: pkg.Hash, Kind: kind, RootDir: abs, Metadata: store.PackageMetadata{Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, PackageID: pkg.ID, Capabilities: pkg.Capabilities}})
 		result.Diagnostics = append(result.Diagnostics, diags...)
 		result.Hash = ref.Hash
 	}

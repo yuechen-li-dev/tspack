@@ -567,7 +567,7 @@ func TestUpdateWorkspaceRootDependencyDoesNotCopyTSPackStoreIntoItself(t *testin
 
 	extractedRoot := filepath.Join(opts.StoreRoot, "extracted")
 	mustFindProjectFile(t, extractedRoot, filepath.Join("src", "ui", "index.ts"))
-	mustFindProjectFile(t, extractedRoot, filepath.Join("dist", "ui", "index.js"))
+	mustNotFindProjectPath(t, extractedRoot, "dist")
 	mustNotFindProjectPath(t, extractedRoot, ".tspack")
 	mustNotFindProjectPath(t, extractedRoot, "tspack-artifacts")
 }
