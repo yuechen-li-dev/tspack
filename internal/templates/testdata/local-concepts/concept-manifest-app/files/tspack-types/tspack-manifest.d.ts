@@ -472,6 +472,22 @@ declare module 'tspack/manifest' {
   export type WorkflowAuditEffect = (Omit<WorkflowAuditStepOptions, 'auditLevel'> & { operation: 'audit' }) & WorkflowAuditResultRef;
   export type WorkflowTransferEffect = { operation: 'transfer' } & WorkflowBuildResultRef;
   export type WorkflowTypedEffect = WorkflowBuildEffect | WorkflowTestEffect | WorkflowAuditEffect | WorkflowTransferEffect;
+  export type WorkflowIterationOutcome<T extends WorkflowTypedEffect> = T & {
+    readonly __workflowIterationOutcomeType?: T;
+  };
+  export type WorkflowAggregate<T, Complete extends boolean = true> = WorkflowFlowNode & {
+    readonly length: number;
+    readonly [index: number]: T;
+    readonly __workflowAggregateElementType?: T;
+    readonly __workflowAggregateComplete?: Complete;
+  };
+  export type WorkflowProduces<T extends WorkflowTypedEffect> = {
+    readonly __workflowProducedType?: T;
+  };
+  export type WorkflowProduced<T> =
+    T extends WorkflowTypedEffect ? T :
+    T extends WorkflowProduces<infer Result> ? Result :
+    never;
   export type WorkflowFailureRef = {
     kind: 'failed' | 'cancelled' | 'timedOut';
     error: WorkflowValueRef<string, 'smallSerialized'>;
@@ -665,11 +681,14 @@ declare module 'tspack/manifest' {
   export function Sequence(...nodes: WorkflowNodeInput[]): WorkflowFlowNode;
   export function Parallel(...branches: WorkflowBranch[]): WorkflowFlowNode;
   export function Branch(identity: string, ...nodes: WorkflowNodeInput[]): WorkflowBranch;
+  export function On<T extends WorkflowTypedEffect>(platform: WorkflowPlatform, node: T): WorkflowFlowNode & WorkflowProduces<T>;
+  export function On<T extends WorkflowTypedEffect>(platform: WorkflowPlatform, options: { env?: WorkflowEnvRow[] }, node: T): WorkflowFlowNode & WorkflowProduces<T>;
   export function On(platform: WorkflowPlatform, ...nodes: WorkflowNodeInput[]): WorkflowFlowNode;
   export function On(platform: WorkflowPlatform, options: { env?: WorkflowEnvRow[] }, ...nodes: WorkflowNodeInput[]): WorkflowFlowNode;
   export function MatchResult<T extends WorkflowTypedEffect>(source: T, arms: WorkflowMatchArms<T>): WorkflowFlowNode;
   export function Finally(body: WorkflowNodeInput, cleanup: WorkflowNodeInput): WorkflowFlowNode;
-  export function ForEach<T extends string | number | boolean>(identity: string, source: readonly T[], body: (value: T) => WorkflowNodeInput, options?: WorkflowForEachOptions): WorkflowFlowNode;
+  export function ForEach<T extends string | number | boolean, R extends WorkflowNodeInput, O extends WorkflowForEachOptions | undefined = undefined>(identity: string, source: readonly T[], body: (value: T) => R, options?: O): WorkflowFlowNode & (O extends { failure: { kind: 'collectAll' } } ? WorkflowAggregate<WorkflowIterationOutcome<WorkflowProduced<R>>, true> : WorkflowAggregate<WorkflowProduced<R>, false>);
+  export function ForEach<T extends WorkflowTypedEffect, R extends WorkflowNodeInput, O extends WorkflowForEachOptions | undefined = undefined>(identity: string, source: WorkflowAggregate<T, true>, body: (value: T) => R, options?: O): WorkflowFlowNode & (O extends { failure: { kind: 'collectAll' } } ? WorkflowAggregate<WorkflowIterationOutcome<WorkflowProduced<R>>, true> : WorkflowAggregate<WorkflowProduced<R>, false>);
   export function ParallelForEach(options: { concurrency: number }): WorkflowForEachMode;
   export function CollectAll(): WorkflowForEachFailure & { readonly kind: 'collectAll' };
   export function FailFast(): WorkflowForEachFailure & { readonly kind: 'failFast' };

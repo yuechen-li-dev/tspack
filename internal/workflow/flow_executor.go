@@ -27,6 +27,9 @@ func (executor *Executor) RunFlow(ctx context.Context, flow Flow) Result {
 			executor.Concurrency = 4
 		}
 	}
+	if executor.Concurrency > MaxForEachConcurrency {
+		executor.Concurrency = MaxForEachConcurrency
+	}
 	if executor.Environment == nil {
 		executor.Environment = os.LookupEnv
 	}

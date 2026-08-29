@@ -164,8 +164,36 @@ first bounded window and each completed slot admits the next source item;
 completions ready together are applied by stable iteration identity.
 Aggregate elements are ordered value identities, not copied result payloads.
 `CollectAll()` records `succeeded`, `failed`, `cancelled`, or `timedOut` for
-every element and attempts all source items. Nested `ForEach` is deliberately
-rejected in schema v3 pending a total expansion-budget design.
+every element and attempts all source items. A collect-all result is an
+immutable `WorkflowAggregate<WorkflowIterationOutcome<T>>`: its typed `length`,
+constant indexes, and elements are available to another `ForEach`. Indexes are
+validated during manifest evaluation; invalid indexes never become JavaScript
+`undefined`.
+
+```tsx
+const runs = ForEach("platform", [Linux(), Windows()], platform =>
+  On(platform, Test()), {
+    mode: ParallelForEach({ concurrency: 2 }),
+    failure: CollectAll(),
+  });
+
+Sequence(
+  runs,
+  MatchResult(runs[0], { /* the normal four outcome arms */ }),
+  ForEach("run", runs, run =>
+    MatchResult(run, { /* the same normal outcome algebra */ })),
+)
+```
+
+Fail-fast fan-out is deliberately a partial aggregate: inspection retains its
+observed prefix, but authoring cannot index or iterate it. Use `CollectAll()`
+when downstream aggregate consumption is required.
+
+Sequential fan-out may be nested. Flow schema v4 records hierarchical cursor
+paths and rejects plans above 4,096 total materialized iteration instances;
+the 256-item limit still applies independently to every loop. Nested results
+are never implicitly flattened. Nested `ParallelForEach` is currently rejected
+until the scheduler has an explicit non-multiplicative concurrency law.
 
 Typed successful-result facts use serializable builders rather than expression
 strings or runtime callbacks:
@@ -192,6 +220,11 @@ not a fundamental control construct; they survive as legacy placement/result
 grouping. Matrix remains deterministic declaration-time compatibility sugar;
 new workflows should use `ForEach`, `On`, and an explicit `Parallel` when
 concurrency is intended.
+
+Migration is structural rather than provider-specific: matrix job outputs map
+to a collect-all `ParallelForEach` aggregate, `needs.foo.outputs.x` maps to a
+typed result projection, matrix post-processing maps to `ForEach` over the
+collected aggregate, and nested matrices map to bounded nested `ForEach`.
 
 Values are classified as control, small serialized, artifact reference,
 region-local, or placement values. Artifact and region-local values cannot

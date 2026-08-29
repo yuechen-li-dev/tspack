@@ -110,8 +110,8 @@ func parseWorkflowOptions(subcommand string, args []string) workflowCommandOptio
 		case "--jobs":
 			value := workflowFlagValue(args, &index, "--jobs")
 			parsed, err := strconv.Atoi(value)
-			if err != nil || parsed <= 0 || parsed > 64 {
-				failWorkflowArgs("--jobs must be between 1 and 64")
+			if err != nil || parsed <= 0 || parsed > workflow.MaxForEachConcurrency {
+				failWorkflowArgs(fmt.Sprintf("--jobs must be between 1 and %d", workflow.MaxForEachConcurrency))
 			}
 			options.Concurrency = parsed
 		case "--ci-provider":
@@ -191,6 +191,7 @@ func renderWorkflowFlow(flow workflow.Flow, jsonOutput bool) {
 		}
 	}
 	fmt.Printf("\nFlow (schema %d):\n", flow.SchemaVersion)
+	fmt.Printf("Expansion: %d/%d planned iterations; global concurrency ceiling %d\n", flow.Expansion.PlannedIterations, flow.Expansion.Limit, flow.Expansion.MaxConcurrency)
 	renderFlowProgram(flow, flow.Entry, "  ", map[string]bool{})
 	if len(flow.Values) > 0 {
 		fmt.Println("\nValues:")
@@ -205,7 +206,11 @@ func renderWorkflowFlow(flow workflow.Flow, jsonOutput bool) {
 	if len(flow.Aggregates) > 0 {
 		fmt.Println("\nAggregates:")
 		for _, aggregate := range flow.Aggregates {
-			fmt.Printf("  %s: %s[%d] (%s, concurrency %d, %s)\n", aggregate.Identity, aggregate.ResultType, len(aggregate.Elements), aggregate.Mode, aggregate.Concurrency, aggregate.FailurePolicy)
+			completeness := "partial"
+			if aggregate.Complete {
+				completeness = "complete"
+			}
+			fmt.Printf("  %s: %s[%d] (%s, concurrency %d, %s, %s)\n", aggregate.Identity, aggregate.ResultType, len(aggregate.Elements), aggregate.Mode, aggregate.Concurrency, aggregate.FailurePolicy, completeness)
 			for index, element := range aggregate.Elements {
 				fmt.Printf("    [%d] -> %s\n", index, element)
 			}
@@ -291,7 +296,11 @@ func renderFlowProgram(flow workflow.Flow, identity string, indent string, visit
 			renderFlowProgram(flow, next, indent, visited)
 		}
 	case workflow.NodeMatch:
-		fmt.Printf("%smatch %s:\n", indent, node.Source)
+		if node.Projection != nil {
+			fmt.Printf("%smatch %s[%d] -> %s:\n", indent, node.Projection.Aggregate, node.Projection.Index, node.Source)
+		} else {
+			fmt.Printf("%smatch %s:\n", indent, node.Source)
+		}
 		for _, transition := range flow.Transitions {
 			if transition.From == identity && transition.Event == workflow.MachineContinue {
 				fmt.Printf("%s  %s:\n", indent, transition.Guard)
@@ -303,7 +312,11 @@ func renderFlowProgram(flow workflow.Flow, identity string, indent string, visit
 			fmt.Printf("%siterator (invalid)\n", indent)
 			break
 		}
-		fmt.Printf("%sforeach %s cursor %d/%d = %s (%s, concurrency %d, %s)\n", indent, node.Iterator.SourceIdentity, node.Iterator.Index+1, node.Iterator.Count, renderIterationValue(node.Iterator.Value), node.Iterator.Mode, node.Iterator.Concurrency, node.Iterator.FailurePolicy)
+		if node.Iterator.SourceAggregate != "" {
+			fmt.Printf("%sforeach %s cursor %d/%d consumes %s -> %s (path %s; %s, concurrency %d, %s)\n", indent, node.Iterator.SourceIdentity, node.Iterator.Index+1, node.Iterator.Count, node.Iterator.SourceAggregate, node.Iterator.ElementIdentity, node.Iterator.Path, node.Iterator.Mode, node.Iterator.Concurrency, node.Iterator.FailurePolicy)
+		} else {
+			fmt.Printf("%sforeach %s cursor %d/%d = %s (path %s; %s, concurrency %d, %s)\n", indent, node.Iterator.SourceIdentity, node.Iterator.Index+1, node.Iterator.Count, renderIterationValue(node.Iterator.Value), node.Iterator.Path, node.Iterator.Mode, node.Iterator.Concurrency, node.Iterator.FailurePolicy)
+		}
 		if next := flowTransitionTarget(flow, identity, workflow.MachineContinue); next != "" {
 			renderFlowProgram(flow, next, indent+"  ", visited)
 		}

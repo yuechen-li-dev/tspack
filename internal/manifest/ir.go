@@ -81,6 +81,8 @@ type WorkflowValueRef struct {
 	ResultType string   `json:"resultType"`
 	FieldPath  []string `json:"fieldPath,omitempty"`
 	Category   string   `json:"category"`
+	Aggregate  string   `json:"aggregate,omitempty"`
+	Index      *int     `json:"index,omitempty"`
 }
 
 type WorkflowMatchArm struct {
@@ -95,10 +97,11 @@ type WorkflowForEachItem struct {
 }
 
 type WorkflowIterationValue struct {
-	Kind    string   `json:"kind"`
-	String  string   `json:"string,omitempty"`
-	Number  *float64 `json:"number,omitempty"`
-	Boolean *bool    `json:"boolean,omitempty"`
+	Kind    string            `json:"kind"`
+	String  string            `json:"string,omitempty"`
+	Number  *float64          `json:"number,omitempty"`
+	Boolean *bool             `json:"boolean,omitempty"`
+	Source  *WorkflowValueRef `json:"source,omitempty"`
 }
 
 type WorkflowTrigger struct {

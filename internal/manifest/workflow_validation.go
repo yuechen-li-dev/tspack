@@ -267,6 +267,15 @@ func validateWorkflowIterationValue(add func(string, string, ...string), prefix 
 		if value.Boolean == nil || value.Number != nil || value.String != "" {
 			add("TSPACK_WORKFLOW_FOREACH_VALUE_INVALID", prefix+" must contain exactly one boolean")
 		}
+	case "aggregateElement":
+		if value.Source == nil || value.String != "" || value.Number != nil || value.Boolean != nil {
+			add("TSPACK_WORKFLOW_FOREACH_VALUE_INVALID", prefix+" aggregate element requires exactly one source reference")
+			return
+		}
+		validateWorkflowValueRef(add, prefix+".source", *value.Source)
+		if value.Source.Aggregate == "" || value.Source.Index == nil || *value.Source.Index < 0 {
+			add("TSPACK_WORKFLOW_AGGREGATE_ELEMENT_INVALID", prefix+" aggregate element requires aggregate identity and bounded index")
+		}
 	default:
 		add("TSPACK_WORKFLOW_FOREACH_VALUE_INVALID", prefix+" has unknown finite scalar kind "+value.Kind)
 	}

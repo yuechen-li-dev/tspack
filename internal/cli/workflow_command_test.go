@@ -104,7 +104,7 @@ func TestWorkflowM78FixtureInspectExposesFanOutTransportAndFacts(t *testing.T) {
 	if err := json.Unmarshal([]byte(inspected.Stdout), &flow); err != nil {
 		t.Fatalf("decode M78 inspect flow: %v\n%s", err, inspected.Stdout)
 	}
-	if flow.SchemaVersion != 3 || len(flow.Aggregates) != 1 || flow.Aggregates[0].Concurrency != 2 || flow.Aggregates[0].FailurePolicy != "collectAll" {
+	if flow.SchemaVersion != workflow.FlowSchemaVersion || len(flow.Aggregates) != 1 || flow.Aggregates[0].Concurrency != 2 || flow.Aggregates[0].FailurePolicy != "collectAll" {
 		t.Fatalf("M78 flow=%#v", flow)
 	}
 	if countCLIFlowNodes(flow, workflow.NodePredicate) != 1 || countCLIFlowNodes(flow, workflow.NodeIterator) != 2 {
@@ -114,6 +114,51 @@ func TestWorkflowM78FixtureInspectExposesFanOutTransportAndFacts(t *testing.T) {
 	human := runTestApp(t, "workflow", "inspect", "M78", "--root", root)
 	clitest.AssertExit(t, human, 0)
 	for _, expected := range []string{"parallel, concurrency 2, collectAll", "transport target: windows", "when value/m78/", "Aggregates:", "iterationOutcome<test>"} {
+		if !strings.Contains(human.Stdout, expected) {
+			t.Fatalf("human inspect missing %q:\n%s", expected, human.Stdout)
+		}
+	}
+}
+
+func TestWorkflowM79FixtureInspectExposesAggregateConsumptionAndNestedPaths(t *testing.T) {
+	repository := repoRootForMigrateTest(t)
+	root := filepath.Join(repository, "fixtures", "workflow-m79")
+
+	inspected := runTestApp(t, "workflow", "inspect", "M79", "--root", root, "--json")
+	clitest.AssertExit(t, inspected, 0)
+	var flow workflow.Flow
+	if err := json.Unmarshal([]byte(inspected.Stdout), &flow); err != nil {
+		t.Fatalf("decode M79 inspect flow: %v\n%s", err, inspected.Stdout)
+	}
+	if flow.SchemaVersion != workflow.FlowSchemaVersion || flow.Expansion.PlannedIterations != 10 || flow.Expansion.Limit != workflow.DefaultExpansionBudget {
+		t.Fatalf("M79 expansion=%+v schema=%d", flow.Expansion, flow.SchemaVersion)
+	}
+	if len(flow.Aggregates) != 1 || !flow.Aggregates[0].Complete || flow.Aggregates[0].ResultType != "iterationOutcome<test>" {
+		t.Fatalf("M79 aggregates=%+v", flow.Aggregates)
+	}
+	projections := 0
+	aggregateSources := 0
+	nestedPath := false
+	for _, node := range flow.Nodes {
+		if node.Projection != nil {
+			projections++
+		}
+		if node.Iterator != nil {
+			if node.Iterator.SourceAggregate != "" {
+				aggregateSources++
+			}
+			if strings.Contains(node.Iterator.Path, "/") {
+				nestedPath = true
+			}
+		}
+	}
+	if projections != 3 || aggregateSources != 2 || !nestedPath {
+		t.Fatalf("projections=%d aggregateSources=%d nestedPath=%t", projections, aggregateSources, nestedPath)
+	}
+
+	human := runTestApp(t, "workflow", "inspect", "M79", "--root", root)
+	clitest.AssertExit(t, human, 0)
+	for _, expected := range []string{"Expansion: 10/4096", "global concurrency ceiling 32", "consumes value/m79/aggregate", "path platform-config[", "complete"} {
 		if !strings.Contains(human.Stdout, expected) {
 			t.Fatalf("human inspect missing %q:\n%s", expected, human.Stdout)
 		}

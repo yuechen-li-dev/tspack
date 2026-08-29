@@ -305,6 +305,90 @@ describe('workflow declarations', () => {
     }));
   });
 
+  it('lowers constant aggregate indexing and ordered second-pass outcome matching', () => {
+    const manifestPath = writeFixture('manifest.tsx', `
+      import { CollectAll, CurrentHost, ForEach, MatchResult, ParallelForEach, Process, Sequence, Test, Windows, Workflow, Workflows, Workspace, define } from "tspack/manifest";
+      const runs = ForEach("platform", [CurrentHost(), Windows()], platform => Test({ filter: platform }), {
+        mode: ParallelForEach({ concurrency: 2 }),
+        failure: CollectAll(),
+      });
+      const first = runs[0];
+      const count = runs.length;
+      export default define(
+        <Workspace name="demo">
+          <Workflows rows={[
+            Workflow("M79", {
+              triggers: [],
+              flow: Sequence(
+                runs,
+                MatchResult(first, {
+                  succeeded: result => Process("first", { command: ["report", result.failed] }),
+                  failed: failure => Process("failed", { command: ["report", failure.error] }),
+                  cancelled: cancellation => Process("cancelled", { command: ["report", cancellation.error] }),
+                  timedOut: timeout => Process("timeout", { command: ["report", timeout.error] }),
+                }),
+                ForEach("run", runs, run => MatchResult(run, {
+                  succeeded: result => Process("result", { command: ["report", result.passed] }),
+                  failed: failure => Process("failed", { command: ["report", failure.error] }),
+                  cancelled: cancellation => Process("cancelled", { command: ["report", cancellation.error] }),
+                  timedOut: timeout => Process("timeout", { command: ["report", timeout.error] }),
+                })),
+              ),
+            }),
+          ]} />
+        </Workspace>,
+      );
+    `);
+
+    const result = parseWorkspace(manifestPath);
+    expect(result.ok).toBe(true);
+    const flow = result.ir?.workflows?.[0]?.flow as Record<string, any>;
+    expect(flow.children[0].aggregate.elements).toHaveLength(2);
+    expect(flow.children[1].source).toEqual(expect.objectContaining({
+      aggregate: flow.children[0].aggregate.identity,
+      index: 0,
+    }));
+    expect(flow.children[2].items.map((item: any) => item.value.source.index)).toEqual([0, 1]);
+  });
+
+  it('rejects out-of-range workflow aggregate indexes', () => {
+    const manifestPath = writeFixture('manifest.tsx', `
+      import { CollectAll, ForEach, Test, Workflow, Workflows, Workspace, define } from "tspack/manifest";
+      const runs = ForEach("run", [1, 2], value => Test({ filter: "unit" }), { failure: CollectAll() });
+      const test = Test();
+      const missing = runs[2];
+      const negative = runs[-1];
+      const fractional = runs[0.5];
+      const dynamic = runs[test.failed];
+      const notAggregate = [1, 2][0];
+      export default define(<Workspace name="demo"><Workflows rows={[Workflow("M79", { triggers: [], flow: runs })]} /></Workspace>);
+    `);
+
+    const result = parseWorkspace(manifestPath);
+    expect(result.ok).toBe(false);
+    const codes = result.diagnostics.map(diagnostic => diagnostic.code);
+    expect(codes).toContain('TSPACK_WORKFLOW_AGGREGATE_INDEX_OUT_OF_RANGE');
+    expect(codes).toContain('TSPACK_WORKFLOW_AGGREGATE_INDEX_INVALID');
+    expect(codes).toContain('TSPACK_WORKFLOW_AGGREGATE_INDEX_TARGET_INVALID');
+  });
+
+  it('preserves external workflow captures while namespacing callback-produced values', () => {
+    const manifestPath = writeFixture('manifest.tsx', `
+      import { Build, CurrentHost, ForEach, Sequence, Transfer, Windows, Workflow, Workflows, Workspace, define } from "tspack/manifest";
+      const build = Build();
+      const transfers = ForEach("target", [CurrentHost(), Windows()], target => Transfer(build.artifacts, target));
+      export default define(<Workspace name="demo"><Workflows rows={[Workflow("capture", { triggers: [], flow: Sequence(build, transfers) })]} /></Workspace>);
+    `);
+
+    const result = parseWorkspace(manifestPath);
+    expect(result.ok).toBe(true);
+    const flow = result.ir?.workflows?.[0]?.flow as Record<string, any>;
+    const buildSource = flow.children[0].effect.resultIdentity;
+    const transferEffects = flow.children[1].items.map((item: any) => item.flow.effect);
+    expect(transferEffects.map((effect: any) => effect.inputs[0].source)).toEqual([buildSource, buildSource]);
+    expect(new Set(transferEffects.map((effect: any) => effect.resultIdentity)).size).toBe(2);
+  });
+
   it('normalizes semantic workflow intent without evaluating effects', () => {
     const manifestPath = writeFixture('manifest.tsx', `
       import { Audit, Build, Check, CurrentHost, Job, Package, Process, PullRequest, Push, Secret, Sync, Test, Workflow, WorkflowEnv, Workflows, Workspace, define } from "tspack/manifest";

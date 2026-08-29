@@ -293,6 +293,11 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
   if (ts.isParenthesizedExpression(node) || ts.isSatisfiesExpression(node)) return evalNode(node.expression, sf, diags, file, env);
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
   if (ts.isNumericLiteral(node)) return Number(node.text);
+  if (ts.isPrefixUnaryExpression(node) && ts.isNumericLiteral(node.operand)) {
+    const value = Number(node.operand.text);
+    if (node.operator === ts.SyntaxKind.MinusToken) return -value;
+    if (node.operator === ts.SyntaxKind.PlusToken) return value;
+  }
   if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
   if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
   if (node.kind === ts.SyntaxKind.NullKeyword) return null;
@@ -309,6 +314,51 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
       });
     }
     return base?.[node.name.text];
+  }
+  if (ts.isElementAccessExpression(node)) {
+    const base = evalNode(node.expression, sf, diags, file, env) as Record<string, unknown> | undefined;
+    const aggregate = base?.__workflowAggregate as Record<string, unknown> | undefined;
+    const index = node.argumentExpression
+      ? evalNode(node.argumentExpression, sf, diags, file, env)
+      : undefined;
+    if (!aggregate) {
+      diags.push({
+        code: 'TSPACK_WORKFLOW_AGGREGATE_INDEX_TARGET_INVALID',
+        severity: 'error',
+        message: 'Only workflow aggregates support bounded indexing.',
+        file,
+      });
+      return undefined;
+    }
+    if (aggregate.complete !== true) {
+      diags.push({
+        code: 'TSPACK_WORKFLOW_AGGREGATE_INCOMPLETE',
+        severity: 'error',
+        message: 'Fail-fast fan-out is a partial aggregate and cannot be indexed; use CollectAll for complete aggregate consumption.',
+        file,
+      });
+      return undefined;
+    }
+    if (typeof index !== 'number' || !Number.isInteger(index)) {
+      diags.push({
+        code: 'TSPACK_WORKFLOW_AGGREGATE_INDEX_INVALID',
+        severity: 'error',
+        message: 'Workflow aggregate indexes must be statically known integers.',
+        file,
+      });
+      return undefined;
+    }
+    const elements = aggregate.elements as unknown[];
+    if (index < 0 || index >= elements.length) {
+      diags.push({
+        code: 'TSPACK_WORKFLOW_AGGREGATE_INDEX_OUT_OF_RANGE',
+        severity: 'error',
+        message: `Workflow aggregate index ${index} is outside the bounded range 0..${elements.length - 1}.`,
+        file,
+      });
+      return undefined;
+    }
+    return elements[index];
   }
   if (ts.isArrayLiteralExpression(node)) return node.elements.map((e) => evalNode(e, sf, diags, file, env));
   if (ts.isObjectLiteralExpression(node)) {
@@ -467,6 +517,10 @@ function asWorkflowFlowNode(value: unknown): Record<string, unknown> {
   const record = value as Record<string, unknown>;
   if (typeof record.operation === 'string') {
     return { kind: 'effect', effect: workflowStep(record) };
+  }
+  if (record.kind === 'forEach' && record.__workflowAggregate) {
+    const { __workflowAggregate: _aggregate, length: _length, ...flow } = record;
+    return flow;
   }
   return record;
 }
@@ -737,7 +791,21 @@ function evalForEach(
   env: Map<string, unknown>,
 ): Record<string, unknown> {
   const identity = evalNode(node.arguments[0], sf, diags, file, env);
-  const values = evalNode(node.arguments[1], sf, diags, file, env);
+  const source = evalNode(node.arguments[1], sf, diags, file, env);
+  const sourceAggregate = source && typeof source === 'object' && !Array.isArray(source)
+    ? (source as Record<string, unknown>).__workflowAggregate as Record<string, unknown> | undefined
+    : undefined;
+  const values = Array.isArray(source)
+    ? source
+    : sourceAggregate?.elements;
+	if (sourceAggregate && sourceAggregate.complete !== true) {
+		diags.push({
+			code: 'TSPACK_WORKFLOW_AGGREGATE_INCOMPLETE',
+			severity: 'error',
+			message: 'Fail-fast fan-out is a partial aggregate and cannot be iterated; use CollectAll for complete aggregate consumption.',
+			file,
+		});
+	}
   const callback = node.arguments[2];
   const options = node.arguments[3]
     ? evalNode(node.arguments[3], sf, diags, file, env) as Record<string, unknown>
@@ -746,7 +814,7 @@ function evalForEach(
     diags.push({
       code: 'TSPACK_WORKFLOW_FOREACH_SOURCE_INVALID',
       severity: 'error',
-      message: 'ForEach requires a stable identity, a finite array literal, and an expression callback.',
+      message: 'ForEach requires a stable identity, a finite literal or complete workflow aggregate, and an expression callback.',
       file,
     });
     return { kind: 'invalid' };
@@ -760,19 +828,30 @@ function evalForEach(
     });
   }
   const elementSources: string[] = [];
+  const elementBindings: Array<Record<string, unknown>> = [];
   let resultType = '';
   const items = values.slice(0, 256).map((value, index) => {
     const evaluated = evalWorkflowArm(callback, value, sf, diags, file, env);
-    const namespaced = namespaceWorkflowValues(evaluated, `foreach/${identity}/${index}`) as Record<string, unknown>;
+    const producedSources = collectProducedWorkflowSources(evaluated);
+    const namespaced = namespaceWorkflowValues(
+      evaluated,
+      `foreach/${identity}/${index}`,
+      producedSources,
+    ) as Record<string, unknown>;
     const reference = namespaced?.__workflowRef as Record<string, unknown> | undefined;
     if (isWorkflowValueRef(reference)) {
       elementSources.push(reference.source as string);
       resultType ||= reference.resultType as string;
+      elementBindings.push(aggregateElementBinding({
+        source: reference.source as string,
+        resultType: reference.resultType as string,
+      }, '', index));
     } else {
       const typedEffect = singleWorkflowTypedEffect(asWorkflowFlowNode(namespaced));
       if (typedEffect) {
         elementSources.push(typedEffect.source);
         resultType ||= typedEffect.resultType;
+        elementBindings.push(aggregateElementBinding(typedEffect, '', index));
       }
     }
     return {
@@ -784,13 +863,19 @@ function evalForEach(
   const mode = options.mode as Record<string, unknown> | undefined;
   const failure = options.failure as Record<string, unknown> | undefined;
   const aggregateIdentity = `aggregate/${identity}/${node.getStart(sf)}`;
-  return {
+  const complete = failure?.kind === 'collectAll';
+  for (const binding of elementBindings) {
+    const reference = binding.__workflowRef as Record<string, unknown>;
+    reference.aggregate = aggregateIdentity;
+  }
+  const result = {
     kind: 'forEach',
     identity,
     items,
     mode: mode?.kind === 'parallel' ? 'parallel' : 'sequential',
     ...(mode?.kind === 'parallel' ? { concurrency: mode.concurrency } : {}),
     failurePolicy: failure?.kind === 'collectAll' ? 'collectAll' : 'failFast',
+    ...(sourceAggregate ? { sourceAggregate: sourceAggregate.identity } : {}),
     ...(elementSources.length === items.length ? {
       aggregate: {
         identity: aggregateIdentity,
@@ -798,6 +883,38 @@ function evalForEach(
         elements: elementSources,
       },
     } : {}),
+  };
+  return {
+    ...result,
+    length: items.length,
+    __workflowAggregate: {
+      identity: aggregateIdentity,
+      resultType: complete ? `iterationOutcome<${resultType}>` : resultType,
+      elements: elementBindings,
+      complete,
+    },
+  };
+}
+
+function aggregateElementBinding(
+  source: { source: string; resultType: string },
+  aggregate: string,
+  index: number,
+): Record<string, unknown> {
+  const reference = {
+    ...rootWorkflowValueRef(source.resultType, source.source),
+    aggregate,
+    index,
+  };
+  return {
+    operation: source.resultType,
+    resultIdentity: source.source,
+    ...workflowResultRef(source.resultType, source.source),
+    __workflowRef: reference,
+    __workflowStep: {
+      operation: source.resultType,
+      resultIdentity: source.source,
+    },
   };
 }
 
@@ -817,6 +934,12 @@ function singleWorkflowTypedEffect(node: Record<string, unknown>): { source: str
 }
 
 function workflowIterationValue(value: unknown): Record<string, unknown> {
+	if (value && typeof value === 'object' && !Array.isArray(value)) {
+		const reference = (value as Record<string, unknown>).__workflowRef;
+		if (isWorkflowValueRef(reference)) {
+			return { kind: 'aggregateElement', source: reference };
+		}
+	}
   if (typeof value === 'string') {
     const platforms = ['linux', 'windows', 'macos', 'currentHost'];
     return {
@@ -830,15 +953,23 @@ function workflowIterationValue(value: unknown): Record<string, unknown> {
   return { kind: 'boolean', boolean: value };
 }
 
-function namespaceWorkflowValues(value: unknown, suffix: string): unknown {
+function namespaceWorkflowValues(
+  value: unknown,
+  suffix: string,
+  producedSources: ReadonlySet<string> = collectProducedWorkflowSources(value),
+): unknown {
   if (Array.isArray(value)) {
-    return value.map((item) => namespaceWorkflowValues(item, suffix));
+    return value.map((item) => namespaceWorkflowValues(item, suffix, producedSources));
   }
   if (!value || typeof value !== 'object') {
     return value;
   }
   const record = value as Record<string, unknown>;
+  const recordKind = record.kind;
   if (isWorkflowValueRef(record)) {
+    if (!producedSources.has(record.source as string)) {
+      return record;
+    }
     return {
       ...record,
       identity: `${record.identity}/${suffix}`,
@@ -847,11 +978,53 @@ function namespaceWorkflowValues(value: unknown, suffix: string): unknown {
   }
   const namespaced: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(record)) {
-    namespaced[key] = key === 'resultIdentity' && typeof item === 'string'
+    namespaced[key] = key === 'resultIdentity'
+      && typeof item === 'string'
+      && producedSources.has(item)
       ? `${item}/${suffix}`
-      : namespaceWorkflowValues(item, suffix);
+      : namespaceWorkflowValues(item, suffix, producedSources);
+  }
+  if (recordKind === 'forEach') {
+    if (typeof namespaced.identity === 'string') {
+      const identitySuffix = suffix.replaceAll(/[^A-Za-z0-9-]/g, '-');
+      namespaced.identity = `${namespaced.identity}-${identitySuffix}`;
+    }
+    const aggregate = namespaced.aggregate as Record<string, unknown> | undefined;
+    if (aggregate && typeof aggregate.identity === 'string') {
+      aggregate.identity = `${aggregate.identity}/${suffix}`;
+      if (Array.isArray(aggregate.elements)) {
+        aggregate.elements = aggregate.elements.map((element) =>
+          typeof element === 'string' ? `${element}/${suffix}` : element,
+        );
+      }
+    }
+    const authoringAggregate = namespaced.__workflowAggregate as Record<string, unknown> | undefined;
+    if (authoringAggregate && typeof authoringAggregate.identity === 'string') {
+      authoringAggregate.identity = `${authoringAggregate.identity}/${suffix}`;
+    }
   }
   return namespaced;
+}
+
+function collectProducedWorkflowSources(value: unknown): Set<string> {
+  const sources = new Set<string>();
+  const visit = (current: unknown) => {
+    if (Array.isArray(current)) {
+      for (const item of current) visit(item);
+      return;
+    }
+    if (!current || typeof current !== 'object') return;
+    const record = current as Record<string, unknown>;
+    if (record.kind === 'effect') {
+      const effect = record.effect as Record<string, unknown> | undefined;
+      if (typeof effect?.resultIdentity === 'string') sources.add(effect.resultIdentity);
+    } else if (typeof record.operation === 'string' && record.__workflowRef) {
+      if (typeof record.resultIdentity === 'string') sources.add(record.resultIdentity);
+    }
+    for (const item of Object.values(record)) visit(item);
+  };
+  visit(value);
+  return sources;
 }
 
 function isWorkflowCallback(node: ts.Node): boolean {

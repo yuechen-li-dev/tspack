@@ -86,7 +86,7 @@ func TestParallelForEachCollectAllIsBoundedAndSourceOrdered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if flow.SchemaVersion != 3 || len(flow.Aggregates) != 1 {
+	if flow.SchemaVersion != FlowSchemaVersion || len(flow.Aggregates) != 1 {
 		t.Fatalf("schema=%d aggregates=%+v", flow.SchemaVersion, flow.Aggregates)
 	}
 	if flow.Aggregates[0].ResultType != "iterationOutcome<test>" || flow.Aggregates[0].Concurrency != 2 {
@@ -348,14 +348,66 @@ func TestArtifactTransferRejectsWorkspaceEscape(t *testing.T) {
 	}
 }
 
-func TestNestedForEachIsExplicitlyRejected(t *testing.T) {
+func TestNestedSequentialForEachUsesHierarchicalPaths(t *testing.T) {
 	inner := forEachCountFixture(1).Flow
 	outer := forEachCountFixture(1)
 	outer.Flow.Items[0].Flow = *inner
+	flow, err := BuildFlow(outer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flow.Expansion.PlannedIterations != 2 {
+		t.Fatalf("expansion=%+v", flow.Expansion)
+	}
+	paths := []string{}
+	for _, node := range flow.Nodes {
+		if node.Iterator != nil {
+			paths = append(paths, node.Iterator.Path)
+		}
+	}
+	if !containsString(paths, "item[0]") || !containsString(paths, "item[0]/item[0]") {
+		t.Fatalf("cursor paths=%v", paths)
+	}
+}
+
+func TestNestedParallelForEachIsExplicitlyDeferred(t *testing.T) {
+	inner := forEachCountFixture(1).Flow
+	inner.Mode = "parallel"
+	inner.Concurrency = 2
+	outer := forEachCountFixture(1)
+	outer.Flow.Items[0].Flow = *inner
 	_, err := BuildFlow(outer)
-	if err == nil || !strings.Contains(err.Error(), "nested ForEach") {
+	if err == nil || !strings.Contains(err.Error(), "NESTED_PARALLEL_UNSUPPORTED") {
 		t.Fatalf("error=%v", err)
 	}
+}
+
+func TestNestedForEachExpansionBudgetIsExactAndBounded(t *testing.T) {
+	outer := forEachCountFixture(DefaultForEachLimit)
+	for index := range outer.Flow.Items {
+		outer.Flow.Items[index].Flow = *forEachCountFixture(15).Flow
+	}
+	count, err := plannedIterationCount(*outer.Flow, DefaultExpansionBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != DefaultExpansionBudget {
+		t.Fatalf("expansion=%d", count)
+	}
+	outer.Flow.Items[0].Flow = *forEachCountFixture(16).Flow
+	_, err = plannedIterationCount(*outer.Flow, DefaultExpansionBudget)
+	if err == nil || !strings.Contains(err.Error(), "expands to 4097 total iterations; workflow limit is 4096") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func BenchmarkM78ParallelForEach100Lowering(b *testing.B) {
