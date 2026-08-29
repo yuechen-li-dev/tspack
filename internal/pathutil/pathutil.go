@@ -30,6 +30,18 @@ func IsSafePackageFilePath(p string) bool {
 	return true
 }
 
+// IsSafePackageDependencyPath reports whether p is a portable path relative to
+// a declaring package. Parent segments are allowed because sibling local
+// packages are a normal workspace shape; the resolver separately proves that
+// the resolved path remains inside the workspace root.
+func IsSafePackageDependencyPath(p string) bool {
+	if strings.TrimSpace(p) == "" || strings.Contains(p, "\\") || strings.HasPrefix(p, "/") {
+		return false
+	}
+	clean := path.Clean(p)
+	return clean != "." && clean != ""
+}
+
 // IsSafePackageRoot reports whether p is a safe package root path.
 // Bare "." is allowed for package root declarations.
 func IsSafePackageRoot(p string) bool {

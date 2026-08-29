@@ -137,17 +137,24 @@ type migrationDraft struct {
 	TodoCounts           map[string]int
 	TotalTodos           int
 	PnpmWorkspacePath    string
+	PnpmWorkspace        *pnpmWorkspaceMigration
+	PackageManifests     []plannedFile
 }
 
 type migratedDependency struct {
-	Key          string
-	PackageName  string
-	Range        string
-	Kind         string
-	SourceField  string
-	OptionalPeer bool
-	KnownTool    bool
-	NeedsTODO    bool
+	Key              string
+	PackageName      string
+	Range            string
+	Kind             string
+	SourceField      string
+	OptionalPeer     bool
+	KnownTool        bool
+	NeedsTODO        bool
+	SourceKind       string
+	SourceName       string
+	OriginalRange    string
+	Resolution       string
+	UnresolvedReason string
 }
 
 type migratedTarget struct {
@@ -231,6 +238,7 @@ func runMigrateCommand(args []string) {
 		{path: cfg.outManifestPath, content: draft.Manifest},
 		{path: cfg.outReportPath, content: draft.Report},
 	}
+	outputs = append(outputs, draft.PackageManifests...)
 
 	if cfg.write && !cfg.force {
 		for _, output := range outputs {
@@ -254,7 +262,11 @@ func runMigrateCommand(args []string) {
 	if cfg.check {
 		result, validationErr := runMigrationValidation(draft)
 		draft.Validation = result
-		draft.Report = renderMigrationReport(&draft)
+		if draft.PnpmWorkspace != nil {
+			draft.Report = renderPnpmWorkspaceMigrationReport(&draft)
+		} else {
+			draft.Report = renderMigrationReport(&draft)
+		}
 		outputs[0].content = draft.Manifest
 		outputs[1].content = draft.Report
 		validationDiagnostic = validationErr
@@ -330,6 +342,37 @@ func validateMigrationDraft(draft migrationDraft) (migrationValidationResult, *m
 				"error: " + err.Error(),
 			},
 			Fixes: []string{"Check temporary directory permissions and retry."},
+		}
+	}
+	for _, packageManifest := range draft.PackageManifests {
+		relativePath, relErr := filepath.Rel(draft.Config.root, packageManifest.path)
+		if relErr != nil || strings.HasPrefix(relativePath, "..") {
+			result.ManifestFrontend = "failed"
+			return result, &migrationDiagnostic{
+				Code:    "TSPACK_MIGRATE_CHECK_TEMP_WRITE_FAILED",
+				Message: "generated package manifest path is outside the migration root",
+				Details: []string{"packageManifestPath: " + packageManifest.path},
+				Fixes:   []string{"Use workspace-relative package roots and retry."},
+			}
+		}
+		tempPackageManifestPath := filepath.Join(tempDir, relativePath)
+		if err := os.MkdirAll(filepath.Dir(tempPackageManifestPath), 0o755); err != nil {
+			result.ManifestFrontend = "failed"
+			return result, &migrationDiagnostic{
+				Code:    "TSPACK_MIGRATE_CHECK_TEMP_WRITE_FAILED",
+				Message: "failed to create temporary package manifest directory",
+				Details: []string{"packageManifestPath: " + tempPackageManifestPath, "error: " + err.Error()},
+				Fixes:   []string{"Check temporary directory permissions and retry."},
+			}
+		}
+		if err := os.WriteFile(tempPackageManifestPath, []byte(packageManifest.content), 0o644); err != nil {
+			result.ManifestFrontend = "failed"
+			return result, &migrationDiagnostic{
+				Code:    "TSPACK_MIGRATE_CHECK_TEMP_WRITE_FAILED",
+				Message: "failed to write temporary package manifest",
+				Details: []string{"packageManifestPath: " + tempPackageManifestPath, "error: " + err.Error()},
+				Fixes:   []string{"Check temporary directory permissions and retry."},
+			}
 		}
 	}
 
@@ -702,6 +745,9 @@ func buildMigrationDraft(cfg migrateConfig) (migrationDraft, *migrationDiagnosti
 		WorkspaceName: workspaceNameFromPackage(defaultString(pkg.Name, "migrated")),
 		TodoCounts:    map[string]int{},
 	}
+	if workspacePath := detectPnpmWorkspace(cfg, pkg); workspacePath != "" {
+		return buildPnpmWorkspaceMigrationDraft(cfg, pkg, workspacePath)
+	}
 	draft.Dependencies = migrateDependencies(pkg, &draft)
 	lockEvidence, lockDiagnostic := loadPackageLockEvidence(cfg, draft.Dependencies)
 	if lockDiagnostic != nil {
@@ -711,21 +757,6 @@ func buildMigrationDraft(cfg migrateConfig) (migrationDraft, *migrationDiagnosti
 	draft.SourceEvidence = loadSourceScanEvidence(cfg, pkg)
 	draft.Diagnostics = migrationDiagnosticsFromLockEvidence(lockEvidence)
 	draft.Diagnostics = append(draft.Diagnostics, migrationDiagnosticsFromSourceEvidence(draft.SourceEvidence)...)
-	draft.PnpmWorkspacePath = detectPnpmWorkspace(cfg, pkg)
-	if draft.PnpmWorkspacePath != "" {
-		draft.Diagnostics = append(draft.Diagnostics, migrationDiagnostic{
-			Code:    "TSPACK_MIGRATE_PNPM_WORKSPACE_UNSUPPORTED",
-			Message: "pnpm workspace migration is not yet supported; this draft covers only the root package.json",
-			Details: []string{
-				"workspaceConfig: " + draft.PnpmWorkspacePath,
-				"packageManager: " + pkg.PackageManager,
-			},
-			Fixes: []string{
-				"Keep pnpm-workspace.yaml and package.json files as compatibility truth.",
-				"Do not treat this root-only draft as a migrated workspace; migrate individual packages only for bounded exploration.",
-			},
-		})
-	}
 	draft.Targets = inferMigrationTargets(pkg, draft.Kind, &draft)
 	draft.PublishInclude = inferMigrationPublishInclude(pkg, &draft)
 	draft.LifecycleScripts = findMigrationLifecycleScripts(pkg.Scripts)
@@ -1783,7 +1814,16 @@ func renderMigrationManifest(draft *migrationDraft) string {
 }
 
 func renderDependencyCall(dep migratedDependency) string {
-	source := "npm(" + quoteTSString(dep.PackageName) + ", " + quoteTSString(dep.Range) + ")"
+	var source string
+	switch dep.SourceKind {
+	case "workspace":
+		source = "workspace(" + quoteTSString(dep.SourceName) + ")"
+	case "path":
+		source = "path(" + quoteTSString(dep.SourceName) + ")"
+	default:
+		packageName := defaultString(dep.SourceName, dep.PackageName)
+		source = "npm(" + quoteTSString(packageName) + ", " + quoteTSString(dep.Range) + ")"
+	}
 	options := renderDependencyOptions(dep)
 	if options != "" {
 		return dep.Kind + "(" + source + ", " + options + ")"
@@ -1793,7 +1833,14 @@ func renderDependencyCall(dep migratedDependency) string {
 
 func renderDependencyOptions(dep migratedDependency) string {
 	var options []string
-	if dep.Key != dep.PackageName {
+	needsExplicitKey := dep.Key != dep.PackageName
+	if dep.SourceKind == "path" {
+		needsExplicitKey = true
+	}
+	if dep.SourceName != "" && dep.SourceName != dep.PackageName {
+		needsExplicitKey = true
+	}
+	if needsExplicitKey {
 		options = append(options, "key: "+quoteTSString(dep.PackageName))
 	}
 	if dep.Kind == "peer" && dep.OptionalPeer {

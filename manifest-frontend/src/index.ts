@@ -161,7 +161,9 @@ export function parseWorkspace(rootManifestPath: string): ManifestParseResult {
     }
     const normalizedRoot = path.normalize(row.root);
     const normalizedManifest = path.normalize(row.manifest);
-    if (!normalizedManifest.startsWith(normalizedRoot + path.sep)) {
+    const manifestLivesUnderRoot = normalizedRoot === '.'
+      || normalizedManifest.startsWith(normalizedRoot + path.sep);
+    if (!manifestLivesUnderRoot) {
       diags.push({ code: 'TSPACK_MANIFEST_INVALID_PACKAGE_MANIFEST_PATH', severity: 'error', message: 'package manifest path must live under package root', file: path.resolve(rootManifestPath) });
       continue;
     }

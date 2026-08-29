@@ -59,13 +59,14 @@ func (r *resolverState) resolvePathDependency(dep *graph.DependencyNode, from, k
 		r.result.Diagnostics = append(r.result.Diagnostics, dErr("TSPACK_RESOLVE_PATH_ROOT_INVALID", "workspace root cannot be resolved", r.opts.RootDir))
 		return
 	}
-	absRoot := filepath.Clean(filepath.Join(workspaceRoot, base))
 	absPath := filepath.Clean(filepath.Join(workspaceRoot, resolved))
+	allowedRoot := workspaceRoot
 	if filepath.IsAbs(base) {
-		absRoot = filepath.Clean(base)
 		absPath = filepath.Clean(filepath.Join(base, dep.Source.Path))
+		allowedRoot = filepath.Clean(base)
 	}
-	if !strings.HasPrefix(absPath, absRoot) {
+	relativeToWorkspace, err := filepath.Rel(allowedRoot, absPath)
+	if err != nil || relativeToWorkspace == ".." || strings.HasPrefix(relativeToWorkspace, ".."+string(filepath.Separator)) {
 		r.result.Diagnostics = append(r.result.Diagnostics, dErr("TSPACK_RESOLVE_PATH_OUTSIDE_WORKSPACE", "resolved path escapes workspace", dep.Source.Path, dep.Package.Name))
 		return
 	}

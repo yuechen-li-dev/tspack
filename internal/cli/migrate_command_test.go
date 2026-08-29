@@ -89,16 +89,41 @@ func TestMigrateMinimalPackageDraftAndReport(t *testing.T) {
 	}
 }
 
-func TestMigrateReportsUnsupportedPnpmWorkspaceAsRootOnly(t *testing.T) {
+func TestMigrateImportsPnpmWorkspaceSkeleton(t *testing.T) {
 	root := t.TempDir()
 	writePackageJSON(t, root, `{
   "name": "workspace-root",
   "version": "1.0.0",
   "private": true,
-  "packageManager": "pnpm@11.24.0"
+	  "packageManager": "pnpm@11.24.0",
+	  "devDependencies": { "typescript": "catalog:" }
+}`)
+	writePackageJSON(t, filepath.Join(root, "packages", "core"), `{
+  "name": "@acme/core",
+  "version": "1.2.3",
+  "dependencies": { "kleur": "catalog:" }
+}`)
+	writePackageJSON(t, filepath.Join(root, "packages", "app"), `{
+  "name": "@acme/app",
+  "version": "1.0.0",
+  "dependencies": {
+    "@acme/core": "workspace:^",
+    "legacy-colors": "npm:kleur@^4.1.5"
+  },
+  "peerDependencies": { "react": "^19" }
+}`)
+	writePackageJSON(t, filepath.Join(root, "packages", "excluded"), `{
+  "name": "@acme/excluded",
+  "version": "1.0.0"
 }`)
 	workspacePath := filepath.Join(root, "pnpm-workspace.yaml")
-	if err := os.WriteFile(workspacePath, []byte("packages:\n  - packages/*\n"), 0o644); err != nil {
+	if err := os.WriteFile(workspacePath, []byte(`packages:
+  - packages/*
+  - '!packages/excluded'
+catalog:
+  kleur: ^4.1.5
+  typescript: ^5.9.3
+`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -110,17 +135,52 @@ func TestMigrateReportsUnsupportedPnpmWorkspaceAsRootOnly(t *testing.T) {
 	if draft.PnpmWorkspacePath != workspacePath {
 		t.Fatalf("workspace path = %q, want %q", draft.PnpmWorkspacePath, workspacePath)
 	}
-	if !strings.Contains(draft.Report, "## Workspace migration limit") || !strings.Contains(draft.Report, "covers only the root `package.json`") {
-		t.Fatalf("report should state the workspace migration limit:\n%s", draft.Report)
+	if draft.PnpmWorkspace == nil || len(draft.PnpmWorkspace.Packages) != 3 {
+		t.Fatalf("workspace packages = %#v", draft.PnpmWorkspace)
+	}
+	if draft.PnpmWorkspace.ResolvedWorkspaceReferences != 1 || draft.PnpmWorkspace.WorkspaceReferences != 1 {
+		t.Fatalf("workspace reference metrics = %#v", draft.PnpmWorkspace)
+	}
+	if draft.PnpmWorkspace.ResolvedCatalogReferences != 2 || draft.PnpmWorkspace.CatalogReferences != 2 {
+		t.Fatalf("catalog reference metrics = %#v", draft.PnpmWorkspace)
+	}
+	if draft.PnpmWorkspace.AliasReferences != 1 {
+		t.Fatalf("alias reference metrics = %#v", draft.PnpmWorkspace)
+	}
+	for _, want := range []string{
+		"workspace packages discovered: 3",
+		"workspace references resolved/unresolved: 1/1 resolved",
+		"catalog references resolved/unresolved: 2/2 resolved",
+		"exclude `packages/excluded`",
+	} {
+		if !strings.Contains(draft.Report, want) {
+			t.Fatalf("workspace report missing %q:\n%s", want, draft.Report)
+		}
 	}
 	found := false
 	for _, item := range draft.Diagnostics {
-		if item.Code == "TSPACK_MIGRATE_PNPM_WORKSPACE_UNSUPPORTED" {
+		if item.Code == "TSPACK_MIGRATE_PNPM_WORKSPACE_IMPORTED" {
 			found = true
 		}
 	}
 	if !found {
 		t.Fatalf("workspace migration diagnostic missing: %#v", draft.Diagnostics)
+	}
+	packageOutput := ""
+	for _, output := range draft.PackageManifests {
+		if filepath.ToSlash(output.path) == filepath.ToSlash(filepath.Join(root, "packages", "app", ".tspack-migration", "package.manifest.tsx")) {
+			packageOutput = output.content
+		}
+	}
+	for _, want := range []string{
+		`workspace("@acme/core")`,
+		`npm("kleur", "^4.1.5")`,
+		`key: "legacy-colors"`,
+		`peer(npm("react", "^19"))`,
+	} {
+		if !strings.Contains(packageOutput, want) {
+			t.Fatalf("app package draft missing %q:\n%s", want, packageOutput)
+		}
 	}
 }
 
@@ -591,6 +651,9 @@ func TestMigrateSourceScanStableReport(t *testing.T) {
 
 func writePackageJSON(t *testing.T, root string, content string) {
 	t.Helper()
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

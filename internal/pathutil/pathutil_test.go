@@ -46,3 +46,16 @@ func TestIsSafeRelativeGlob(t *testing.T) {
 		}
 	}
 }
+
+func TestIsSafePackageDependencyPathAllowsSiblingTraversal(t *testing.T) {
+	for _, value := range []string{"./local", "../sibling", "../../fixtures/pkg"} {
+		if !IsSafePackageDependencyPath(value) {
+			t.Fatalf("expected valid package dependency path: %q", value)
+		}
+	}
+	for _, value := range []string{"", ".", "/absolute", `..\sibling`} {
+		if IsSafePackageDependencyPath(value) {
+			t.Fatalf("expected invalid package dependency path: %q", value)
+		}
+	}
+}

@@ -1489,7 +1489,7 @@ func validateDep(add func(string, string, ...string), pp string, i int, d Depend
 			add("TSPACK_IR_INVALID_SOURCE", fmt.Sprintf("%s.dependencies[%d].source git requires tag/rev/branch", pp, i))
 		}
 	case "path":
-		if !pathutil.IsSafePackageFilePath(d.Source.Path) {
+		if !pathutil.IsSafePackageDependencyPath(d.Source.Path) {
 			add("TSPACK_IR_INVALID_SOURCE", fmt.Sprintf("%s.dependencies[%d].source path must be safe relative", pp, i))
 		}
 	case "workspace":

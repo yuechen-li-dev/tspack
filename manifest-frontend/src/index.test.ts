@@ -48,6 +48,24 @@ describe('package annotation manifests', () => {
     expect(result.ok).toBe(false);
     expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain('TSPACK_MANIFEST_PACKAGE_ANNOTATION_NOT_FULL_PACKAGE');
   });
+
+  it('allows a split workspace to declare its root package', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tspack-split-root-'));
+    fs.mkdirSync(path.join(dir, '.tspack-migration'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'manifest.tsx'), `
+      import { Workspace, Packages, defineWorkspace } from "tspack/manifest";
+      export default defineWorkspace(<Workspace name="demo"><Packages rows={[{ name: "root", root: ".", manifest: ".tspack-migration/package.manifest.tsx" }]} /></Workspace>);
+    `);
+    fs.writeFileSync(path.join(dir, '.tspack-migration/package.manifest.tsx'), `
+      import { Package, definePackage } from "tspack/manifest";
+      export default definePackage(<Package name="root" version="1.0.0" kind="app" />);
+    `);
+
+    const result = parseWorkspace(path.join(dir, 'manifest.tsx'));
+
+    expect(result.ok).toBe(true);
+    expect(result.ir?.packages[0]?.root).toBe('.');
+  });
 });
 
 describe('owned dependency source analysis', () => {

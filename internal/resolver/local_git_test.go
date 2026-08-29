@@ -102,6 +102,52 @@ func TestPathPositiveNegativeAndDeterminism(t *testing.T) {
 	mustCode(t, invalidRes, "TSPACK_RESOLVE_PATH_PACKAGE_JSON_INVALID")
 }
 
+func TestPathDependencyCanReferenceWorkspaceSibling(t *testing.T) {
+	root := t.TempDir()
+	dependencyRoot := filepath.Join(root, "packages", "dependency")
+	if err := os.MkdirAll(dependencyRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dependencyRoot, "package.json"), []byte(`{"name":"sibling","version":"1.0.0"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ir := &manifest.ManifestIR{
+		Workspace: manifest.Workspace{Name: "workspace"},
+		Packages: []manifest.Package{{
+			Name:    "app",
+			Version: "1.0.0",
+			Root:    "packages/app",
+			Kind:    "app",
+			Dependencies: []manifest.DependencyIntent{{
+				Key:  "sibling",
+				Kind: "dep",
+				Source: manifest.Source{
+					Kind: "path",
+					Path: "../dependency",
+				},
+			}},
+			Targets: []manifest.Target{{Name: "app", Deps: []string{"sibling"}}},
+		}},
+	}
+	workspaceGraph, diagnostics := graph.Build(ir)
+	if len(diagnostics) > 0 {
+		t.Fatalf("graph diagnostics: %#v", diagnostics)
+	}
+
+	result := ResolveNPM(
+		context.Background(),
+		ResolverOptions{Mode: ResolveModeUpdate, Client: buildFakeRegistry(), RootDir: root},
+		ResolveRequest{Graph: workspaceGraph},
+	)
+
+	if len(result.Diagnostics) > 0 {
+		t.Fatalf("resolve diagnostics: %#v", result.Diagnostics)
+	}
+	if len(result.Lock.Packages) != 1 || result.Lock.Packages[0].Path != "packages/dependency" {
+		t.Fatalf("unexpected sibling path package: %#v", result.Lock.Packages)
+	}
+}
+
 func TestPathHashIgnoresGeneratedLockfile(t *testing.T) {
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"dep-path","version":"1.0.0"}`), 0o644)
