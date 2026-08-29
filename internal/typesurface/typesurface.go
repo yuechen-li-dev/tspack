@@ -12,8 +12,9 @@ import (
 )
 
 type CheckOptions struct {
-	RootDir string
-	Graph   *graph.WorkspaceGraph
+	RootDir            string
+	Graph              *graph.WorkspaceGraph
+	AllowMissingOutput bool
 }
 type CheckResult struct{ Diagnostics []diag.Diagnostic }
 type policy struct{ decl, missing, leak string }
@@ -26,7 +27,7 @@ func CheckTypeSurfaces(opts CheckOptions) CheckResult { /* ... */
 	for _, p := range opts.Graph.AllPackages() {
 		pol := readPolicy(p)
 		for _, t := range p.AllTargets() {
-			out = append(out, checkTarget(opts.RootDir, p, t, pol)...)
+			out = append(out, checkTarget(opts.RootDir, p, t, pol, opts.AllowMissingOutput)...)
 		}
 	}
 	diag.SortDiagnostics(out)
@@ -48,7 +49,7 @@ func readPolicy(p *graph.PackageNode) policy {
 	}
 	return pol
 }
-func checkTarget(root string, p *graph.PackageNode, t *graph.TargetNode, pol policy) []diag.Diagnostic {
+func checkTarget(root string, p *graph.PackageNode, t *graph.TargetNode, pol policy, allowMissingOutput bool) []diag.Diagnostic {
 	var out []diag.Diagnostic
 	types := strings.TrimSpace(t.Types)
 	if types == "" && pol.decl == "required" && pol.missing != "ignore" {
@@ -70,7 +71,7 @@ func checkTarget(root string, p *graph.PackageNode, t *graph.TargetNode, pol pol
 	entry := filepath.Clean(filepath.Join(root, pkgRoot, types))
 	if _, err := os.Stat(entry); err != nil {
 		if os.IsNotExist(err) {
-			if pol.missing != "ignore" {
+			if pol.missing != "ignore" && !allowMissingOutput {
 				out = append(out, mk("TSPACK_TYPE_MISSING_OUTPUT", pol.missing, "declared type output missing", entry, t, ""))
 			}
 		} else if pol.missing != "ignore" {

@@ -17,7 +17,7 @@ func Check(opts Options) Result {
 	if ir != nil {
 		out = append(out, securityevidence.Diagnostics(opts.RootDir, ir.Security.AcknowledgedCapabilities)...)
 	}
-	out = append(out, check.CheckPackage(check.CheckOptions{RootDir: opts.RootDir, Graph: g}).Diagnostics...)
+	out = append(out, check.CheckPackage(check.CheckOptions{RootDir: opts.RootDir, Graph: g, AllowMissingOutput: true}).Diagnostics...)
 	if _, err := os.Stat(opts.LockfilePath); err == nil {
 		lf, d, e := lockfile.LoadFile(opts.LockfilePath)
 		if e != nil {

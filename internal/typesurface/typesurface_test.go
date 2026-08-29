@@ -71,6 +71,20 @@ func TestM5TypeFixtures(t *testing.T) {
 	}
 }
 
+func TestAllowMissingOutputPreservesCleanPrebuildChecks(t *testing.T) {
+	graphValue := loadGraph(t, "../../fixtures/invalid/m5-missing-types/manifest.ir.golden.json")
+	result := CheckTypeSurfaces(CheckOptions{
+		RootDir:            "../..",
+		Graph:              graphValue,
+		AllowMissingOutput: true,
+	})
+	for _, diagnostic := range result.Diagnostics {
+		if diagnostic.Code == "TSPACK_TYPE_MISSING_OUTPUT" && diagnostic.Message == "declared type output missing" {
+			t.Fatalf("clean prebuild check reported generated output as missing: %#v", result.Diagnostics)
+		}
+	}
+}
+
 func TestLeakPathAndDeterminism(t *testing.T) {
 	g := loadGraph(t, "../../fixtures/invalid/m5-core-types-leak-vue/manifest.ir.golden.json")
 	a := CheckTypeSurfaces(CheckOptions{RootDir: "../..", Graph: g}).Diagnostics

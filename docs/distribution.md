@@ -75,9 +75,9 @@ The first-party GitHub Action lives in `.github/actions/setup-tspack` and instal
 
 ```yaml
 steps:
-  - uses: yuechen-li-dev/tspack/.github/actions/setup-tspack@v0.1.9-m80b1.2
+  - uses: yuechen-li-dev/tspack/.github/actions/setup-tspack@v0.1.9-m80b1.3
     with:
-      version: v0.1.9-m80b1.2
+      version: v0.1.9-m80b1.3
 
   - run: tspack check --root .
   - run: tspack test --root .
@@ -89,7 +89,7 @@ Projects may commit `.tspack-version` with one minimum semantic version. The CLI
 
 Supported action artifacts are Linux `amd64`/`arm64`, macOS `amd64`/`arm64`, and Windows `amd64`. Windows `arm64` and other unsupported combinations fail before download. The action uses the Node 20 GitHub Actions runtime and only Node built-ins; it does not build from source, install npm dependencies, use `get.tspack.dev`, or implement any package-manager distribution channel.
 
-Because the action is stored in this repository, external workflows must use the subdirectory action path. The bounded M80b1 qualification pins both the action source and binary to `v0.1.9-m80b1.2`; `yuechen-li-dev/tspack/setup-tspack@...` would require a future separate `setup-tspack` repository.
+Because the action is stored in this repository, external workflows must use the subdirectory action path. The bounded M80b1 qualification pins both the action source and binary to `v0.1.9-m80b1.3`; `yuechen-li-dev/tspack/setup-tspack@...` would require a future separate `setup-tspack` repository.
 
 ## Future distribution TODOs
 

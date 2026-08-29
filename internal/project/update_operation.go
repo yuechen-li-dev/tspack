@@ -53,7 +53,7 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 		}
 	}
 	ir, g, out := loadManifestAndGraph(opts)
-	out = append(out, check.CheckPackage(check.CheckOptions{RootDir: opts.RootDir, Graph: g}).Diagnostics...)
+	out = append(out, check.CheckPackage(check.CheckOptions{RootDir: opts.RootDir, Graph: g, AllowMissingOutput: true}).Diagnostics...)
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
 	}
