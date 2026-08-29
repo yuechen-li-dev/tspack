@@ -410,6 +410,15 @@ func materializePkg(req Request, out *Result, pkgs map[string]lockfile.Package, 
 		})
 		return
 	}
+	if pkg.Source == "workspace" && strings.TrimSpace(pkg.Path) != "" {
+		if err := materializeWorkspacePackage(req.WorkspaceRoot, pkg.Path, dest); err != nil {
+			out.Diagnostics = append(out.Diagnostics, materializeDiagnosticFromError(err, pkg.ID, dest, pkg.Name))
+			return
+		}
+		out.Written = append(out.Written, WrittenPath{Path: dest, Kind: "workspaceLink", PackageID: pkg.ID})
+		observer.RecordMaterializedPackage(pkg)
+		return
+	}
 
 	hash, ok := PackageStoreHash(pkg)
 	if !ok {
@@ -455,6 +464,35 @@ func materializePkg(req Request, out *Result, pkgs map[string]lockfile.Package, 
 		}
 		materializePkg(req, out, pkgs, edgesByFrom, dep, edgeMaterializationName(edge, dep), childNM, state, observer)
 	}
+}
+
+func materializeWorkspacePackage(workspaceRoot string, packagePath string, destination string) error {
+	absoluteWorkspaceRoot, err := filepath.Abs(workspaceRoot)
+	if err != nil {
+		return err
+	}
+	sourcePath, err := filepath.Abs(filepath.Join(absoluteWorkspaceRoot, filepath.FromSlash(packagePath)))
+	if err != nil {
+		return err
+	}
+	relativePath, err := filepath.Rel(absoluteWorkspaceRoot, sourcePath)
+	if err != nil || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("workspace package path escapes workspace root: %s", packagePath)
+	}
+	info, err := os.Stat(sourcePath)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("workspace package path is not a directory: %s", sourcePath)
+	}
+	if err := removeMaterializedPath(destination); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return err
+	}
+	return createWorkspaceDirectoryLink(sourcePath, destination)
 }
 
 func PackageStoreHash(pkg lockfile.Package) (string, bool) {

@@ -608,6 +608,61 @@ func TestDeterministicAndLinkMode(t *testing.T) {
 	assertCode(t, bad, "TSPACK_MATERIALIZE_UNSUPPORTED_LINK_MODE")
 }
 
+func TestMaterializeWorkspacePackageLinksLiveOutputs(t *testing.T) {
+	workspace := t.TempDir()
+	packageRoot := filepath.Join(workspace, "packages", "utils")
+	if err := os.MkdirAll(packageRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packageRoot, "package.json"), []byte(`{"name":"@scope/utils"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	contentStore, _ := store.Open(t.TempDir())
+	packageHash := putPkg(t, contentStore, "workspace:@scope/utils", "@scope/utils")
+	locked := &lockfile.Lockfile{
+		Packages: []lockfile.Package{{
+			ID:     "workspace:@scope/utils",
+			Name:   "@scope/utils",
+			Source: "workspace",
+			Path:   "packages/utils",
+			Hash:   packageHash,
+		}},
+		Edges: []lockfile.Edge{{
+			From: "app:target:package",
+			To:   "workspace:@scope/utils",
+			Kind: "runtime",
+		}},
+	}
+	result := NodeModulesMaterializer{}.Materialize(context.Background(), Request{
+		WorkspaceRoot: workspace,
+		Lock:          locked,
+		Store:         contentStore,
+		Options:       Options{LinkMode: LinkModeCopy},
+	})
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("workspace link diagnostics: %#v", result.Diagnostics)
+	}
+	liveOutput := filepath.Join(packageRoot, "dist", "index.js")
+	if err := os.MkdirAll(filepath.Dir(liveOutput), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(liveOutput, []byte("export {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	projectionDiagnostics := ProjectWorkspaceBuildArtifacts(
+		workspace,
+		packageRoot,
+		"@scope/utils",
+		[]string{"dist/*.js"},
+		[]string{liveOutput},
+	)
+	if len(projectionDiagnostics) != 0 {
+		t.Fatalf("linked workspace projection diagnostics: %#v", projectionDiagnostics)
+	}
+	materializedOutput := filepath.Join(workspace, "node_modules", "@scope", "utils", "dist", "index.js")
+	assertFileContent(t, materializedOutput, "export {}\n")
+}
+
 func TestMaterializeFileHardlinksWhenAvailable(t *testing.T) {
 	srcDir := t.TempDir()
 	destDir := t.TempDir()

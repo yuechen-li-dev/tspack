@@ -90,6 +90,11 @@ func workspaceOutputPath(root string, relativePath string) (string, error) {
 }
 
 func sameDirectory(left string, right string) bool {
+	leftInfo, leftStatErr := os.Stat(left)
+	rightInfo, rightStatErr := os.Stat(right)
+	if leftStatErr == nil && rightStatErr == nil && os.SameFile(leftInfo, rightInfo) {
+		return true
+	}
 	leftPath, leftErr := filepath.EvalSymlinks(left)
 	rightPath, rightErr := filepath.EvalSymlinks(right)
 	if leftErr != nil || rightErr != nil {
