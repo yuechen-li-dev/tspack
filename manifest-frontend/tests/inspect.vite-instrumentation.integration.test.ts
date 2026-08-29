@@ -13,6 +13,7 @@ import { runInspectWatch } from '../src/inspect/watch.js';
 
 const temporaryRoots: string[] = [];
 const servers: Array<{ close(): Promise<void> }> = [];
+const browserIntegrationTimeout = 15_000;
 
 afterEach(async () => {
   delete process.env.TSPACK_INSPECT_WATCH_MAX_CYCLES;
@@ -135,7 +136,7 @@ describe('Vite inspect source instrumentation', () => {
     });
     expect(inspected.root?.role).toBe('alert');
     expect(inspected.root?.source).toBeUndefined();
-  });
+  }, browserIntegrationTimeout);
 
   it('grounds a real browser inspection and deterministic bundle in original TSX', async () => {
     const root = await createFixture();
@@ -189,7 +190,7 @@ describe('Vite inspect source instrumentation', () => {
     expect(first.source?.validated).toBe(true);
     expect(first.source?.file).toBe('src/App.tsx');
     expect(serializeUiContextBundle(first)).toBe(serializeUiContextBundle(second));
-  });
+  }, browserIntegrationTimeout);
 
   it('reuses the real browser and observes updated source truth after a save', async () => {
     const root = await createFixture();
