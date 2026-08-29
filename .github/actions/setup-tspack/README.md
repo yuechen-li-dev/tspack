@@ -6,9 +6,9 @@ Use the first-party action from this repository with the subdirectory path:
 
 ```yaml
 steps:
-  - uses: yuechen-li-dev/tspack/.github/actions/setup-tspack@v1
+  - uses: yuechen-li-dev/tspack/.github/actions/setup-tspack@v0.1.9-m80b1.1
     with:
-      version: latest
+      version: v0.1.9-m80b1.1
 
   - run: tspack sync --root .
   - run: tspack check --root .
@@ -16,7 +16,7 @@ steps:
   - run: tspack pack --verify --package <pkg>
 ```
 
-GitHub Actions cannot normally resolve `uses: yuechen-li-dev/tspack/setup-tspack@v1` unless `setup-tspack` is split into a separate repository. A separate setup action repository may be considered later, but this milestone keeps the action in the TSPack repository.
+GitHub Actions cannot normally resolve `uses: yuechen-li-dev/tspack/setup-tspack@...` unless `setup-tspack` is split into a separate repository. A separate setup action repository may be considered later, but this milestone keeps the action in the TSPack repository and pins its source to the same prerelease tag as the installed binary.
 
 ## Inputs
 
@@ -40,9 +40,9 @@ GitHub Actions cannot normally resolve `uses: yuechen-li-dev/tspack/setup-tspack
 
 ```yaml
 steps:
-  - uses: yuechen-li-dev/tspack/.github/actions/setup-tspack@v1
+  - uses: yuechen-li-dev/tspack/.github/actions/setup-tspack@v0.1.9-m80b1.1
     with:
-      version: v0.1.8
+      version: v0.1.9-m80b1.1
 ```
 
 ## Supported runners

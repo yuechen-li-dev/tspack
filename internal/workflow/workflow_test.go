@@ -449,7 +449,21 @@ func TestGitHubExportIsDeterministicValidAndContainsOnlySecretReferences(t *test
 		t.Fatalf("generated YAML is invalid: %v\n%s", err, first)
 	}
 	text := string(first)
-	for _, expected := range []string{"workflow_dispatch", "pull_request", "actions/checkout@v4", GitHubSetupAction, "tspack workflow run CI --ci-provider github", "${{ secrets.CI_TOKEN }}"} {
+	for _, expected := range []string{
+		"workflow_dispatch",
+		"pull_request",
+		"actions/checkout@v4",
+		"actions/setup-node@v4",
+		"node-version: \"24\"",
+		GitHubSetupAction,
+		"version: " + GitHubTSPackVersion,
+		"tspack version",
+		"test ! -e node_modules && test ! -e .tspack",
+		"tspack sync --clean",
+		"tspack check",
+		"tspack workflow run CI --ci-provider github",
+		"${{ secrets.CI_TOKEN }}",
+	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("missing %q in:\n%s", expected, text)
 		}

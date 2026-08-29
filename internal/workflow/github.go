@@ -9,7 +9,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const GitHubSetupAction = "yuechen-li-dev/tspack/.github/actions/setup-tspack@v1"
+const (
+	GitHubNodeVersion   = "24"
+	GitHubTSPackVersion = "v0.1.9-m80b1.1"
+	GitHubSetupAction   = "yuechen-li-dev/tspack/.github/actions/setup-tspack@" + GitHubTSPackVersion
+)
 
 func GitHubPath(workflowIdentity string) string {
 	return ".github/workflows/tspack-" + strings.ToLower(workflowIdentity) + ".yml"
@@ -31,6 +35,7 @@ func ExportGitHub(input any) ([]byte, error) {
 	appendPair(root, scalar("on"), githubTriggers(plan.Triggers))
 	jobs := mappingNode()
 	thinJob := mappingNode()
+	appendPair(thinJob, scalar("name"), scalar("TSPack "+plan.Workflow))
 	appendPair(thinJob, scalar("runs-on"), scalar("ubuntu-latest"))
 	secrets := planSecrets(plan)
 	if len(secrets) > 0 {
@@ -43,7 +48,12 @@ func ExportGitHub(input any) ([]byte, error) {
 	steps := sequenceNode()
 	steps.Content = append(steps.Content,
 		stepNode("Checkout", "actions/checkout@v4", ""),
-		stepNode("Setup TSPack", GitHubSetupAction, ""),
+		stepNodeWith("Setup Node", "actions/setup-node@v4", map[string]string{"node-version": GitHubNodeVersion}),
+		stepNodeWith("Setup TSPack", GitHubSetupAction, map[string]string{"version": GitHubTSPackVersion}),
+		stepNode("Show TSPack version", "", "tspack version"),
+		stepNode("Verify clean dependency state", "", "test ! -e node_modules && test ! -e .tspack"),
+		stepNode("Realize locked dependencies", "", "tspack sync --clean"),
+		stepNode("Check TSPack project", "", "tspack check"),
 		stepNode("Run TSPack workflow", "", "tspack workflow run "+plan.Workflow+" --ci-provider github"),
 	)
 	appendPair(thinJob, scalar("steps"), steps)
@@ -163,6 +173,21 @@ func stepNode(name string, uses string, run string) *yaml.Node {
 	if run != "" {
 		appendPair(step, scalar("run"), scalar(run))
 	}
+	return step
+}
+
+func stepNodeWith(name string, uses string, values map[string]string) *yaml.Node {
+	step := stepNode(name, uses, "")
+	with := mappingNode()
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		appendPair(with, scalar(key), scalar(values[key]))
+	}
+	appendPair(step, scalar("with"), with)
 	return step
 }
 
