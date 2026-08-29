@@ -20,6 +20,7 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/materialize"
 	"github.com/yuechen-li-dev/tspack/internal/project"
 )
 
@@ -843,6 +844,11 @@ func (executor cliBuildTargetExecutor) BuildTarget(ctx context.Context, request 
 		if hasDiagnosticErrors(diagnostics) {
 			return result
 		}
+		projectionDiagnostics := projectWorkspaceBuildArtifacts(root, packageRoot, request.Package.Name, request.Target, result.Artifacts)
+		result.Diagnostics = append(result.Diagnostics, projectionDiagnostics...)
+		if hasDiagnosticErrors(projectionDiagnostics) {
+			return result
+		}
 		result.Succeeded = true
 		return result
 	default:
@@ -854,8 +860,30 @@ func (executor cliBuildTargetExecutor) BuildTarget(ctx context.Context, request 
 		artifactKind = "javaScript"
 	}
 	result.Artifacts = append(result.Artifacts, project.BuildArtifact{Package: request.Package.Name, Target: request.Target.Name, Kind: artifactKind, Path: filepath.Join(packageRoot, filepath.FromSlash(request.Target.Runtime))})
+	projectionDiagnostics := projectWorkspaceBuildArtifacts(root, packageRoot, request.Package.Name, request.Target, result.Artifacts)
+	result.Diagnostics = append(result.Diagnostics, projectionDiagnostics...)
+	if hasDiagnosticErrors(projectionDiagnostics) {
+		return result
+	}
 	result.Succeeded = true
 	return result
+}
+
+func projectWorkspaceBuildArtifacts(root string, packageRoot string, packageName string, target manifest.Target, artifacts []project.BuildArtifact) []diag.Diagnostic {
+	declaredPatterns := []string{}
+	for _, artifact := range target.Artifacts {
+		if artifact.Path != "" {
+			declaredPatterns = append(declaredPatterns, artifact.Path)
+		}
+	}
+	if len(declaredPatterns) == 0 {
+		declaredPatterns = append(declaredPatterns, target.Runtime, target.Types)
+	}
+	artifactPaths := make([]string, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		artifactPaths = append(artifactPaths, artifact.Path)
+	}
+	return materialize.ProjectWorkspaceBuildArtifacts(root, packageRoot, packageName, declaredPatterns, artifactPaths)
 }
 
 func (executor cliBuildTargetExecutor) output() io.Writer {

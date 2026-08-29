@@ -6,9 +6,9 @@ Use the first-party action from this repository with the subdirectory path:
 
 ```yaml
 steps:
-  - uses: yuechen-li-dev/tspack/.github/actions/setup-tspack@v0.1.9-m80c.2
+  - uses: yuechen-li-dev/tspack/.github/actions/setup-tspack@v0.1.9-m80c.3
     with:
-      version: v0.1.9-m80c.2
+      version: v0.1.9-m80c.3
 
   - run: tspack sync --root .
   - run: tspack check --root .
@@ -40,9 +40,9 @@ GitHub Actions cannot normally resolve `uses: yuechen-li-dev/tspack/setup-tspack
 
 ```yaml
 steps:
-  - uses: yuechen-li-dev/tspack/.github/actions/setup-tspack@v0.1.9-m80c.2
+  - uses: yuechen-li-dev/tspack/.github/actions/setup-tspack@v0.1.9-m80c.3
     with:
-      version: v0.1.9-m80c.2
+      version: v0.1.9-m80c.3
 ```
 
 ## Supported runners
