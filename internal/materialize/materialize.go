@@ -225,6 +225,9 @@ type packageJSON struct {
 func collectRootEdges(edges []lockfile.Edge) []lockfile.Edge {
 	var out []lockfile.Edge
 	for _, e := range edges {
+		if e.Kind == "peer" || e.Kind == "optionalPeer" {
+			continue
+		}
 		if strings.Contains(e.From, ":target:") ||
 			strings.Contains(e.From, ":test:") ||
 			strings.HasSuffix(e.From, ":dependency") ||

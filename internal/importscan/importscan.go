@@ -49,7 +49,7 @@ func ScanFile(path string) ([]Import, []diag.Diagnostic) {
 	if err != nil {
 		return nil, []diag.Diagnostic{{Code: "TSPACK_IMPORT_PARSE_ERROR", Severity: diag.SeverityError, Message: "failed to read source file", File: path, Details: []string{err.Error()}}}
 	}
-	s := string(b)
+	s := stripComments(string(b))
 	declarationFile := isDeclarationFile(path)
 	out := []Import{}
 	diags := []diag.Diagnostic{}
@@ -111,6 +111,78 @@ func ScanFile(path string) ([]Import, []diag.Diagnostic) {
 		out = append(out, Import{Kind: ImportKindUnknownDynamic, SpecifierKind: SpecifierUnknown})
 	}
 	return out, diags
+}
+
+func stripComments(source string) string {
+	const (
+		code = iota
+		singleQuoted
+		doubleQuoted
+		templateQuoted
+		lineComment
+		blockComment
+	)
+	state := code
+	escaped := false
+	result := []byte(source)
+	for index := 0; index < len(source); index++ {
+		character := source[index]
+		next := byte(0)
+		if index+1 < len(source) {
+			next = source[index+1]
+		}
+		switch state {
+		case code:
+			switch {
+			case character == '\'':
+				state = singleQuoted
+			case character == '"':
+				state = doubleQuoted
+			case character == '`':
+				state = templateQuoted
+			case character == '/' && next == '/':
+				result[index] = ' '
+				result[index+1] = ' '
+				index++
+				state = lineComment
+			case character == '/' && next == '*':
+				result[index] = ' '
+				result[index+1] = ' '
+				index++
+				state = blockComment
+			}
+		case singleQuoted, doubleQuoted, templateQuoted:
+			if escaped {
+				escaped = false
+				continue
+			}
+			if character == '\\' {
+				escaped = true
+				continue
+			}
+			if (state == singleQuoted && character == '\'') ||
+				(state == doubleQuoted && character == '"') ||
+				(state == templateQuoted && character == '`') {
+				state = code
+			}
+		case lineComment:
+			if character == '\n' || character == '\r' {
+				state = code
+			} else {
+				result[index] = ' '
+			}
+		case blockComment:
+			if character == '*' && next == '/' {
+				result[index] = ' '
+				result[index+1] = ' '
+				index++
+				state = code
+			} else if character != '\n' && character != '\r' {
+				result[index] = ' '
+			}
+		}
+	}
+	return string(result)
 }
 
 func namedClauseIsTypeOnly(clause string) bool {

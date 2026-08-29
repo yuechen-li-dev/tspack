@@ -891,6 +891,16 @@ func buildRollupTarget(ctx context.Context, root string, manifestPath string, ir
 	if _, err := os.Stat(compilerPath); err != nil {
 		return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_TOOL_MISSING", Severity: diag.SeverityError, Message: "project-managed Rollup compiler is missing", Details: []string{compilerPath}}}
 	}
+	declaredArtifacts := target.Artifacts
+	if len(declaredArtifacts) == 0 {
+		declaredArtifacts = []manifest.TargetArtifact{
+			{Name: "javaScript", Kind: "javaScript", Path: target.Runtime, Role: "runtimeEntry"},
+			{Name: "typeDeclarations", Kind: "typeDeclarations", Path: target.Types, Role: "typeDeclaration"},
+		}
+	}
+	if cleanupDiagnostics := cleanDeclaredRollupArtifacts(packageRoot, declaredArtifacts); len(cleanupDiagnostics) > 0 {
+		return nil, cleanupDiagnostics
+	}
 	command := exec.CommandContext(ctx, compilerPath, "-c", absoluteConfigPath)
 	command.Dir = packageRoot
 	output, err := runOwnedBuildCommand(command)
@@ -899,13 +909,6 @@ func buildRollupTarget(ctx context.Context, root string, manifestPath string, ir
 	}
 	if err != nil {
 		return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_BUILD_FAILED", Severity: diag.SeverityError, Message: "Rollup build failed for " + pkg.Name + ":" + target.Name, Details: []string{err.Error()}}}
-	}
-	declaredArtifacts := target.Artifacts
-	if len(declaredArtifacts) == 0 {
-		declaredArtifacts = []manifest.TargetArtifact{
-			{Name: "javaScript", Kind: "javaScript", Path: target.Runtime, Role: "runtimeEntry"},
-			{Name: "typeDeclarations", Kind: "typeDeclarations", Path: target.Types, Role: "typeDeclaration"},
-		}
 	}
 	artifacts := []project.BuildArtifact{}
 	for _, declared := range declaredArtifacts {
@@ -955,4 +958,37 @@ func buildRollupTarget(ctx context.Context, root string, manifestPath string, ir
 	})
 	_, _ = fmt.Fprintf(outputWriter, "Built %s:%s with Rollup -> %s\n", pkg.Name, target.Name, target.Runtime)
 	return artifacts, nil
+}
+
+func cleanDeclaredRollupArtifacts(packageRoot string, artifacts []manifest.TargetArtifact) []diag.Diagnostic {
+	for _, artifact := range artifacts {
+		if artifact.Path == "" {
+			continue
+		}
+		pattern := filepath.Join(packageRoot, filepath.FromSlash(artifact.Path))
+		matches := []string{pattern}
+		if strings.ContainsAny(artifact.Path, "*?[") {
+			var err error
+			matches, err = filepath.Glob(pattern)
+			if err != nil {
+				return []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_INVALID", Severity: diag.SeverityError, Message: "declared Rollup artifact glob is invalid", Details: []string{artifact.Path, err.Error()}}}
+			}
+		}
+		for _, match := range matches {
+			info, err := os.Lstat(match)
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil {
+				return []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_CLEAN_FAILED", Severity: diag.SeverityError, Message: "could not inspect a declared Rollup artifact before build", Details: []string{match, err.Error()}}}
+			}
+			if info.IsDir() {
+				return []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_CLEAN_FAILED", Severity: diag.SeverityError, Message: "declared Rollup artifacts must identify files", Details: []string{match}}}
+			}
+			if err := os.Remove(match); err != nil {
+				return []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_CLEAN_FAILED", Severity: diag.SeverityError, Message: "could not remove a stale declared Rollup artifact", Details: []string{match, err.Error()}}}
+			}
+		}
+	}
+	return nil
 }

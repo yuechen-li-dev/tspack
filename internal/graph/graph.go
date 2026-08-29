@@ -71,6 +71,7 @@ type TargetNode struct {
 	Types            string
 	Optional         bool
 	RuntimeDeps      []*DependencyNode
+	BuildDeps        []*DependencyNode
 	PeerDeps         []*DependencyNode
 	OptionalPeerDeps []*DependencyNode
 	TypeDeps         []*DependencyNode
@@ -158,7 +159,7 @@ func Build(ir *manifest.ManifestIR) (*WorkspaceGraph, []diag.Diagnostic) {
 					continue
 				}
 				if dn.Kind == DependencyKindTool {
-					add("TSPACK_GRAPH_INVALID_TARGET_REF", "target deps references tool dependency", p.Name, t.Name, ref)
+					tn.BuildDeps = append(tn.BuildDeps, dn)
 					continue
 				}
 				tn.RuntimeDeps = append(tn.RuntimeDeps, dn)
@@ -201,6 +202,7 @@ func Build(ir *manifest.ManifestIR) (*WorkspaceGraph, []diag.Diagnostic) {
 		sort.SliceStable(pn.Tools, func(i, j int) bool { return pn.Tools[i].Key < pn.Tools[j].Key })
 		for _, t := range pn.Targets {
 			sort.SliceStable(t.RuntimeDeps, func(i, j int) bool { return t.RuntimeDeps[i].Key < t.RuntimeDeps[j].Key })
+			sort.SliceStable(t.BuildDeps, func(i, j int) bool { return t.BuildDeps[i].Key < t.BuildDeps[j].Key })
 			sort.SliceStable(t.PeerDeps, func(i, j int) bool { return t.PeerDeps[i].Key < t.PeerDeps[j].Key })
 			sort.SliceStable(t.OptionalPeerDeps, func(i, j int) bool { return t.OptionalPeerDeps[i].Key < t.OptionalPeerDeps[j].Key })
 			sort.SliceStable(t.TypeDeps, func(i, j int) bool { return t.TypeDeps[i].Key < t.TypeDeps[j].Key })
@@ -346,12 +348,18 @@ func selectLifecycleToolDependency(g *WorkspaceGraph, owner *PackageNode, toolNa
 func (t *TargetNode) AllowedRuntimeDependencies() []*DependencyNode {
 	return append([]*DependencyNode(nil), t.RuntimeDeps...)
 }
+func (t *TargetNode) BuildDependencies() []*DependencyNode {
+	return append([]*DependencyNode(nil), t.BuildDeps...)
+}
 func (t *TargetNode) AllowedPeerDependencies() []*DependencyNode {
 	return append([]*DependencyNode(nil), t.PeerDeps...)
 }
 func (t *TargetNode) AllowedDependencyKeys() []string {
 	m := map[string]struct{}{}
 	for _, d := range t.RuntimeDeps {
+		m[d.Key] = struct{}{}
+	}
+	for _, d := range t.BuildDeps {
 		m[d.Key] = struct{}{}
 	}
 	for _, d := range t.PeerDeps {
@@ -373,7 +381,13 @@ func (t *TargetNode) AllowsDependencyKey(key string) bool {
 	return false
 }
 func (t *TargetNode) AllowsExternalPackageName(name string) bool {
-	for _, d := range append(t.RuntimeDeps, t.PeerDeps...) {
+	if t.Package != nil && name == t.Package.Name {
+		return true
+	}
+	dependencies := append([]*DependencyNode{}, t.RuntimeDeps...)
+	dependencies = append(dependencies, t.BuildDeps...)
+	dependencies = append(dependencies, t.PeerDeps...)
+	for _, d := range dependencies {
 		if d.MatchesExternalPackageName(name) {
 			return true
 		}

@@ -111,6 +111,31 @@ func TestMaterializeNPMAliasAtReferenceName(t *testing.T) {
 	}
 }
 
+func TestMaterializeRootNPMAliasSurvivesPruning(t *testing.T) {
+	workspace := t.TempDir()
+	contentStore, _ := store.Open(t.TempDir())
+	reactIsHash := putPkg(t, contentStore, "npm:react-is@18.3.1", "react-is")
+	locked := &lockfile.Lockfile{
+		Packages: []lockfile.Package{
+			{ID: "npm:react-is@18.3.1", Name: "react-is", Source: "npm", Hash: reactIsHash},
+		},
+		Edges: []lockfile.Edge{
+			{From: "app:target:package", To: "npm:react-is@18.3.1", Kind: "tool", Reference: "react-is-18"},
+		},
+	}
+
+	result := NodeModulesMaterializer{}.Materialize(context.Background(), Request{
+		WorkspaceRoot: workspace,
+		Lock:          locked,
+		Store:         contentStore,
+		Options:       Options{LinkMode: LinkModeCopy},
+	})
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("root alias materialization diagnostics: %#v", result.Diagnostics)
+	}
+	mustExist(t, filepath.Join(workspace, "node_modules", "react-is-18", "package.json"))
+}
+
 func TestMaterializeMultipleAliasesForOneSemanticTarget(t *testing.T) {
 	workspace := t.TempDir()
 	contentStore, _ := store.Open(t.TempDir())
@@ -329,6 +354,21 @@ func TestCollectRootEdgesIncludesNativeTestToolRequirements(t *testing.T) {
 	rootEdges := collectRootEdges(edges)
 	if len(rootEdges) != 1 || rootEdges[0].From != "app:test:unit" {
 		t.Fatalf("root edges=%#v", rootEdges)
+	}
+}
+
+func TestCollectRootEdgesPreservesAliasesAndSkipsProviderPeers(t *testing.T) {
+	edges := []lockfile.Edge{
+		{From: "pkg:target:package", To: "npm:react-is@18.3.1", Kind: "tool", Reference: "react-is-18"},
+		{From: "pkg:target:package", To: "npm:vite@8.0.0", Kind: "peer", Reference: "vite"},
+	}
+
+	rootEdges := collectRootEdges(edges)
+	if len(rootEdges) != 1 {
+		t.Fatalf("root edges = %#v", rootEdges)
+	}
+	if rootEdges[0].Reference != "react-is-18" {
+		t.Fatalf("alias reference = %q", rootEdges[0].Reference)
 	}
 }
 

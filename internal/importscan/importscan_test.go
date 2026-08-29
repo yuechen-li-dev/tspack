@@ -60,6 +60,26 @@ export function App() {
 	}
 }
 
+func TestScanIgnoresImportsInComments(t *testing.T) {
+	d := t.TempDir()
+	p := filepath.Join(d, "comments.ts")
+	src := `// import x from "line-comment"
+/* export { y } from "block-comment" */
+/** type Example = import("doc-comment") */
+import value from "real-package"
+`
+	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	imps, diags := ScanFile(p)
+	if len(diags) > 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diags)
+	}
+	if len(imps) != 1 || !scanHas(imps, "real-package", ImportKindRuntime) {
+		t.Fatalf("expected only real import, got %#v", imps)
+	}
+}
+
 func TestResolveRelative(t *testing.T) {
 	d := t.TempDir()
 	os.MkdirAll(filepath.Join(d, "foo"), 0o755)

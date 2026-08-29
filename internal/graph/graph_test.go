@@ -237,7 +237,7 @@ func TestDefensiveMalformedIR(t *testing.T) {
 	for _, d := range diags {
 		codes[d.Code] = true
 	}
-	for _, c := range []string{"TSPACK_GRAPH_DUPLICATE_TARGET", "TSPACK_GRAPH_DUPLICATE_EXPORT", "TSPACK_GRAPH_DUPLICATE_DEPENDENCY", "TSPACK_GRAPH_UNKNOWN_DEPENDENCY_REF", "TSPACK_GRAPH_INVALID_DEPENDENCY_KIND", "TSPACK_GRAPH_INVALID_TARGET_REF"} {
+	for _, c := range []string{"TSPACK_GRAPH_DUPLICATE_TARGET", "TSPACK_GRAPH_DUPLICATE_EXPORT", "TSPACK_GRAPH_DUPLICATE_DEPENDENCY", "TSPACK_GRAPH_UNKNOWN_DEPENDENCY_REF", "TSPACK_GRAPH_INVALID_DEPENDENCY_KIND"} {
 		if !codes[c] {
 			t.Fatalf("missing %s in %#v", c, diags)
 		}
@@ -361,5 +361,42 @@ func TestAllowsExternalPackageNameMatchesDeclaredDependencyIdentifiers(t *testin
 
 	if target.AllowsExternalPackageName("@prisma-ui/undeclared") {
 		t.Fatal("undeclared workspace package should not be allowed")
+	}
+}
+
+func TestBuildTargetToolDependencyIsBuildVisibleWithoutBecomingRuntime(t *testing.T) {
+	ir := &manifest.ManifestIR{Packages: []manifest.Package{{
+		Name: "pkg",
+		Dependencies: []manifest.DependencyIntent{{
+			Key:    "bundled",
+			Kind:   "tool",
+			Source: manifest.Source{Kind: "npm", Package: "bundled"},
+		}},
+		Targets: []manifest.Target{{Name: "package", Deps: []string{"bundled"}}},
+	}}}
+
+	workspace, diagnostics := Build(ir)
+	if len(diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+	pkg, ok := workspace.Package("pkg")
+	if !ok {
+		t.Fatal("package missing")
+	}
+	target, ok := pkg.Target("package")
+	if !ok {
+		t.Fatal("target missing")
+	}
+	if len(target.BuildDependencies()) != 1 || target.BuildDependencies()[0].Key != "bundled" {
+		t.Fatalf("build dependencies = %#v", target.BuildDependencies())
+	}
+	if len(target.AllowedRuntimeDependencies()) != 0 {
+		t.Fatalf("runtime dependencies = %#v", target.AllowedRuntimeDependencies())
+	}
+	if !target.AllowsExternalPackageName("bundled") {
+		t.Fatal("build dependency should be visible to source boundary checks")
+	}
+	if !target.AllowsExternalPackageName("pkg") {
+		t.Fatal("package self-reference should be visible to source boundary checks")
 	}
 }

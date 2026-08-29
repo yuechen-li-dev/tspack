@@ -259,3 +259,33 @@ func TestMaterializeBrowserGraphTransformsCommonJSEntry(t *testing.T) {
 		t.Fatalf("CommonJS materialization mode = %#v", materialization.Packages[1])
 	}
 }
+
+func TestCleanDeclaredRollupArtifactsRemovesOnlyMatchedFiles(t *testing.T) {
+	root := t.TempDir()
+	dist := filepath.Join(root, "dist")
+	if err := os.MkdirAll(dist, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(dist, "chunk-old.js")
+	preserved := filepath.Join(dist, "notes.txt")
+	for _, path := range []string{stale, preserved} {
+		if err := os.WriteFile(path, []byte("content"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	diagnostics := cleanDeclaredRollupArtifacts(root, []manifest.TargetArtifact{{
+		Name: "runtime",
+		Kind: "javaScript",
+		Path: "dist/*.js",
+	}})
+	if len(diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale artifact remains: %v", err)
+	}
+	if _, err := os.Stat(preserved); err != nil {
+		t.Fatalf("unmatched file was removed: %v", err)
+	}
+}

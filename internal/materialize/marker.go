@@ -43,7 +43,7 @@ type materializationPlan struct {
 	mode        LinkMode
 	platform    string
 	digest      string
-	rootVisible []lockfile.Package
+	rootVisible []string
 	entries     []materializationPlanEntry
 }
 
@@ -75,20 +75,15 @@ func buildMaterializationPlan(lf *lockfile.Lockfile, nmRoot string, mode LinkMod
 	}
 
 	rootEdges := collectRootEdges(lf.Edges)
-	rootVisible := make([]lockfile.Package, 0, len(rootEdges))
+	rootVisible := make([]string, 0, len(rootEdges))
 	for _, edge := range rootEdges {
 		pkg, ok := pkgs[edge.To]
 		if !ok {
 			continue
 		}
-		rootVisible = append(rootVisible, pkg)
+		rootVisible = append(rootVisible, edgeMaterializationName(edge, pkg))
 	}
-	sort.SliceStable(rootVisible, func(i, j int) bool {
-		if rootVisible[i].Name != rootVisible[j].Name {
-			return rootVisible[i].Name < rootVisible[j].Name
-		}
-		return rootVisible[i].ID < rootVisible[j].ID
-	})
+	sort.Strings(rootVisible)
 
 	state := newMaterializeState()
 	entries := make([]materializationPlanEntry, 0)
@@ -278,8 +273,8 @@ func markerSanityCheck(nmRoot string, plan materializationPlan) bool {
 		return false
 	}
 
-	for _, pkg := range plan.rootVisible {
-		dest, err := safePackagePath(nmRoot, materializedPackageName(pkg))
+	for _, installName := range plan.rootVisible {
+		dest, err := safePackagePath(nmRoot, installName)
 		if err != nil {
 			return false
 		}
@@ -329,14 +324,13 @@ func expectedMaterializationMarker(plan materializationPlan, observer *materiali
 	}
 }
 
-func pruneNodeModulesRoot(nmRoot string, rootVisible []lockfile.Package) error {
+func pruneNodeModulesRoot(nmRoot string, rootVisible []string) error {
 	keepRootFiles := map[string]struct{}{
 		".bin":     {},
 		markerFile: {},
 	}
 	keepPackages := map[string]map[string]struct{}{}
-	for _, pkg := range rootVisible {
-		installName := materializedPackageName(pkg)
+	for _, installName := range rootVisible {
 		if strings.HasPrefix(installName, "@") {
 			parts := strings.Split(installName, "/")
 			if len(parts) != 2 {

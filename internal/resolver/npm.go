@@ -260,6 +260,9 @@ func ResolveNPM(ctx context.Context, opts ResolverOptions, req ResolveRequest) R
 			for _, dep := range target.AllowedPeerDependencies() {
 				frontier = state.enqueueSharedDirectRequest(ctx, frontier, dep, from, "peer", requirements.KindPeer)
 			}
+			for _, dep := range target.BuildDependencies() {
+				frontier = state.enqueueDirectRequest(ctx, frontier, dep, from, "tool")
+			}
 		}
 		for _, dep := range pkg.AllDependencies() {
 			if selectedRuntimeDependencies[dep.Key] {
@@ -309,12 +312,13 @@ func (r *resolverState) enqueueDirectRequest(ctx context.Context, frontier []res
 		return frontier
 	}
 	frontier = append(frontier, resolveWorkItem{
-		source:   dep.Source.Kind,
-		name:     dep.Source.Package,
-		rng:      dep.Source.Range,
-		from:     from,
-		kind:     kind,
-		optional: dep.Optional,
+		source:    dep.Source.Kind,
+		name:      dep.Source.Package,
+		rng:       dep.Source.Range,
+		from:      from,
+		kind:      kind,
+		optional:  dep.Optional,
+		reference: dep.Key,
 	})
 	return frontier
 }
