@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -60,10 +61,18 @@ func runWorkflowCommand(args []string) {
 		projectOptions := project.DefaultOptions(workspace.Root)
 		projectOptions.ManifestPath = manifestPath
 		projectOptions.FrontendCLIPath = manifestFrontendCLIPath()
+		buildOutput := io.Writer(os.Stdout)
+		if options.JSON {
+			buildOutput = io.Discard
+		}
 		executor := workflow.Executor{
 			Root:     workspace.Root,
 			Manifest: ir,
-			Native:   workflow.ProjectOperations{Options: projectOptions, BuildExecutor: cliBuildTargetExecutor{}},
+			Native: workflow.ProjectOperations{
+				Options:       projectOptions,
+				BuildExecutor: cliBuildTargetExecutor{Output: buildOutput},
+				Quiet:         options.JSON,
+			},
 			Context: workflow.ExecutionContext{
 				IsCI:     options.Provider != "",
 				Provider: options.Provider,
@@ -249,6 +258,9 @@ func renderFlowProgram(flow workflow.Flow, identity string, indent string, visit
 			cleanup = " cleanup(" + string(node.CleanupCause) + ")"
 		}
 		fmt.Printf("%s%s (%s) @ %s => %s%s\n", indent, node.Effect.Name, node.Effect.Operation, node.Region, node.Value, cleanup)
+		if selection := renderWorkflowEffectSelection(*node.Effect); selection != "" {
+			fmt.Printf("%s  target: %s\n", indent, selection)
+		}
 		for _, input := range node.Effect.Inputs {
 			fmt.Printf("%s  consumes: %s\n", indent, input.Identity)
 		}
@@ -333,6 +345,22 @@ func renderFlowProgram(flow workflow.Flow, identity string, indent string, visit
 	default:
 		fmt.Printf("%s%s [%s]\n", indent, identity, node.Kind)
 	}
+}
+
+func renderWorkflowEffectSelection(step workflow.PlanStep) string {
+	if step.Operation == "test" && step.Target != "" && len(step.Packages) == 1 {
+		return step.Packages[0] + ":" + step.Target
+	}
+	if step.Operation != "build" || len(step.Packages) == 0 || len(step.Targets) == 0 {
+		return ""
+	}
+	selections := make([]string, 0, len(step.Packages)*len(step.Targets))
+	for _, packageName := range step.Packages {
+		for _, target := range step.Targets {
+			selections = append(selections, packageName+":"+target)
+		}
+	}
+	return strings.Join(selections, ", ")
 }
 
 func renderWorkflowPredicate(predicate *workflow.Predicate) string {

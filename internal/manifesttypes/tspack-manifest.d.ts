@@ -400,7 +400,10 @@ declare module 'tspack/manifest' {
     timeoutSeconds?: number;
   };
   export type WorkflowBuildStepOptions = WorkflowStepOptions & { targets?: string[] };
-  export type WorkflowTestStepOptions = WorkflowStepOptions & { filter?: string };
+  export type WorkflowTestStepOptions = WorkflowStepOptions & {
+    target?: string;
+    filter?: string;
+  };
   export type WorkflowAuditStepOptions = WorkflowStepOptions & {
     auditLevel?: 'any' | 'low' | 'moderate' | 'high' | 'critical';
     requireCoverage?: boolean;

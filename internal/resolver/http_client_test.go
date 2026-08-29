@@ -9,12 +9,28 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
 )
+
+func TestPackageVersionIgnoresNonStringHistoricalScriptValues(t *testing.T) {
+	var version PackageVersion
+	err := json.Unmarshal([]byte(`{
+		"name":"legacy",
+		"version":"0.1.0",
+		"scripts":{"install":"node install.js","blanket":{"pattern":"test/**"}}
+	}`), &version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(version.Scripts, map[string]string{"install": "node install.js"}) {
+		t.Fatalf("scripts=%#v", version.Scripts)
+	}
+}
 
 func TestHTTPRegistryClientPackageURL(t *testing.T) {
 	tests := []struct {

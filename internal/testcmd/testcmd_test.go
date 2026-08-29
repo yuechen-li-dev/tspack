@@ -4,9 +4,21 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+func TestProjectManagedBinUsesPlatformShim(t *testing.T) {
+	path := projectManagedBin("workspace", "vitest")
+	want := filepath.Join("workspace", "node_modules", ".bin", "vitest")
+	if runtime.GOOS == "windows" {
+		want += ".cmd"
+	}
+	if path != want {
+		t.Fatalf("bin path=%q, want %q", path, want)
+	}
+}
 
 func TestResolveXTestBridgeExplicitPath(t *testing.T) {
 	root := t.TempDir()

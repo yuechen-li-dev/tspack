@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -795,9 +796,11 @@ func failBuild(code string, message string) {
 // build command and workflow application seams while compiler implementations
 // are moved out of the CLI package. It invokes compiler functions directly and
 // never shells back into tspack.
-type cliBuildTargetExecutor struct{}
+type cliBuildTargetExecutor struct {
+	Output io.Writer
+}
 
-func (cliBuildTargetExecutor) BuildTarget(ctx context.Context, request project.BuildTargetRequest) (result project.BuildTargetResult) {
+func (executor cliBuildTargetExecutor) BuildTarget(ctx context.Context, request project.BuildTargetRequest) (result project.BuildTargetResult) {
 	result.Package = request.Package.Name
 	result.Target = request.Target.Name
 	result.Compiler = request.Target.Compiler
@@ -834,7 +837,7 @@ func (cliBuildTargetExecutor) BuildTarget(ctx context.Context, request project.B
 	case "perry":
 		buildPerryTarget(ctx, root, manifestPath, request.Manifest, request.Package, request.Target)
 	case "rollup":
-		artifacts, diagnostics := buildRollupTarget(ctx, root, manifestPath, request.Manifest, request.Package, request.Target)
+		artifacts, diagnostics := buildRollupTarget(ctx, root, manifestPath, request.Manifest, request.Package, request.Target, executor.output())
 		result.Artifacts = append(result.Artifacts, artifacts...)
 		result.Diagnostics = append(result.Diagnostics, diagnostics...)
 		if hasDiagnosticErrors(diagnostics) {
@@ -855,7 +858,14 @@ func (cliBuildTargetExecutor) BuildTarget(ctx context.Context, request project.B
 	return result
 }
 
-func buildRollupTarget(ctx context.Context, root string, manifestPath string, ir *manifest.ManifestIR, pkg *manifest.Package, target manifest.Target) ([]project.BuildArtifact, []diag.Diagnostic) {
+func (executor cliBuildTargetExecutor) output() io.Writer {
+	if executor.Output != nil {
+		return executor.Output
+	}
+	return os.Stdout
+}
+
+func buildRollupTarget(ctx context.Context, root string, manifestPath string, ir *manifest.ManifestIR, pkg *manifest.Package, target manifest.Target, outputWriter io.Writer) ([]project.BuildArtifact, []diag.Diagnostic) {
 	packageRoot := resolvePackageRoot(root, manifestPath, ir, pkg)
 	configPath := target.CompilerConfig
 	if configPath == "" {
@@ -885,7 +895,7 @@ func buildRollupTarget(ctx context.Context, root string, manifestPath string, ir
 	command.Dir = packageRoot
 	output, err := runOwnedBuildCommand(command)
 	if len(output) > 0 {
-		fmt.Print(string(output))
+		_, _ = fmt.Fprint(outputWriter, string(output))
 	}
 	if err != nil {
 		return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_BUILD_FAILED", Severity: diag.SeverityError, Message: "Rollup build failed for " + pkg.Name + ":" + target.Name, Details: []string{err.Error()}}}
@@ -943,6 +953,6 @@ func buildRollupTarget(ctx context.Context, root string, manifestPath string, ir
 	sort.Slice(artifacts, func(i, j int) bool {
 		return artifacts[i].Identity < artifacts[j].Identity
 	})
-	fmt.Printf("Built %s:%s with Rollup -> %s\n", pkg.Name, target.Name, target.Runtime)
+	_, _ = fmt.Fprintf(outputWriter, "Built %s:%s with Rollup -> %s\n", pkg.Name, target.Name, target.Runtime)
 	return artifacts, nil
 }

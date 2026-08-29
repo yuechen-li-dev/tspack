@@ -128,7 +128,7 @@ func (s *Store) PutArtifact(a Artifact) (StoreRef, []diag.Diagnostic) {
 			}
 		}
 	} else {
-		if !extractedArtifactHealthy(ref.ExtractedPath, a.Source) {
+		if !localExtractedArtifactMatches(ref.ExtractedPath, hash) {
 			_ = os.RemoveAll(ref.ExtractedPath)
 			if d := copyTree(a.RootDir, ref.ExtractedPath); d != nil {
 				return StoreRef{}, d
@@ -315,7 +315,19 @@ func (s *Store) Verify(hash string) []diag.Diagnostic {
 		}
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_EXTRACTED_ARTIFACT_MISSING", "extracted artifact is missing")}
 	}
+	if isLocalArtifactSource(md.Source) && !localExtractedArtifactMatches(ref.ExtractedPath, normalizeHash(hash)) {
+		return []diag.Diagnostic{errDiag("TSPACK_STORE_HASH_MISMATCH", "local extracted artifact content hash mismatch")}
+	}
 	return nil
+}
+
+func isLocalArtifactSource(source string) bool {
+	return source == "path" || source == "workspace" || source == "git"
+}
+
+func localExtractedArtifactMatches(root string, expectedHash string) bool {
+	actualHash, err := hashDirectory(root)
+	return err == nil && actualHash == normalizeHash(expectedHash)
 }
 
 func (s *Store) computeHash(a Artifact) (string, error) {

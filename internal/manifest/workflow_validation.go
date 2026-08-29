@@ -352,11 +352,22 @@ func validateWorkflowStep(add func(string, string, ...string), prefix string, st
 		if len(step.Command) > 0 || step.Script != "" || step.Cwd != "" || len(step.Env) > 0 || len(step.Capabilities) > 0 {
 			add("TSPACK_WORKFLOW_NATIVE_STEP_INVALID", prefix+" native operations cannot contain process, shell, cwd, environment, or capability fields")
 		}
-		if step.Operation != "pack" && step.Operation != "build" && len(step.Packages) > 0 {
+		if step.Operation != "pack" && step.Operation != "build" && step.Operation != "test" && len(step.Packages) > 0 {
 			add("TSPACK_WORKFLOW_TARGETING_UNSUPPORTED", prefix+" package targeting is not supported by this operation")
 		}
 		if step.Operation != "build" && len(step.Targets) > 0 {
 			add("TSPACK_WORKFLOW_TARGETING_UNSUPPORTED", prefix+" target selection is supported only by Build")
+		}
+		if step.Operation != "test" && step.Target != "" {
+			add("TSPACK_WORKFLOW_TARGETING_UNSUPPORTED", prefix+" singular target selection is supported only by Test")
+		}
+		if step.Operation == "test" {
+			if step.Target == "" && len(step.Packages) > 0 {
+				add("TSPACK_WORKFLOW_TEST_TARGET_REQUIRED", prefix+" package-selected Test effects must declare a target")
+			}
+			if step.Target != "" && len(step.Packages) != 1 {
+				add("TSPACK_WORKFLOW_TEST_PACKAGE_REQUIRED", prefix+" target-selected Test effects must declare exactly one package")
+			}
 		}
 		if step.Operation != "test" && step.Filter != "" {
 			add("TSPACK_WORKFLOW_TEST_FILTER_INVALID", prefix+" filter is supported only by Test")

@@ -58,6 +58,17 @@ Build, Test, and Audit return typed inert effect references. Each effect
 produces one immutable result identity, and field access produces a projection
 of that identity rather than a string or copied payload.
 
+Build and Test effects may select already-declared lifecycle targets without
+copying their implementation details into the workflow:
+
+```tsx
+Build({ packages: ["@acme/core"], targets: ["package"] })
+Test({ packages: ["@acme/tests"], target: "unit" })
+```
+
+A target-selected Test names exactly one package and one TestTarget. The
+TestTarget continues to own its harness, config, sources, and project.
+
 ```tsx
 const build = Build();
 

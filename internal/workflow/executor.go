@@ -128,6 +128,7 @@ type ExecutionContext struct {
 type ProjectOperations struct {
 	Options       project.Options
 	BuildExecutor project.BuildTargetExecutor
+	Quiet         bool
 }
 
 func (operations ProjectOperations) RunStep(ctx context.Context, step PlanStep) (NativeResult, error) {
@@ -140,7 +141,21 @@ func (operations ProjectOperations) RunStep(ctx context.Context, step PlanStep) 
 		result.Build = &buildResult
 		diagnostics = buildResult.Diagnostics
 	case "test":
-		testResult := project.RunTest(ctx, project.TestRequest{Project: operations.Options, Options: testcmd.Options{RootDir: operations.Options.RootDir, Filter: step.Filter, CaptureStructured: true}})
+		packageName, selectionErr := workflowTestPackage(step.Packages, step.Target)
+		if selectionErr != nil {
+			return result, selectionErr
+		}
+		testResult := project.RunTest(ctx, project.TestRequest{
+			Project: operations.Options,
+			Options: testcmd.Options{
+				RootDir:           operations.Options.RootDir,
+				Filter:            step.Filter,
+				CaptureStructured: true,
+				Quiet:             operations.Quiet,
+			},
+			Package: packageName,
+			Target:  step.Target,
+		})
 		result.Test = &testResult
 		diagnostics = testResult.Diagnostics
 		if testResult.ExitCode != 0 && !hasErrorDiagnostics(diagnostics) {
@@ -162,6 +177,19 @@ func (operations ProjectOperations) RunStep(ctx context.Context, step PlanStep) 
 		}
 	}
 	return result, err
+}
+
+func workflowTestPackage(packages []string, target string) (string, error) {
+	if target == "" {
+		if len(packages) > 0 {
+			return "", fmt.Errorf("TSPACK_WORKFLOW_TEST_TARGET_REQUIRED: package-selected Test effects must declare a target")
+		}
+		return "", nil
+	}
+	if len(packages) != 1 {
+		return "", fmt.Errorf("TSPACK_WORKFLOW_TEST_PACKAGE_REQUIRED: target-selected Test effects must declare exactly one package")
+	}
+	return packages[0], nil
 }
 
 func (operations ProjectOperations) Run(ctx context.Context, operation string, packages []string) ([]diag.Diagnostic, error) {

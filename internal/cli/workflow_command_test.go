@@ -68,6 +68,25 @@ func TestWorkflowCLIListInspectRunAndExportUseOneManifestPlan(t *testing.T) {
 	clitest.AssertExit(t, driftCheck, 0)
 }
 
+func TestRenderWorkflowEffectSelectionShowsSemanticTargetIdentity(t *testing.T) {
+	build := workflow.PlanStep{
+		Operation: "build",
+		Packages:  []string{"@vitest/expect"},
+		Targets:   []string{"package"},
+	}
+	if got := renderWorkflowEffectSelection(build); got != "@vitest/expect:package" {
+		t.Fatalf("build selection=%q", got)
+	}
+	test := workflow.PlanStep{
+		Operation: "test",
+		Packages:  []string{"@vitest/test-unit"},
+		Target:    "basic-threads",
+	}
+	if got := renderWorkflowEffectSelection(test); got != "@vitest/test-unit:basic-threads" {
+		t.Fatalf("test selection=%q", got)
+	}
+}
+
 func TestWorkflowM77FixtureInspectExposesValueAndControlFlow(t *testing.T) {
 	repository := repoRootForMigrateTest(t)
 	root := filepath.Join(repository, "fixtures", "workflow-m77")

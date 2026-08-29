@@ -333,6 +333,36 @@ func TestPathTreeArtifactHashIgnoresGeneratedLockfile(t *testing.T) {
 	}
 }
 
+func TestVerifyRejectsAndPutRepairsStaleLocalExtractedArtifact(t *testing.T) {
+	storeRoot := t.TempDir()
+	contentRoot := t.TempDir()
+	mustWrite(t, filepath.Join(contentRoot, "package.json"), `{"name":"local","version":"1.0.0"}`)
+	mustWrite(t, filepath.Join(contentRoot, "dist", "index.js"), "export const value = 1")
+
+	contentStore, err := Open(storeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact := Artifact{ID: "workspace:local", Name: "local", Version: "1.0.0", Source: "workspace", Kind: ArtifactWorkspace, RootDir: contentRoot}
+	ref, diagnostics := contentStore.PutArtifact(artifact)
+	if len(diagnostics) > 0 {
+		t.Fatalf("put diagnostics: %#v", diagnostics)
+	}
+	if err := os.Remove(filepath.Join(ref.ExtractedPath, "package.json")); err != nil {
+		t.Fatal(err)
+	}
+	if diagnostics := contentStore.Verify(ref.Hash); len(diagnostics) == 0 || diagnostics[0].Code != "TSPACK_STORE_HASH_MISMATCH" {
+		t.Fatalf("verify diagnostics: %#v", diagnostics)
+	}
+	if _, diagnostics := contentStore.PutArtifact(artifact); len(diagnostics) > 0 {
+		t.Fatalf("repair diagnostics: %#v", diagnostics)
+	}
+	mustExist(t, filepath.Join(ref.ExtractedPath, "package.json"))
+	if diagnostics := contentStore.Verify(ref.Hash); len(diagnostics) > 0 {
+		t.Fatalf("post-repair diagnostics: %#v", diagnostics)
+	}
+}
+
 func TestCopyTreeRejectsSourceAsDestination(t *testing.T) {
 	root := t.TempDir()
 	mustWrite(t, filepath.Join(root, "package.json"), `{"name":"local","version":"1.0.0"}`)

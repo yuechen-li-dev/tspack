@@ -41,6 +41,7 @@ type PlanStep struct {
 	Operation            string          `json:"operation"`
 	Packages             []string        `json:"packages,omitempty"`
 	Targets              []string        `json:"targets,omitempty"`
+	Target               string          `json:"target,omitempty"`
 	Filter               string          `json:"filter,omitempty"`
 	AuditLevel           string          `json:"auditLevel,omitempty"`
 	RequireCoverage      bool            `json:"requireCoverage,omitempty"`
@@ -114,6 +115,7 @@ func BuildPlan(declaration manifest.Workflow) Plan {
 					Operation:       step.Operation,
 					Packages:        sortedCopy(step.Packages),
 					Targets:         sortedCopy(step.Targets),
+					Target:          step.Target,
 					Filter:          step.Filter,
 					AuditLevel:      step.AuditLevel,
 					RequireCoverage: step.RequireCoverage,

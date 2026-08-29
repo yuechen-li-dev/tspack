@@ -126,6 +126,7 @@ type WorkflowStep struct {
 	Operation       string                `json:"operation"`
 	Packages        []string              `json:"packages,omitempty"`
 	Targets         []string              `json:"targets,omitempty"`
+	Target          string                `json:"target,omitempty"`
 	Filter          string                `json:"filter,omitempty"`
 	AuditLevel      string                `json:"auditLevel,omitempty"`
 	RequireCoverage bool                  `json:"requireCoverage,omitempty"`

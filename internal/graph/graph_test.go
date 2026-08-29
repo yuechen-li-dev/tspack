@@ -166,6 +166,67 @@ func TestDeterministicOrder(t *testing.T) {
 	}
 }
 
+func TestBuildInfersLifecycleToolRequirementsFromAuthoredDependencies(t *testing.T) {
+	ir := &manifest.ManifestIR{Format: 1, Workspace: manifest.Workspace{Name: "w"}, Packages: []manifest.Package{
+		{
+			Name:    "root",
+			Root:    ".",
+			Version: "1.0.0",
+			Kind:    "app",
+			Dependencies: []manifest.DependencyIntent{
+				{Key: "rollup", Kind: "tool", Source: manifest.Source{Kind: "npm", Package: "rollup", Range: "^4.0.0"}},
+			},
+		},
+		{
+			Name:    "lib",
+			Root:    "packages/lib",
+			Version: "1.0.0",
+			Kind:    "library",
+			Dependencies: []manifest.DependencyIntent{
+				{Key: "vitest", Kind: "tool", Source: manifest.Source{Kind: "npm", Package: "vitest", Range: "^4.0.0"}},
+			},
+			Targets:     []manifest.Target{{Name: "package", Compiler: "rollup", Export: "."}},
+			TestTargets: []manifest.TestTarget{{Name: "unit", Harness: "vitest", Sources: []string{"test/unit.test.ts"}}},
+		},
+	}}
+	g, diagnostics := Build(ir)
+	if len(diagnostics) > 0 {
+		t.Fatalf("diags: %#v", diagnostics)
+	}
+	lib, _ := g.Package("lib")
+	requirements := lib.LifecycleToolDependencies()
+	if len(requirements) != 2 {
+		t.Fatalf("lifecycle tools=%#v", requirements)
+	}
+	if requirements[0].From != "lib:target:package" || requirements[0].Dependency.Package.Name != "root" || requirements[0].Tool != "rollup" {
+		t.Fatalf("build tool requirement=%#v", requirements[0])
+	}
+	if requirements[1].From != "lib:test:unit" || requirements[1].Dependency.Package.Name != "lib" || requirements[1].Tool != "vitest" {
+		t.Fatalf("test tool requirement=%#v", requirements[1])
+	}
+}
+
+func TestBuildDoesNotInferProjectManagedCompilerWhenPathIsExplicit(t *testing.T) {
+	ir := &manifest.ManifestIR{Format: 1, Workspace: manifest.Workspace{Name: "w"}, Packages: []manifest.Package{{
+		Name:    "lib",
+		Root:    ".",
+		Version: "1.0.0",
+		Kind:    "library",
+		Dependencies: []manifest.DependencyIntent{
+			{Key: "rollup", Kind: "tool", Source: manifest.Source{Kind: "npm", Package: "rollup", Range: "^4.0.0"}},
+		},
+		Targets: []manifest.Target{{Name: "package", Compiler: "rollup", CompilerPath: "tools/rollup", Export: "."}},
+	}}}
+	g, diagnostics := Build(ir)
+	if len(diagnostics) > 0 {
+		t.Fatalf("diags: %#v", diagnostics)
+	}
+	lib, _ := g.Package("lib")
+	if requirements := lib.LifecycleToolDependencies(); len(requirements) != 0 {
+		t.Fatalf("explicit compiler path should not infer a package tool: %#v", requirements)
+	}
+}
+
 func TestDefensiveMalformedIR(t *testing.T) {
 	ir := &manifest.ManifestIR{Format: 1, Workspace: manifest.Workspace{Name: "w"}, Packages: []manifest.Package{
 		{Name: "p", Version: "1.0.0", Kind: "library", Dependencies: []manifest.DependencyIntent{{Key: "dup", Kind: "dep", Source: manifest.Source{Kind: "npm", Package: "a"}}, {Key: "dup", Kind: "peer", Source: manifest.Source{Kind: "npm", Package: "b"}}, {Key: "bad", Kind: "wat", Source: manifest.Source{Kind: "npm", Package: "c"}}, {Key: "toolx", Kind: "tool", Source: manifest.Source{Kind: "npm", Package: "t"}}}, Tools: []string{"toolx"}, Targets: []manifest.Target{{Name: "core", Export: ".", Deps: []string{"toolx", "missing"}, Peers: []string{"missingpeer"}}, {Name: "core", Export: "./core2"}}},

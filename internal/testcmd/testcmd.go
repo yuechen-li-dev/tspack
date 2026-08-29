@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +30,7 @@ type Options struct {
 	Batch             bool
 	Environment       []string
 	CaptureStructured bool
+	Quiet             bool
 	VitestCwd         string
 	VitestConfig      string
 	VitestFiles       []string
@@ -196,8 +198,19 @@ func ignoredTestDiscoveryDir(name string) bool {
 }
 
 func vitestAvailable(root string) bool {
-	_, err := os.Stat(filepath.Join(root, "node_modules", ".bin", "vitest"))
+	_, err := os.Stat(projectManagedBin(root, "vitest"))
 	return err == nil
+}
+
+func projectManagedBin(root string, name string) string {
+	path := filepath.Join(root, "node_modules", ".bin", name)
+	if fileExists(path) {
+		return path
+	}
+	if runtime.GOOS == "windows" {
+		path += ".cmd"
+	}
+	return path
 }
 
 func runXTest(opts Options, result *Result) {
@@ -430,7 +443,7 @@ func runVitestContext(ctx context.Context, opts Options, result *Result) {
 	if opts.Filter != "" {
 		args = append(args, "-t", opts.Filter)
 	}
-	bin := filepath.Join(opts.RootDir, "node_modules", ".bin", "vitest")
+	bin := projectManagedBin(opts.RootDir, "vitest")
 	var reportPath string
 	if opts.CaptureStructured {
 		reportFile, err := os.CreateTemp("", "tspack-vitest-report-*.json")
@@ -450,8 +463,13 @@ func runVitestContext(ctx context.Context, opts Options, result *Result) {
 	if cmd.Dir == "" {
 		cmd.Dir = opts.RootDir
 	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	if opts.Quiet {
+		cmd.Stdout = io.Discard
+		cmd.Stderr = io.Discard
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	if err := cmd.Run(); err != nil {
 		if _, ok := err.(*exec.ExitError); ok {
 			result.ExitCode = 1

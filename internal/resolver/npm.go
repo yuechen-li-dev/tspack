@@ -89,6 +89,34 @@ type PackageVersion struct {
 	Scripts map[string]string `json:"scripts"`
 }
 
+func (version *PackageVersion) UnmarshalJSON(data []byte) error {
+	type packageVersionJSON struct {
+		Name                 string            `json:"name"`
+		Version              string            `json:"version"`
+		Dependencies         map[string]string `json:"dependencies"`
+		OptionalDependencies map[string]string `json:"optionalDependencies"`
+		PeerDependencies     map[string]string `json:"peerDependencies"`
+		PeerDependenciesMeta map[string]struct {
+			Optional bool `json:"optional"`
+		} `json:"peerDependenciesMeta"`
+		Dist    PackageDist    `json:"dist"`
+		Scripts map[string]any `json:"scripts"`
+	}
+	var decoded packageVersionJSON
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	version.Name = decoded.Name
+	version.Version = decoded.Version
+	version.Dependencies = decoded.Dependencies
+	version.OptionalDependencies = decoded.OptionalDependencies
+	version.PeerDependencies = decoded.PeerDependencies
+	version.PeerDependenciesMeta = decoded.PeerDependenciesMeta
+	version.Dist = decoded.Dist
+	version.Scripts = stringScripts(decoded.Scripts)
+	return nil
+}
+
 type PackageDist struct {
 	Tarball   string `json:"tarball"`
 	Integrity string `json:"integrity"`
@@ -244,6 +272,9 @@ func ResolveNPM(ctx context.Context, opts ResolverOptions, req ResolveRequest) R
 		}
 		for _, dep := range pkg.ToolDependencies() {
 			frontier = state.enqueueDirectRequest(ctx, frontier, dep, fmt.Sprintf("%s:tool", pkg.Name), "tool")
+		}
+		for _, requirement := range pkg.LifecycleToolDependencies() {
+			frontier = state.enqueueDirectRequest(ctx, frontier, requirement.Dependency, requirement.From, "tool")
 		}
 	}
 	frontier = state.applyRequirementControllers(frontier)
@@ -843,6 +874,13 @@ func (r *resolverState) resolvePeerRequirements(ctx context.Context, resolveJobs
 		frontier := []resolveWorkItem{}
 		for _, controller := range tape.Controllers() {
 			if controller.Kind != requirements.KindPeer {
+				continue
+			}
+			// peerDependenciesMeta.optional means the package can use an
+			// already-selected peer, not that resolution should introduce one.
+			// Auto-installing optional peers expands unrelated tool ecosystems
+			// and can collide with source-qualified workspace packages.
+			if controller.Optional {
 				continue
 			}
 			slot := requirements.SlotKey(controller)

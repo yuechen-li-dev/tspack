@@ -46,9 +46,20 @@ type PackageNode struct {
 	TargetsByName     map[string]*TargetNode
 	TargetsByExport   map[string]*TargetNode
 	Tools             []*DependencyNode
+	LifecycleTools    []*LifecycleToolRequirement
 	Boundaries        []manifest.BoundaryRule
 	Publish           manifest.PublishPolicy
 	Policies          manifest.Policies
+}
+
+// LifecycleToolRequirement connects native build and test intent to an
+// already-authored tool dependency. The dependency may be declared by a
+// workspace root package while the lifecycle target belongs to another
+// package, matching project-managed tool layouts without copying constraints.
+type LifecycleToolRequirement struct {
+	Dependency *DependencyNode
+	From       string
+	Tool       string
 }
 
 type TargetNode struct {
@@ -195,6 +206,7 @@ func Build(ir *manifest.ManifestIR) (*WorkspaceGraph, []diag.Diagnostic) {
 			sort.SliceStable(t.TypeDeps, func(i, j int) bool { return t.TypeDeps[i].Key < t.TypeDeps[j].Key })
 		}
 	}
+	inferLifecycleToolRequirements(ir, g)
 	sort.SliceStable(g.Packages, func(i, j int) bool { return g.Packages[i].Name < g.Packages[j].Name })
 	diag.SortDiagnostics(out)
 	return g, out
@@ -233,6 +245,103 @@ func (p *PackageNode) AllDependencies() []*DependencyNode {
 func (p *PackageNode) AllTargets() []*TargetNode { return append([]*TargetNode(nil), p.Targets...) }
 func (p *PackageNode) ToolDependencies() []*DependencyNode {
 	return append([]*DependencyNode(nil), p.Tools...)
+}
+func (p *PackageNode) LifecycleToolDependencies() []*LifecycleToolRequirement {
+	return append([]*LifecycleToolRequirement(nil), p.LifecycleTools...)
+}
+
+func inferLifecycleToolRequirements(ir *manifest.ManifestIR, g *WorkspaceGraph) {
+	if ir == nil || g == nil {
+		return
+	}
+	for packageIndex := range ir.Packages {
+		packageIR := &ir.Packages[packageIndex]
+		packageNode, ok := g.Package(packageIR.Name)
+		if !ok {
+			continue
+		}
+		for _, target := range packageIR.Targets {
+			toolName := compilerToolPackage(target.Compiler)
+			compilerPath := target.CompilerPath
+			if compilerPath == "" {
+				compilerPath = packageIR.CompilerPath
+			}
+			if toolName == "" || compilerPath != "" {
+				continue
+			}
+			if dependency := selectLifecycleToolDependency(g, packageNode, toolName); dependency != nil {
+				packageNode.LifecycleTools = append(packageNode.LifecycleTools, &LifecycleToolRequirement{
+					Dependency: dependency,
+					From:       fmt.Sprintf("%s:target:%s", packageIR.Name, target.Name),
+					Tool:       toolName,
+				})
+			}
+		}
+		for _, target := range packageIR.TestTargets {
+			for _, toolName := range testHarnessToolPackages(target.Harness) {
+				if dependency := selectLifecycleToolDependency(g, packageNode, toolName); dependency != nil {
+					packageNode.LifecycleTools = append(packageNode.LifecycleTools, &LifecycleToolRequirement{
+						Dependency: dependency,
+						From:       fmt.Sprintf("%s:test:%s", packageIR.Name, target.Name),
+						Tool:       toolName,
+					})
+				}
+			}
+		}
+		sort.SliceStable(packageNode.LifecycleTools, func(i, j int) bool {
+			if packageNode.LifecycleTools[i].From != packageNode.LifecycleTools[j].From {
+				return packageNode.LifecycleTools[i].From < packageNode.LifecycleTools[j].From
+			}
+			return packageNode.LifecycleTools[i].Tool < packageNode.LifecycleTools[j].Tool
+		})
+	}
+}
+
+func compilerToolPackage(compiler string) string {
+	switch compiler {
+	case "rollup":
+		return "rollup"
+	case "tsc":
+		return "typescript"
+	case "perry":
+		return "@perryts/perry"
+	case "scriptc":
+		return "scriptc"
+	default:
+		return ""
+	}
+}
+
+func testHarnessToolPackages(harness string) []string {
+	if harness == "vitest" {
+		return []string{"vite", "vitest"}
+	}
+	return nil
+}
+
+func selectLifecycleToolDependency(g *WorkspaceGraph, owner *PackageNode, toolName string) *DependencyNode {
+	candidates := []*DependencyNode{}
+	for _, packageNode := range g.AllPackages() {
+		for _, dependency := range packageNode.AllDependencies() {
+			if dependency.Kind == DependencyKindTool && dependency.MatchesExternalPackageName(toolName) {
+				candidates = append(candidates, dependency)
+			}
+		}
+	}
+	for _, dependency := range candidates {
+		if dependency.Package == owner {
+			return dependency
+		}
+	}
+	for _, dependency := range candidates {
+		if dependency.Package.Root == "." || dependency.Package.Root == "" {
+			return dependency
+		}
+	}
+	if len(candidates) == 1 {
+		return candidates[0]
+	}
+	return nil
 }
 func (t *TargetNode) AllowedRuntimeDependencies() []*DependencyNode {
 	return append([]*DependencyNode(nil), t.RuntimeDeps...)

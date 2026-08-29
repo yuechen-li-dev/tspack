@@ -238,6 +238,27 @@ func TestOptionalPeerFailureIsVisibleButNonFatal(t *testing.T) {
 	assertRequirementStatus(t, result.Lock, SourceNPM, "missing-peer", "^1", "optional-unsatisfied", true)
 }
 
+func TestOptionalPeerDoesNotCreateEnvironmentSelectionWhenAvailable(t *testing.T) {
+	client := newRegistryFixture()
+	addRegistryFixture(client, "widget", "1.0.0", nil)
+	addRegistryFixture(client, "optional-peer", "1.2.0", nil)
+	setFixturePeers(client, "widget", "1.0.0", map[string]string{"optional-peer": "^1"}, map[string]bool{"optional-peer": true})
+	dependency := manifest.DependencyIntent{Key: "widget", Kind: "dep", Source: manifest.Source{Kind: SourceNPM, Package: "widget", Range: "1.0.0"}}
+	result := Resolve(context.Background(), ResolverOptions{
+		Mode:     ResolveModeUpdate,
+		Backends: BackendRegistry{SourceNPM: NewNPMBackend(client)},
+	}, ResolveRequest{Graph: graphForDeps([]manifest.DependencyIntent{dependency}, nil, []string{"widget"})})
+	if hasErrorDiagnostics(result.Diagnostics) {
+		t.Fatalf("optional peer was fatal: %#v", result.Diagnostics)
+	}
+	for _, pkg := range result.Lock.Packages {
+		if pkg.ID == "npm:optional-peer@1.2.0" {
+			t.Fatalf("optional peer should not be auto-installed: %#v", result.Lock.Packages)
+		}
+	}
+	assertRequirementStatus(t, result.Lock, SourceNPM, "optional-peer", "^1", "optional-unsatisfied", true)
+}
+
 func TestRegistryAliasSeparatesReferenceFromSemanticTarget(t *testing.T) {
 	client := newRegistryFixture()
 	addRegistryFixture(client, "parent", "1.0.0", map[string]string{"foo": "npm:bar@^2"})

@@ -321,6 +321,17 @@ func TestRootBinMaterializationAndStrictness(t *testing.T) {
 	}
 }
 
+func TestCollectRootEdgesIncludesNativeTestToolRequirements(t *testing.T) {
+	edges := []lockfile.Edge{
+		{From: "app:test:unit", To: "npm:vitest@4.0.0", Kind: "tool"},
+		{From: "npm:parent@1.0.0", To: "npm:transitive@1.0.0", Kind: "runtime"},
+	}
+	rootEdges := collectRootEdges(edges)
+	if len(rootEdges) != 1 || rootEdges[0].From != "app:test:unit" {
+		t.Fatalf("root edges=%#v", rootEdges)
+	}
+}
+
 func TestBiomeStyleBinMaterializationAndStrictness(t *testing.T) {
 	ws := t.TempDir()
 	s, _ := store.Open(t.TempDir())

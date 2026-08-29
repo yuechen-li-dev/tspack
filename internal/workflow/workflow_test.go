@@ -56,6 +56,39 @@ func TestBuildPlanExpandsMatrixDeterministicallyAndConnectsAllNeeds(t *testing.T
 	}
 }
 
+func TestBuildPlanPreservesNativeTestTargetSelection(t *testing.T) {
+	declaration := manifest.Workflow{
+		Identity: "CI",
+		Jobs: []manifest.WorkflowJob{{
+			Identity: "test",
+			Steps: []manifest.WorkflowStep{{
+				Operation: "test",
+				Packages:  []string{"@acme/unit"},
+				Target:    "threads",
+			}},
+		}},
+	}
+
+	plan := BuildPlan(declaration)
+	step := plan.Jobs[0].Steps[0]
+	if len(step.Packages) != 1 || step.Packages[0] != "@acme/unit" || step.Target != "threads" {
+		t.Fatalf("test selection was not preserved: %+v", step)
+	}
+}
+
+func TestWorkflowTestPackageRequiresOnePackageWithTarget(t *testing.T) {
+	packageName, err := workflowTestPackage([]string{"@acme/unit"}, "threads")
+	if err != nil || packageName != "@acme/unit" {
+		t.Fatalf("package=%q err=%v", packageName, err)
+	}
+	if _, err := workflowTestPackage([]string{"@acme/unit"}, ""); err == nil {
+		t.Fatal("expected package-only selection to fail")
+	}
+	if _, err := workflowTestPackage(nil, "threads"); err == nil {
+		t.Fatal("expected target-only selection to fail")
+	}
+}
+
 type structuredLifecycleOperations struct{}
 
 func (structuredLifecycleOperations) Run(context.Context, string, []string) ([]diag.Diagnostic, error) {

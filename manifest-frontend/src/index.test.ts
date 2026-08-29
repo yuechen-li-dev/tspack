@@ -470,7 +470,7 @@ describe('workflow declarations', () => {
                 steps: [
                   Sync(),
                   Check(),
-                  Test({ filter: "unit" }),
+                  Test({ packages: ["app"], target: "unit", filter: "focused" }),
                   Build({ packages: ["app"], targets: ["browser"] }),
                   Audit({ auditLevel: "high", requireCoverage: true }),
                   Process("verify", {
@@ -505,7 +505,12 @@ describe('workflow declarations', () => {
             steps: expect.arrayContaining([
               expect.objectContaining({ operation: 'sync' }),
               expect.objectContaining({ operation: 'check' }),
-              expect.objectContaining({ operation: 'test', filter: 'unit' }),
+              expect.objectContaining({
+                operation: 'test',
+                packages: ['app'],
+                target: 'unit',
+                filter: 'focused',
+              }),
               expect.objectContaining({ operation: 'build', packages: ['app'], targets: ['browser'] }),
               expect.objectContaining({ operation: 'audit', auditLevel: 'high', requireCoverage: true }),
               expect.objectContaining({ operation: 'process', command: ['node', '--version'] }),

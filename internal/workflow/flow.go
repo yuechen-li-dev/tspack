@@ -963,6 +963,7 @@ func planStepFromManifest(step manifest.WorkflowStep, ordinal int, prefix string
 		Operation:       step.Operation,
 		Packages:        sortedCopy(step.Packages),
 		Targets:         sortedCopy(step.Targets),
+		Target:          step.Target,
 		Filter:          step.Filter,
 		AuditLevel:      step.AuditLevel,
 		RequireCoverage: step.RequireCoverage,

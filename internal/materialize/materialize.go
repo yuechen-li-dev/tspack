@@ -226,6 +226,7 @@ func collectRootEdges(edges []lockfile.Edge) []lockfile.Edge {
 	var out []lockfile.Edge
 	for _, e := range edges {
 		if strings.Contains(e.From, ":target:") ||
+			strings.Contains(e.From, ":test:") ||
 			strings.HasSuffix(e.From, ":dependency") ||
 			strings.HasSuffix(e.From, ":tool") ||
 			strings.HasPrefix(e.From, "workspace:peer:") {
