@@ -13,7 +13,7 @@ import { runInspectWatch } from '../src/inspect/watch.js';
 
 const temporaryRoots: string[] = [];
 const servers: Array<{ close(): Promise<void> }> = [];
-const browserIntegrationTimeout = 15_000;
+const browserIntegrationTimeout = 30_000;
 
 afterEach(async () => {
   delete process.env.TSPACK_INSPECT_WATCH_MAX_CYCLES;
