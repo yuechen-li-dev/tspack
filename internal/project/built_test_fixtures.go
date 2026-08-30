@@ -117,6 +117,7 @@ type builtFixtureMarker struct {
 type builtFixtureFile struct {
 	Path        string `json:"path"`
 	ContentHash string `json:"contentHash"`
+	Executable  bool   `json:"executable,omitempty"`
 }
 
 func realizeBuiltTestFixtures(
@@ -225,7 +226,11 @@ func realizeBuiltTestFixture(
 		if _, exists := sources[relative]; exists {
 			return result, []diag.Diagnostic{builtFixtureDiagnostic("TSPACK_TEST_BUILT_FIXTURE_ARTIFACT_COLLISION", "composed artifact members select the same fixture path", result)}
 		}
-		files = append(files, builtFixtureFile{Path: relative, ContentHash: hash})
+		files = append(files, builtFixtureFile{
+			Path:        relative,
+			ContentHash: hash,
+			Executable:  info.Mode().Perm()&0o111 != 0,
+		})
 		sources[relative] = artifact.Path
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
@@ -420,8 +425,13 @@ func builtFixtureMatches(destination string, expected builtFixtureMarker) bool {
 		return false
 	}
 	for _, file := range expected.Files {
-		hash, err := hashFile(filepath.Join(destination, filepath.FromSlash(file.Path)))
+		path := filepath.Join(destination, filepath.FromSlash(file.Path))
+		hash, err := hashFile(path)
 		if err != nil || hash != file.ContentHash {
+			return false
+		}
+		info, err := os.Stat(path)
+		if err != nil || (info.Mode().Perm()&0o111 != 0) != file.Executable {
 			return false
 		}
 	}
@@ -578,7 +588,12 @@ func copyRegularFile(source string, destination string) error {
 		return err
 	}
 	defer input.Close()
-	output, err := os.OpenFile(destination, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	inputInfo, err := input.Stat()
+	if err != nil {
+		return err
+	}
+	mode := copiedRegularFileMode(inputInfo.Mode())
+	output, err := os.OpenFile(destination, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
 	if err != nil {
 		return err
 	}
@@ -587,7 +602,17 @@ func copyRegularFile(source string, destination string) error {
 	if copyErr != nil {
 		return copyErr
 	}
-	return closeErr
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Chmod(destination, mode)
+}
+
+func copiedRegularFileMode(sourceMode os.FileMode) os.FileMode {
+	if sourceMode.Perm()&0o111 != 0 {
+		return 0o755
+	}
+	return 0o644
 }
 
 func builtFixtureDiagnostic(code string, message string, fixture BuiltFixtureResult) diag.Diagnostic {

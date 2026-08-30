@@ -69,6 +69,18 @@ func TestRealizeBuiltTestFixtureUsesQualifiedBuildResultAndReusesVerifiedProject
 	}
 }
 
+func TestCopiedRegularFileModePreservesExecutableSemantics(t *testing.T) {
+	if got := copiedRegularFileMode(0o644); got != 0o644 {
+		t.Fatalf("non-executable mode=%#o", got)
+	}
+	if got := copiedRegularFileMode(0o755); got != 0o755 {
+		t.Fatalf("executable mode=%#o", got)
+	}
+	if got := copiedRegularFileMode(0o711); got != 0o755 {
+		t.Fatalf("normalized executable mode=%#o", got)
+	}
+}
+
 func TestRealizeBuiltTestFixtureReplacesOnlyAuthoritativeModuleInstanceProjection(t *testing.T) {
 	root := t.TempDir()
 	producerRoot := filepath.Join(root, "packages", "runtime")
