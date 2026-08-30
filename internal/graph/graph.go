@@ -378,6 +378,8 @@ func compilerToolPackage(compiler string) string {
 	switch compiler {
 	case "rollup":
 		return "rollup"
+	case "vite":
+		return "vite"
 	case "tsc":
 		return "typescript"
 	case "perry":

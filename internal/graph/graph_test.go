@@ -175,6 +175,7 @@ func TestBuildInfersLifecycleToolRequirementsFromAuthoredDependencies(t *testing
 			Kind:    "app",
 			Dependencies: []manifest.DependencyIntent{
 				{Key: "rollup", Kind: "tool", Source: manifest.Source{Kind: "npm", Package: "rollup", Range: "^4.0.0"}},
+				{Key: "vite", Kind: "tool", Source: manifest.Source{Kind: "npm", Package: "vite", Range: "^8.0.0"}},
 			},
 		},
 		{
@@ -185,7 +186,7 @@ func TestBuildInfersLifecycleToolRequirementsFromAuthoredDependencies(t *testing
 			Dependencies: []manifest.DependencyIntent{
 				{Key: "vitest", Kind: "tool", Source: manifest.Source{Kind: "npm", Package: "vitest", Range: "^4.0.0"}},
 			},
-			Targets:     []manifest.Target{{Name: "package", Compiler: "rollup", Export: "."}},
+			Targets:     []manifest.Target{{Name: "package", Compiler: "rollup", Export: "."}, {Name: "client", Compiler: "vite", Export: "./client"}},
 			TestTargets: []manifest.TestTarget{{Name: "unit", Harness: "vitest", Sources: []string{"test/unit.test.ts"}}},
 		},
 	}}
@@ -195,14 +196,20 @@ func TestBuildInfersLifecycleToolRequirementsFromAuthoredDependencies(t *testing
 	}
 	lib, _ := g.Package("lib")
 	requirements := lib.LifecycleToolDependencies()
-	if len(requirements) != 2 {
+	if len(requirements) != 4 {
 		t.Fatalf("lifecycle tools=%#v", requirements)
 	}
-	if requirements[0].From != "lib:target:package" || requirements[0].Dependency.Package.Name != "root" || requirements[0].Tool != "rollup" {
+	if requirements[0].From != "lib:target:client" || requirements[0].Dependency.Package.Name != "root" || requirements[0].Tool != "vite" {
 		t.Fatalf("build tool requirement=%#v", requirements[0])
 	}
-	if requirements[1].From != "lib:test:unit" || requirements[1].Dependency.Package.Name != "lib" || requirements[1].Tool != "vitest" {
-		t.Fatalf("test tool requirement=%#v", requirements[1])
+	if requirements[1].From != "lib:target:package" || requirements[1].Dependency.Package.Name != "root" || requirements[1].Tool != "rollup" {
+		t.Fatalf("Rollup build tool requirement=%#v", requirements[1])
+	}
+	if requirements[2].From != "lib:test:unit" || requirements[2].Dependency.Package.Name != "root" || requirements[2].Tool != "vite" {
+		t.Fatalf("test tool requirement=%#v", requirements[2])
+	}
+	if requirements[3].From != "lib:test:unit" || requirements[3].Dependency.Package.Name != "lib" || requirements[3].Tool != "vitest" {
+		t.Fatalf("test tool requirement=%#v", requirements[3])
 	}
 }
 

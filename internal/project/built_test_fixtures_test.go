@@ -12,8 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yuechen-li-dev/tspack/internal/authoring"
 	"github.com/yuechen-li-dev/tspack/internal/diag"
+	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/materialize"
 )
 
 func TestRealizeBuiltTestFixtureUsesQualifiedBuildResultAndReusesVerifiedProjection(t *testing.T) {
@@ -66,6 +69,64 @@ func TestRealizeBuiltTestFixtureUsesQualifiedBuildResultAndReusesVerifiedProject
 	}
 }
 
+func TestRealizeBuiltTestFixtureReplacesOnlyAuthoritativeModuleInstanceProjection(t *testing.T) {
+	root := t.TempDir()
+	producerRoot := filepath.Join(root, "packages", "runtime")
+	consumerRoot := filepath.Join(root, "tests")
+	artifactPath := filepath.Join(producerRoot, "dist", "index.js")
+	writeBuiltFixtureFile(t, filepath.Join(producerRoot, "package.json"), `{"name":"@demo/runtime","type":"module","exports":"./dist/index.js"}`)
+	writeBuiltFixtureFile(t, artifactPath, "export const value = 42\n")
+	hash := testFileHash(t, artifactPath)
+	instanceID := "npm:@demo/runtime@1.0.0#peers=none"
+	digest := sha256.Sum256([]byte(instanceID))
+	instancePackage := filepath.Join(root, "node_modules", ".tspack-instances", hex.EncodeToString(digest[:]), "node_modules", "@demo", "runtime")
+	writeBuiltFixtureFile(t, filepath.Join(instancePackage, "package.json"), `{"name":"@demo/runtime","version":"1.0.0"}`)
+	destination := filepath.Join(consumerRoot, "node_modules", "@demo", "runtime")
+	if err := materialize.LinkPackageDirectory(instancePackage, destination); err != nil {
+		t.Fatal(err)
+	}
+	authoritativeLock := &lockfile.Lockfile{
+		Packages: []lockfile.Package{{ID: "npm:@demo/runtime@1.0.0", Name: "@demo/runtime"}},
+		Instances: []lockfile.ModuleInstance{{
+			ID:        instanceID,
+			PackageID: "npm:@demo/runtime@1.0.0",
+		}},
+		RootInstances: []lockfile.RootModuleInstance{{
+			From:       "tests:test:unit",
+			Reference:  "@demo/runtime",
+			Kind:       "tool",
+			InstanceID: instanceID,
+		}},
+	}
+	ir := builtFixtureTestManifest()
+	results, diagnostics := realizeBuiltTestFixtures(
+		root,
+		ir,
+		&ir.Packages[1],
+		&ir.Packages[1].TestTargets[0],
+		[]BuildTargetResult{{
+			Package:   "@demo/runtime",
+			Target:    "package",
+			Succeeded: true,
+			Artifacts: []BuildArtifact{{
+				Package:     "@demo/runtime",
+				Target:      "package",
+				Path:        artifactPath,
+				Identity:    "@demo/runtime:package:runtime",
+				ContentHash: hash,
+			}},
+		}},
+		NewBuildCoordinator(),
+		authoritativeLock,
+	)
+	if len(diagnostics) != 0 || len(results) != 1 {
+		t.Fatalf("results=%+v diagnostics=%v", results, diagnostics)
+	}
+	if !ownedBuiltFixture(destination) {
+		t.Fatalf("expected authoritative projection to be replaced by a marked built fixture")
+	}
+}
+
 func TestRealizeBuiltTestFixtureComposesNamedArtifactSetsAtomically(t *testing.T) {
 	root := t.TempDir()
 	producerRoot := filepath.Join(root, "packages", "runtime")
@@ -110,6 +171,54 @@ func TestRealizeBuiltTestFixtureComposesNamedArtifactSetsAtomically(t *testing.T
 		if _, err := os.Stat(filepath.Join(consumerRoot, "node_modules", "@demo", "runtime", relative)); err != nil {
 			t.Fatalf("missing composed fixture file %s: %v", relative, err)
 		}
+	}
+}
+
+func TestRealizeBuiltTestFixtureProjectsRegistryRuntimeDependencies(t *testing.T) {
+	root := t.TempDir()
+	producerRoot := filepath.Join(root, "packages", "runtime")
+	artifactPath := filepath.Join(producerRoot, "dist", "index.js")
+	writeBuiltFixtureFile(t, filepath.Join(producerRoot, "package.json"), `{"name":"@demo/runtime","type":"module"}`)
+	writeBuiltFixtureFile(t, artifactPath, "export { value } from 'helper'\n")
+	instancePackage := filepath.Join(root, "node_modules", ".tspack-instances", "helper-instance", "node_modules", "helper")
+	writeBuiltFixtureFile(t, filepath.Join(instancePackage, "package.json"), `{"name":"helper","type":"module"}`)
+	writeBuiltFixtureFile(t, filepath.Join(instancePackage, "index.js"), "export const value = 42\n")
+	producerDependency := filepath.Join(producerRoot, "node_modules", "helper")
+	if err := materialize.LinkPackageDirectory(instancePackage, producerDependency); err != nil {
+		t.Fatal(err)
+	}
+	ir := builtFixtureTestManifest()
+	ir.Packages[0].Dependencies = []manifest.DependencyIntent{{
+		Kind:   "dep",
+		Source: authoring.PackageSource{Kind: "npm", Name: "helper", Range: "1.0.0"},
+	}}
+	ir.Packages[0].Targets[0].Deps = []string{"helper"}
+	buildResults := []BuildTargetResult{{
+		Package: "@demo/runtime", Target: "package", Succeeded: true,
+		Artifacts: []BuildArtifact{{
+			Package: "@demo/runtime", Target: "package", Kind: "javaScript", Path: artifactPath,
+			Identity: "@demo/runtime:package:runtime", ContentHash: testFileHash(t, artifactPath),
+		}},
+	}}
+
+	results, diagnostics := realizeBuiltTestFixtures(root, ir, &ir.Packages[1], &ir.Packages[1].TestTargets[0], buildResults, NewBuildCoordinator())
+	if len(diagnostics) != 0 || len(results) != 1 {
+		t.Fatalf("results=%+v diagnostics=%v", results, diagnostics)
+	}
+	dependency := filepath.Join(root, "tests", "node_modules", "@demo", "runtime", "node_modules", "helper", "index.js")
+	if contents, err := os.ReadFile(dependency); err != nil || string(contents) != "export const value = 42\n" {
+		t.Fatalf("runtime dependency contents=%q err=%v", contents, err)
+	}
+	dependencyInfo, err := os.Stat(filepath.Dir(dependency))
+	if err != nil {
+		t.Fatal(err)
+	}
+	instanceInfo, err := os.Stat(instancePackage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(dependencyInfo, instanceInfo) {
+		t.Fatalf("runtime dependency does not project the exact module instance")
 	}
 }
 

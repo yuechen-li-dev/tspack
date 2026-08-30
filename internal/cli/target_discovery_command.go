@@ -94,6 +94,16 @@ func runPackageInspectCommand(args []string) {
 				patchSummary = pkg.Patch.Path + " " + pkg.Patch.SHA256 + " " + pkg.Patch.Algorithm
 			}
 			fmt.Fprintf(writer, "%s@%s\t%s\t%s\t%s\n", pkg.Name, pkg.Version, pkg.SourceID, pkg.RealizationID, patchSummary)
+			for _, instance := range pkg.Instances {
+				fmt.Fprintf(writer, "  instance\t%s\t%s\t-\n", instance.ID, instance.PeerContextID)
+				for _, peer := range instance.Peers {
+					peerIdentity := peer.State
+					if peer.RealizationID != "" {
+						peerIdentity = peer.RealizationID
+					}
+					fmt.Fprintf(writer, "    peer %s\t%s:%s\t%s\t-\n", peer.Reference, peer.Source, peer.Name, peerIdentity)
+				}
+			}
 		}
 		_ = writer.Flush()
 	}

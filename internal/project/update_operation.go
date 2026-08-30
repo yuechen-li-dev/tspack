@@ -65,6 +65,15 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 			out = append(out, errDiag("TSPACK_UPDATE_RESOLVE_FAILED", "failed to read existing lockfile", e.Error()))
 			return Result{Diagnostics: out}
 		}
+		if hasModuleInstanceValidationDiagnostics(d) {
+			// Module instances are derived from the authoritative package, edge, and
+			// requirement records. Rebuild them before accepting validation results so
+			// an update can migrate locks written by an earlier instance algorithm.
+			lockfile.RebuildModuleInstances(lf)
+			if encoded, encodeErr := lockfile.Marshal(lf); encodeErr == nil {
+				lf, d = lockfile.Parse(opts.LockfilePath, encoded)
+			}
+		}
 		out = append(out, d...)
 		old = lf
 	}
@@ -175,6 +184,9 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 	if !hasErrors(out) {
 		out = append(out, applyDeclaredPatches(opts.RootDir, g, res.Lock, old)...)
 	}
+	if !hasErrors(out) {
+		lockfile.RebuildModuleInstances(res.Lock)
+	}
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
 	}
@@ -245,10 +257,25 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 	return Result{Diagnostics: out, LockDiff: &d, UpdateTarget: targetResult}
 }
 
+func hasModuleInstanceValidationDiagnostics(diagnostics []diag.Diagnostic) bool {
+	if len(diagnostics) == 0 {
+		return false
+	}
+	for _, diagnostic := range diagnostics {
+		if !strings.Contains(diagnostic.Code, "MODULE_INSTANCE") && !strings.Contains(diagnostic.Code, "PEER_BINDING") {
+			return false
+		}
+	}
+	return true
+}
+
 func lockDiffHasPackageChanges(diff lockfile.Diff) bool {
 	return len(diff.PackagesAdded) > 0 ||
 		len(diff.PackagesRemoved) > 0 ||
-		len(diff.PackagesChanged) > 0
+		len(diff.PackagesChanged) > 0 ||
+		len(diff.InstancesAdded) > 0 ||
+		len(diff.InstancesRemoved) > 0 ||
+		len(diff.InstancesChanged) > 0
 }
 
 func lockDiffHasRequirementChanges(diff lockfile.Diff) bool {

@@ -359,6 +359,25 @@ func RunTest(ctx context.Context, request TestRequest) TestOperationResult {
 			}
 		}
 		var builtFixtureDiagnostics []diag.Diagnostic
+		var authoritativeLock *lockfile.Lockfile
+		lockPath := request.Project.LockfilePath
+		if lockPath == "" {
+			lockPath = filepath.Join(request.Project.RootDir, "ts-lock.toml")
+		}
+		if _, statErr := os.Stat(lockPath); statErr == nil {
+			loadedLock, lockDiagnostics, lockErr := lockfile.LoadFile(lockPath)
+			if lockErr != nil || hasErrors(lockDiagnostics) {
+				if lockErr != nil {
+					lockDiagnostics = append(lockDiagnostics, errDiag("TSPACK_TEST_LOCKFILE_FAILED", "failed to load the authoritative lockfile: "+lockErr.Error()))
+				}
+				return TestOperationResult{
+					Diagnostics:   lockDiagnostics,
+					ExitCode:      1,
+					Prerequisites: prerequisiteResults,
+				}
+			}
+			authoritativeLock = loadedLock
+		}
 		builtFixtures, builtFixtureDiagnostics = realizeBuiltTestFixtures(
 			request.Project.RootDir,
 			ir,
@@ -366,6 +385,7 @@ func RunTest(ctx context.Context, request TestRequest) TestOperationResult {
 			target,
 			prerequisiteResults,
 			coordinator,
+			authoritativeLock,
 		)
 		if len(builtFixtureDiagnostics) > 0 {
 			return TestOperationResult{

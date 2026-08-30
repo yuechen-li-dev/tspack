@@ -50,6 +50,26 @@ func TestTapeLaterEntryWinsWithinLayerWithoutInputTraversalPolicy(t *testing.T) 
 	}
 }
 
+func TestTapeRequiredPeerControlsLaterOptionalPeer(t *testing.T) {
+	identity := packageidentity.PackageIdentity{Source: "npm", Name: "rolldown"}
+	tape := Build([]PackageRequirement{
+		{ID: "required-plugin", Target: identity, Constraint: "^1.0.0-rc.5", Kind: KindPeer, Order: 10},
+		{ID: "optional-adapter", Target: identity, Constraint: "*", Kind: KindPeer, Optional: true, Order: 20},
+	})
+	controllers := tape.Controllers()
+	if len(controllers) != 1 || controllers[0].ID != "required-plugin" {
+		t.Fatalf("controller=%#v, want required peer", controllers)
+	}
+	classified := tape.Classify(map[string]string{"workspace|npm:rolldown": "1.0.0-rc.18"})
+	statuses := map[string]Status{}
+	for _, entry := range classified.Entries {
+		statuses[entry.Requirement.ID] = entry.Status
+	}
+	if statuses["required-plugin"] != StatusControlling || statuses["optional-adapter"] != StatusOptionalUnsatisfied {
+		t.Fatalf("statuses=%#v", statuses)
+	}
+}
+
 func TestTapeKeepsSourcesInDistinctSlots(t *testing.T) {
 	tape := Build([]PackageRequirement{
 		{ID: "npm", Target: packageidentity.PackageIdentity{Source: "npm", Name: "foo"}, Constraint: "1.0.0", Kind: KindPeer},

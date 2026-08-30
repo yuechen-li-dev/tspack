@@ -9,6 +9,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/graph"
+	"github.com/yuechen-li-dev/tspack/internal/packageidentity"
 	"github.com/yuechen-li-dev/tspack/internal/pathutil"
 )
 
@@ -18,11 +19,44 @@ const (
 )
 
 type Lockfile struct {
-	Lock         LockHeader    `toml:"lock"`
-	Packages     []Package     `toml:"package,omitempty"`
-	Edges        []Edge        `toml:"edge,omitempty"`
-	Requirements []Requirement `toml:"requirement,omitempty"`
-	Targets      []Target      `toml:"target,omitempty"`
+	Lock          LockHeader           `toml:"lock"`
+	Packages      []Package            `toml:"package,omitempty"`
+	Instances     []ModuleInstance     `toml:"module_instance,omitempty"`
+	RootInstances []RootModuleInstance `toml:"root_module_instance,omitempty"`
+	Edges         []Edge               `toml:"edge,omitempty"`
+	Requirements  []Requirement        `toml:"requirement,omitempty"`
+	Targets       []Target             `toml:"target,omitempty"`
+}
+
+type ModuleInstance struct {
+	ID            string               `toml:"ID" json:"id"`
+	PackageID     string               `toml:"PackageID" json:"packageId"`
+	PeerContextID string               `toml:"PeerContextID" json:"peerContextId"`
+	Peers         []PeerBinding        `toml:"peer,omitempty" json:"peers,omitempty"`
+	Dependencies  []InstanceDependency `toml:"dependency,omitempty" json:"dependencies,omitempty"`
+}
+
+type InstanceDependency struct {
+	Reference  string `toml:"Reference" json:"reference"`
+	Kind       string `toml:"Kind" json:"kind"`
+	InstanceID string `toml:"InstanceID" json:"instanceId"`
+}
+
+type RootModuleInstance struct {
+	From       string `toml:"From" json:"from"`
+	Reference  string `toml:"Reference" json:"reference"`
+	Kind       string `toml:"Kind" json:"kind"`
+	InstanceID string `toml:"InstanceID" json:"instanceId"`
+}
+
+type PeerBinding struct {
+	Reference     string `toml:"Reference" json:"reference"`
+	Source        string `toml:"Source" json:"source"`
+	Name          string `toml:"Name" json:"name"`
+	RealizationID string `toml:"RealizationID,omitempty" json:"realizationIdentity,omitempty"`
+	InstanceID    string `toml:"InstanceID,omitempty" json:"moduleInstanceIdentity,omitempty"`
+	State         string `toml:"State" json:"state"`
+	Optional      bool   `toml:"Optional,omitempty" json:"optional,omitempty"`
 }
 type LockHeader struct {
 	Format            int    `toml:"format"`
@@ -74,6 +108,8 @@ type RequirementCheckResult struct{ Diagnostics []diag.Diagnostic }
 type Diff struct {
 	PackagesAdded, PackagesRemoved         []Package
 	PackagesChanged                        []PackageChange
+	InstancesAdded, InstancesRemoved       []ModuleInstance
+	InstancesChanged                       []ModuleInstanceChange
 	RequirementsAdded, RequirementsRemoved []Requirement
 	RequirementsChanged                    []RequirementChange
 	EdgesAdded, EdgesRemoved               []Edge
@@ -81,6 +117,7 @@ type Diff struct {
 	TargetsChanged                         []TargetChange
 }
 type PackageChange struct{ Old, New Package }
+type ModuleInstanceChange struct{ Old, New ModuleInstance }
 type RequirementChange struct{ Old, New Requirement }
 type TargetChange struct{ Old, New Target }
 
@@ -296,6 +333,27 @@ func DiffLockfiles(old, next *Lockfile) Diff {
 			d.PackagesRemoved = append(d.PackagesRemoved, p)
 		}
 	}
+	omInstances := map[string]ModuleInstance{}
+	nmInstances := map[string]ModuleInstance{}
+	for _, instance := range o.Instances {
+		omInstances[instance.ID] = instance
+	}
+	for _, instance := range n.Instances {
+		nmInstances[instance.ID] = instance
+	}
+	for id, instance := range nmInstances {
+		previous, exists := omInstances[id]
+		if !exists {
+			d.InstancesAdded = append(d.InstancesAdded, instance)
+		} else if !reflect.DeepEqual(previous, instance) {
+			d.InstancesChanged = append(d.InstancesChanged, ModuleInstanceChange{Old: previous, New: instance})
+		}
+	}
+	for id, instance := range omInstances {
+		if _, exists := nmInstances[id]; !exists {
+			d.InstancesRemoved = append(d.InstancesRemoved, instance)
+		}
+	}
 	omRequirements := map[string]Requirement{}
 	nmRequirements := map[string]Requirement{}
 	for _, requirement := range o.Requirements {
@@ -360,6 +418,9 @@ func DiffLockfiles(old, next *Lockfile) Diff {
 	sort.SliceStable(d.PackagesAdded, func(i, j int) bool { return d.PackagesAdded[i].ID < d.PackagesAdded[j].ID })
 	sort.SliceStable(d.PackagesRemoved, func(i, j int) bool { return d.PackagesRemoved[i].ID < d.PackagesRemoved[j].ID })
 	sort.SliceStable(d.PackagesChanged, func(i, j int) bool { return d.PackagesChanged[i].Old.ID < d.PackagesChanged[j].Old.ID })
+	sort.SliceStable(d.InstancesAdded, func(i, j int) bool { return d.InstancesAdded[i].ID < d.InstancesAdded[j].ID })
+	sort.SliceStable(d.InstancesRemoved, func(i, j int) bool { return d.InstancesRemoved[i].ID < d.InstancesRemoved[j].ID })
+	sort.SliceStable(d.InstancesChanged, func(i, j int) bool { return d.InstancesChanged[i].Old.ID < d.InstancesChanged[j].Old.ID })
 	sort.SliceStable(d.RequirementsAdded, func(i, j int) bool { return d.RequirementsAdded[i].ID < d.RequirementsAdded[j].ID })
 	sort.SliceStable(d.RequirementsRemoved, func(i, j int) bool { return d.RequirementsRemoved[i].ID < d.RequirementsRemoved[j].ID })
 	sort.SliceStable(d.RequirementsChanged, func(i, j int) bool { return d.RequirementsChanged[i].Old.ID < d.RequirementsChanged[j].Old.ID })
@@ -437,6 +498,36 @@ func validate(file string, lf *Lockfile) []diag.Diagnostic {
 			}
 		default:
 			out = append(out, errD("TSPACK_LOCK_INVALID_SOURCE", "invalid package source", p.Source, p.ID))
+		}
+	}
+	seenInstances := map[string]struct{}{}
+	for _, instance := range lf.Instances {
+		if instance.ID == "" || instance.PackageID == "" || instance.PeerContextID == "" {
+			out = append(out, errD("TSPACK_LOCK_INVALID_MODULE_INSTANCE", "module instance requires id, package realization, and peer context identity", instance.ID))
+			continue
+		}
+		if _, ok := ids[instance.PackageID]; !ok {
+			out = append(out, errD("TSPACK_LOCK_MODULE_INSTANCE_UNKNOWN_PACKAGE", "module instance refers to an unknown package realization", instance.ID, instance.PackageID))
+		}
+		if _, exists := seenInstances[instance.ID]; exists {
+			out = append(out, errD("TSPACK_LOCK_DUPLICATE_MODULE_INSTANCE", "duplicate module instance identity", instance.ID))
+		}
+		seenInstances[instance.ID] = struct{}{}
+		bindings := make([]packageidentity.PeerBinding, 0, len(instance.Peers))
+		for _, peer := range instance.Peers {
+			bindings = append(bindings, packageidentity.PeerBinding{Reference: peer.Reference, Source: peer.Source, Name: peer.Name, RealizationID: peer.RealizationID, Optional: peer.Optional, State: peer.State})
+			if peer.Reference == "" || peer.Source == "" || peer.Name == "" || (peer.State != packageidentity.PeerBindingPresent && peer.State != packageidentity.PeerBindingAbsent) {
+				out = append(out, errD("TSPACK_LOCK_INVALID_PEER_BINDING", "module-instance peer binding is incomplete", instance.ID, peer.Reference))
+			}
+			if peer.State == packageidentity.PeerBindingPresent {
+				if _, ok := ids[peer.RealizationID]; !ok {
+					out = append(out, errD("TSPACK_LOCK_PEER_BINDING_UNKNOWN_PACKAGE", "present peer binding refers to an unknown realization", instance.ID, peer.RealizationID))
+				}
+			}
+		}
+		expected := packageidentity.NewModuleInstance(instance.PackageID, bindings)
+		if expected.ID != instance.ID || expected.PeerContext.ID != instance.PeerContextID {
+			out = append(out, errD("TSPACK_LOCK_MODULE_INSTANCE_IDENTITY_MISMATCH", "module instance identity does not match its realization and canonical peer context", instance.ID, "expected: "+expected.ID))
 		}
 	}
 	seenE := map[string]struct{}{}
@@ -519,6 +610,8 @@ func normalize(lf *Lockfile) *Lockfile {
 	}
 	n := *lf
 	n.Packages = append([]Package(nil), lf.Packages...)
+	n.Instances = append([]ModuleInstance(nil), lf.Instances...)
+	n.RootInstances = append([]RootModuleInstance(nil), lf.RootInstances...)
 	n.Edges = append([]Edge(nil), lf.Edges...)
 	n.Requirements = append([]Requirement(nil), lf.Requirements...)
 	n.Targets = append([]Target(nil), lf.Targets...)
@@ -545,7 +638,25 @@ func normalize(lf *Lockfile) *Lockfile {
 			return x.Command < y.Command
 		})
 	}
+	for index := range n.Instances {
+		n.Instances[index].Peers = append([]PeerBinding(nil), n.Instances[index].Peers...)
+		n.Instances[index].Dependencies = append([]InstanceDependency(nil), n.Instances[index].Dependencies...)
+		sort.SliceStable(n.Instances[index].Peers, func(left, right int) bool {
+			return peerBindingSortKey(n.Instances[index].Peers[left]) < peerBindingSortKey(n.Instances[index].Peers[right])
+		})
+		sort.SliceStable(n.Instances[index].Dependencies, func(left, right int) bool {
+			leftDependency := n.Instances[index].Dependencies[left]
+			rightDependency := n.Instances[index].Dependencies[right]
+			return leftDependency.Reference+"\x00"+leftDependency.Kind+"\x00"+leftDependency.InstanceID < rightDependency.Reference+"\x00"+rightDependency.Kind+"\x00"+rightDependency.InstanceID
+		})
+	}
 	sort.SliceStable(n.Packages, func(i, j int) bool { return n.Packages[i].ID < n.Packages[j].ID })
+	sort.SliceStable(n.Instances, func(i, j int) bool { return n.Instances[i].ID < n.Instances[j].ID })
+	sort.SliceStable(n.RootInstances, func(i, j int) bool {
+		left := n.RootInstances[i]
+		right := n.RootInstances[j]
+		return left.From+"\x00"+left.Reference+"\x00"+left.Kind+"\x00"+left.InstanceID < right.From+"\x00"+right.Reference+"\x00"+right.Kind+"\x00"+right.InstanceID
+	})
 	sort.SliceStable(n.Edges, func(i, j int) bool {
 		a, b := n.Edges[i], n.Edges[j]
 		if a.From != b.From {
@@ -586,6 +697,10 @@ func normalize(lf *Lockfile) *Lockfile {
 		return a.Name < b.Name
 	})
 	return &n
+}
+
+func peerBindingSortKey(binding PeerBinding) string {
+	return binding.Reference + "\x00" + binding.Source + "\x00" + binding.Name + "\x00" + binding.State + "\x00" + binding.RealizationID + "\x00" + binding.InstanceID + "\x00" + boolStr(binding.Optional)
 }
 func errD(c, m string, details ...string) diag.Diagnostic {
 	return diag.Diagnostic{Code: c, Severity: diag.SeverityError, Message: m, Details: details}

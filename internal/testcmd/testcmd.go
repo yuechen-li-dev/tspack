@@ -427,7 +427,11 @@ func runVitestContext(ctx context.Context, opts Options, result *Result) {
 		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_BACKEND_LIST_UNSUPPORTED", Severity: diag.SeverityWarning, Message: "Vitest list mode is not supported in M18"})
 		return
 	}
-	if !vitestAvailable(opts.RootDir) {
+	vitestRoot := opts.RootDir
+	if opts.VitestCwd != "" && vitestAvailable(opts.VitestCwd) {
+		vitestRoot = opts.VitestCwd
+	}
+	if !vitestAvailable(vitestRoot) {
 		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_VITEST_NOT_AVAILABLE", Severity: diag.SeverityError, Message: "vitest is not available"})
 		result.ExitCode = 1
 		return
@@ -443,7 +447,7 @@ func runVitestContext(ctx context.Context, opts Options, result *Result) {
 	if opts.Filter != "" {
 		args = append(args, "-t", opts.Filter)
 	}
-	bin, err := resolvedProjectManagedBin(opts.RootDir, "vitest")
+	bin, err := resolvedProjectManagedBin(vitestRoot, "vitest")
 	if err != nil {
 		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_VITEST_FAILED_TO_START", Severity: diag.SeverityError, Message: "failed to resolve the Vitest executable", Details: []string{err.Error()}})
 		result.ExitCode = 1

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/yuechen-li-dev/tspack/internal/diag"
+	"github.com/yuechen-li-dev/tspack/internal/graph"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 )
 
@@ -55,7 +56,7 @@ type materializationPlanEntry struct {
 	Aliased     bool
 }
 
-func buildMaterializationPlan(lf *lockfile.Lockfile, nmRoot string, mode LinkMode) materializationPlan {
+func buildMaterializationPlan(lf *lockfile.Lockfile, workspaceGraph *graph.WorkspaceGraph, nmRoot string, mode LinkMode) materializationPlan {
 	pkgs := map[string]lockfile.Package{}
 	for _, pkg := range lf.Packages {
 		pkgs[pkg.ID] = pkg
@@ -84,6 +85,9 @@ func buildMaterializationPlan(lf *lockfile.Lockfile, nmRoot string, mode LinkMod
 		rootVisible = append(rootVisible, edgeMaterializationName(edge, pkg))
 	}
 	sort.Strings(rootVisible)
+	if len(lf.Instances) > 0 {
+		return buildModuleInstanceMaterializationPlan(lf, workspaceGraph, pkgs, rootEdges, rootVisible, nmRoot, mode)
+	}
 
 	state := newMaterializeState()
 	entries := make([]materializationPlanEntry, 0)
@@ -112,6 +116,64 @@ func buildMaterializationPlan(lf *lockfile.Lockfile, nmRoot string, mode LinkMod
 		rootVisible: rootVisible,
 		entries:     entries,
 	}
+}
+
+func buildModuleInstanceMaterializationPlan(lf *lockfile.Lockfile, workspaceGraph *graph.WorkspaceGraph, packages map[string]lockfile.Package, rootEdges []lockfile.Edge, rootVisible []string, nmRoot string, mode LinkMode) materializationPlan {
+	_ = rootEdges
+	instancesByID := moduleInstancesByID(lf.Instances)
+	entries := []materializationPlanEntry{}
+	for _, instance := range lf.Instances {
+		pkg, ok := packages[instance.PackageID]
+		if !ok {
+			continue
+		}
+		packagePath, err := moduleInstancePackagePath(nmRoot, instance, pkg)
+		if err != nil {
+			continue
+		}
+		hash, _ := PackageStoreHash(pkg)
+		entries = append(entries, materializationPlanEntry{PackageID: instance.ID, PackageName: materializedPackageName(pkg), PackageHash: hash, Destination: filepath.ToSlash(packagePath)})
+		for _, dependencyLink := range instance.Dependencies {
+			dependencyInstance, ok := instancesByID[dependencyLink.InstanceID]
+			if !ok {
+				continue
+			}
+			dependency, ok := packages[dependencyInstance.PackageID]
+			if !ok {
+				continue
+			}
+			installName := dependencyLink.Reference
+			linkPath, err := safePackagePath(filepath.Join(packagePath, "node_modules"), installName)
+			if err != nil {
+				continue
+			}
+			entries = append(entries, materializationPlanEntry{PackageID: instance.ID + "->" + dependencyInstance.ID, PackageName: installName, PackageHash: dependencyInstance.PeerContextID, Destination: filepath.ToSlash(linkPath), Aliased: installName != materializedPackageName(dependency)})
+		}
+	}
+	for _, rootLink := range lf.RootInstances {
+		instance, ok := instancesByID[rootLink.InstanceID]
+		if !ok {
+			continue
+		}
+		pkg, ok := packages[instance.PackageID]
+		if !ok {
+			continue
+		}
+		installName := rootLink.Reference
+		contextRoot := moduleRootLinkNodeModules(filepath.Dir(nmRoot), nmRoot, rootLink.From, packages, workspaceGraph)
+		destination, err := safePackagePath(contextRoot, installName)
+		if err != nil {
+			continue
+		}
+		entries = append(entries, materializationPlanEntry{PackageID: instance.ID, PackageName: installName, PackageHash: instance.PeerContextID, Destination: filepath.ToSlash(destination), Aliased: installName != materializedPackageName(pkg)})
+	}
+	sort.SliceStable(entries, func(left, right int) bool {
+		if entries[left].Destination != entries[right].Destination {
+			return entries[left].Destination < entries[right].Destination
+		}
+		return entries[left].PackageID < entries[right].PackageID
+	})
+	return materializationPlan{mode: mode, platform: runtime.GOOS, digest: computeMaterializationPlanDigest(entries, mode, runtime.GOOS), rootVisible: rootVisible, entries: entries}
 }
 
 func materializationPlanCollisionDiagnostics(plan materializationPlan) []diag.Diagnostic {
@@ -326,8 +388,9 @@ func expectedMaterializationMarker(plan materializationPlan, observer *materiali
 
 func pruneNodeModulesRoot(nmRoot string, rootVisible []string) error {
 	keepRootFiles := map[string]struct{}{
-		".bin":     {},
-		markerFile: {},
+		".bin":              {},
+		".tspack-instances": {},
+		markerFile:          {},
 	}
 	keepPackages := map[string]map[string]struct{}{}
 	for _, installName := range rootVisible {
@@ -395,7 +458,7 @@ func pruneNodeModulesRoot(nmRoot string, rootVisible []string) error {
 }
 
 func planDigestForLock(lf *lockfile.Lockfile, mode LinkMode) string {
-	return buildMaterializationPlan(lf, "node_modules", mode).digest
+	return buildMaterializationPlan(lf, nil, "node_modules", mode).digest
 }
 
 func materializationMarkerForRoot(root string) string {

@@ -2,6 +2,8 @@ package materialize
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -122,7 +124,7 @@ func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) R
 	}
 	nmRoot := filepath.Join(req.WorkspaceRoot, "node_modules")
 	observer := newMaterializeObserver(req.Options.Stats)
-	plan := buildMaterializationPlan(req.Lock, nmRoot, mode)
+	plan := buildMaterializationPlan(req.Lock, req.Graph, nmRoot, mode)
 	if diagnostics := materializationPlanCollisionDiagnostics(plan); len(diagnostics) > 0 {
 		out.Diagnostics = append(out.Diagnostics, diagnostics...)
 		return finalize(out)
@@ -164,6 +166,23 @@ func (m NodeModulesMaterializer) Materialize(ctx context.Context, req Request) R
 		return os.MkdirAll(nmRoot, 0o755)
 	}); err != nil {
 		out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_WRITE_FAILED", Severity: diag.SeverityError, File: nmRoot, Message: err.Error()})
+		return finalize(out)
+	}
+	if len(req.Lock.Instances) > 0 {
+		materializeModuleInstances(req, &out, nmRoot, observer)
+		if len(out.Diagnostics) == 0 {
+			marker := expectedMaterializationMarker(plan, observer)
+			if err := writeMaterializationMarker(nmRoot, marker); err != nil {
+				out.Diagnostics = append(out.Diagnostics, materializeDiagnosticFromError(markerWriteError(materializationMarkerPath(nmRoot), err), "", materializationMarkerPath(nmRoot), ""))
+				return finalize(out)
+			}
+			observer.RecordMaterializationMarkerWrite()
+		}
+		if len(out.Diagnostics) == 0 {
+			fixtureResult := materializeTestFixtures(req, nmRoot, mode)
+			out.Diagnostics = append(out.Diagnostics, fixtureResult.Diagnostics...)
+			out.Written = append(out.Written, fixtureResult.Written...)
+		}
 		return finalize(out)
 	}
 
@@ -505,6 +524,241 @@ func materializeWorkspacePackage(workspaceRoot string, packagePath string, desti
 	return createWorkspaceDirectoryLink(sourcePath, destination)
 }
 
+func materializeModuleInstances(req Request, out *Result, nmRoot string, observer *materializeObserver) {
+	packages := map[string]lockfile.Package{}
+	for _, pkg := range req.Lock.Packages {
+		packages[pkg.ID] = pkg
+	}
+	instancesByID := moduleInstancesByID(req.Lock.Instances)
+	instancePaths := map[string]string{}
+
+	for index, instance := range req.Lock.Instances {
+		pkg, ok := packages[instance.PackageID]
+		if !ok {
+			out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_INSTANCE_UNKNOWN_PACKAGE", Severity: diag.SeverityError, Message: "module instance refers to an unknown package realization", Details: []string{instance.ID, instance.PackageID}})
+			continue
+		}
+		if req.Options.OnPackage != nil {
+			req.Options.OnPackage(index+1, len(req.Lock.Instances), pkg)
+		}
+		destination, err := moduleInstancePackagePath(nmRoot, instance, pkg)
+		if err != nil {
+			out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_INVALID_DESTINATION", Severity: diag.SeverityError, Message: err.Error(), Details: []string{instance.ID}})
+			continue
+		}
+		instancePaths[instance.ID] = destination
+		if pkg.Source == "workspace" && strings.TrimSpace(pkg.Path) != "" {
+			if err := materializeWorkspacePackage(req.WorkspaceRoot, pkg.Path, destination); err != nil {
+				out.Diagnostics = append(out.Diagnostics, materializeDiagnosticFromError(err, pkg.ID, destination, pkg.Name))
+				continue
+			}
+			out.Written = append(out.Written, WrittenPath{Path: destination, Kind: "moduleInstanceWorkspaceLink", PackageID: pkg.ID})
+			observer.RecordMaterializedPackage(pkg)
+			continue
+		}
+		if err := materializePackageRealization(req, pkg, destination, observer); err != nil {
+			out.Diagnostics = append(out.Diagnostics, materializeDiagnosticFromError(err, pkg.ID, destination, pkg.Name))
+			continue
+		}
+		out.Written = append(out.Written, WrittenPath{Path: destination, Kind: "moduleInstance", PackageID: pkg.ID})
+	}
+	if len(out.Diagnostics) > 0 {
+		return
+	}
+
+	for _, instance := range req.Lock.Instances {
+		pkg := packages[instance.PackageID]
+		if pkg.Source == "workspace" {
+			continue
+		}
+		packagePath := instancePaths[instance.ID]
+		for _, dependencyLink := range instance.Dependencies {
+			dependencyInstance, ok := instancesByID[dependencyLink.InstanceID]
+			if !ok {
+				continue
+			}
+			dependency, ok := packages[dependencyInstance.PackageID]
+			if !ok {
+				continue
+			}
+			linkPath, err := safePackagePath(filepath.Join(packagePath, "node_modules"), dependencyLink.Reference)
+			if err != nil {
+				out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_INVALID_DESTINATION", Severity: diag.SeverityError, Message: err.Error(), Details: []string{instance.ID, dependencyInstance.ID}})
+				continue
+			}
+			if err := replacePackageDirectoryLink(instancePaths[dependencyInstance.ID], linkPath); err != nil {
+				out.Diagnostics = append(out.Diagnostics, materializeDiagnosticFromError(err, dependency.ID, linkPath, dependency.Name))
+			}
+		}
+		for _, peer := range instance.Peers {
+			if peer.State == packageidentity.PeerBindingAbsent && !peer.Optional {
+				out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_REQUIRED_PEER_ABSENT", Severity: diag.SeverityError, Message: "required peer binding is absent from the module-instance context", Details: []string{instance.ID, peer.Reference, peer.Source + ":" + peer.Name}})
+				continue
+			}
+			if peer.State != packageidentity.PeerBindingPresent || peer.RealizationID == "" {
+				continue
+			}
+			peerInstance, ok := instancesByID[peer.InstanceID]
+			if !ok {
+				out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_PEER_INSTANCE_MISSING", Severity: diag.SeverityError, Message: "peer binding has no authoritative module instance", Details: []string{instance.ID, peer.Reference, peer.RealizationID}})
+				continue
+			}
+			linkPath, err := safePackagePath(filepath.Join(packagePath, "node_modules"), peer.Reference)
+			if err != nil {
+				out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_INVALID_DESTINATION", Severity: diag.SeverityError, Message: err.Error(), Details: []string{instance.ID, peerInstance.ID}})
+				continue
+			}
+			if err := replacePackageDirectoryLink(instancePaths[peerInstance.ID], linkPath); err != nil {
+				out.Diagnostics = append(out.Diagnostics, materializeDiagnosticFromError(err, peer.RealizationID, linkPath, peer.Name))
+			}
+		}
+	}
+	if len(out.Diagnostics) > 0 {
+		return
+	}
+
+	contextVisible := map[string]map[string]lockfile.Package{}
+	for _, rootLink := range req.Lock.RootInstances {
+		instance, ok := instancesByID[rootLink.InstanceID]
+		if !ok {
+			continue
+		}
+		pkg, ok := packages[instance.PackageID]
+		if !ok {
+			continue
+		}
+		contextRoot := moduleRootLinkNodeModules(req.WorkspaceRoot, nmRoot, rootLink.From, packages, req.Graph)
+		linkPath, err := safePackagePath(contextRoot, rootLink.Reference)
+		if err != nil {
+			out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_INVALID_DESTINATION", Severity: diag.SeverityError, Message: err.Error(), Details: []string{instance.ID}})
+			continue
+		}
+		if err := replacePackageDirectoryLink(instancePaths[instance.ID], linkPath); err != nil {
+			out.Diagnostics = append(out.Diagnostics, materializeDiagnosticFromError(err, pkg.ID, linkPath, pkg.Name))
+			continue
+		}
+		visible := contextVisible[contextRoot]
+		if visible == nil {
+			visible = map[string]lockfile.Package{}
+			contextVisible[contextRoot] = visible
+		}
+		visible[pkg.ID] = pkg
+		out.Written = append(out.Written, WrittenPath{Path: linkPath, Kind: "moduleInstanceLink", PackageID: pkg.ID})
+	}
+	if len(out.Diagnostics) == 0 {
+		contextRoots := make([]string, 0, len(contextVisible))
+		for contextRoot := range contextVisible {
+			contextRoots = append(contextRoots, contextRoot)
+		}
+		sort.Strings(contextRoots)
+		for _, contextRoot := range contextRoots {
+			materializeRootBins(req, out, contextRoot, contextVisible[contextRoot])
+		}
+	}
+}
+
+func moduleRootLinkNodeModules(workspaceRoot string, defaultNodeModules string, from string, packages map[string]lockfile.Package, workspaceGraph *graph.WorkspaceGraph) string {
+	consumer := moduleRootConsumer(from)
+	if workspaceGraph != nil {
+		if pkg, ok := workspaceGraph.Package(consumer); ok && pkg.Root != "" && pkg.Root != "." {
+			return filepath.Join(workspaceRoot, filepath.FromSlash(pkg.Root), "node_modules")
+		}
+	}
+	for _, pkg := range packages {
+		if pkg.Name != consumer || pkg.Path == "" || pkg.Path == "." {
+			continue
+		}
+		return filepath.Join(workspaceRoot, filepath.FromSlash(pkg.Path), "node_modules")
+	}
+	return defaultNodeModules
+}
+
+func moduleRootConsumer(from string) string {
+	for _, separator := range []string{":target:", ":test:", ":dependency", ":tool"} {
+		if index := strings.Index(from, separator); index >= 0 {
+			return from[:index]
+		}
+	}
+	return from
+}
+
+func materializePackageRealization(req Request, pkg lockfile.Package, destination string, observer *materializeObserver) error {
+	hash, ok := PackageStoreHash(pkg)
+	if !ok {
+		return fmt.Errorf("package %s is missing its store hash", pkg.ID)
+	}
+	if diagnostics := req.Store.Verify(hash); len(diagnostics) > 0 {
+		return fmt.Errorf("store verification failed for %s: %s", pkg.ID, diagnostics[0].Code)
+	}
+	ref, diagnostics := req.Store.Get(hash)
+	if len(diagnostics) > 0 {
+		return fmt.Errorf("store artifact is missing for %s", pkg.ID)
+	}
+	if err := copyTree(ref.ExtractedPath, destination, req.Options.LinkMode, observer); err != nil {
+		return err
+	}
+	observer.RecordMaterializedPackage(pkg)
+	return nil
+}
+
+func moduleInstancesByPackage(instances []lockfile.ModuleInstance) map[string][]lockfile.ModuleInstance {
+	out := map[string][]lockfile.ModuleInstance{}
+	for _, instance := range instances {
+		out[instance.PackageID] = append(out[instance.PackageID], instance)
+	}
+	for packageID := range out {
+		sort.SliceStable(out[packageID], func(left, right int) bool {
+			return out[packageID][left].ID < out[packageID][right].ID
+		})
+	}
+	return out
+}
+
+func moduleInstancesByID(instances []lockfile.ModuleInstance) map[string]lockfile.ModuleInstance {
+	out := map[string]lockfile.ModuleInstance{}
+	for _, instance := range instances {
+		out[instance.ID] = instance
+	}
+	return out
+}
+
+func firstModuleInstance(instances []lockfile.ModuleInstance) (lockfile.ModuleInstance, bool) {
+	if len(instances) == 0 {
+		return lockfile.ModuleInstance{}, false
+	}
+	return instances[0], true
+}
+
+func moduleInstancePackagePath(nmRoot string, instance lockfile.ModuleInstance, pkg lockfile.Package) (string, error) {
+	digest := sha256.Sum256([]byte(instance.ID))
+	instanceNodeModules := filepath.Join(nmRoot, ".tspack-instances", hex.EncodeToString(digest[:]), "node_modules")
+	return safePackagePath(instanceNodeModules, materializedPackageName(pkg))
+}
+
+func replacePackageDirectoryLink(target string, link string) error {
+	if target == "" {
+		return fmt.Errorf("module instance link target is empty")
+	}
+	if err := removeMaterializedPath(link); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		return err
+	}
+	absoluteTarget, err := filepath.Abs(target)
+	if err != nil {
+		return err
+	}
+	return createWorkspaceDirectoryLink(absoluteTarget, link)
+}
+
+// LinkPackageDirectory creates the same portable directory projection used by
+// workspace materialization. Callers own the destination and must validate
+// both paths before invoking it.
+func LinkPackageDirectory(target string, link string) error {
+	return replacePackageDirectoryLink(target, link)
+}
+
 func PackageStoreHash(pkg lockfile.Package) (string, bool) {
 	if pkg.Hash != "" {
 		return pkg.Hash, true
@@ -601,6 +855,14 @@ func cleanNodeModules(nmRoot string) error {
 }
 
 func copyTree(src, dest string, linkMode LinkMode, stats StatsObserver) error {
+	return copyTreeFiltered(src, dest, linkMode, stats, false)
+}
+
+func copyPackageTree(src, dest string, linkMode LinkMode, stats StatsObserver) error {
+	return copyTreeFiltered(src, dest, linkMode, stats, true)
+}
+
+func copyTreeFiltered(src, dest string, linkMode LinkMode, stats StatsObserver, excludeInjectedDependencies bool) error {
 	if linkMode == "" || linkMode == LinkModeAuto {
 		linkMode = LinkModeHardlink
 	}
@@ -612,6 +874,9 @@ func copyTree(src, dest string, linkMode LinkMode, stats StatsObserver) error {
 			rel, err := filepath.Rel(src, path)
 			if err != nil {
 				return err
+			}
+			if excludeInjectedDependencies && rel == "node_modules" && info.IsDir() {
+				return filepath.SkipDir
 			}
 			out := filepath.Join(stage, rel)
 			if info.IsDir() {

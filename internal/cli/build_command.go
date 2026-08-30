@@ -143,10 +143,7 @@ func buildTscTarget(ctx context.Context, root string, manifestPath string, ir *m
 		compilerPath = pkg.CompilerPath
 	}
 	if compilerPath == "" {
-		compilerPath = filepath.Join(root, "node_modules", ".bin", "tsc")
-		if os.PathSeparator == '\\' {
-			compilerPath += ".cmd"
-		}
+		compilerPath = projectManagedCompilerPath(packageRoot, root, "tsc")
 	} else if !filepath.IsAbs(compilerPath) {
 		compilerPath = filepath.Join(packageRoot, filepath.FromSlash(compilerPath))
 	}
@@ -958,10 +955,7 @@ func buildConfiguredBundlerTarget(ctx context.Context, root string, manifestPath
 	}
 	compilerPath := target.CompilerPath
 	if compilerPath == "" {
-		compilerPath = filepath.Join(root, "node_modules", ".bin", bundler.executable)
-		if os.PathSeparator == '\\' {
-			compilerPath += ".cmd"
-		}
+		compilerPath = projectManagedCompilerPath(packageRoot, root, bundler.executable)
 	} else if !filepath.IsAbs(compilerPath) {
 		compilerPath = filepath.Join(packageRoot, filepath.FromSlash(compilerPath))
 	}
@@ -1035,6 +1029,18 @@ func buildConfiguredBundlerTarget(ctx context.Context, root string, manifestPath
 	})
 	_, _ = fmt.Fprintf(outputWriter, "Built %s:%s with %s -> %s\n", pkg.Name, target.Name, bundler.name, target.Runtime)
 	return artifacts, nil
+}
+
+func projectManagedCompilerPath(packageRoot string, workspaceRoot string, executable string) string {
+	fileName := executable
+	if os.PathSeparator == '\\' {
+		fileName += ".cmd"
+	}
+	packagePath := filepath.Join(packageRoot, "node_modules", ".bin", fileName)
+	if _, err := os.Stat(packagePath); err == nil {
+		return packagePath
+	}
+	return filepath.Join(workspaceRoot, "node_modules", ".bin", fileName)
 }
 
 func cleanDeclaredBundlerArtifacts(packageRoot string, artifacts []manifest.TargetArtifact, inputs []string, compilerName string) []diag.Diagnostic {

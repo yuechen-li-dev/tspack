@@ -12,8 +12,11 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/yuechen-li-dev/tspack/internal/authoring"
 	"github.com/yuechen-li-dev/tspack/internal/diag"
+	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 	"github.com/yuechen-li-dev/tspack/internal/manifest"
+	"github.com/yuechen-li-dev/tspack/internal/materialize"
 )
 
 const builtFixtureMarkerName = ".tspack-built-fixture.json"
@@ -101,13 +104,14 @@ type BuiltFixtureResult struct {
 }
 
 type builtFixtureMarker struct {
-	Version            int                `json:"version"`
-	ConsumerTarget     string             `json:"consumerTarget"`
-	ProducerTarget     string             `json:"producerTarget"`
-	ArtifactIdentities []string           `json:"artifactIdentities"`
-	Binding            string             `json:"binding"`
-	PackageJSONHash    string             `json:"packageJsonHash"`
-	Files              []builtFixtureFile `json:"files"`
+	Version             int                `json:"version"`
+	ConsumerTarget      string             `json:"consumerTarget"`
+	ProducerTarget      string             `json:"producerTarget"`
+	ArtifactIdentities  []string           `json:"artifactIdentities"`
+	Binding             string             `json:"binding"`
+	PackageJSONHash     string             `json:"packageJsonHash"`
+	Files               []builtFixtureFile `json:"files"`
+	RuntimeDependencies []string           `json:"runtimeDependencies,omitempty"`
 }
 
 type builtFixtureFile struct {
@@ -122,11 +126,16 @@ func realizeBuiltTestFixtures(
 	target *manifest.TestTarget,
 	buildResults []BuildTargetResult,
 	coordinator *BuildCoordinator,
+	authoritativeLocks ...*lockfile.Lockfile,
 ) ([]BuiltFixtureResult, []diag.Diagnostic) {
+	var authoritativeLock *lockfile.Lockfile
+	if len(authoritativeLocks) > 0 {
+		authoritativeLock = authoritativeLocks[0]
+	}
 	results := []BuiltFixtureResult{}
 	diagnostics := []diag.Diagnostic{}
 	for _, fixture := range target.BuiltFixtures {
-		result, fixtureDiagnostics := realizeBuiltTestFixture(workspaceRoot, ir, consumer, target, fixture, buildResults, coordinator)
+		result, fixtureDiagnostics := realizeBuiltTestFixture(workspaceRoot, ir, consumer, target, fixture, buildResults, coordinator, authoritativeLock)
 		diagnostics = append(diagnostics, fixtureDiagnostics...)
 		if len(fixtureDiagnostics) == 0 {
 			results = append(results, result)
@@ -144,6 +153,7 @@ func realizeBuiltTestFixture(
 	fixture manifest.BuiltArtifactFixture,
 	buildResults []BuildTargetResult,
 	coordinator *BuildCoordinator,
+	authoritativeLock *lockfile.Lockfile,
 ) (BuiltFixtureResult, []diag.Diagnostic) {
 	consumerIdentity := consumer.Name + ":test:" + testTarget.Name
 	producerPackageName, producerTargetName := manifest.ResolveBuildTargetReference(consumer.Name, fixture.Target)
@@ -226,18 +236,18 @@ func realizeBuiltTestFixture(
 		return result, []diag.Diagnostic{builtFixtureDiagnostic("TSPACK_TEST_BUILT_FIXTURE_PACKAGE_INVALID", "producer package metadata is unavailable for the fixture binding", result)}
 	}
 	marker := builtFixtureMarker{
-		Version:            2,
-		ConsumerTarget:     consumerIdentity,
-		ProducerTarget:     producerIdentity,
-		ArtifactIdentities: artifactIdentities,
-		Binding:            fixture.Binding,
-		PackageJSONHash:    packageJSONHash,
-		Files:              files,
+		Version:             2,
+		ConsumerTarget:      consumerIdentity,
+		ProducerTarget:      producerIdentity,
+		ArtifactIdentities:  artifactIdentities,
+		Binding:             fixture.Binding,
+		PackageJSONHash:     packageJSONHash,
+		Files:               files,
+		RuntimeDependencies: builtFixtureRuntimeDependencies(producerPackage, producerTarget, producerRoot, consumerRoot),
 	}
 	for _, file := range files {
 		result.ContentHashes = append(result.ContentHashes, file.ContentHash)
 	}
-
 	lock := coordinator.fixtureLock(destination)
 	lock.Lock()
 	defer lock.Unlock()
@@ -246,7 +256,14 @@ func realizeBuiltTestFixture(
 		return result, nil
 	}
 	if _, err := os.Lstat(destination); err == nil {
-		if !ownedBuiltFixture(destination) {
+		ownedProjection := ownedModuleInstanceProjection(
+			workspaceRoot,
+			consumerIdentity,
+			fixture.Binding,
+			destination,
+			authoritativeLock,
+		)
+		if !ownedBuiltFixture(destination) && !ownedProjection {
 			return result, []diag.Diagnostic{builtFixtureDiagnostic("TSPACK_TEST_BUILT_FIXTURE_DESTINATION_UNMANAGED", "fixture destination already exists and is not TSPack-owned", result)}
 		}
 		if err := os.RemoveAll(destination); err != nil {
@@ -276,6 +293,25 @@ func realizeBuiltTestFixture(
 	}
 	for _, file := range files {
 		if err := copyRegularFile(sources[file.Path], filepath.Join(temporary, filepath.FromSlash(file.Path))); err != nil {
+			return result, []diag.Diagnostic{builtFixtureDiagnostic("TSPACK_TEST_BUILT_FIXTURE_MATERIALIZATION_FAILED", err.Error(), result)}
+		}
+	}
+	for _, reference := range marker.RuntimeDependencies {
+		source, sourceErr := safeBuiltFixtureDependencyPath(producerRoot, reference)
+		if sourceErr == nil {
+			if _, statErr := os.Stat(source); statErr != nil {
+				source, sourceErr = safeBuiltFixtureDependencyPath(consumerRoot, reference)
+			}
+		}
+		destinationPath, destinationErr := safeBuiltFixtureDependencyPath(temporary, reference)
+		if sourceErr != nil || destinationErr != nil || !existingPathContainedBy(workspaceRoot, source) {
+			return result, []diag.Diagnostic{builtFixtureDiagnostic("TSPACK_TEST_BUILT_FIXTURE_DEPENDENCY_INVALID", "built fixture runtime dependency is unavailable or escapes the workspace: "+reference, result)}
+		}
+		resolvedSource, resolveErr := filepath.EvalSymlinks(source)
+		if resolveErr != nil || !existingPathContainedBy(workspaceRoot, resolvedSource) {
+			return result, []diag.Diagnostic{builtFixtureDiagnostic("TSPACK_TEST_BUILT_FIXTURE_DEPENDENCY_INVALID", "built fixture runtime dependency cannot be resolved to an instance inside the workspace: "+reference, result)}
+		}
+		if err := materialize.LinkPackageDirectory(resolvedSource, destinationPath); err != nil {
 			return result, []diag.Diagnostic{builtFixtureDiagnostic("TSPACK_TEST_BUILT_FIXTURE_MATERIALIZATION_FAILED", err.Error(), result)}
 		}
 	}
@@ -365,6 +401,20 @@ func builtFixtureMatches(destination string, expected builtFixtureMarker) bool {
 	if string(expectedFiles) != string(actualFiles) {
 		return false
 	}
+	expectedDependencies, _ := json.Marshal(expected.RuntimeDependencies)
+	actualDependencies, _ := json.Marshal(actual.RuntimeDependencies)
+	if string(expectedDependencies) != string(actualDependencies) {
+		return false
+	}
+	for _, reference := range expected.RuntimeDependencies {
+		dependencyPath, err := safeBuiltFixtureDependencyPath(destination, reference)
+		if err != nil {
+			return false
+		}
+		if _, err := os.Stat(dependencyPath); err != nil {
+			return false
+		}
+	}
 	packageHash, err := hashFile(filepath.Join(destination, "package.json"))
 	if err != nil || packageHash != expected.PackageJSONHash {
 		return false
@@ -378,6 +428,51 @@ func builtFixtureMatches(destination string, expected builtFixtureMarker) bool {
 	return true
 }
 
+func builtFixtureRuntimeDependencies(pkg *manifest.Package, target *manifest.Target, producerRoot string, consumerRoot string) []string {
+	selected := map[string]struct{}{}
+	for _, reference := range target.Deps {
+		selected[reference] = struct{}{}
+	}
+	for _, reference := range target.Peers {
+		selected[reference] = struct{}{}
+	}
+	var dependencies []string
+	for _, dependency := range pkg.Dependencies {
+		reference := authoring.EffectiveIdentity(dependency)
+		if _, ok := selected[reference]; !ok {
+			continue
+		}
+		if dependency.Kind != "dep" && dependency.Kind != "runtime" && dependency.Kind != "peer" {
+			continue
+		}
+		if dependency.Source.Kind == "workspace" && dependency.Kind != "peer" {
+			continue
+		}
+		producerPath, producerErr := safeBuiltFixtureDependencyPath(producerRoot, reference)
+		consumerPath, consumerErr := safeBuiltFixtureDependencyPath(consumerRoot, reference)
+		_, producerStatErr := os.Stat(producerPath)
+		_, consumerStatErr := os.Stat(consumerPath)
+		if dependency.Optional && (producerErr != nil || producerStatErr != nil) && (consumerErr != nil || consumerStatErr != nil) {
+			continue
+		}
+		dependencies = append(dependencies, reference)
+	}
+	sort.Strings(dependencies)
+	return dependencies
+}
+
+func safeBuiltFixtureDependencyPath(root string, reference string) (string, error) {
+	cleaned := filepath.Clean(filepath.FromSlash(reference))
+	if cleaned == "." || cleaned == ".." || filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return "", os.ErrInvalid
+	}
+	path := filepath.Join(root, "node_modules", cleaned)
+	if !pathContainedBy(filepath.Join(root, "node_modules"), path) {
+		return "", os.ErrInvalid
+	}
+	return path, nil
+}
+
 func ownedBuiltFixture(destination string) bool {
 	markerBytes, err := os.ReadFile(filepath.Join(destination, builtFixtureMarkerName))
 	if err != nil {
@@ -385,6 +480,55 @@ func ownedBuiltFixture(destination string) bool {
 	}
 	marker := builtFixtureMarker{}
 	return json.Unmarshal(markerBytes, &marker) == nil && (marker.Version == 1 || marker.Version == 2)
+}
+
+func ownedModuleInstanceProjection(
+	workspaceRoot string,
+	consumerIdentity string,
+	binding string,
+	destination string,
+	authoritativeLock *lockfile.Lockfile,
+) bool {
+	if authoritativeLock == nil {
+		return false
+	}
+	instances := map[string]lockfile.ModuleInstance{}
+	packages := map[string]lockfile.Package{}
+	for _, instance := range authoritativeLock.Instances {
+		instances[instance.ID] = instance
+	}
+	for _, pkg := range authoritativeLock.Packages {
+		packages[pkg.ID] = pkg
+	}
+	for _, root := range authoritativeLock.RootInstances {
+		if root.From != consumerIdentity || root.Reference != binding {
+			continue
+		}
+		instance, ok := instances[root.InstanceID]
+		if !ok {
+			return false
+		}
+		pkg, ok := packages[instance.PackageID]
+		if !ok {
+			return false
+		}
+		digest := sha256.Sum256([]byte(instance.ID))
+		expected := filepath.Join(
+			workspaceRoot,
+			"node_modules",
+			".tspack-instances",
+			hex.EncodeToString(digest[:]),
+			"node_modules",
+			filepath.FromSlash(pkg.Name),
+		)
+		destinationInfo, destinationErr := os.Stat(destination)
+		expectedInfo, expectedErr := os.Stat(expected)
+		if destinationErr != nil || expectedErr != nil {
+			return false
+		}
+		return os.SameFile(destinationInfo, expectedInfo)
+	}
+	return false
 }
 
 func pathContainedBy(root string, path string) bool {

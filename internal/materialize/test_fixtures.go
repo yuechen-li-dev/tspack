@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,6 +13,7 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/diag"
 	"github.com/yuechen-li-dev/tspack/internal/graph"
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
+	"github.com/yuechen-li-dev/tspack/internal/packageidentity"
 )
 
 const testFixtureMarkerVersion = 1
@@ -20,6 +22,7 @@ type testFixtureProjection struct {
 	TargetIdentity string `json:"targetIdentity"`
 	Fixture        string `json:"fixture"`
 	ProducerID     string `json:"producerId"`
+	InstanceID     string `json:"instanceId,omitempty"`
 	Binding        string `json:"binding"`
 	Mode           string `json:"mode"`
 	Source         string `json:"source"`
@@ -142,7 +145,10 @@ func materializeTestFixtures(req Request, nodeModulesRoot string, mode LinkMode)
 		if projection.Mode == "source" {
 			materializeErr = createWorkspaceDirectoryLink(source, destination)
 		} else {
-			materializeErr = copyTree(source, destination, mode, req.Options.Stats)
+			materializeErr = copyPackageTree(source, destination, mode, req.Options.Stats)
+			if materializeErr == nil {
+				materializeErr = linkPackageFixtureDependencies(nodeModulesRoot, destination, projection.InstanceID, req.Lock)
+			}
 		}
 		if materializeErr != nil {
 			result.Diagnostics = append(result.Diagnostics, testFixtureDiagnostic(
@@ -176,8 +182,16 @@ func materializeTestFixtures(req Request, nodeModulesRoot string, mode LinkMode)
 
 func buildTestFixtureProjections(req Request, nodeModulesRoot string) ([]testFixtureProjection, []diag.Diagnostic) {
 	packagesByID := map[string]lockfile.Package{}
+	instancesByID := map[string]lockfile.ModuleInstance{}
+	rootInstances := map[string]lockfile.RootModuleInstance{}
 	for _, pkg := range req.Lock.Packages {
 		packagesByID[pkg.ID] = pkg
+	}
+	for _, instance := range req.Lock.Instances {
+		instancesByID[instance.ID] = instance
+	}
+	for _, root := range req.Lock.RootInstances {
+		rootInstances[root.From+"\x00"+root.Reference] = root
 	}
 	edgesByTarget := map[string][]lockfile.Edge{}
 	for _, edge := range req.Lock.Edges {
@@ -204,6 +218,7 @@ func buildTestFixtureProjections(req Request, nodeModulesRoot string) ([]testFix
 					continue
 				}
 				var source string
+				projectionInstanceID := ""
 				if fixture.Mode == "source" {
 					var sourceDiagnostic *diag.Diagnostic
 					source, sourceDiagnostic = testFixtureSource(req, pkg, fixture)
@@ -214,6 +229,20 @@ func buildTestFixtureProjections(req Request, nodeModulesRoot string) ([]testFix
 				} else {
 					installName := edgeMaterializationName(edge, producer)
 					source = filepath.Join(nodeModulesRoot, filepath.FromSlash(installName))
+					if root, exists := rootInstances[targetIdentity+"\x00"+fixture.Dependency.Key]; exists {
+						projectionInstanceID = root.InstanceID
+						instance, instanceExists := instancesByID[root.InstanceID]
+						if !instanceExists {
+							continue
+						}
+						instancePath, pathErr := moduleInstancePackagePath(nodeModulesRoot, instance, producer)
+						if pathErr != nil {
+							projection := testFixtureProjection{TargetIdentity: targetIdentity, Fixture: fixture.Name, ProducerID: producer.ID, Binding: fixture.Binding}
+							diagnostics = append(diagnostics, testFixtureDiagnostic("TSPACK_TEST_FIXTURE_PRODUCER_INVALID", "fixture module-instance path is invalid: "+pathErr.Error(), projection))
+							continue
+						}
+						source = instancePath
+					}
 				}
 				destination := filepath.Join(packageRoot, "node_modules", filepath.FromSlash(fixture.Binding))
 				relSource, sourceOK := relativeWorkspacePath(req.WorkspaceRoot, source)
@@ -222,6 +251,7 @@ func buildTestFixtureProjections(req Request, nodeModulesRoot string) ([]testFix
 					TargetIdentity: targetIdentity,
 					Fixture:        fixture.Name,
 					ProducerID:     producer.ID,
+					InstanceID:     projectionInstanceID,
 					Binding:        fixture.Binding,
 					Mode:           fixture.Mode,
 					Source:         relSource,
@@ -250,6 +280,57 @@ func buildTestFixtureProjections(req Request, nodeModulesRoot string) ([]testFix
 		return projections[i].Fixture < projections[j].Fixture
 	})
 	return projections, diagnostics
+}
+
+func linkPackageFixtureDependencies(nodeModulesRoot string, destination string, instanceID string, locked *lockfile.Lockfile) error {
+	if locked == nil || instanceID == "" {
+		return nil
+	}
+	instances := moduleInstancesByID(locked.Instances)
+	packages := map[string]lockfile.Package{}
+	for _, pkg := range locked.Packages {
+		packages[pkg.ID] = pkg
+	}
+	instance, ok := instances[instanceID]
+	if !ok {
+		return fmt.Errorf("fixture module instance is missing from the lock: %s", instanceID)
+	}
+	links := map[string]string{}
+	for _, dependency := range instance.Dependencies {
+		links[dependency.Reference] = dependency.InstanceID
+	}
+	for _, peer := range instance.Peers {
+		if peer.State == packageidentity.PeerBindingPresent && peer.InstanceID != "" {
+			links[peer.Reference] = peer.InstanceID
+		}
+	}
+	references := make([]string, 0, len(links))
+	for reference := range links {
+		references = append(references, reference)
+	}
+	sort.Strings(references)
+	for _, reference := range references {
+		dependencyInstance, exists := instances[links[reference]]
+		if !exists {
+			return fmt.Errorf("fixture dependency instance is missing from the lock: %s", links[reference])
+		}
+		dependencyPackage, exists := packages[dependencyInstance.PackageID]
+		if !exists {
+			return fmt.Errorf("fixture dependency package is missing from the lock: %s", dependencyInstance.PackageID)
+		}
+		target, err := moduleInstancePackagePath(nodeModulesRoot, dependencyInstance, dependencyPackage)
+		if err != nil {
+			return err
+		}
+		link, err := safePackagePath(filepath.Join(destination, "node_modules"), reference)
+		if err != nil {
+			return err
+		}
+		if err := replacePackageDirectoryLink(target, link); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func testFixtureSource(req Request, consumerPackage *graph.PackageNode, fixture graph.TestFixtureNode) (string, *diag.Diagnostic) {
@@ -353,11 +434,21 @@ func readTestFixtureMarker(path string) (testFixtureMarker, bool) {
 
 func testFixtureProjectionsExist(workspaceRoot string, projections []testFixtureProjection) bool {
 	for _, projection := range projections {
-		path, ok := containedWorkspacePath(workspaceRoot, projection.Destination)
-		if !ok {
+		destination, destinationOK := containedWorkspacePath(workspaceRoot, projection.Destination)
+		source, sourceOK := containedWorkspacePath(workspaceRoot, projection.Source)
+		if !destinationOK || !sourceOK {
 			return false
 		}
-		if _, err := os.Stat(path); err != nil {
+		destinationInfo, destinationErr := os.Stat(destination)
+		sourceInfo, sourceErr := os.Stat(source)
+		if destinationErr != nil || sourceErr != nil {
+			return false
+		}
+		samePhysicalDirectory := os.SameFile(destinationInfo, sourceInfo)
+		if projection.Mode == "source" && !samePhysicalDirectory {
+			return false
+		}
+		if projection.Mode == "package" && samePhysicalDirectory {
 			return false
 		}
 	}

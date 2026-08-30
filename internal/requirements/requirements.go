@@ -96,6 +96,13 @@ func Build(input []PackageRequirement) Tape {
 		if leftRank != rightRank {
 			return leftRank < rightRank
 		}
+		if ordered[left].Kind == KindPeer && ordered[left].Optional != ordered[right].Optional {
+			// Required peers must control optional observations of the same
+			// environment slot regardless of discovery order. Optional peers
+			// may consume a selected binding but must not suppress installing a
+			// peer that another realized package requires.
+			return ordered[left].Optional
+		}
 		if ordered[left].Order != ordered[right].Order {
 			return ordered[left].Order < ordered[right].Order
 		}

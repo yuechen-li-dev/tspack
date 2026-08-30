@@ -731,6 +731,7 @@ declare module 'tspack/manifest' {
   export function peer(source: DependencySource, options?: PeerOptions): PeerIntent;
   export function tool(source: DependencySource, options?: DependencyOptions): ToolIntent;
   export function localFixture(dependency: TargetDependencyRefLike, options: LocalFixtureOptions): LocalFixtureIntent;
+  export function packageFixture(dependency: TargetDependencyRefLike, options: Omit<LocalFixtureOptions, 'mode'>): LocalFixtureIntent;
   export function builtArtifactFixture(target: string, options: BuiltArtifactFixtureOptions): BuiltArtifactFixtureIntent;
   export function Env(name: string, options?: Omit<RunTargetEnvRow, 'name'>): RunTargetEnvRow;
   export function Service(name: string, options?: Omit<RunTargetServiceRequirementRow, 'name' | 'kind'>): RunTargetServiceRequirementRow;

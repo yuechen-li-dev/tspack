@@ -134,7 +134,7 @@ func checkTargetTypeBoundaries(root string, p *graph.PackageNode, t *graph.Targe
 func validateExternal(root string, t *graph.TargetNode, p *graph.PackageNode, file, pkg string, path []string, spec string, transitiveMatches []TransitiveRuleMatch) []diag.Diagnostic {
 	var out []diag.Diagnostic
 	detail := []string{"target=" + t.Name, "package=" + pkg, "import=" + spec, "path=" + strings.Join(path, " -> ")}
-	if IsTool(p, pkg) {
+	if IsTool(p, pkg) && !targetBuildsWithPackage(t, pkg) {
 		out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_TOOL_RUNTIME_IMPORT", Severity: diag.SeverityError, Message: "tool dependency imported at runtime", File: file, Details: detail})
 		return out
 	}
@@ -191,6 +191,15 @@ func validateExternal(root string, t *graph.TargetNode, p *graph.PackageNode, fi
 	}
 	out = append(out, diag.Diagnostic{Code: "TSPACK_BOUNDARY_PEER_SCOPE_VIOLATION", Severity: diag.SeverityError, Message: "target does not allow external package", File: file, Details: detail})
 	return out
+}
+
+func targetBuildsWithPackage(target *graph.TargetNode, packageName string) bool {
+	for _, dependency := range target.BuildDependencies() {
+		if dependency.MatchesExternalPackageName(packageName) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateTypeExternal(root string, t *graph.TargetNode, p *graph.PackageNode, file, pkg string, path []string, spec string, transitiveMatches []TransitiveRuleMatch) []diag.Diagnostic {

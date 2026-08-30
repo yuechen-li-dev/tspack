@@ -1065,8 +1065,8 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 				source, ok := depSources[fixture.Dependency]
 				if !ok {
 					add("TSPACK_TEST_FIXTURE_PRODUCER_UNKNOWN", fixturePrefix+".dependency is unknown: "+fixture.Dependency)
-				} else if source.Kind != "path" && source.Kind != "workspace" {
-					add("TSPACK_TEST_FIXTURE_PRODUCER_INVALID", fixturePrefix+".dependency must reference a path or workspace package")
+				} else if fixture.Mode == "source" && source.Kind != "path" && source.Kind != "workspace" {
+					add("TSPACK_TEST_FIXTURE_PRODUCER_INVALID", fixturePrefix+".source-mode dependency must reference a path or workspace package")
 				} else if source.Kind == "workspace" && (source.Name == p.Name || source.Package == p.Name) {
 					add("TSPACK_TEST_FIXTURE_SELF_REFERENCE", fixturePrefix+" cannot reference its owning package")
 				}

@@ -64,19 +64,21 @@ describe('package annotation manifests', () => {
 
   it('lowers typed test requirements and local fixtures to stable dependency identities', () => {
     const file = writeFixture('package.manifest.tsx', `
-      import { Package, TestTargets, defineDeps, definePackage, localFixture, npm, path, tool } from "tspack/manifest";
+      import { Package, TestTargets, defineDeps, definePackage, localFixture, npm, packageFixture, path, tool } from "tspack/manifest";
       const deps = defineDeps({
         sinon: tool(npm("sinon", "^22.0.0")),
+        packageExports: tool(npm("vitest-package-exports", "^1.2.0"), { key: "vitest-package-exports" }),
         httpClient: tool(path("projects/http-client"), { key: "http-client" }),
       });
       export default definePackage(
-        <Package name="tests" version="1.0.0" kind="app" dependencies={{ values: [deps.sinon, deps.httpClient] }}>
+        <Package name="tests" version="1.0.0" kind="app" dependencies={{ values: [deps.sinon, deps.packageExports, deps.httpClient] }}>
           <TestTargets rows={[{
             name: "unit",
             harness: "vitest",
             sources: ["test/unit.test.ts"],
-            requirements: [deps.sinon, deps.httpClient],
+            requirements: [deps.sinon, deps.packageExports, deps.httpClient],
             fixtures: [
+              packageFixture(deps.packageExports, { name: "package-exports", binding: "vitest-package-exports" }),
               localFixture(deps.httpClient, { name: "http-client", binding: "http-client" }),
               localFixture(deps.httpClient, { name: "http-client-source", binding: "http-client-source", mode: "source" }),
             ],
@@ -89,8 +91,9 @@ describe('package annotation manifests', () => {
 
     expect(result.ok).toBe(true);
     expect(result.ir?.packages[0]?.testTargets[0]).toMatchObject({
-      requirements: ['sinon', 'http-client'],
+      requirements: ['sinon', 'vitest-package-exports', 'http-client'],
       fixtures: [
+        { name: 'package-exports', dependency: 'vitest-package-exports', binding: 'vitest-package-exports', mode: 'package' },
         { name: 'http-client', dependency: 'http-client', binding: 'http-client', mode: 'package' },
         { name: 'http-client-source', dependency: 'http-client', binding: 'http-client-source', mode: 'source' },
       ],

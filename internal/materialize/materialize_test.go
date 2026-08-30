@@ -50,6 +50,91 @@ func TestMaterializeStrictLayout(t *testing.T) {
 	}
 }
 
+func TestMaterializePeerQualifiedInstancesReuseRealizationsAndLinkEffectivePeers(t *testing.T) {
+	workspace := t.TempDir()
+	contentStore, _ := store.Open(t.TempDir())
+	pluginHash := putPkg(t, contentStore, "npm:plugin@1.0.0", "plugin")
+	reactHash := putPkg(t, contentStore, "npm:react@19.0.0", "react")
+	helperHash := putPkg(t, contentStore, "npm:helper@1.0.0", "helper")
+	locked := &lockfile.Lockfile{
+		Packages: []lockfile.Package{
+			{ID: "npm:plugin@1.0.0", Name: "plugin", Version: "1.0.0", Source: "npm", Hash: pluginHash},
+			{ID: "npm:react@19.0.0", Name: "react", Version: "19.0.0", Source: "npm", Hash: reactHash},
+			{ID: "npm:helper@1.0.0", Name: "helper", Version: "1.0.0", Source: "npm", Hash: helperHash},
+		},
+		Edges: []lockfile.Edge{
+			{From: "app:target:client", To: "npm:plugin@1.0.0", Kind: "runtime", Reference: "plugin"},
+			{From: "npm:plugin@1.0.0", To: "npm:helper@1.0.0", Kind: "runtime", Reference: "helper"},
+			{From: "workspace:peer:npm:react", To: "npm:react@19.0.0", Kind: "peer", Reference: "react"},
+		},
+		Requirements: []lockfile.Requirement{{ID: "peer-plugin-react", Kind: "peer", PackageID: "npm:plugin@1.0.0", TargetSource: "npm", TargetName: "react", Reference: "react", SelectedVersion: "19.0.0", Status: "controlling", Controlling: true}},
+	}
+	lockfile.RebuildModuleInstances(locked)
+
+	result := NodeModulesMaterializer{}.Materialize(context.Background(), Request{WorkspaceRoot: workspace, Lock: locked, Store: contentStore, Options: Options{LinkMode: LinkModeCopy}})
+	if len(result.Diagnostics) > 0 {
+		t.Fatalf("peer-qualified materialization diagnostics: %#v", result.Diagnostics)
+	}
+	pluginRoot := filepath.Join(workspace, "node_modules", "plugin")
+	mustExist(t, filepath.Join(pluginRoot, "package.json"))
+	mustExist(t, filepath.Join(pluginRoot, "node_modules", "helper", "package.json"))
+	mustExist(t, filepath.Join(pluginRoot, "node_modules", "react", "package.json"))
+
+	instanceRoot := filepath.Join(workspace, "node_modules", ".tspack-instances")
+	entries, err := os.ReadDir(instanceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("physical module-instance projections=%d, want 3", len(entries))
+	}
+}
+
+func TestMaterializePeerQualifiedRootLinksUseWorkspaceConsumerContext(t *testing.T) {
+	workspace := t.TempDir()
+	for _, app := range []string{"app-a", "app-b"} {
+		appRoot := filepath.Join(workspace, "packages", app)
+		if err := os.MkdirAll(appRoot, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(appRoot, "package.json"), []byte(`{"name":"`+app+`"}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	contentStore, _ := store.Open(t.TempDir())
+	pluginHash := putPkg(t, contentStore, "npm:plugin@1.0.0", "plugin")
+	react18Hash := putPkg(t, contentStore, "npm:react@18.3.1", "react")
+	react19Hash := putPkg(t, contentStore, "npm:react@19.0.0", "react")
+	locked := &lockfile.Lockfile{
+		Packages: []lockfile.Package{
+			{ID: "workspace:app-a#1", Name: "app-a", Source: "workspace", Path: "packages/app-a", Hash: pluginHash},
+			{ID: "workspace:app-b#1", Name: "app-b", Source: "workspace", Path: "packages/app-b", Hash: pluginHash},
+			{ID: "npm:plugin@1.0.0", Name: "plugin", Version: "1.0.0", Source: "npm", Hash: pluginHash},
+			{ID: "npm:react@18.3.1", Name: "react", Version: "18.3.1", Source: "npm", Hash: react18Hash},
+			{ID: "npm:react@19.0.0", Name: "react", Version: "19.0.0", Source: "npm", Hash: react19Hash},
+		},
+		Edges: []lockfile.Edge{
+			{From: "app-a:target:client", To: "npm:plugin@1.0.0", Kind: "runtime", Reference: "plugin"},
+			{From: "app-a:tool", To: "npm:react@18.3.1", Kind: "tool", Reference: "react"},
+			{From: "app-b:target:client", To: "npm:plugin@1.0.0", Kind: "runtime", Reference: "plugin"},
+			{From: "app-b:tool", To: "npm:react@19.0.0", Kind: "tool", Reference: "react"},
+		},
+		Requirements: []lockfile.Requirement{{ID: "peer-plugin-react", Kind: "peer", PackageID: "npm:plugin@1.0.0", TargetSource: "npm", TargetName: "react", Reference: "react"}},
+	}
+	lockfile.RebuildModuleInstances(locked)
+
+	result := NodeModulesMaterializer{}.Materialize(context.Background(), Request{WorkspaceRoot: workspace, Lock: locked, Store: contentStore, Options: Options{LinkMode: LinkModeCopy}})
+	if len(result.Diagnostics) > 0 {
+		t.Fatalf("contextual materialization diagnostics: %#v", result.Diagnostics)
+	}
+	for _, app := range []string{"app-a", "app-b"} {
+		mustExist(t, filepath.Join(workspace, "packages", app, "node_modules", "plugin", "package.json"))
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "node_modules", "plugin")); !os.IsNotExist(err) {
+		t.Fatalf("contextual plugin unexpectedly projected at workspace root: %v", err)
+	}
+}
+
 func TestMaterializeDirectDependencyRootEdge(t *testing.T) {
 	workspace := t.TempDir()
 	contentStore, _ := store.Open(t.TempDir())
@@ -223,6 +308,15 @@ func TestMaterializePackageFixtureUsesLockedStoreContent(t *testing.T) {
 		`{"name":"@vitest/test-dep-cjs","locked":true}`,
 		nil,
 	)
+	childID := "npm:fixture-child@1.0.0"
+	childHash := putPkgWithPackageJSON(
+		t,
+		contentStore,
+		childID,
+		"fixture-child",
+		`{"name":"fixture-child","version":"1.0.0"}`,
+		nil,
+	)
 	ir := &manifest.ManifestIR{Format: 1, Workspace: manifest.Workspace{Name: "w"}, Packages: []manifest.Package{{
 		Name:    "tests",
 		Root:    "test/unit",
@@ -244,8 +338,14 @@ func TestMaterializePackageFixtureUsesLockedStoreContent(t *testing.T) {
 		t.Fatalf("graph diagnostics=%v", diagnostics)
 	}
 	locked := &lockfile.Lockfile{
-		Packages: []lockfile.Package{{ID: fixtureID, Name: "@vitest/test-dep-cjs", Source: "path", Hash: fixtureHash}},
-		Edges:    []lockfile.Edge{{From: "tests:test:unit", To: fixtureID, Kind: "test", Reference: "dep-cjs"}},
+		Packages: []lockfile.Package{
+			{ID: fixtureID, Name: "@vitest/test-dep-cjs", Source: "path", Hash: fixtureHash},
+			{ID: childID, Name: "fixture-child", Source: "npm", Hash: childHash},
+		},
+		Edges: []lockfile.Edge{
+			{From: "tests:test:unit", To: fixtureID, Kind: "test", Reference: "dep-cjs"},
+			{From: fixtureID, To: childID, Kind: "runtime", Reference: "fixture-child"},
+		},
 	}
 	result := NodeModulesMaterializer{}.Materialize(context.Background(), Request{
 		WorkspaceRoot: workspace,
@@ -264,6 +364,9 @@ func TestMaterializePackageFixtureUsesLockedStoreContent(t *testing.T) {
 	}
 	if !strings.Contains(string(contents), `"locked":true`) {
 		t.Fatalf("package fixture did not use locked store content: %s", contents)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(destination), "node_modules")); !os.IsNotExist(err) {
+		t.Fatalf("package fixture retained injected dependency topology: %v", err)
 	}
 }
 
@@ -297,6 +400,49 @@ func TestMaterializeSourceFixtureRejectsSymlinkEscape(t *testing.T) {
 	result := NodeModulesMaterializer{}.Materialize(context.Background(), Request{WorkspaceRoot: workspace, Graph: g, Lock: locked, Store: contentStore, Options: Options{LinkMode: LinkModeCopy}})
 	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "TSPACK_TEST_FIXTURE_PATH_ESCAPES_WORKSPACE" {
 		t.Fatalf("diagnostics=%#v", result.Diagnostics)
+	}
+}
+
+func TestTestFixtureProjectionValidationDistinguishesSourceLinksAndPackageCopies(t *testing.T) {
+	workspace := t.TempDir()
+	source := filepath.Join(workspace, "node_modules", ".tspack-instances", "fixture", "node_modules", "fixture")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "package.json"), []byte(`{"name":"fixture"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(workspace, "tests", "node_modules", "fixture")
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := createWorkspaceDirectoryLink(source, destination); err != nil {
+		t.Skipf("directory links are unavailable: %v", err)
+	}
+	sourceProjection := testFixtureProjection{
+		Mode:        "source",
+		Source:      "node_modules/.tspack-instances/fixture/node_modules/fixture",
+		Destination: "tests/node_modules/fixture",
+	}
+	packageProjection := sourceProjection
+	packageProjection.Mode = "package"
+	if !testFixtureProjectionsExist(workspace, []testFixtureProjection{sourceProjection}) {
+		t.Fatalf("source projection should accept a link to the producer")
+	}
+	if testFixtureProjectionsExist(workspace, []testFixtureProjection{packageProjection}) {
+		t.Fatalf("package projection should reject an ordinary instance link")
+	}
+	if err := removeMaterializedPath(destination); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyPackageTree(source, destination, LinkModeCopy, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !testFixtureProjectionsExist(workspace, []testFixtureProjection{packageProjection}) {
+		t.Fatalf("package projection should accept an independent copy")
+	}
+	if testFixtureProjectionsExist(workspace, []testFixtureProjection{sourceProjection}) {
+		t.Fatalf("source projection should reject an independent copy")
 	}
 }
 
@@ -1028,7 +1174,7 @@ func TestMaterializeWritesMarkerWithCurrentPlanDigest(t *testing.T) {
 	}
 
 	marker := readMarkerFile(t, ws)
-	plan := buildMaterializationPlan(lf, filepath.Join(ws, "node_modules"), LinkModeCopy)
+	plan := buildMaterializationPlan(lf, nil, filepath.Join(ws, "node_modules"), LinkModeCopy)
 	if marker.PlanDigest != plan.digest {
 		t.Fatalf("marker digest=%q want %q", marker.PlanDigest, plan.digest)
 	}
@@ -1196,8 +1342,8 @@ func TestMaterializePlanDigestDeterministicAndModeSensitive(t *testing.T) {
 		},
 	}
 
-	planA := buildMaterializationPlan(lfA, filepath.Join("workspace", "node_modules"), LinkModeCopy)
-	planB := buildMaterializationPlan(lfB, filepath.Join("workspace", "node_modules"), LinkModeCopy)
+	planA := buildMaterializationPlan(lfA, nil, filepath.Join("workspace", "node_modules"), LinkModeCopy)
+	planB := buildMaterializationPlan(lfB, nil, filepath.Join("workspace", "node_modules"), LinkModeCopy)
 	if planA.digest != planB.digest {
 		t.Fatalf("digest should be order-independent: %q != %q", planA.digest, planB.digest)
 	}
@@ -1209,12 +1355,12 @@ func TestMaterializePlanDigestDeterministicAndModeSensitive(t *testing.T) {
 		},
 		Edges: lfB.Edges,
 	}
-	planChanged := buildMaterializationPlan(lfChanged, filepath.Join("workspace", "node_modules"), LinkModeCopy)
+	planChanged := buildMaterializationPlan(lfChanged, nil, filepath.Join("workspace", "node_modules"), LinkModeCopy)
 	if planA.digest == planChanged.digest {
 		t.Fatalf("digest should change when package hash changes")
 	}
 
-	planHardlink := buildMaterializationPlan(lfB, filepath.Join("workspace", "node_modules"), LinkModeHardlink)
+	planHardlink := buildMaterializationPlan(lfB, nil, filepath.Join("workspace", "node_modules"), LinkModeHardlink)
 	if planA.digest == planHardlink.digest {
 		t.Fatalf("digest should change when materialization mode changes")
 	}
@@ -1265,7 +1411,7 @@ func TestMaterializeRemovesStaleRootPackageBeforeWritingMarker(t *testing.T) {
 		t.Fatalf("stale root package should be pruned, got err=%v", err)
 	}
 	marker := readMarkerFile(t, ws)
-	plan := buildMaterializationPlan(secondLock, filepath.Join(ws, "node_modules"), LinkModeCopy)
+	plan := buildMaterializationPlan(secondLock, nil, filepath.Join(ws, "node_modules"), LinkModeCopy)
 	if marker.PlanDigest != plan.digest {
 		t.Fatalf("marker digest=%q want %q after root prune", marker.PlanDigest, plan.digest)
 	}
