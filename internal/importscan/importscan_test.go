@@ -80,6 +80,22 @@ import value from "real-package"
 	}
 }
 
+func TestScanIgnoresImportSyntaxInsideTemplateText(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "template.ts")
+	source := "const generated = `import value from \"not-a-package\"; import(${dynamicPath})`\nimport value from \"real-package\"\n"
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	imports, diagnostics := ScanFile(path)
+	if len(diagnostics) > 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+	if len(imports) != 1 || !scanHas(imports, "real-package", ImportKindRuntime) {
+		t.Fatalf("expected only real import, got %#v", imports)
+	}
+}
+
 func TestResolveRelative(t *testing.T) {
 	d := t.TempDir()
 	os.MkdirAll(filepath.Join(d, "foo"), 0o755)

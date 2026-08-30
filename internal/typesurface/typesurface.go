@@ -52,6 +52,9 @@ func readPolicy(p *graph.PackageNode) policy {
 func checkTarget(root string, p *graph.PackageNode, t *graph.TargetNode, pol policy, allowMissingOutput bool) []diag.Diagnostic {
 	var out []diag.Diagnostic
 	types := strings.TrimSpace(t.Types)
+	if types == "" && t.ArtifactKind == "staticAsset" {
+		return nil
+	}
 	if types == "" && pol.decl == "required" && pol.missing != "ignore" {
 		return []diag.Diagnostic{mk("TSPACK_TYPE_MISSING_OUTPUT", pol.missing, "target missing declarations output", t.Entry, t, "")}
 	}

@@ -94,6 +94,7 @@ type TargetNode struct {
 	Entry            string
 	Runtime          string
 	Types            string
+	ArtifactKind     string
 	Optional         bool
 	RuntimeDeps      []*DependencyNode
 	BuildDeps        []*DependencyNode
@@ -173,7 +174,7 @@ func Build(ir *manifest.ManifestIR) (*WorkspaceGraph, []diag.Diagnostic) {
 			if dup {
 				continue
 			}
-			tn := &TargetNode{Package: pn, Name: t.Name, Export: t.Export, Entry: t.Entry, Runtime: t.Runtime, Types: t.Types, Optional: t.Optional}
+			tn := &TargetNode{Package: pn, Name: t.Name, Export: t.Export, Entry: t.Entry, Runtime: t.Runtime, Types: t.Types, ArtifactKind: t.Artifact, Optional: t.Optional}
 			pn.TargetsByName[t.Name] = tn
 			pn.TargetsByExport[t.Export] = tn
 			pn.Targets = append(pn.Targets, tn)

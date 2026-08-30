@@ -151,7 +151,7 @@ func stripComments(source string) string {
 				index++
 				state = blockComment
 			}
-		case singleQuoted, doubleQuoted, templateQuoted:
+		case singleQuoted, doubleQuoted:
 			if escaped {
 				escaped = false
 				continue
@@ -161,9 +161,28 @@ func stripComments(source string) string {
 				continue
 			}
 			if (state == singleQuoted && character == '\'') ||
-				(state == doubleQuoted && character == '"') ||
-				(state == templateQuoted && character == '`') {
+				(state == doubleQuoted && character == '"') {
 				state = code
+			}
+		case templateQuoted:
+			if escaped {
+				escaped = false
+				if character != '\n' && character != '\r' {
+					result[index] = ' '
+				}
+				continue
+			}
+			if character == '\\' {
+				escaped = true
+				result[index] = ' '
+				continue
+			}
+			if character == '`' {
+				state = code
+				continue
+			}
+			if character != '\n' && character != '\r' {
+				result[index] = ' '
 			}
 		case lineComment:
 			if character == '\n' || character == '\r' {

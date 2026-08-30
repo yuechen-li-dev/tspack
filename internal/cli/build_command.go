@@ -851,6 +851,20 @@ func (executor cliBuildTargetExecutor) BuildTarget(ctx context.Context, request 
 		}
 		result.Succeeded = true
 		return result
+	case "vite":
+		artifacts, diagnostics := buildViteTarget(ctx, root, manifestPath, request.Manifest, request.Package, request.Target, executor.output())
+		result.Artifacts = append(result.Artifacts, artifacts...)
+		result.Diagnostics = append(result.Diagnostics, diagnostics...)
+		if hasDiagnosticErrors(diagnostics) {
+			return result
+		}
+		projectionDiagnostics := projectWorkspaceBuildArtifacts(root, packageRoot, request.Package.Name, request.Target, result.Artifacts)
+		result.Diagnostics = append(result.Diagnostics, projectionDiagnostics...)
+		if hasDiagnosticErrors(projectionDiagnostics) {
+			return result
+		}
+		result.Succeeded = true
+		return result
 	default:
 		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_BUILD_UNSUPPORTED_COMPILER", Severity: diag.SeverityError, Message: "unsupported compiler for target " + request.Package.Name + ":" + request.Target.Name + ": " + request.Target.Compiler})
 		return result
@@ -894,22 +908,57 @@ func (executor cliBuildTargetExecutor) output() io.Writer {
 }
 
 func buildRollupTarget(ctx context.Context, root string, manifestPath string, ir *manifest.ManifestIR, pkg *manifest.Package, target manifest.Target, outputWriter io.Writer) ([]project.BuildArtifact, []diag.Diagnostic) {
+	return buildConfiguredBundlerTarget(ctx, root, manifestPath, ir, pkg, target, outputWriter, configuredBundler{
+		name:          "Rollup",
+		defaultConfig: "rollup.config.js",
+		executable:    "rollup",
+		arguments: func(absoluteConfigPath string, _ string) []string {
+			return []string{"-c", absoluteConfigPath}
+		},
+	})
+}
+
+func buildViteTarget(ctx context.Context, root string, manifestPath string, ir *manifest.ManifestIR, pkg *manifest.Package, target manifest.Target, outputWriter io.Writer) ([]project.BuildArtifact, []diag.Diagnostic) {
+	return buildConfiguredBundlerTarget(ctx, root, manifestPath, ir, pkg, target, outputWriter, configuredBundler{
+		name:          "Vite",
+		defaultConfig: "vite.config.ts",
+		executable:    "vite",
+		arguments:     viteBuildArguments,
+	})
+}
+
+func viteBuildArguments(absoluteConfigPath string, entry string) []string {
+	root := filepath.ToSlash(filepath.Dir(filepath.FromSlash(entry)))
+	if root == "." {
+		return []string{"build", "--config", absoluteConfigPath}
+	}
+	return []string{"build", root, "--config", absoluteConfigPath}
+}
+
+type configuredBundler struct {
+	name          string
+	defaultConfig string
+	executable    string
+	arguments     func(absoluteConfigPath string, entry string) []string
+}
+
+func buildConfiguredBundlerTarget(ctx context.Context, root string, manifestPath string, ir *manifest.ManifestIR, pkg *manifest.Package, target manifest.Target, outputWriter io.Writer, bundler configuredBundler) ([]project.BuildArtifact, []diag.Diagnostic) {
 	packageRoot := resolvePackageRoot(root, manifestPath, ir, pkg)
 	configPath := target.CompilerConfig
 	if configPath == "" {
-		configPath = "rollup.config.js"
+		configPath = bundler.defaultConfig
 	}
 	absoluteConfigPath := filepath.Join(packageRoot, filepath.FromSlash(configPath))
 	if _, err := os.Stat(absoluteConfigPath); err != nil {
-		return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_CONFIG_MISSING", Severity: diag.SeverityError, Message: "Rollup compiler config is missing", Details: []string{absoluteConfigPath}}}
+		return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_CONFIG_MISSING", Severity: diag.SeverityError, Message: bundler.name + " compiler config is missing", Details: []string{absoluteConfigPath}}}
 	}
 	entryPath := filepath.Join(packageRoot, filepath.FromSlash(target.Entry))
 	if _, err := os.Stat(entryPath); err != nil {
-		return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_SOURCE_MISSING", Severity: diag.SeverityError, Message: "Rollup entry source is missing", Details: []string{entryPath}}}
+		return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_SOURCE_MISSING", Severity: diag.SeverityError, Message: bundler.name + " entry source is missing", Details: []string{entryPath}}}
 	}
 	compilerPath := target.CompilerPath
 	if compilerPath == "" {
-		compilerPath = filepath.Join(root, "node_modules", ".bin", "rollup")
+		compilerPath = filepath.Join(root, "node_modules", ".bin", bundler.executable)
 		if os.PathSeparator == '\\' {
 			compilerPath += ".cmd"
 		}
@@ -917,7 +966,7 @@ func buildRollupTarget(ctx context.Context, root string, manifestPath string, ir
 		compilerPath = filepath.Join(packageRoot, filepath.FromSlash(compilerPath))
 	}
 	if _, err := os.Stat(compilerPath); err != nil {
-		return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_TOOL_MISSING", Severity: diag.SeverityError, Message: "project-managed Rollup compiler is missing", Details: []string{compilerPath}}}
+		return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_TOOL_MISSING", Severity: diag.SeverityError, Message: "project-managed " + bundler.name + " compiler is missing", Details: []string{compilerPath}}}
 	}
 	declaredArtifacts := target.Artifacts
 	if len(declaredArtifacts) == 0 {
@@ -926,17 +975,17 @@ func buildRollupTarget(ctx context.Context, root string, manifestPath string, ir
 			{Name: "typeDeclarations", Kind: "typeDeclarations", Path: target.Types, Role: "typeDeclaration"},
 		}
 	}
-	if cleanupDiagnostics := cleanDeclaredRollupArtifacts(packageRoot, declaredArtifacts, target.Inputs); len(cleanupDiagnostics) > 0 {
+	if cleanupDiagnostics := cleanDeclaredBundlerArtifacts(packageRoot, declaredArtifacts, target.Inputs, bundler.name); len(cleanupDiagnostics) > 0 {
 		return nil, cleanupDiagnostics
 	}
-	command := exec.CommandContext(ctx, compilerPath, "-c", absoluteConfigPath)
+	command := exec.CommandContext(ctx, compilerPath, bundler.arguments(absoluteConfigPath, target.Entry)...)
 	command.Dir = packageRoot
 	output, err := runOwnedBuildCommand(command)
 	if len(output) > 0 {
 		_, _ = fmt.Fprint(outputWriter, string(output))
 	}
 	if err != nil {
-		return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_BUILD_FAILED", Severity: diag.SeverityError, Message: "Rollup build failed for " + pkg.Name + ":" + target.Name, Details: []string{err.Error()}}}
+		return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_BUILD_FAILED", Severity: diag.SeverityError, Message: bundler.name + " build failed for " + pkg.Name + ":" + target.Name, Details: []string{err.Error()}}}
 	}
 	artifacts := []project.BuildArtifact{}
 	for _, declared := range declaredArtifacts {
@@ -948,25 +997,25 @@ func buildRollupTarget(ctx context.Context, root string, manifestPath string, ir
 		if strings.ContainsAny(declared.Path, "*?[") {
 			matches, globErr := filepath.Glob(artifactPattern)
 			if globErr != nil {
-				return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_INVALID", Severity: diag.SeverityError, Message: "declared Rollup artifact glob is invalid", Details: []string{declared.Path, globErr.Error()}}}
+				return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_INVALID", Severity: diag.SeverityError, Message: "declared " + bundler.name + " artifact glob is invalid", Details: []string{declared.Path, globErr.Error()}}}
 			}
 			artifactPaths = matches
 		}
 		if len(artifactPaths) == 0 {
-			return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_MISSING", Severity: diag.SeverityError, Message: "Rollup did not materialize a declared artifact", Details: []string{declared.Path}}}
+			return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_MISSING", Severity: diag.SeverityError, Message: bundler.name + " did not materialize a declared artifact", Details: []string{declared.Path}}}
 		}
 		sort.Strings(artifactPaths)
 		for _, artifactPath := range artifactPaths {
 			contents, readErr := os.ReadFile(artifactPath)
 			if readErr != nil {
-				return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_MISSING", Severity: diag.SeverityError, Message: "Rollup did not materialize a declared artifact", Details: []string{declared.Path, readErr.Error()}}}
+				return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_MISSING", Severity: diag.SeverityError, Message: bundler.name + " did not materialize a declared artifact", Details: []string{declared.Path, readErr.Error()}}}
 			}
 			hash := sha256.Sum256(contents)
 			identity := pkg.Name + ":" + target.Name + ":" + declared.Name
 			if len(artifactPaths) > 1 {
 				relativePath, relativeErr := filepath.Rel(packageRoot, artifactPath)
 				if relativeErr != nil {
-					return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_INVALID", Severity: diag.SeverityError, Message: "could not identify Rollup artifact", Details: []string{artifactPath, relativeErr.Error()}}}
+					return nil, []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_INVALID", Severity: diag.SeverityError, Message: "could not identify " + bundler.name + " artifact", Details: []string{artifactPath, relativeErr.Error()}}}
 				}
 				identity += ":" + filepath.ToSlash(relativePath)
 			}
@@ -984,11 +1033,11 @@ func buildRollupTarget(ctx context.Context, root string, manifestPath string, ir
 	sort.Slice(artifacts, func(i, j int) bool {
 		return artifacts[i].Identity < artifacts[j].Identity
 	})
-	_, _ = fmt.Fprintf(outputWriter, "Built %s:%s with Rollup -> %s\n", pkg.Name, target.Name, target.Runtime)
+	_, _ = fmt.Fprintf(outputWriter, "Built %s:%s with %s -> %s\n", pkg.Name, target.Name, bundler.name, target.Runtime)
 	return artifacts, nil
 }
 
-func cleanDeclaredRollupArtifacts(packageRoot string, artifacts []manifest.TargetArtifact, inputs []string) []diag.Diagnostic {
+func cleanDeclaredBundlerArtifacts(packageRoot string, artifacts []manifest.TargetArtifact, inputs []string, compilerName string) []diag.Diagnostic {
 	preservedInputs := map[string]bool{}
 	for _, input := range inputs {
 		if !strings.ContainsAny(input, "*?[") {
@@ -1008,7 +1057,7 @@ func cleanDeclaredRollupArtifacts(packageRoot string, artifacts []manifest.Targe
 			var err error
 			matches, err = filepath.Glob(pattern)
 			if err != nil {
-				return []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_INVALID", Severity: diag.SeverityError, Message: "declared Rollup artifact glob is invalid", Details: []string{artifact.Path, err.Error()}}}
+				return []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_INVALID", Severity: diag.SeverityError, Message: "declared " + compilerName + " artifact glob is invalid", Details: []string{artifact.Path, err.Error()}}}
 			}
 		}
 		for _, match := range matches {
@@ -1017,15 +1066,19 @@ func cleanDeclaredRollupArtifacts(packageRoot string, artifacts []manifest.Targe
 				continue
 			}
 			if err != nil {
-				return []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_CLEAN_FAILED", Severity: diag.SeverityError, Message: "could not inspect a declared Rollup artifact before build", Details: []string{match, err.Error()}}}
+				return []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_CLEAN_FAILED", Severity: diag.SeverityError, Message: "could not inspect a declared " + compilerName + " artifact before build", Details: []string{match, err.Error()}}}
 			}
 			if info.IsDir() {
-				return []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_CLEAN_FAILED", Severity: diag.SeverityError, Message: "declared Rollup artifacts must identify files", Details: []string{match}}}
+				return []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_CLEAN_FAILED", Severity: diag.SeverityError, Message: "declared " + compilerName + " artifacts must identify files", Details: []string{match}}}
 			}
 			if err := os.Remove(match); err != nil {
-				return []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_CLEAN_FAILED", Severity: diag.SeverityError, Message: "could not remove a stale declared Rollup artifact", Details: []string{match, err.Error()}}}
+				return []diag.Diagnostic{{Code: "TSPACK_COMPILER_OUTPUT_CLEAN_FAILED", Severity: diag.SeverityError, Message: "could not remove a stale declared " + compilerName + " artifact", Details: []string{match, err.Error()}}}
 			}
 		}
 	}
 	return nil
+}
+
+func cleanDeclaredRollupArtifacts(packageRoot string, artifacts []manifest.TargetArtifact, inputs []string) []diag.Diagnostic {
+	return cleanDeclaredBundlerArtifacts(packageRoot, artifacts, inputs, "Rollup")
 }

@@ -871,8 +871,8 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 				compiler = p.Compiler
 				p.Targets[ti].Compiler = compiler
 			}
-			if compiler != "tsc" && compiler != "tscl" && compiler != "scriptc" && compiler != "perry" && compiler != "rollup" {
-				add("TSPACK_MANIFEST_INVALID_COMPILER", tp+".compiler must be tsc, tscl, scriptc, perry, or rollup")
+			if compiler != "tsc" && compiler != "tscl" && compiler != "scriptc" && compiler != "perry" && compiler != "rollup" && compiler != "vite" {
+				add("TSPACK_MANIFEST_INVALID_COMPILER", tp+".compiler must be tsc, tscl, scriptc, perry, rollup, or vite")
 			}
 			if compiler == "tscl" && strings.TrimSpace(p.CompilerPath) == "" {
 				add("TSPACK_TSCL_PATH_REQUIRED", tp+" requires package compilerPath for the Copeland tool")
@@ -972,7 +972,7 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 				add("TSPACK_IR_INVALID_JAVASCRIPT_RUNTIME", tp+".javascriptRuntime must be node or browser")
 			}
 			for _, f := range []struct{ name, v string }{{"entry", t.Entry}, {"runtime", t.Runtime}, {"types", t.Types}} {
-				if p.Kind == "app" && f.name == "types" && f.v == "" {
+				if (p.Kind == "app" || t.Compiler == "vite") && f.name == "types" && f.v == "" {
 					continue
 				}
 				if !pathutil.IsSafePackageFilePath(f.v) {
@@ -1189,7 +1189,7 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 
 func validTargetArtifactKind(kind string) bool {
 	switch kind {
-	case "javaScript", "typeDeclarations", "sourceMap", "metadata":
+	case "javaScript", "typeDeclarations", "sourceMap", "metadata", "staticAsset":
 		return true
 	default:
 		return false
@@ -1198,7 +1198,7 @@ func validTargetArtifactKind(kind string) bool {
 
 func validTargetArtifactRole(role string) bool {
 	switch role {
-	case "", "runtimeEntry", "runtimeChunk", "typeDeclaration", "declarationChunk", "sourceMap", "metadata":
+	case "", "runtimeEntry", "runtimeChunk", "typeDeclaration", "declarationChunk", "sourceMap", "metadata", "staticAsset":
 		return true
 	default:
 		return false

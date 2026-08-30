@@ -37,15 +37,18 @@ func applyDeclaredPatches(root string, workspaceGraph *graph.WorkspaceGraph, loc
 	}
 	for _, declaration := range declarations {
 		matched := false
+		var differentVersion *lockfile.Package
 		for index := range locked.Packages {
 			pkg := &locked.Packages[index]
 			if pkg.Source != declaration.source || pkg.Name != declaration.name {
 				continue
 			}
-			matched = true
 			if pkg.Version != declaration.version {
-				return []diag.Diagnostic{patchDiagnostic("TSPACK_PATCH_TARGET_VERSION_MISMATCH", "resolved package does not match the patch's exact target version", *pkg, declaration.path, "expected: "+declaration.version, "resolved: "+pkg.Version)}
+				copy := *pkg
+				differentVersion = &copy
+				continue
 			}
+			matched = true
 			oldID := pkg.ID
 			pkg.SourceID = oldID
 			pkg.SourceHash = pkg.Hash
@@ -59,6 +62,9 @@ func applyDeclaredPatches(root string, workspaceGraph *graph.WorkspaceGraph, loc
 			remapped[oldID] = pkg.ID
 		}
 		if !matched {
+			if differentVersion != nil {
+				return []diag.Diagnostic{patchDiagnostic("TSPACK_PATCH_TARGET_VERSION_MISMATCH", "resolved package does not match the patch's exact target version", *differentVersion, declaration.path, "expected: "+declaration.version, "resolved: "+differentVersion.Version)}
+			}
 			return []diag.Diagnostic{patchDiagnostic("TSPACK_PATCH_TARGET_UNKNOWN", "patch target was not selected into the authoritative lock graph", lockfile.Package{Name: declaration.name, Version: declaration.version, Source: declaration.source}, declaration.path)}
 		}
 	}

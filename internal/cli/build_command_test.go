@@ -308,3 +308,26 @@ func TestCleanDeclaredRollupArtifactsPreservesExplicitStaticInput(t *testing.T) 
 		t.Fatalf("explicit static input was removed: %v", err)
 	}
 }
+
+func TestViteBuildArgumentsPreserveSemanticRootAndConfig(t *testing.T) {
+	arguments := viteBuildArguments(`C:\workspace\package\src\client\vite.config.ts`, "src/client/orchestrator.html")
+	want := []string{"build", "src/client", "--config", `C:\workspace\package\src\client\vite.config.ts`}
+	if len(arguments) != len(want) {
+		t.Fatalf("arguments=%#v, want %#v", arguments, want)
+	}
+	for index := range want {
+		if arguments[index] != want[index] {
+			t.Fatalf("arguments=%#v, want %#v", arguments, want)
+		}
+	}
+	packageRootArguments := viteBuildArguments(`C:\workspace\package\vite.config.ts`, "index.html")
+	packageRootWant := []string{"build", "--config", `C:\workspace\package\vite.config.ts`}
+	if len(packageRootArguments) != len(packageRootWant) {
+		t.Fatalf("package root arguments=%#v, want %#v", packageRootArguments, packageRootWant)
+	}
+	for index := range packageRootWant {
+		if packageRootArguments[index] != packageRootWant[index] {
+			t.Fatalf("package root arguments=%#v, want %#v", packageRootArguments, packageRootWant)
+		}
+	}
+}

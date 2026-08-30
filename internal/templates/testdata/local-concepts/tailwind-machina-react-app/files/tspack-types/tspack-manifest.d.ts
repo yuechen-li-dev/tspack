@@ -31,7 +31,7 @@ declare module 'tspack/manifest' {
   };
 
   export type RuntimeProfile = 'nodejs' | 'bun' | 'deno';
-  export type Compiler = 'tsc' | 'tscl' | 'scriptc' | 'perry' | 'rollup';
+  export type Compiler = 'tsc' | 'tscl' | 'scriptc' | 'perry' | 'rollup' | 'vite';
 
   export type NpmSource = {
     kind: 'npm';
@@ -253,9 +253,9 @@ declare module 'tspack/manifest' {
 
   export type TargetArtifactRow = {
     name: string;
-    kind: 'javaScript' | 'typeDeclarations' | 'sourceMap' | 'metadata';
+    kind: 'javaScript' | 'typeDeclarations' | 'sourceMap' | 'metadata' | 'staticAsset';
     path: string;
-    role?: 'runtimeEntry' | 'runtimeChunk' | 'typeDeclaration' | 'declarationChunk' | 'sourceMap' | 'metadata';
+    role?: 'runtimeEntry' | 'runtimeChunk' | 'typeDeclaration' | 'declarationChunk' | 'sourceMap' | 'metadata' | 'staticAsset';
   };
 
   export type RunTargetReady =

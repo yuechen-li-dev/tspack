@@ -45,6 +45,32 @@ func TestDeclaredPatchCreatesDistinctDeterministicRealization(t *testing.T) {
 	}
 }
 
+func TestDeclaredPatchSelectsExactVersionWhenOtherVersionsArePresent(t *testing.T) {
+	root := t.TempDir()
+	patchPath := "patches/demo.patch"
+	patchBytes := []byte("--- a/index.js\n+++ b/index.js\n@@ -1,1 +1,1 @@\n-raw\n+patched\n")
+	writeProjectTestFile(t, filepath.Join(root, filepath.FromSlash(patchPath)), patchBytes)
+	dependency := &graph.DependencyNode{
+		Source: manifest.Source{Kind: "npm", Package: "demo", Range: "^1.0.0"},
+		Patch:  &manifest.PatchDeclaration{Path: patchPath, Version: "1.0.0"},
+	}
+	workspaceGraph := &graph.WorkspaceGraph{Packages: []*graph.PackageNode{{Dependencies: []*graph.DependencyNode{dependency}}}}
+	locked := &lockfile.Lockfile{Packages: []lockfile.Package{
+		{ID: "npm:demo@2.0.0", Source: "npm", Name: "demo", Version: "2.0.0", Hash: "sha256:other"},
+		{ID: "npm:demo@1.0.0", Source: "npm", Name: "demo", Version: "1.0.0", Hash: "sha256:source"},
+	}}
+
+	if diagnostics := applyDeclaredPatches(root, workspaceGraph, locked, nil); len(diagnostics) > 0 {
+		t.Fatal(diagnostics)
+	}
+	if locked.Packages[0].Patch != nil || locked.Packages[0].ID != "npm:demo@2.0.0" {
+		t.Fatalf("unrelated version was modified: %#v", locked.Packages[0])
+	}
+	if locked.Packages[1].Patch == nil || locked.Packages[1].SourceID != "npm:demo@1.0.0" {
+		t.Fatalf("exact target was not patched: %#v", locked.Packages[1])
+	}
+}
+
 func TestRawAndDifferentPatchedTreesDoNotAliasInStore(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
