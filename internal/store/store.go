@@ -43,6 +43,7 @@ const (
 	ArtifactGitTree         ArtifactKind = "git-tree"
 	ArtifactPathTree        ArtifactKind = "path-tree"
 	ArtifactWorkspace       ArtifactKind = "workspace-tree"
+	ArtifactPatchedTree     ArtifactKind = "patched-tree"
 )
 
 type PackageMetadata struct {
@@ -57,6 +58,10 @@ type PackageMetadata struct {
 	MetadataEndpoint     string                `json:"metadataEndpoint,omitempty"`
 	ArtifactHost         string                `json:"artifactHost,omitempty"`
 	Capabilities         []lockfile.Capability `json:"capabilities,omitempty"`
+	SourcePackageID      string                `json:"sourcePackageId,omitempty"`
+	RealizationID        string                `json:"realizationId,omitempty"`
+	Patch                *lockfile.Patch       `json:"patch,omitempty"`
+	ArtifactKind         ArtifactKind          `json:"artifactKind,omitempty"`
 	Dependencies         map[string]string     `json:"dependencies,omitempty"`
 	OptionalDependencies map[string]string     `json:"optionalDependencies,omitempty"`
 	PeerDependencies     map[string]string     `json:"peerDependencies,omitempty"`
@@ -137,6 +142,7 @@ func (s *Store) PutArtifact(a Artifact) (StoreRef, []diag.Diagnostic) {
 	}
 	meta := a.Metadata
 	meta.Hash = hash
+	meta.ArtifactKind = a.Kind
 	if meta.Name == "" {
 		meta.Name = a.Name
 	}
@@ -315,7 +321,7 @@ func (s *Store) Verify(hash string) []diag.Diagnostic {
 		}
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_EXTRACTED_ARTIFACT_MISSING", "extracted artifact is missing")}
 	}
-	if isLocalArtifactSource(md.Source) && !localExtractedArtifactMatches(ref.ExtractedPath, normalizeHash(hash), md.Source) {
+	if (isLocalArtifactSource(md.Source) || md.ArtifactKind == ArtifactPatchedTree) && !localExtractedArtifactMatches(ref.ExtractedPath, normalizeHash(hash), md.Source) {
 		return []diag.Diagnostic{errDiag("TSPACK_STORE_HASH_MISMATCH", "local extracted artifact content hash mismatch")}
 	}
 	return nil
@@ -339,6 +345,13 @@ func (s *Store) computeHash(a Artifact) (string, error) {
 		return hashDirectoryWithOptions(a.RootDir, a.Kind == ArtifactWorkspace)
 	}
 	return "", fmt.Errorf("artifact has neither bytes nor rootDir")
+}
+
+// PutPatchedTree records a transformed package tree as a content-addressed,
+// immutable realization separate from its raw source archive.
+func (s *Store) PutPatchedTree(a Artifact) (StoreRef, []diag.Diagnostic) {
+	a.Kind = ArtifactPatchedTree
+	return s.PutArtifact(a)
 }
 
 func (s *Store) ref(hash string, kind ArtifactKind, id string) StoreRef {

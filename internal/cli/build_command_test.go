@@ -278,7 +278,7 @@ func TestCleanDeclaredRollupArtifactsRemovesOnlyMatchedFiles(t *testing.T) {
 		Name: "runtime",
 		Kind: "javaScript",
 		Path: "dist/*.js",
-	}})
+	}}, nil)
 	if len(diagnostics) != 0 {
 		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
 	}
@@ -287,5 +287,24 @@ func TestCleanDeclaredRollupArtifactsRemovesOnlyMatchedFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(preserved); err != nil {
 		t.Fatalf("unmatched file was removed: %v", err)
+	}
+}
+
+func TestCleanDeclaredRollupArtifactsPreservesExplicitStaticInput(t *testing.T) {
+	root := t.TempDir()
+	staticArtifact := filepath.Join(root, "suppress-warnings.cjs")
+	if err := os.WriteFile(staticArtifact, []byte("module.exports = {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diagnostics := cleanDeclaredRollupArtifacts(root, []manifest.TargetArtifact{{
+		Name: "suppress-warnings",
+		Kind: "javaScript",
+		Path: "suppress-warnings.cjs",
+	}}, []string{"src/**/*.ts", "suppress-warnings.cjs"})
+	if len(diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+	if _, err := os.Stat(staticArtifact); err != nil {
+		t.Fatalf("explicit static input was removed: %v", err)
 	}
 }

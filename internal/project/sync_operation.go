@@ -33,6 +33,7 @@ func Sync(opts Options, clean bool, force bool) Result {
 	out = append(out, d...)
 	out = append(out, lockfile.CheckGraphConsistency(g, lf).Diagnostics...)
 	out = append(out, sourcePolicyLockDiagnostics(ir, lf)...)
+	out = append(out, validateLockedPatches(opts.RootDir, g, lf)...)
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
 	}

@@ -134,6 +134,12 @@ type DependencyDeclaration struct {
 	Order       int                    `json:"order"`
 	Authority   DeclarationAuthority   `json:"authority"`
 	Editability DeclarationEditability `json:"editability"`
+	Patch       *PatchDeclaration      `json:"patch,omitempty"`
+}
+
+type PatchDeclaration struct {
+	Path    string `json:"path"`
+	Version string `json:"version"`
 }
 
 type PackageIR struct {
@@ -141,10 +147,11 @@ type PackageIR struct {
 }
 
 type EffectiveDependency struct {
-	Key      string        `json:"key,omitempty"`
-	Kind     string        `json:"kind"`
-	Source   PackageSource `json:"source"`
-	Optional bool          `json:"optional,omitempty"`
+	Key      string            `json:"key,omitempty"`
+	Kind     string            `json:"kind"`
+	Source   PackageSource     `json:"source"`
+	Optional bool              `json:"optional,omitempty"`
+	Patch    *PatchDeclaration `json:"patch,omitempty"`
 }
 
 func (declaration DependencyDeclaration) EffectiveDependency() EffectiveDependency {
@@ -157,6 +164,7 @@ func (declaration DependencyDeclaration) EffectiveDependency() EffectiveDependen
 		Kind:     string(declaration.Kind),
 		Source:   source,
 		Optional: declaration.Optional,
+		Patch:    declaration.Patch,
 	}
 }
 

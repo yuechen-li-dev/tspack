@@ -108,6 +108,7 @@ type DependencyNode struct {
 	Kind     DependencyKind
 	Source   manifest.Source
 	Optional bool
+	Patch    *manifest.PatchDeclaration
 }
 
 type DependencyReachability struct {
@@ -154,7 +155,7 @@ func Build(ir *manifest.ManifestIR) (*WorkspaceGraph, []diag.Diagnostic) {
 				add("TSPACK_GRAPH_INVALID_DEPENDENCY_KIND", "invalid dependency kind", p.Name, key, d.Kind)
 				continue
 			}
-			dn := &DependencyNode{Package: pn, Key: key, Kind: dk, Source: d.Source, Optional: d.Optional}
+			dn := &DependencyNode{Package: pn, Key: key, Kind: dk, Source: d.Source, Optional: d.Optional, Patch: d.Patch}
 			pn.DependenciesByKey[key] = dn
 			pn.Dependencies = append(pn.Dependencies, dn)
 		}

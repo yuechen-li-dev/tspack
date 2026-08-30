@@ -258,6 +258,35 @@ const deps = defineDeps({
 <Tools values={[deps.biomejsBiome]} />
 ```
 
+## Exact patched dependency realizations
+
+An npm or JSR dependency may declare one exact, project-relative unified-text
+patch. The patch version is deliberately exact even when the dependency's
+selection constraint is broader:
+
+```tsx
+const deps = defineDeps({
+  cac: tool(npm("cac", "^6.7.14"), {
+    patch: {
+      path: "patches/cac@6.7.14.patch",
+      version: "6.7.14",
+    },
+  }),
+});
+```
+
+`tspack update` hashes the canonical LF patch content and binds it to the exact
+source-qualified package. The lock records the upstream source identity and
+hash separately from the patched realization identity and tree hash. Moving a
+patch without changing its bytes changes provenance but not realization
+identity. Changing its bytes or application algorithm does change identity.
+
+The current bounded algorithm applies existing text-file hunks only, at their
+exact declared positions, with no offset or fuzz. Creates, deletes, renames,
+binary patches, mode changes, no-newline markers, unsafe paths, and symlinked
+package trees fail closed. Run `tspack inspect packages --json` to inspect the
+source, patch, and realization provenance.
+
 ## Dependency declaration provenance
 
 The normalized manifest now retains an authoring declaration for every

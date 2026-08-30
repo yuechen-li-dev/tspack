@@ -926,7 +926,7 @@ func buildRollupTarget(ctx context.Context, root string, manifestPath string, ir
 			{Name: "typeDeclarations", Kind: "typeDeclarations", Path: target.Types, Role: "typeDeclaration"},
 		}
 	}
-	if cleanupDiagnostics := cleanDeclaredRollupArtifacts(packageRoot, declaredArtifacts); len(cleanupDiagnostics) > 0 {
+	if cleanupDiagnostics := cleanDeclaredRollupArtifacts(packageRoot, declaredArtifacts, target.Inputs); len(cleanupDiagnostics) > 0 {
 		return nil, cleanupDiagnostics
 	}
 	command := exec.CommandContext(ctx, compilerPath, "-c", absoluteConfigPath)
@@ -988,9 +988,18 @@ func buildRollupTarget(ctx context.Context, root string, manifestPath string, ir
 	return artifacts, nil
 }
 
-func cleanDeclaredRollupArtifacts(packageRoot string, artifacts []manifest.TargetArtifact) []diag.Diagnostic {
+func cleanDeclaredRollupArtifacts(packageRoot string, artifacts []manifest.TargetArtifact, inputs []string) []diag.Diagnostic {
+	preservedInputs := map[string]bool{}
+	for _, input := range inputs {
+		if !strings.ContainsAny(input, "*?[") {
+			preservedInputs[filepath.Clean(filepath.FromSlash(input))] = true
+		}
+	}
 	for _, artifact := range artifacts {
 		if artifact.Path == "" {
+			continue
+		}
+		if preservedInputs[filepath.Clean(filepath.FromSlash(artifact.Path))] {
 			continue
 		}
 		pattern := filepath.Join(packageRoot, filepath.FromSlash(artifact.Path))

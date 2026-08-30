@@ -202,6 +202,10 @@ func runInspectCommand(args []string) {
 		runTargetInspectCommand(args)
 		return
 	}
+	if len(args) > 1 && args[1] == "packages" {
+		runPackageInspectCommand(args)
+		return
+	}
 	for _, arg := range args[1:] {
 		if arg == "--help" || arg == "-h" || arg == "help" {
 			printInspectHelp()

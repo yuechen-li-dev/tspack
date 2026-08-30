@@ -31,10 +31,19 @@ type LockHeader struct {
 
 type Package struct {
 	ID, Name, Version, Source, Integrity, Repo, Rev, TreeHash, Path, Workspace, Hash string
+	SourceID                                                                         string       `toml:"SourceID,omitempty"`
+	SourceHash                                                                       string       `toml:"SourceHash,omitempty"`
+	RealizationID                                                                    string       `toml:"RealizationID,omitempty"`
 	RegistryEndpoint                                                                 string       `toml:"registry_endpoint,omitempty"`
 	MetadataEndpoint                                                                 string       `toml:"metadata_endpoint,omitempty"`
 	ArtifactHost                                                                     string       `toml:"artifact_host,omitempty"`
 	Capabilities                                                                     []Capability `toml:"capability,omitempty"`
+	Patch                                                                            *Patch       `toml:"patch,omitempty"`
+}
+type Patch struct {
+	Path      string `toml:"path" json:"path"`
+	SHA256    string `toml:"sha256" json:"sha256"`
+	Algorithm string `toml:"algorithm" json:"algorithm"`
 }
 type Capability struct {
 	Kind    string `toml:"kind"`
@@ -390,7 +399,23 @@ func validate(file string, lf *Lockfile) []diag.Diagnostic {
 				out = append(out, errD("TSPACK_LOCK_INVALID_PACKAGE", "registry package requires version and integrity/hash", p.ID))
 			}
 			expectedID := p.Source + ":" + p.Name + "@" + p.Version
-			if p.ID != expectedID {
+			validID := p.ID == expectedID
+			if p.Patch != nil {
+				expectedRealizationID := expectedID + "#patch=" + p.Patch.Algorithm + "." + strings.TrimPrefix(p.Patch.SHA256, "sha256:")
+				validID = p.SourceID == expectedID && p.RealizationID == p.ID && p.ID == expectedRealizationID
+				if !pathutil.IsSafePackageFilePath(p.Patch.Path) ||
+					!validSHA256(p.Patch.SHA256) ||
+					p.Patch.Algorithm == "" ||
+					p.SourceHash == "" ||
+					p.Hash == "" {
+					out = append(out, errD(
+						"TSPACK_LOCK_INVALID_PATCH",
+						"patched registry package requires safe path, SHA-256 digest, algorithm, source hash, and realization hash",
+						p.ID,
+					))
+				}
+			}
+			if !validID {
 				out = append(out, errD(
 					"TSPACK_LOCK_PACKAGE_IDENTITY_MISMATCH",
 					"registry lock package ID does not match its source-qualified semantic identity",
@@ -474,6 +499,18 @@ func validate(file string, lf *Lockfile) []diag.Diagnostic {
 	}
 	diag.SortDiagnostics(out)
 	return out
+}
+
+func validSHA256(value string) bool {
+	if len(value) != len("sha256:")+64 || !strings.HasPrefix(value, "sha256:") {
+		return false
+	}
+	for _, character := range strings.TrimPrefix(value, "sha256:") {
+		if !strings.ContainsRune("0123456789abcdef", character) {
+			return false
+		}
+	}
+	return true
 }
 
 func normalize(lf *Lockfile) *Lockfile {

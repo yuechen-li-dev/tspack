@@ -60,13 +60,13 @@ func hydrateMissingStoreArtifact(ctx context.Context, opts Options, st *store.St
 		if !ok {
 			return []diag.Diagnostic{syncHydrateFailedDiagnostic(pkg, "npm source is denied or not configured by registry policy")}
 		}
-		return hydrateMissingRegistryStoreArtifact(ctx, st, backend, pkg)
+		return hydrateMissingRegistryStoreArtifact(ctx, opts, st, backend, pkg)
 	case "jsr":
 		backend := resolver.NewJSRBackend(nil)
 		if configured, ok := opts.ResolverBackends.Backend(resolver.SourceJSR); ok {
 			backend = configured
 		}
-		return hydrateMissingRegistryStoreArtifact(ctx, st, backend, pkg)
+		return hydrateMissingRegistryStoreArtifact(ctx, opts, st, backend, pkg)
 	case "path", "workspace":
 		return hydrateMissingLocalStoreArtifact(opts.RootDir, st, pkg)
 	case "git":
@@ -76,7 +76,7 @@ func hydrateMissingStoreArtifact(ctx context.Context, opts Options, st *store.St
 	}
 }
 
-func hydrateMissingRegistryStoreArtifact(ctx context.Context, st *store.Store, backend resolver.RegistryBackend, pkg lockfile.Package) []diag.Diagnostic {
+func hydrateMissingRegistryStoreArtifact(ctx context.Context, opts Options, st *store.Store, backend resolver.RegistryBackend, pkg lockfile.Package) []diag.Diagnostic {
 	metadata, err := backend.Metadata(ctx, pkg.Name)
 	if err != nil {
 		return []diag.Diagnostic{syncHydrateFailedDiagnostic(pkg, "failed to fetch locked registry metadata for sync hydration", "package: "+pkg.Name, err.Error())}
@@ -101,12 +101,18 @@ func hydrateMissingRegistryStoreArtifact(ctx context.Context, st *store.Store, b
 			return []diag.Diagnostic{syncArtifactIntegrityDiagnostic(pkg, "downloaded registry artifact did not match lockfile integrity", "integrity: "+pkg.Integrity)}
 		}
 	}
+	artifactID := pkg.ID
+	artifactHash := pkg.Hash
+	if pkg.Patch != nil {
+		artifactID = pkg.SourceID
+		artifactHash = pkg.SourceHash
+	}
 	ref, diagnostics := st.PutArtifact(store.Artifact{
-		ID:        pkg.ID,
+		ID:        artifactID,
 		Name:      pkg.Name,
 		Version:   pkg.Version,
 		Source:    pkg.Source,
-		Hash:      pkg.Hash,
+		Hash:      artifactHash,
 		Integrity: pkg.Integrity,
 		Kind:      registryStoreArtifactKind(pkg.Source),
 		Bytes:     body,
@@ -126,6 +132,10 @@ func hydrateMissingRegistryStoreArtifact(ctx context.Context, st *store.Store, b
 	}
 	if len(st.Verify(ref.Hash)) > 0 {
 		return []diag.Diagnostic{syncHydrateFailedDiagnostic(pkg, "hydrated registry store artifact failed post-write verification", "hash: "+ref.Hash)}
+	}
+	if pkg.Patch != nil {
+		_, patchDiagnostics := populatePatchedPackage(opts.RootDir, st, pkg)
+		return patchDiagnostics
 	}
 	return nil
 }

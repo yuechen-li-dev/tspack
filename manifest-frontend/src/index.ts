@@ -1713,6 +1713,7 @@ function mapDependencyDeclaration(value: any, order: number, context: AuthoringC
     ...(source.range !== undefined ? { constraint: source.range } : {}),
     kind: value?.kind,
     ...(value?.optional === true ? { optional: true } : {}),
+    ...(value?.patch !== undefined ? { patch: value.patch } : {}),
     origin: {
       ...origin,
       ...(origin.sourcePath === undefined ? { sourcePath: context.sourcePath } : {}),

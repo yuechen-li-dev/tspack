@@ -13,9 +13,10 @@ import (
 )
 
 type pnpmWorkspaceFile struct {
-	Packages []string                     `yaml:"packages"`
-	Catalog  map[string]string            `yaml:"catalog"`
-	Catalogs map[string]map[string]string `yaml:"catalogs"`
+	Packages            []string                     `yaml:"packages"`
+	Catalog             map[string]string            `yaml:"catalog"`
+	Catalogs            map[string]map[string]string `yaml:"catalogs"`
+	PatchedDependencies map[string]string            `yaml:"patchedDependencies"`
 }
 
 type pnpmWorkspaceMigration struct {
@@ -385,6 +386,7 @@ func migratePnpmPackageDependencies(
 				dependency.NeedsTODO = true
 			}
 			resolvePnpmDependency(&dependency, packageRoot, packageRootsByName, workspaceFile, workspace)
+			attachPnpmPatch(&dependency, workspaceFile.PatchedDependencies)
 			if sourceField == "devDependencies" && !dependency.KnownTool && dependency.SourceKind != "workspace" {
 				dependency.NeedsTODO = true
 			}
@@ -399,6 +401,31 @@ func migratePnpmPackageDependencies(
 	appendSection(pkg.OptionalDependencies, "dep", "optionalDependencies")
 	appendSection(pkg.DevDependencies, "tool", "devDependencies")
 	return dependencies
+}
+
+func attachPnpmPatch(dependency *migratedDependency, patchedDependencies map[string]string) {
+	for selector, patchPath := range patchedDependencies {
+		name, version, ok := parseExactPatchedDependencySelector(selector)
+		if !ok || name != dependency.SourceName || strings.TrimSpace(patchPath) == "" {
+			continue
+		}
+		dependency.PatchPath = filepath.ToSlash(filepath.Clean(filepath.FromSlash(patchPath)))
+		dependency.PatchVersion = version
+		return
+	}
+}
+
+func parseExactPatchedDependencySelector(selector string) (string, string, bool) {
+	delimiter := strings.LastIndex(selector, "@")
+	if delimiter <= 0 || delimiter == len(selector)-1 {
+		return "", "", false
+	}
+	name := selector[:delimiter]
+	version := selector[delimiter+1:]
+	if strings.ContainsAny(version, "*^~<>=| ") {
+		return "", "", false
+	}
+	return name, version, true
 }
 
 func resolvePnpmDependency(
@@ -670,7 +697,7 @@ func renderPnpmWorkspaceMigrationReport(draft *migrationDraft) string {
 		}
 	}
 	builder.WriteString("\n## Unsupported constructs\n\n")
-	builder.WriteString("- pnpm overrides, patches, lifecycle allowlists, release/CI policy, and arbitrary scripts remain compatibility evidence; they are not imported as TSPack semantic truth.\n")
+	builder.WriteString("- Exact pnpm patchedDependencies are recovered as native patch realization declarations; overrides, lifecycle allowlists, release/CI policy, and arbitrary scripts remain compatibility evidence.\n")
 	builder.WriteString("- optional runtime dependencies are emitted as reviewable deps because TSPack currently has optional semantics only for peers.\n")
 	builder.WriteString("- targets, compiler configuration, build topology, and test topology require repository-aware semantic authoring.\n")
 	builder.WriteString("\n## Validation\n\n")

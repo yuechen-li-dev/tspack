@@ -57,6 +57,35 @@ func TestRequirementAndAliasReferenceRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPatchedPackageValidation(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	realizationID := "npm:cac@6.7.14#patch=exact." + strings.Repeat("a", 64)
+	valid := Package{
+		ID:            realizationID,
+		Name:          "cac",
+		Version:       "6.7.14",
+		Source:        "npm",
+		Integrity:     "sha512-source",
+		Hash:          "sha256:realization",
+		SourceID:      "npm:cac@6.7.14",
+		SourceHash:    "sha256:source",
+		RealizationID: realizationID,
+		Patch:         &Patch{Path: "patches/cac.patch", SHA256: digest, Algorithm: "exact"},
+	}
+	lock := &Lockfile{Lock: LockHeader{Format: FormatVersion, Tool: ToolName}, Packages: []Package{valid}}
+	if diagnostics := validate("ts-lock.toml", lock); len(diagnostics) != 0 {
+		t.Fatalf("valid patched package rejected: %#v", diagnostics)
+	}
+
+	invalid := valid
+	invalid.Patch = &Patch{Path: "../cac.patch", SHA256: "sha256:not-a-digest", Algorithm: ""}
+	invalid.SourceHash = ""
+	invalidLock := &Lockfile{Lock: lock.Lock, Packages: []Package{invalid}}
+	if diagnostics := validate("ts-lock.toml", invalidLock); !hasLockDiagnosticCode(diagnostics, "TSPACK_LOCK_INVALID_PATCH") {
+		t.Fatalf("expected invalid patch diagnostic, got %#v", diagnostics)
+	}
+}
+
 func TestCapabilityRoundTripAndDiff(t *testing.T) {
 	lf := &Lockfile{Lock: LockHeader{Format: 1, Tool: "tspack"}, Packages: []Package{{ID: "npm:a@1", Name: "a", Source: "npm", Version: "1", Integrity: "x", Capabilities: []Capability{{Kind: "lifecycleScript", Script: "postinstall", Command: "node postinstall.js"}, {Kind: "lifecycleScript", Script: "install", Command: "node install.js"}}}}}
 	b, err := Marshal(lf)

@@ -12,6 +12,13 @@ TSPack dependency truth remains:
 
 `node_modules` is disposable output. It may be deleted and recreated from lockfile + store.
 
+For a patched dependency, sync first verifies and stores the immutable upstream
+archive, verifies the locally declared patch digest, applies the lock-declared
+exact algorithm into a separate staging tree, and content-hashes that resulting
+tree into a distinct `patched-tree` store entry. The raw archive is never
+mutated. A cached patched tree is subject to the same content verification as
+other local tree artifacts before projection.
+
 ## Materializer seam
 
 M10 adds `internal/materialize` with a `Materializer` interface and a `NodeModulesMaterializer` implementation.

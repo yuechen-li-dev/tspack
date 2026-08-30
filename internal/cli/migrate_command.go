@@ -155,6 +155,8 @@ type migratedDependency struct {
 	OriginalRange    string
 	Resolution       string
 	UnresolvedReason string
+	PatchPath        string
+	PatchVersion     string
 }
 
 type migratedTarget struct {
@@ -1845,6 +1847,9 @@ func renderDependencyOptions(dep migratedDependency) string {
 	}
 	if dep.Kind == "peer" && dep.OptionalPeer {
 		options = append(options, "optional: true")
+	}
+	if dep.PatchPath != "" {
+		options = append(options, "patch: { path: "+quoteTSString(dep.PatchPath)+", version: "+quoteTSString(dep.PatchVersion)+" }")
 	}
 	if len(options) == 0 {
 		return ""

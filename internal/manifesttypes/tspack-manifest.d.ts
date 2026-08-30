@@ -89,6 +89,10 @@ declare module 'tspack/manifest' {
 
   export type DependencyOptions = {
     key?: string;
+    patch?: {
+      path: string;
+      version: string;
+    };
     declaration?: DependencyDeclarationMetadata;
   };
 

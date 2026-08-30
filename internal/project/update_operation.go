@@ -172,6 +172,9 @@ func updateWithMode(opts Options, dryRun bool, updateOpts UpdateOptions) Result 
 	res := resolver.Resolve(context.Background(), resolveOpts, resolver.ResolveRequest{Graph: g, ExistingLock: old})
 	stopResolve()
 	out = append(out, res.Diagnostics...)
+	if !hasErrors(out) {
+		out = append(out, applyDeclaredPatches(opts.RootDir, g, res.Lock, old)...)
+	}
 	if hasErrors(out) {
 		return Result{Diagnostics: out}
 	}
@@ -420,6 +423,12 @@ func populateOneStorePackage(ctx context.Context, st *store.Store, client resolv
 		return result
 	}
 	perfSession.RecordStorePopulationFetch()
+	if pkg.Patch != nil {
+		hash, diagnostics := populatePatchedPackage(rootDir, st, pkg)
+		result.Diagnostics = append(result.Diagnostics, diagnostics...)
+		result.Hash = hash
+		return result
+	}
 	switch pkg.Source {
 	case "npm":
 		body, fetchErr := client.Tarball(ctx, findTarballURL(&pkg, client))

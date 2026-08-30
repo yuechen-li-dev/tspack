@@ -821,6 +821,14 @@ func lockPackagesByID(lf *lockfile.Lockfile) map[string]lockfile.Package {
 	}
 	for _, pkg := range lf.Packages {
 		out[pkg.ID] = pkg
+		if pkg.SourceID != "" && pkg.SourceHash != "" {
+			source := pkg
+			source.ID = pkg.SourceID
+			source.Hash = pkg.SourceHash
+			source.Patch = nil
+			source.RealizationID = ""
+			out[source.ID] = source
+		}
 	}
 	return out
 }

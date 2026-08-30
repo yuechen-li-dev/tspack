@@ -441,6 +441,7 @@ type Policies struct {
 }
 
 type DependencyIntent = authoring.EffectiveDependency
+type PatchDeclaration = authoring.PatchDeclaration
 
 type Source = authoring.PackageSource
 
@@ -1501,6 +1502,7 @@ func preparePackageAuthoring(
 				Order:       order,
 				Authority:   authoring.AuthorityGenerated,
 				Editability: authoring.EditabilityDerived,
+				Patch:       dependency.Patch,
 			})
 		}
 		pkg.DependencyAuthoring = &authoring.PackageIR{Declarations: declarations}
@@ -1524,6 +1526,17 @@ func preparePackageAuthoring(
 				"source="+declaration.Source.Kind,
 				"identity="+declaration.Identity.Source,
 			)
+		}
+		if declaration.Patch != nil {
+			if declaration.Source.Kind != "npm" && declaration.Source.Kind != "jsr" {
+				add("TSPACK_PATCH_SOURCE_UNSUPPORTED", fmt.Sprintf("%s.dependencyAuthoring.declarations[%d] patch requires an npm or jsr source", packagePath, index))
+			}
+			if !pathutil.IsSafePackageFilePath(declaration.Patch.Path) {
+				add("TSPACK_PATCH_PATH_UNSAFE", fmt.Sprintf("%s.dependencyAuthoring.declarations[%d] patch path must be a safe project-relative file", packagePath, index))
+			}
+			if strings.TrimSpace(declaration.Patch.Version) == "" {
+				add("TSPACK_PATCH_TARGET_VERSION_REQUIRED", fmt.Sprintf("%s.dependencyAuthoring.declarations[%d] patch requires an exact target version", packagePath, index))
+			}
 		}
 	}
 

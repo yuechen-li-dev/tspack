@@ -264,6 +264,31 @@ export default define(
     );
   });
 
+  it('preserves an exact dependency patch declaration in manifest IR', () => {
+    withTemporaryManifest(
+      'tmp-patched-dependency-',
+      `import { define, defineDeps, npm, tool } from "tspack/manifest";
+const deps = defineDeps({
+  cac: tool(npm("cac", "6.7.14"), {
+    patch: { path: "patches/cac@6.7.14.patch", version: "6.7.14" },
+  }),
+});
+export default define(
+  <Workspace name="ws">
+    <Package name="app" version="1.0.0" kind="app" dependencies={{ values: [deps.cac] }} />
+  </Workspace>,
+);`,
+      (manifestPath) => {
+        const result = parseManifestFile(manifestPath);
+        expect(result.ok).toBe(true);
+        expect(result.ir?.packages[0]?.dependencies[0]?.patch).toEqual({
+          path: 'patches/cac@6.7.14.patch',
+          version: '6.7.14',
+        });
+      },
+    );
+  });
+
 
   it('uses explicit dependency key before defineDeps alias for scoped tool refs', () => {
     withTemporaryManifest(

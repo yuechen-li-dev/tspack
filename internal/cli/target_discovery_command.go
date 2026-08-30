@@ -61,6 +61,47 @@ func runTargetInspectCommand(args []string) {
 	}
 }
 
+func runPackageInspectCommand(args []string) {
+	root := "."
+	jsonOutput := false
+	for index := 2; index < len(args); index++ {
+		switch args[index] {
+		case "--root":
+			if index+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "TSPACK_PACKAGE_INSPECT_OPTIONS_INVALID: --root requires a value")
+				exit(1)
+			}
+			index++
+			root = args[index]
+		case "--json":
+			jsonOutput = true
+		default:
+			fmt.Fprintf(os.Stderr, "TSPACK_PACKAGE_INSPECT_OPTIONS_INVALID: unknown option %s\n", args[index])
+			exit(1)
+		}
+	}
+	result := project.InspectLockedPackages(project.DefaultOptions(root))
+	if jsonOutput {
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		_ = encoder.Encode(result)
+	} else {
+		writer := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(writer, "PACKAGE\tSOURCE IDENTITY\tREALIZATION IDENTITY\tPATCH")
+		for _, pkg := range result.Packages {
+			patchSummary := "-"
+			if pkg.Patch != nil {
+				patchSummary = pkg.Patch.Path + " " + pkg.Patch.SHA256 + " " + pkg.Patch.Algorithm
+			}
+			fmt.Fprintf(writer, "%s@%s\t%s\t%s\t%s\n", pkg.Name, pkg.Version, pkg.SourceID, pkg.RealizationID, patchSummary)
+		}
+		_ = writer.Flush()
+	}
+	if hasDiagnosticErrors(result.Diagnostics) {
+		exit(1)
+	}
+}
+
 func renderDiscoveredTargets(result project.TargetDiscoveryResult) {
 	writer := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(writer, "KIND\tPACKAGE\tROOT\tTARGET\tTOOL\tARTIFACTS/SCOPE\tPREREQUISITES")
