@@ -291,15 +291,29 @@ type TestFixture struct {
 	Mode       string `json:"mode"`
 }
 
-// BuiltArtifactFixture binds one declared artifact member from a qualified
-// BuildTarget result into a TestTarget's Node resolution environment. Target
-// and Artifact are semantic identities; Binding is only the consumer-facing
-// package name.
+// BuiltArtifactFixture binds one or more declared artifact members from one
+// qualified BuildTarget result into a TestTarget's Node resolution environment.
+// Target and artifact names are semantic identities; Binding is only the
+// consumer-facing package name. Artifact is retained for manifest compatibility;
+// new composite fixtures use Artifacts.
 type BuiltArtifactFixture struct {
-	Name     string `json:"name"`
-	Target   string `json:"target"`
-	Artifact string `json:"artifact"`
-	Binding  string `json:"binding"`
+	Name      string   `json:"name"`
+	Target    string   `json:"target"`
+	Artifact  string   `json:"artifact,omitempty"`
+	Artifacts []string `json:"artifacts,omitempty"`
+	Binding   string   `json:"binding"`
+}
+
+func (fixture BuiltArtifactFixture) ArtifactNames() []string {
+	if len(fixture.Artifacts) > 0 {
+		artifacts := append([]string(nil), fixture.Artifacts...)
+		sort.Strings(artifacts)
+		return artifacts
+	}
+	if fixture.Artifact == "" {
+		return nil
+	}
+	return []string{fixture.Artifact}
 }
 
 type SkyrimTarget struct {
@@ -1238,18 +1252,38 @@ func validateTestBuildDependencies(add func(string, string, ...string), ir *Mani
 				if !ok {
 					add("TSPACK_TEST_BUILT_FIXTURE_TARGET_UNKNOWN", fixturePath+".target is unknown: "+fixture.Target)
 				} else {
-					if _, required := prerequisites[producerIdentity]; !required {
+					if !testBuildPrerequisiteReachable(targets, prerequisites, producerIdentity) {
 						add("TSPACK_TEST_BUILT_FIXTURE_REQUIREMENT_MISSING", fixturePath+".target must also appear in dependsOn: "+fixture.Target)
 					}
-					artifactFound := false
-					for _, artifact := range declaredTargetArtifacts(producer) {
-						if artifact.Name == fixture.Artifact {
-							artifactFound = true
-							break
-						}
+					artifactNames := fixture.ArtifactNames()
+					if len(artifactNames) == 0 {
+						add("TSPACK_TEST_BUILT_FIXTURE_ARTIFACT_MISSING", fixturePath+" must declare artifact or artifacts")
 					}
-					if !artifactFound {
-						add("TSPACK_TEST_BUILT_FIXTURE_ARTIFACT_UNKNOWN", fixturePath+".artifact is not declared by "+producerIdentity+": "+fixture.Artifact)
+					if fixture.Artifact != "" && len(fixture.Artifacts) > 0 {
+						add("TSPACK_TEST_BUILT_FIXTURE_ARTIFACT_CONFLICT", fixturePath+" cannot declare both artifact and artifacts")
+					}
+					declaredArtifacts := map[string]struct{}{}
+					for _, artifact := range declaredTargetArtifacts(producer) {
+						declaredArtifacts[artifact.Name] = struct{}{}
+					}
+					seenArtifacts := map[string]struct{}{}
+					for artifactIndex, artifactName := range artifactNames {
+						artifactPath := fixturePath + ".artifact"
+						if len(fixture.Artifacts) > 0 {
+							artifactPath = fmt.Sprintf("%s.artifacts[%d]", fixturePath, artifactIndex)
+						}
+						if artifactName == "" {
+							add("TSPACK_TEST_BUILT_FIXTURE_ARTIFACT_MISSING", artifactPath+" must not be empty")
+							continue
+						}
+						if _, duplicate := seenArtifacts[artifactName]; duplicate {
+							add("TSPACK_TEST_BUILT_FIXTURE_ARTIFACT_DUPLICATE", fixturePath+" repeats artifact: "+artifactName)
+							continue
+						}
+						seenArtifacts[artifactName] = struct{}{}
+						if _, found := declaredArtifacts[artifactName]; !found {
+							add("TSPACK_TEST_BUILT_FIXTURE_ARTIFACT_UNKNOWN", artifactPath+" is not declared by "+producerIdentity+": "+artifactName)
+						}
 					}
 				}
 				if !validTestFixtureBinding(fixture.Binding) {
@@ -1262,6 +1296,42 @@ func validateTestBuildDependencies(add func(string, string, ...string), ir *Mani
 			}
 		}
 	}
+}
+
+func testBuildPrerequisiteReachable(targets map[string]Target, roots map[string]struct{}, wanted string) bool {
+	visited := map[string]struct{}{}
+	var visit func(string) bool
+	visit = func(identity string) bool {
+		if identity == wanted {
+			return true
+		}
+		if _, seen := visited[identity]; seen {
+			return false
+		}
+		visited[identity] = struct{}{}
+		target, ok := targets[identity]
+		if !ok {
+			return false
+		}
+		separator := strings.LastIndex(identity, ":")
+		if separator <= 0 {
+			return false
+		}
+		packageName := identity[:separator]
+		for _, reference := range target.DependsOn {
+			producerPackage, producerTarget := ResolveBuildTargetReference(packageName, reference)
+			if visit(producerPackage + ":" + producerTarget) {
+				return true
+			}
+		}
+		return false
+	}
+	for identity := range roots {
+		if visit(identity) {
+			return true
+		}
+	}
+	return false
 }
 
 // DeclaredTargetArtifacts returns the stable artifact set for a target,

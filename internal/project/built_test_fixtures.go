@@ -87,25 +87,27 @@ func (coordinator *BuildCoordinator) fixtureLock(destination string) *sync.Mutex
 }
 
 type BuiltFixtureResult struct {
-	Name             string   `json:"name"`
-	ConsumerTarget   string   `json:"consumerTarget"`
-	ProducerTarget   string   `json:"producerTarget"`
-	Artifact         string   `json:"artifact"`
-	ArtifactIdentity string   `json:"artifactIdentity"`
-	Binding          string   `json:"binding"`
-	RealizedPath     string   `json:"realizedPath"`
-	ContentHashes    []string `json:"contentHashes"`
-	Reused           bool     `json:"reused,omitempty"`
+	Name               string   `json:"name"`
+	ConsumerTarget     string   `json:"consumerTarget"`
+	ProducerTarget     string   `json:"producerTarget"`
+	Artifact           string   `json:"artifact,omitempty"`
+	ArtifactIdentity   string   `json:"artifactIdentity,omitempty"`
+	Artifacts          []string `json:"artifacts,omitempty"`
+	ArtifactIdentities []string `json:"artifactIdentities,omitempty"`
+	Binding            string   `json:"binding"`
+	RealizedPath       string   `json:"realizedPath"`
+	ContentHashes      []string `json:"contentHashes"`
+	Reused             bool     `json:"reused,omitempty"`
 }
 
 type builtFixtureMarker struct {
-	Version          int                `json:"version"`
-	ConsumerTarget   string             `json:"consumerTarget"`
-	ProducerTarget   string             `json:"producerTarget"`
-	ArtifactIdentity string             `json:"artifactIdentity"`
-	Binding          string             `json:"binding"`
-	PackageJSONHash  string             `json:"packageJsonHash"`
-	Files            []builtFixtureFile `json:"files"`
+	Version            int                `json:"version"`
+	ConsumerTarget     string             `json:"consumerTarget"`
+	ProducerTarget     string             `json:"producerTarget"`
+	ArtifactIdentities []string           `json:"artifactIdentities"`
+	Binding            string             `json:"binding"`
+	PackageJSONHash    string             `json:"packageJsonHash"`
+	Files              []builtFixtureFile `json:"files"`
 }
 
 type builtFixtureFile struct {
@@ -146,27 +148,40 @@ func realizeBuiltTestFixture(
 	consumerIdentity := consumer.Name + ":test:" + testTarget.Name
 	producerPackageName, producerTargetName := manifest.ResolveBuildTargetReference(consumer.Name, fixture.Target)
 	producerIdentity := producerPackageName + ":" + producerTargetName
-	artifactIdentity := producerIdentity + ":" + fixture.Artifact
+	artifactNames := fixture.ArtifactNames()
+	artifactIdentities := make([]string, 0, len(artifactNames))
+	for _, artifactName := range artifactNames {
+		artifactIdentities = append(artifactIdentities, producerIdentity+":"+artifactName)
+	}
 	result := BuiltFixtureResult{
-		Name:             fixture.Name,
-		ConsumerTarget:   consumerIdentity,
-		ProducerTarget:   producerIdentity,
-		Artifact:         fixture.Artifact,
-		ArtifactIdentity: artifactIdentity,
-		Binding:          fixture.Binding,
+		Name:               fixture.Name,
+		ConsumerTarget:     consumerIdentity,
+		ProducerTarget:     producerIdentity,
+		Artifacts:          append([]string(nil), artifactNames...),
+		ArtifactIdentities: append([]string(nil), artifactIdentities...),
+		Binding:            fixture.Binding,
+	}
+	if len(artifactNames) == 1 {
+		result.Artifact = artifactNames[0]
+		result.ArtifactIdentity = artifactIdentities[0]
+		result.Artifacts = nil
+		result.ArtifactIdentities = nil
 	}
 
 	producerPackage, producerTarget := findBuildTarget(ir, producerPackageName, producerTargetName)
 	if producerPackage == nil || producerTarget == nil {
 		return result, []diag.Diagnostic{builtFixtureDiagnostic("TSPACK_TEST_BUILT_FIXTURE_TARGET_MISSING", "built fixture producer target is unavailable", result)}
 	}
-	_, ok := findDeclaredArtifact(*producerTarget, fixture.Artifact)
-	if !ok {
-		return result, []diag.Diagnostic{builtFixtureDiagnostic("TSPACK_TEST_BUILT_FIXTURE_ARTIFACT_UNKNOWN", "built fixture artifact is not declared by the producer target", result)}
-	}
-	artifacts := selectQualifiedArtifacts(buildResults, producerPackageName, producerTargetName, artifactIdentity)
-	if len(artifacts) == 0 {
-		return result, []diag.Diagnostic{builtFixtureDiagnostic("TSPACK_TEST_BUILT_FIXTURE_ARTIFACT_MISSING", "producer succeeded without the requested declared artifact", result)}
+	artifacts := []BuildArtifact{}
+	for index, artifactName := range artifactNames {
+		if _, ok := findDeclaredArtifact(*producerTarget, artifactName); !ok {
+			return result, []diag.Diagnostic{builtFixtureDiagnostic("TSPACK_TEST_BUILT_FIXTURE_ARTIFACT_UNKNOWN", "built fixture artifact is not declared by the producer target", result)}
+		}
+		selected := selectQualifiedArtifacts(buildResults, producerPackageName, producerTargetName, artifactIdentities[index])
+		if len(selected) == 0 {
+			return result, []diag.Diagnostic{builtFixtureDiagnostic("TSPACK_TEST_BUILT_FIXTURE_ARTIFACT_MISSING", "producer succeeded without the requested declared artifact", result)}
+		}
+		artifacts = append(artifacts, selected...)
 	}
 
 	producerRoot := filepath.Join(workspaceRoot, filepath.FromSlash(producerPackage.Root))
@@ -197,6 +212,9 @@ func realizeBuiltTestFixture(
 			return result, []diag.Diagnostic{builtFixtureDiagnostic("TSPACK_TEST_BUILT_FIXTURE_VERIFICATION_FAILED", "qualified artifact content does not match its BuildResult", result)}
 		}
 		relative = filepath.ToSlash(relative)
+		if _, exists := sources[relative]; exists {
+			return result, []diag.Diagnostic{builtFixtureDiagnostic("TSPACK_TEST_BUILT_FIXTURE_ARTIFACT_COLLISION", "composed artifact members select the same fixture path", result)}
+		}
 		files = append(files, builtFixtureFile{Path: relative, ContentHash: hash})
 		sources[relative] = artifact.Path
 	}
@@ -208,13 +226,13 @@ func realizeBuiltTestFixture(
 		return result, []diag.Diagnostic{builtFixtureDiagnostic("TSPACK_TEST_BUILT_FIXTURE_PACKAGE_INVALID", "producer package metadata is unavailable for the fixture binding", result)}
 	}
 	marker := builtFixtureMarker{
-		Version:          1,
-		ConsumerTarget:   consumerIdentity,
-		ProducerTarget:   producerIdentity,
-		ArtifactIdentity: artifactIdentity,
-		Binding:          fixture.Binding,
-		PackageJSONHash:  packageJSONHash,
-		Files:            files,
+		Version:            2,
+		ConsumerTarget:     consumerIdentity,
+		ProducerTarget:     producerIdentity,
+		ArtifactIdentities: artifactIdentities,
+		Binding:            fixture.Binding,
+		PackageJSONHash:    packageJSONHash,
+		Files:              files,
 	}
 	for _, file := range files {
 		result.ContentHashes = append(result.ContentHashes, file.ContentHash)
@@ -302,12 +320,18 @@ func findDeclaredArtifact(target manifest.Target, name string) (manifest.TargetA
 
 func selectQualifiedArtifacts(results []BuildTargetResult, packageName string, targetName string, identity string) []BuildArtifact {
 	artifacts := []BuildArtifact{}
+	seen := map[string]struct{}{}
 	for _, result := range results {
 		if !result.Succeeded || result.Package != packageName || result.Target != targetName {
 			continue
 		}
 		for _, artifact := range result.Artifacts {
 			if artifact.Identity == identity || strings.HasPrefix(artifact.Identity, identity+":") {
+				key := artifact.Identity + "\x00" + artifact.Path + "\x00" + artifact.ContentHash
+				if _, duplicate := seen[key]; duplicate {
+					continue
+				}
+				seen[key] = struct{}{}
 				artifacts = append(artifacts, artifact)
 			}
 		}
@@ -327,9 +351,13 @@ func builtFixtureMatches(destination string, expected builtFixtureMarker) bool {
 	}
 	if actual.Version != expected.Version ||
 		actual.ProducerTarget != expected.ProducerTarget ||
-		actual.ArtifactIdentity != expected.ArtifactIdentity ||
 		actual.Binding != expected.Binding ||
 		actual.PackageJSONHash != expected.PackageJSONHash {
+		return false
+	}
+	expectedIdentities, _ := json.Marshal(expected.ArtifactIdentities)
+	actualIdentities, _ := json.Marshal(actual.ArtifactIdentities)
+	if string(expectedIdentities) != string(actualIdentities) {
 		return false
 	}
 	expectedFiles, _ := json.Marshal(expected.Files)
@@ -356,7 +384,7 @@ func ownedBuiltFixture(destination string) bool {
 		return false
 	}
 	marker := builtFixtureMarker{}
-	return json.Unmarshal(markerBytes, &marker) == nil && marker.Version == 1
+	return json.Unmarshal(markerBytes, &marker) == nil && (marker.Version == 1 || marker.Version == 2)
 }
 
 func pathContainedBy(root string, path string) bool {
@@ -419,10 +447,14 @@ func copyRegularFile(source string, destination string) error {
 }
 
 func builtFixtureDiagnostic(code string, message string, fixture BuiltFixtureResult) diag.Diagnostic {
+	requestedArtifacts := fixture.ArtifactIdentities
+	if len(requestedArtifacts) == 0 && fixture.ArtifactIdentity != "" {
+		requestedArtifacts = []string{fixture.ArtifactIdentity}
+	}
 	details := []string{
 		"consumer target: " + fixture.ConsumerTarget,
 		"producer target: " + fixture.ProducerTarget,
-		"requested artifact: " + fixture.ArtifactIdentity,
+		"requested artifacts: " + strings.Join(requestedArtifacts, ", "),
 		"fixture binding: " + fixture.Name + " -> " + fixture.Binding,
 	}
 	if fixture.RealizedPath != "" {

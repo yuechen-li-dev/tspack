@@ -53,12 +53,14 @@ type DiscoveredFixture struct {
 }
 
 type DiscoveredBuiltFixture struct {
-	Identity         string `json:"identity"`
-	ProducerTarget   string `json:"producerTarget"`
-	Artifact         string `json:"artifact"`
-	ArtifactIdentity string `json:"artifactIdentity"`
-	Binding          string `json:"binding"`
-	RealizedPath     string `json:"realizedPath"`
+	Identity           string   `json:"identity"`
+	ProducerTarget     string   `json:"producerTarget"`
+	Artifact           string   `json:"artifact,omitempty"`
+	ArtifactIdentity   string   `json:"artifactIdentity,omitempty"`
+	Artifacts          []string `json:"artifacts,omitempty"`
+	ArtifactIdentities []string `json:"artifactIdentities,omitempty"`
+	Binding            string   `json:"binding"`
+	RealizedPath       string   `json:"realizedPath"`
 }
 
 type DiscoveredArtifact struct {
@@ -180,14 +182,26 @@ func discoverTestTarget(pkg manifest.Package, target manifest.TestTarget) Discov
 	for _, fixture := range target.BuiltFixtures {
 		producerPackage, producerTarget := manifest.ResolveBuildTargetReference(pkg.Name, fixture.Target)
 		producerIdentity := producerPackage + ":" + producerTarget
-		builtFixtures = append(builtFixtures, DiscoveredBuiltFixture{
-			Identity:         fixture.Name,
-			ProducerTarget:   producerIdentity,
-			Artifact:         fixture.Artifact,
-			ArtifactIdentity: producerIdentity + ":" + fixture.Artifact,
-			Binding:          fixture.Binding,
-			RealizedPath:     filepath.ToSlash(filepath.Join(packageDisplayRoot(pkg.Root), "node_modules", filepath.FromSlash(fixture.Binding))),
-		})
+		artifactNames := fixture.ArtifactNames()
+		artifactIdentities := make([]string, 0, len(artifactNames))
+		for _, artifactName := range artifactNames {
+			artifactIdentities = append(artifactIdentities, producerIdentity+":"+artifactName)
+		}
+		discovered := DiscoveredBuiltFixture{
+			Identity:           fixture.Name,
+			ProducerTarget:     producerIdentity,
+			Artifacts:          artifactNames,
+			ArtifactIdentities: artifactIdentities,
+			Binding:            fixture.Binding,
+			RealizedPath:       filepath.ToSlash(filepath.Join(packageDisplayRoot(pkg.Root), "node_modules", filepath.FromSlash(fixture.Binding))),
+		}
+		if len(artifactNames) == 1 {
+			discovered.Artifact = artifactNames[0]
+			discovered.ArtifactIdentity = artifactIdentities[0]
+			discovered.Artifacts = nil
+			discovered.ArtifactIdentities = nil
+		}
+		builtFixtures = append(builtFixtures, discovered)
 	}
 	sort.Slice(builtFixtures, func(i, j int) bool { return builtFixtures[i].Identity < builtFixtures[j].Identity })
 	return DiscoveredTarget{

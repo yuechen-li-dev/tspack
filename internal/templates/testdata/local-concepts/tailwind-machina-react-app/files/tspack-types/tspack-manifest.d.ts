@@ -324,11 +324,15 @@ declare module 'tspack/manifest' {
     dependency: TargetDependencyRefLike;
   };
 
-  export type BuiltArtifactFixtureOptions = {
+  export type BuiltArtifactFixtureBaseOptions = {
     name: string;
-    artifact: string;
     binding: string;
   };
+
+  export type BuiltArtifactFixtureOptions = BuiltArtifactFixtureBaseOptions & (
+    | { artifact: string; artifacts?: never }
+    | { artifact?: never; artifacts: string[] }
+  );
 
   export type BuiltArtifactFixtureIntent = BuiltArtifactFixtureOptions & {
     target: string;

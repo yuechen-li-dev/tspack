@@ -104,7 +104,11 @@ func renderDiscoveredTargets(result project.TargetDiscoveryResult) {
 				fmt.Fprintf(writer, "\t\t\t\t\tfixture %s -> %s [%s]\t\n", fixture.Identity, fixture.RealizedPath, fixture.Producer)
 			}
 			for _, fixture := range target.BuiltFixtures {
-				fmt.Fprintf(writer, "\t\t\t\t\tbuilt fixture %s -> %s [%s artifact %s]\t\n", fixture.Identity, fixture.RealizedPath, fixture.ProducerTarget, fixture.Artifact)
+				artifactNames := fixture.Artifacts
+				if len(artifactNames) == 0 && fixture.Artifact != "" {
+					artifactNames = []string{fixture.Artifact}
+				}
+				fmt.Fprintf(writer, "\t\t\t\t\tbuilt fixture %s -> %s [%s artifacts %s]\t\n", fixture.Identity, fixture.RealizedPath, fixture.ProducerTarget, strings.Join(artifactNames, ","))
 			}
 		}
 	}

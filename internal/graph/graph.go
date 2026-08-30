@@ -81,10 +81,10 @@ type TestFixtureNode struct {
 }
 
 type BuiltArtifactFixtureNode struct {
-	Name     string
-	Target   string
-	Artifact string
-	Binding  string
+	Name      string
+	Target    string
+	Artifacts []string
+	Binding   string
 }
 
 type TargetNode struct {
@@ -254,10 +254,10 @@ func Build(ir *manifest.ManifestIR) (*WorkspaceGraph, []diag.Diagnostic) {
 			for _, fixture := range target.BuiltFixtures {
 				producerPackage, producerTarget := manifest.ResolveBuildTargetReference(p.Name, fixture.Target)
 				testNode.BuiltFixtures = append(testNode.BuiltFixtures, BuiltArtifactFixtureNode{
-					Name:     fixture.Name,
-					Target:   producerPackage + ":" + producerTarget,
-					Artifact: fixture.Artifact,
-					Binding:  fixture.Binding,
+					Name:      fixture.Name,
+					Target:    producerPackage + ":" + producerTarget,
+					Artifacts: fixture.ArtifactNames(),
+					Binding:   fixture.Binding,
 				})
 			}
 			sort.SliceStable(testNode.Requirements, func(i, j int) bool { return testNode.Requirements[i].Key < testNode.Requirements[j].Key })

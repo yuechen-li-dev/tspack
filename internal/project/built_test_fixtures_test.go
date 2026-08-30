@@ -66,6 +66,53 @@ func TestRealizeBuiltTestFixtureUsesQualifiedBuildResultAndReusesVerifiedProject
 	}
 }
 
+func TestRealizeBuiltTestFixtureComposesNamedArtifactSetsAtomically(t *testing.T) {
+	root := t.TempDir()
+	producerRoot := filepath.Join(root, "packages", "runtime")
+	consumerRoot := filepath.Join(root, "tests")
+	runtimePath := filepath.Join(producerRoot, "dist", "index.js")
+	chunkPath := filepath.Join(producerRoot, "dist", "chunks", "shared.js")
+	writeBuiltFixtureFile(t, filepath.Join(producerRoot, "package.json"), `{"name":"@demo/runtime","type":"module","exports":"./dist/index.js"}`)
+	writeBuiltFixtureFile(t, runtimePath, "import './chunks/shared.js'\n")
+	writeBuiltFixtureFile(t, chunkPath, "export const value = 42\n")
+	ir := builtFixtureTestManifest()
+	producerTarget := &ir.Packages[0].Targets[0]
+	producerTarget.Artifacts = append(producerTarget.Artifacts, manifest.TargetArtifact{
+		Name: "runtime-chunks", Kind: "javaScript", Path: "dist/chunks/*.js",
+	})
+	fixture := &ir.Packages[1].TestTargets[0].BuiltFixtures[0]
+	fixture.Artifact = ""
+	fixture.Artifacts = []string{"runtime", "runtime-chunks"}
+	buildResults := []BuildTargetResult{{
+		Package:   "@demo/runtime",
+		Target:    "package",
+		Succeeded: true,
+		Artifacts: []BuildArtifact{
+			{
+				Package: "@demo/runtime", Target: "package", Kind: "javaScript", Path: runtimePath,
+				Identity: "@demo/runtime:package:runtime", ContentHash: testFileHash(t, runtimePath),
+			},
+			{
+				Package: "@demo/runtime", Target: "package", Kind: "javaScript", Path: chunkPath,
+				Identity: "@demo/runtime:package:runtime-chunks", ContentHash: testFileHash(t, chunkPath),
+			},
+		},
+	}}
+
+	results, diagnostics := realizeBuiltTestFixtures(root, ir, &ir.Packages[1], &ir.Packages[1].TestTargets[0], buildResults, NewBuildCoordinator())
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics=%v", diagnostics)
+	}
+	if len(results) != 1 || len(results[0].ArtifactIdentities) != 2 {
+		t.Fatalf("results=%+v", results)
+	}
+	for _, relative := range []string{filepath.Join("dist", "index.js"), filepath.Join("dist", "chunks", "shared.js")} {
+		if _, err := os.Stat(filepath.Join(consumerRoot, "node_modules", "@demo", "runtime", relative)); err != nil {
+			t.Fatalf("missing composed fixture file %s: %v", relative, err)
+		}
+	}
+}
+
 func TestRealizeBuiltTestFixtureRejectsStaleArtifactContent(t *testing.T) {
 	root := t.TempDir()
 	producerRoot := filepath.Join(root, "packages", "runtime")

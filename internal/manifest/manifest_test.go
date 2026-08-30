@@ -155,6 +155,15 @@ func TestTestTargetBuildPrerequisitesAndBuiltFixturesValidate(t *testing.T) {
 	if _, diagnostics := LoadBytes("valid.json", []byte(valid)); len(diagnostics) != 0 {
 		t.Fatalf("diagnostics=%v", diagnostics)
 	}
+	composite := strings.Replace(valid, `"artifacts":[{"name":"runtime-js","kind":"javaScript","path":"dist/*.js"}]`, `"artifacts":[{"name":"runtime-js","kind":"javaScript","path":"dist/*.js"},{"name":"runtime-types","kind":"typeDeclarations","path":"dist/*.d.ts"}]`, 1)
+	composite = strings.Replace(composite, `"artifact":"runtime-js"`, `"artifacts":["runtime-js","runtime-types"]`, 1)
+	if _, diagnostics := LoadBytes("composite.json", []byte(composite)); len(diagnostics) != 0 {
+		t.Fatalf("composite diagnostics=%v", diagnostics)
+	}
+	transitive := `{"format":1,"workspace":{"name":"mono"},"packages":[{"name":"runtime","version":"1.0.0","kind":"library","dependencies":[],"targets":[{"name":"package","compiler":"rollup","export":".","entry":"src/index.ts","runtime":"dist/index.js","types":"dist/index.d.ts","artifacts":[{"name":"runtime-js","kind":"javaScript","path":"dist/*.js"}]}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}},{"name":"app","version":"1.0.0","kind":"library","dependencies":[],"targets":[{"name":"package","compiler":"rollup","export":".","entry":"src/index.ts","runtime":"dist/index.js","types":"dist/index.d.ts","dependsOn":["runtime:package"]}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":["dist/**"],"exclude":[]}},{"name":"tests","version":"1.0.0","kind":"app","dependencies":[],"targets":[],"testTargets":[{"name":"unit","harness":"vitest","sources":["test/unit.test.ts"],"dependsOn":["app:package"],"builtFixtures":[{"name":"runtime","target":"runtime:package","artifact":"runtime-js","binding":"runtime"}]}],"policies":{},"boundaries":[],"tools":[],"publish":{"include":[],"exclude":[]}}]}`
+	if _, diagnostics := LoadBytes("transitive.json", []byte(transitive)); len(diagnostics) != 0 {
+		t.Fatalf("transitive diagnostics=%v", diagnostics)
+	}
 	cases := []struct {
 		name string
 		old  string
@@ -164,6 +173,8 @@ func TestTestTargetBuildPrerequisitesAndBuiltFixturesValidate(t *testing.T) {
 		{name: "unknown target", old: `"dependsOn":["runtime:package"]`, new: `"dependsOn":["runtime:missing"]`, code: "TSPACK_TEST_BUILD_DEPENDENCY_UNKNOWN"},
 		{name: "missing requirement", old: `"dependsOn":["runtime:package"]`, new: `"dependsOn":[]`, code: "TSPACK_TEST_BUILT_FIXTURE_REQUIREMENT_MISSING"},
 		{name: "unknown artifact", old: `"artifact":"runtime-js"`, new: `"artifact":"missing"`, code: "TSPACK_TEST_BUILT_FIXTURE_ARTIFACT_UNKNOWN"},
+		{name: "artifact conflict", old: `"artifact":"runtime-js"`, new: `"artifact":"runtime-js","artifacts":["runtime-js"]`, code: "TSPACK_TEST_BUILT_FIXTURE_ARTIFACT_CONFLICT"},
+		{name: "duplicate composite artifact", old: `"artifact":"runtime-js"`, new: `"artifacts":["runtime-js","runtime-js"]`, code: "TSPACK_TEST_BUILT_FIXTURE_ARTIFACT_DUPLICATE"},
 		{name: "invalid binding", old: `"binding":"@demo/runtime"`, new: `"binding":"../runtime"`, code: "TSPACK_TEST_FIXTURE_BINDING_INVALID"},
 		{name: "duplicate build dependency", old: `"dependsOn":["runtime:package"]`, new: `"dependsOn":["runtime:package","runtime:package"]`, code: "TSPACK_TEST_BUILD_DEPENDENCY_DUPLICATE"},
 		{name: "duplicate fixture name", old: `"builtFixtures":[{"name":"runtime"`, new: `"fixtures":[{"name":"runtime","producer":"runtime","binding":"runtime","mode":"package"}],"builtFixtures":[{"name":"runtime"`, code: "TSPACK_TEST_FIXTURE_DUPLICATE"},

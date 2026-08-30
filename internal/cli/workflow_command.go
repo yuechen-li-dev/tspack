@@ -459,12 +459,16 @@ func workflowEventRenderer(jsonOutput bool) workflow.EventSink {
 					fmt.Printf("[%s]   prerequisite %s:%s succeeded=%t\n", event.Job, prerequisite.Package, prerequisite.Target, prerequisite.Succeeded)
 				}
 				for _, fixture := range event.Result.Test.BuiltFixtures {
+					artifactIdentities := fixture.ArtifactIdentities
+					if len(artifactIdentities) == 0 && fixture.ArtifactIdentity != "" {
+						artifactIdentities = []string{fixture.ArtifactIdentity}
+					}
 					fmt.Printf(
 						"[%s]   built fixture %s -> %s [%s hashes=%s reused=%t]\n",
 						event.Job,
 						fixture.Name,
 						fixture.Binding,
-						fixture.ArtifactIdentity,
+						strings.Join(artifactIdentities, ","),
 						strings.Join(fixture.ContentHashes, ","),
 						fixture.Reused,
 					)
