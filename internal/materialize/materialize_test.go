@@ -159,6 +159,58 @@ func TestMaterializeSourceFixtureIntoConsumerPackage(t *testing.T) {
 	mustExist(t, filepath.Join(workspace, "test", "unit", "node_modules", "http-client", "updated.txt"))
 }
 
+func TestCleanMaterializeSourceFixtureReplacesDependencyBinding(t *testing.T) {
+	workspace := t.TempDir()
+	contentStore, _ := store.Open(t.TempDir())
+	fixtureSource := filepath.Join(workspace, "test", "unit", "projects", "http-client")
+	if err := os.MkdirAll(fixtureSource, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixtureSource, "package.json"), []byte(`{"name":"http-client","source":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fixtureID := "path:test/unit/projects/http-client#fixture"
+	fixtureHash := putPkg(t, contentStore, fixtureID, "http-client")
+	ir := &manifest.ManifestIR{Format: 1, Workspace: manifest.Workspace{Name: "w"}, Packages: []manifest.Package{{
+		Name: "tests", Root: "test/unit", Version: "1.0.0", Kind: "app",
+		Dependencies: []manifest.DependencyIntent{{Key: "http-client", Kind: "tool", Source: manifest.Source{Kind: "path", Path: "projects/http-client"}}},
+		TestTargets: []manifest.TestTarget{{
+			Name: "unit", Harness: "vitest", Sources: []string{"test/unit.test.ts"}, Requirements: []string{"http-client"},
+			Fixtures: []manifest.TestFixture{{Name: "http-client", Dependency: "http-client", Binding: "http-client", Mode: "source"}},
+		}},
+	}}}
+	graphValue, diagnostics := graph.Build(ir)
+	if len(diagnostics) > 0 {
+		t.Fatalf("graph diagnostics=%v", diagnostics)
+	}
+	locked := &lockfile.Lockfile{
+		Packages: []lockfile.Package{{ID: fixtureID, Name: "http-client", Source: "path", Hash: fixtureHash}},
+		Edges:    []lockfile.Edge{{From: "tests:test:unit", To: fixtureID, Kind: "test", Reference: "http-client"}},
+	}
+	destination := filepath.Join(workspace, "test", "unit", "node_modules", "http-client")
+	if err := os.MkdirAll(destination, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(destination, "stale.txt"), []byte("dependency binding"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	request := Request{
+		WorkspaceRoot: workspace,
+		Graph:         graphValue,
+		Lock:          locked,
+		Store:         contentStore,
+		Options:       Options{Clean: true, LinkMode: LinkModeCopy},
+	}
+	result := materializeTestFixtures(request, filepath.Join(workspace, "node_modules"), LinkModeCopy)
+	if len(result.Diagnostics) > 0 {
+		t.Fatalf("diagnostics=%#v", result.Diagnostics)
+	}
+	mustExist(t, filepath.Join(destination, "package.json"))
+	if _, err := os.Stat(filepath.Join(destination, "stale.txt")); !os.IsNotExist(err) {
+		t.Fatalf("clean fixture projection retained the displaced dependency binding: %v", err)
+	}
+}
+
 func TestMaterializePackageFixtureUsesLockedStoreContent(t *testing.T) {
 	workspace := t.TempDir()
 	contentStore, _ := store.Open(t.TempDir())

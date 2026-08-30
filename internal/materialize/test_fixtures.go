@@ -104,13 +104,23 @@ func materializeTestFixtures(req Request, nodeModulesRoot string, mode LinkMode)
 			))
 			continue
 		}
-		if _, err := os.Lstat(destination); err == nil && !previousOK && !req.Options.Clean && !req.Options.Force {
-			result.Diagnostics = append(result.Diagnostics, testFixtureDiagnostic(
-				"TSPACK_TEST_FIXTURE_DESTINATION_UNMANAGED",
-				"fixture destination already exists and is not owned by TSPack; use sync --clean or remove it explicitly",
-				projection,
-			))
-			continue
+		if _, err := os.Lstat(destination); err == nil {
+			if !req.Options.Clean && !req.Options.Force {
+				result.Diagnostics = append(result.Diagnostics, testFixtureDiagnostic(
+					"TSPACK_TEST_FIXTURE_DESTINATION_UNMANAGED",
+					"fixture destination already exists and is not owned by TSPack; use sync --clean or remove it explicitly",
+					projection,
+				))
+				continue
+			}
+			if err := removeMaterializedPath(destination); err != nil {
+				result.Diagnostics = append(result.Diagnostics, testFixtureDiagnostic(
+					"TSPACK_TEST_FIXTURE_MATERIALIZATION_FAILED",
+					"failed to replace the fixture binding during clean materialization: "+err.Error(),
+					projection,
+				))
+				continue
+			}
 		}
 		if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
 			result.Diagnostics = append(result.Diagnostics, testFixtureDiagnostic(
