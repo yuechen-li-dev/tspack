@@ -11,7 +11,7 @@ import (
 
 const (
 	GitHubNodeVersion   = "24"
-	GitHubTSPackVersion = "v0.1.11-m80e.2"
+	GitHubTSPackVersion = "v0.1.11-m80e.3"
 	GitHubSetupAction   = "yuechen-li-dev/tspack/.github/actions/setup-tspack@" + GitHubTSPackVersion
 )
 

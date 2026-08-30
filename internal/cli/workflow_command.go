@@ -455,6 +455,20 @@ func workflowEventRenderer(jsonOutput bool) workflow.EventSink {
 			fmt.Printf("[%s] %s %s (%dms)\n", event.Job, event.Step, event.State, event.Duration)
 			if event.Result != nil && event.Result.Test != nil {
 				fmt.Printf("[%s]   %d passed, %d failed, %d skipped\n", event.Job, event.Result.Test.Passed, event.Result.Test.Failed, event.Result.Test.Skipped)
+				for _, prerequisite := range event.Result.Test.Prerequisites {
+					fmt.Printf("[%s]   prerequisite %s:%s succeeded=%t\n", event.Job, prerequisite.Package, prerequisite.Target, prerequisite.Succeeded)
+				}
+				for _, fixture := range event.Result.Test.BuiltFixtures {
+					fmt.Printf(
+						"[%s]   built fixture %s -> %s [%s hashes=%s reused=%t]\n",
+						event.Job,
+						fixture.Name,
+						fixture.Binding,
+						fixture.ArtifactIdentity,
+						strings.Join(fixture.ContentHashes, ","),
+						fixture.Reused,
+					)
+				}
 			}
 			if event.Result != nil && event.Result.Build != nil {
 				for _, artifact := range event.Result.Build.Artifacts {
