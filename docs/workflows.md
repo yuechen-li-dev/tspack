@@ -69,6 +69,42 @@ Test({ packages: ["@acme/tests"], target: "unit" })
 A target-selected Test names exactly one package and one TestTarget. The
 TestTarget continues to own its harness, config, sources, and project.
 
+TestTarget build prerequisites belong to target intent, not workflow ordering.
+Declare the qualified BuildTarget in `dependsOn`, then bind one of its declared
+artifact identities with `builtArtifactFixture`:
+
+```tsx
+{
+  name: "unit",
+  harness: "vitest",
+  sources: ["test/unit.test.ts"],
+  dependsOn: ["@acme/runtime:package"],
+  builtFixtures: [
+    builtArtifactFixture("@acme/runtime:package", {
+      name: "runtime",
+      artifact: "runtime-js",
+      binding: "@acme/runtime",
+    }),
+  ],
+}
+```
+
+`dependsOn` controls graph ordering and requires a successful qualified build.
+The fixture independently selects data from that BuildResult and exposes it at
+the consumer's deterministic `node_modules/<binding>` location. A Flow needs
+only `Test({ packages: ["@acme/tests"], target: "unit" })`; it must not repeat
+the prerequisite as a Build effect.
+
+Use a package fixture for an immutable locked package image, a source fixture
+when the test needs a local source tree with realpath behavior, and a built
+artifact fixture only when the test consumes generated output. Built fixtures
+copy the producer `package.json` plus the exact declared regular-file artifact
+or artifact set reported by the qualified BuildResult. Directory artifacts are
+not supported. TSPack verifies hashes and workspace containment, rejects
+unmanaged destinations, and shares unchanged projections between consumers.
+`tspack inspect targets` and its JSON form show prerequisites, producer and
+artifact identities, bindings, and realized locations before execution.
+
 ```tsx
 const build = Build();
 

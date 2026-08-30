@@ -22,19 +22,20 @@ type TargetDiscoveryResult struct {
 }
 
 type DiscoveredTarget struct {
-	Identity        string                  `json:"identity"`
-	Kind            string                  `json:"kind"`
-	Package         string                  `json:"package"`
-	PublicationName string                  `json:"publicationName,omitempty"`
-	Root            string                  `json:"root"`
-	Name            string                  `json:"name"`
-	Tool            string                  `json:"tool"`
-	Artifacts       []DiscoveredArtifact    `json:"artifacts,omitempty"`
-	Prerequisites   []string                `json:"prerequisites,omitempty"`
-	Sources         []string                `json:"sources,omitempty"`
-	HarnessProject  string                  `json:"harnessProject,omitempty"`
-	Requirements    []DiscoveredRequirement `json:"requirements,omitempty"`
-	Fixtures        []DiscoveredFixture     `json:"fixtures,omitempty"`
+	Identity        string                   `json:"identity"`
+	Kind            string                   `json:"kind"`
+	Package         string                   `json:"package"`
+	PublicationName string                   `json:"publicationName,omitempty"`
+	Root            string                   `json:"root"`
+	Name            string                   `json:"name"`
+	Tool            string                   `json:"tool"`
+	Artifacts       []DiscoveredArtifact     `json:"artifacts,omitempty"`
+	Prerequisites   []string                 `json:"prerequisites,omitempty"`
+	Sources         []string                 `json:"sources,omitempty"`
+	HarnessProject  string                   `json:"harnessProject,omitempty"`
+	Requirements    []DiscoveredRequirement  `json:"requirements,omitempty"`
+	Fixtures        []DiscoveredFixture      `json:"fixtures,omitempty"`
+	BuiltFixtures   []DiscoveredBuiltFixture `json:"builtFixtures,omitempty"`
 }
 
 type DiscoveredRequirement struct {
@@ -49,6 +50,15 @@ type DiscoveredFixture struct {
 	Binding      string `json:"binding"`
 	Mode         string `json:"mode"`
 	RealizedPath string `json:"realizedPath"`
+}
+
+type DiscoveredBuiltFixture struct {
+	Identity         string `json:"identity"`
+	ProducerTarget   string `json:"producerTarget"`
+	Artifact         string `json:"artifact"`
+	ArtifactIdentity string `json:"artifactIdentity"`
+	Binding          string `json:"binding"`
+	RealizedPath     string `json:"realizedPath"`
 }
 
 type DiscoveredArtifact struct {
@@ -160,6 +170,26 @@ func discoverTestTarget(pkg manifest.Package, target manifest.TestTarget) Discov
 		})
 	}
 	sort.Slice(fixtures, func(i, j int) bool { return fixtures[i].Identity < fixtures[j].Identity })
+	prerequisites := make([]string, 0, len(target.DependsOn))
+	for _, reference := range target.DependsOn {
+		producerPackage, producerTarget := manifest.ResolveBuildTargetReference(pkg.Name, reference)
+		prerequisites = append(prerequisites, producerPackage+":"+producerTarget)
+	}
+	sort.Strings(prerequisites)
+	builtFixtures := make([]DiscoveredBuiltFixture, 0, len(target.BuiltFixtures))
+	for _, fixture := range target.BuiltFixtures {
+		producerPackage, producerTarget := manifest.ResolveBuildTargetReference(pkg.Name, fixture.Target)
+		producerIdentity := producerPackage + ":" + producerTarget
+		builtFixtures = append(builtFixtures, DiscoveredBuiltFixture{
+			Identity:         fixture.Name,
+			ProducerTarget:   producerIdentity,
+			Artifact:         fixture.Artifact,
+			ArtifactIdentity: producerIdentity + ":" + fixture.Artifact,
+			Binding:          fixture.Binding,
+			RealizedPath:     filepath.ToSlash(filepath.Join(packageDisplayRoot(pkg.Root), "node_modules", filepath.FromSlash(fixture.Binding))),
+		})
+	}
+	sort.Slice(builtFixtures, func(i, j int) bool { return builtFixtures[i].Identity < builtFixtures[j].Identity })
 	return DiscoveredTarget{
 		Identity:        "test:" + pkg.Name + ":" + target.Name,
 		Kind:            "test",
@@ -172,6 +202,8 @@ func discoverTestTarget(pkg manifest.Package, target manifest.TestTarget) Discov
 		HarnessProject:  target.Project,
 		Requirements:    requirements,
 		Fixtures:        fixtures,
+		Prerequisites:   prerequisites,
+		BuiltFixtures:   builtFixtures,
 	}
 }
 

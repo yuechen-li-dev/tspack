@@ -723,7 +723,13 @@ func runTestCommand(args []string) {
 		)
 	}
 
-	operation := project.RunTest(ctx, project.TestRequest{Project: project.DefaultOptions(opts.RootDir), Options: opts, Package: packageName, Target: testTarget})
+	operation := project.RunTest(ctx, project.TestRequest{
+		Project:       project.DefaultOptions(opts.RootDir),
+		Options:       opts,
+		Package:       packageName,
+		Target:        testTarget,
+		BuildExecutor: cliBuildTargetExecutor{},
+	})
 	if packageName != "" || testTarget != "" {
 		fmt.Printf("Test result: package=%s target=%s passed=%d failed=%d skipped=%d durationMs=%.1f\n", packageName, testTarget, operation.Passed, operation.Failed, operation.Skipped, operation.DurationMs)
 		for _, evidence := range operation.Tests {

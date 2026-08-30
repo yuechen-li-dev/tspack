@@ -270,13 +270,15 @@ type Package struct {
 }
 
 type TestTarget struct {
-	Name         string        `json:"name"`
-	Harness      string        `json:"harness"`
-	Config       string        `json:"config,omitempty"`
-	Sources      []string      `json:"sources"`
-	Project      string        `json:"project,omitempty"`
-	Requirements []string      `json:"requirements,omitempty"`
-	Fixtures     []TestFixture `json:"fixtures,omitempty"`
+	Name          string                 `json:"name"`
+	Harness       string                 `json:"harness"`
+	Config        string                 `json:"config,omitempty"`
+	Sources       []string               `json:"sources"`
+	Project       string                 `json:"project,omitempty"`
+	Requirements  []string               `json:"requirements,omitempty"`
+	Fixtures      []TestFixture          `json:"fixtures,omitempty"`
+	DependsOn     []string               `json:"dependsOn,omitempty"`
+	BuiltFixtures []BuiltArtifactFixture `json:"builtFixtures,omitempty"`
 }
 
 // TestFixture binds one target-scoped local package requirement into the
@@ -287,6 +289,17 @@ type TestFixture struct {
 	Dependency string `json:"dependency"`
 	Binding    string `json:"binding"`
 	Mode       string `json:"mode"`
+}
+
+// BuiltArtifactFixture binds one declared artifact member from a qualified
+// BuildTarget result into a TestTarget's Node resolution environment. Target
+// and Artifact are semantic identities; Binding is only the consumer-facing
+// package name.
+type BuiltArtifactFixture struct {
+	Name     string `json:"name"`
+	Target   string `json:"target"`
+	Artifact string `json:"artifact"`
+	Binding  string `json:"binding"`
 }
 
 type SkyrimTarget struct {
@@ -1154,6 +1167,7 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 		}
 	}
 	validateBuildTargetDependencies(add, ir)
+	validateTestBuildDependencies(add, ir)
 	diag.SortDiagnostics(out)
 	return out
 }
@@ -1178,6 +1192,96 @@ func validTargetArtifactRole(role string) bool {
 
 func validTestFixtureBinding(binding string) bool {
 	return pkgNameRe.MatchString(binding)
+}
+
+func validateTestBuildDependencies(add func(string, string, ...string), ir *ManifestIR) {
+	targets := map[string]Target{}
+	for _, pkg := range ir.Packages {
+		for _, target := range pkg.Targets {
+			targets[pkg.Name+":"+target.Name] = target
+		}
+	}
+	for packageIndex, pkg := range ir.Packages {
+		for testIndex, target := range pkg.TestTargets {
+			testPath := fmt.Sprintf("packages[%d].testTargets[%d]", packageIndex, testIndex)
+			prerequisites := map[string]struct{}{}
+			for _, reference := range target.DependsOn {
+				producerPackage, producerTarget := ResolveBuildTargetReference(pkg.Name, reference)
+				identity := producerPackage + ":" + producerTarget
+				if _, ok := targets[identity]; !ok {
+					add("TSPACK_TEST_BUILD_DEPENDENCY_UNKNOWN", testPath+".dependsOn has unknown build target: "+reference)
+					continue
+				}
+				if _, ok := prerequisites[identity]; ok {
+					add("TSPACK_TEST_BUILD_DEPENDENCY_DUPLICATE", testPath+".dependsOn repeats build target: "+reference)
+				}
+				prerequisites[identity] = struct{}{}
+			}
+			fixtureNames := map[string]struct{}{}
+			fixtureBindings := map[string]struct{}{}
+			for _, fixture := range target.Fixtures {
+				fixtureNames[fixture.Name] = struct{}{}
+				fixtureBindings[fixture.Binding] = struct{}{}
+			}
+			for fixtureIndex, fixture := range target.BuiltFixtures {
+				fixturePath := fmt.Sprintf("%s.builtFixtures[%d]", testPath, fixtureIndex)
+				if fixture.Name == "" || !targetNameRe.MatchString(fixture.Name) {
+					add("TSPACK_TEST_BUILT_FIXTURE_NAME_INVALID", fixturePath+".name is invalid")
+				}
+				if _, ok := fixtureNames[fixture.Name]; ok {
+					add("TSPACK_TEST_FIXTURE_DUPLICATE", testPath+" has duplicate fixture name: "+fixture.Name)
+				}
+				fixtureNames[fixture.Name] = struct{}{}
+				producerPackage, producerTarget := ResolveBuildTargetReference(pkg.Name, fixture.Target)
+				producerIdentity := producerPackage + ":" + producerTarget
+				producer, ok := targets[producerIdentity]
+				if !ok {
+					add("TSPACK_TEST_BUILT_FIXTURE_TARGET_UNKNOWN", fixturePath+".target is unknown: "+fixture.Target)
+				} else {
+					if _, required := prerequisites[producerIdentity]; !required {
+						add("TSPACK_TEST_BUILT_FIXTURE_REQUIREMENT_MISSING", fixturePath+".target must also appear in dependsOn: "+fixture.Target)
+					}
+					artifactFound := false
+					for _, artifact := range declaredTargetArtifacts(producer) {
+						if artifact.Name == fixture.Artifact {
+							artifactFound = true
+							break
+						}
+					}
+					if !artifactFound {
+						add("TSPACK_TEST_BUILT_FIXTURE_ARTIFACT_UNKNOWN", fixturePath+".artifact is not declared by "+producerIdentity+": "+fixture.Artifact)
+					}
+				}
+				if !validTestFixtureBinding(fixture.Binding) {
+					add("TSPACK_TEST_FIXTURE_BINDING_INVALID", fixturePath+".binding must be a safe npm package binding")
+				}
+				if _, ok := fixtureBindings[fixture.Binding]; ok {
+					add("TSPACK_TEST_FIXTURE_BINDING_DUPLICATE", testPath+" has duplicate fixture binding: "+fixture.Binding)
+				}
+				fixtureBindings[fixture.Binding] = struct{}{}
+			}
+		}
+	}
+}
+
+// DeclaredTargetArtifacts returns the stable artifact set for a target,
+// including the backwards-compatible singular runtime/types declarations.
+func DeclaredTargetArtifacts(target Target) []TargetArtifact {
+	return declaredTargetArtifacts(target)
+}
+
+func declaredTargetArtifacts(target Target) []TargetArtifact {
+	if len(target.Artifacts) > 0 {
+		return append([]TargetArtifact(nil), target.Artifacts...)
+	}
+	artifacts := []TargetArtifact{}
+	if target.Runtime != "" {
+		artifacts = append(artifacts, TargetArtifact{Name: "javaScript", Kind: "javaScript", Path: target.Runtime, Role: "runtimeEntry"})
+	}
+	if target.Types != "" {
+		artifacts = append(artifacts, TargetArtifact{Name: "typeDeclarations", Kind: "typeDeclarations", Path: target.Types, Role: "typeDeclaration"})
+	}
+	return artifacts
 }
 
 // ResolveBuildTargetReference expands a package-local or package-qualified

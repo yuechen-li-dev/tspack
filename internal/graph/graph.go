@@ -65,10 +65,12 @@ type LifecycleToolRequirement struct {
 }
 
 type TestTargetNode struct {
-	Package      *PackageNode
-	Name         string
-	Requirements []*DependencyNode
-	Fixtures     []TestFixtureNode
+	Package       *PackageNode
+	Name          string
+	Requirements  []*DependencyNode
+	Fixtures      []TestFixtureNode
+	Prerequisites []string
+	BuiltFixtures []BuiltArtifactFixtureNode
 }
 
 type TestFixtureNode struct {
@@ -76,6 +78,13 @@ type TestFixtureNode struct {
 	Dependency *DependencyNode
 	Binding    string
 	Mode       string
+}
+
+type BuiltArtifactFixtureNode struct {
+	Name     string
+	Target   string
+	Artifact string
+	Binding  string
 }
 
 type TargetNode struct {
@@ -215,6 +224,10 @@ func Build(ir *manifest.ManifestIR) (*WorkspaceGraph, []diag.Diagnostic) {
 
 		for _, target := range p.TestTargets {
 			testNode := &TestTargetNode{Package: pn, Name: target.Name}
+			for _, reference := range target.DependsOn {
+				producerPackage, producerTarget := manifest.ResolveBuildTargetReference(p.Name, reference)
+				testNode.Prerequisites = append(testNode.Prerequisites, producerPackage+":"+producerTarget)
+			}
 			pn.TestTargets = append(pn.TestTargets, testNode)
 			pn.TestTargetsByName[target.Name] = testNode
 			for _, reference := range target.Requirements {
@@ -238,8 +251,19 @@ func Build(ir *manifest.ManifestIR) (*WorkspaceGraph, []diag.Diagnostic) {
 					Mode:       fixture.Mode,
 				})
 			}
+			for _, fixture := range target.BuiltFixtures {
+				producerPackage, producerTarget := manifest.ResolveBuildTargetReference(p.Name, fixture.Target)
+				testNode.BuiltFixtures = append(testNode.BuiltFixtures, BuiltArtifactFixtureNode{
+					Name:     fixture.Name,
+					Target:   producerPackage + ":" + producerTarget,
+					Artifact: fixture.Artifact,
+					Binding:  fixture.Binding,
+				})
+			}
 			sort.SliceStable(testNode.Requirements, func(i, j int) bool { return testNode.Requirements[i].Key < testNode.Requirements[j].Key })
 			sort.SliceStable(testNode.Fixtures, func(i, j int) bool { return testNode.Fixtures[i].Name < testNode.Fixtures[j].Name })
+			sort.Strings(testNode.Prerequisites)
+			sort.SliceStable(testNode.BuiltFixtures, func(i, j int) bool { return testNode.BuiltFixtures[i].Name < testNode.BuiltFixtures[j].Name })
 		}
 
 		sort.SliceStable(pn.Dependencies, func(i, j int) bool { return pn.Dependencies[i].Key < pn.Dependencies[j].Key })

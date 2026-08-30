@@ -27,6 +27,10 @@ func TestDiscoverTargetsProjectsStableBuildAndTestContracts(t *testing.T) {
 				"name": "unit", "harness": "vitest", "sources": []string{"test/b.test.ts", "test/a.test.ts"}, "project": "threads",
 				"requirements": []string{"fixture"},
 				"fixtures":     []any{map[string]any{"name": "local", "dependency": "fixture", "binding": "local-fixture", "mode": "source"}},
+				"dependsOn":    []string{"package"},
+				"builtFixtures": []any{map[string]any{
+					"name": "runtime", "target": "package", "artifact": "index-js", "binding": "@demo/runtime",
+				}},
 			}},
 			"publish": map[string]any{"include": []string{"dist/**"}},
 		}},
@@ -58,5 +62,11 @@ func TestDiscoverTargetsProjectsStableBuildAndTestContracts(t *testing.T) {
 	}
 	if len(testTarget.Fixtures) != 1 || testTarget.Fixtures[0].RealizedPath != "packages/snapshot/node_modules/local-fixture" {
 		t.Fatalf("fixtures=%+v", testTarget.Fixtures)
+	}
+	if len(testTarget.Prerequisites) != 1 || testTarget.Prerequisites[0] != "internal-snapshot:package" {
+		t.Fatalf("prerequisites=%+v", testTarget.Prerequisites)
+	}
+	if len(testTarget.BuiltFixtures) != 1 || testTarget.BuiltFixtures[0].ArtifactIdentity != "internal-snapshot:package:index-js" {
+		t.Fatalf("built fixtures=%+v", testTarget.BuiltFixtures)
 	}
 }

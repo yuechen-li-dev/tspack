@@ -68,7 +68,7 @@ func runWorkflowCommand(args []string) {
 		executor := workflow.Executor{
 			Root:     workspace.Root,
 			Manifest: ir,
-			Native: workflow.ProjectOperations{
+			Native: &workflow.ProjectOperations{
 				Options:       projectOptions,
 				BuildExecutor: cliBuildTargetExecutor{Output: buildOutput},
 				Quiet:         options.JSON,

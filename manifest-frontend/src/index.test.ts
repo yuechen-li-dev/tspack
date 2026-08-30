@@ -97,6 +97,42 @@ describe('package annotation manifests', () => {
     });
   });
 
+  it('keeps BuildTarget requirements separate from built artifact fixture bindings', () => {
+    const file = writeFixture('package.manifest.tsx', `
+      import { Package, TestTargets, builtArtifactFixture, definePackage } from "tspack/manifest";
+      export default definePackage(
+        <Package name="tests" version="1.0.0" kind="app">
+          <TestTargets rows={[{
+            name: "unit",
+            harness: "vitest",
+            sources: ["test/unit.test.ts"],
+            dependsOn: ["@demo/runtime:package"],
+            builtFixtures: [
+              builtArtifactFixture("@demo/runtime:package", {
+                name: "runtime",
+                artifact: "runtime-js",
+                binding: "@demo/runtime",
+              }),
+            ],
+          }]} />
+        </Package>,
+      );
+    `);
+
+    const result = parsePackageManifestFile(file);
+
+    expect(result.ok).toBe(true);
+    expect(result.ir?.packages[0]?.testTargets[0]).toMatchObject({
+      dependsOn: ['@demo/runtime:package'],
+      builtFixtures: [{
+        target: '@demo/runtime:package',
+        name: 'runtime',
+        artifact: 'runtime-js',
+        binding: '@demo/runtime',
+      }],
+    });
+  });
+
   it('parses annotatePackage as a package annotation and not a full package', () => {
     const file = writeFixture('package.manifest.tsx', `
       import { PackageAnnotations, annotatePackage, defineDeps, npm, peer, tool } from "tspack/manifest";

@@ -129,9 +129,11 @@ type ProjectOperations struct {
 	Options       project.Options
 	BuildExecutor project.BuildTargetExecutor
 	Quiet         bool
+	coordinator   *project.BuildCoordinator
+	coordinatorMu sync.Mutex
 }
 
-func (operations ProjectOperations) RunStep(ctx context.Context, step PlanStep) (NativeResult, error) {
+func (operations *ProjectOperations) RunStep(ctx context.Context, step PlanStep) (NativeResult, error) {
 	var result NativeResult
 	var diagnostics []diag.Diagnostic
 	var err error
@@ -146,7 +148,9 @@ func (operations ProjectOperations) RunStep(ctx context.Context, step PlanStep) 
 			return result, selectionErr
 		}
 		testResult := project.RunTest(ctx, project.TestRequest{
-			Project: operations.Options,
+			Project:          operations.Options,
+			BuildExecutor:    operations.BuildExecutor,
+			BuildCoordinator: operations.buildCoordinator(),
 			Options: testcmd.Options{
 				RootDir:           operations.Options.RootDir,
 				Filter:            step.Filter,
@@ -179,6 +183,15 @@ func (operations ProjectOperations) RunStep(ctx context.Context, step PlanStep) 
 	return result, err
 }
 
+func (operations *ProjectOperations) buildCoordinator() *project.BuildCoordinator {
+	operations.coordinatorMu.Lock()
+	defer operations.coordinatorMu.Unlock()
+	if operations.coordinator == nil {
+		operations.coordinator = project.NewBuildCoordinator()
+	}
+	return operations.coordinator
+}
+
 func workflowTestPackage(packages []string, target string) (string, error) {
 	if target == "" {
 		if len(packages) > 0 {
@@ -192,7 +205,7 @@ func workflowTestPackage(packages []string, target string) (string, error) {
 	return packages[0], nil
 }
 
-func (operations ProjectOperations) Run(ctx context.Context, operation string, packages []string) ([]diag.Diagnostic, error) {
+func (operations *ProjectOperations) Run(ctx context.Context, operation string, packages []string) ([]diag.Diagnostic, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

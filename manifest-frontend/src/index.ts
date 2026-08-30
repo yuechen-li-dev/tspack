@@ -84,7 +84,7 @@ export type DependencySourceAnalysis = {
 };
 
 const ALLOWED_IMPORT = 'tspack/manifest';
-const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'annotatePackage', 'defineDeps', 'npm', 'jsr', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'localFixture', 'Env', 'Service', 'json', 'Workflow', 'Job', 'Sequence', 'Parallel', 'Branch', 'On', 'MatchResult', 'Finally', 'ForEach', 'ParallelForEach', 'CollectAll', 'FailFast', 'Transfer', 'When', 'GreaterThan', 'LessThan', 'NotEmpty', 'IsEmpty', 'And', 'Or', 'Not', 'Manual', 'Push', 'PullRequest', 'Linux', 'Windows', 'MacOS', 'CurrentHost', 'Sync', 'Check', 'Build', 'Test', 'Pack', 'Audit', 'Process', 'ShellScript', 'Plain', 'Secret', 'WorkflowEnv']);
+const APPROVED_HELPERS = new Set(['define', 'defineWorkspace', 'definePackage', 'annotatePackage', 'defineDeps', 'npm', 'jsr', 'git', 'path', 'workspace', 'dep', 'peer', 'tool', 'localFixture', 'builtArtifactFixture', 'Env', 'Service', 'json', 'Workflow', 'Job', 'Sequence', 'Parallel', 'Branch', 'On', 'MatchResult', 'Finally', 'ForEach', 'ParallelForEach', 'CollectAll', 'FailFast', 'Transfer', 'When', 'GreaterThan', 'LessThan', 'NotEmpty', 'IsEmpty', 'And', 'Or', 'Not', 'Manual', 'Push', 'PullRequest', 'Linux', 'Windows', 'MacOS', 'CurrentHost', 'Sync', 'Check', 'Build', 'Test', 'Pack', 'Audit', 'Process', 'ShellScript', 'Plain', 'Secret', 'WorkflowEnv']);
 const APPROVED_ELEMENTS = new Set(['Workspace', 'Packages', 'Package', 'PackageAnnotations', 'Policies', 'Targets', 'RunTargets', 'TestTargets', 'Workflows', 'SkyrimTarget', 'Tools', 'Boundaries', 'Publish', 'Security', 'UpdatePolicy', 'RegistryPolicy', 'RegistrySource', 'CompatFiles', 'JsonFile']);
 const APPROVED_PROPERTY_HELPERS = new Set(['TsConfig.manifestEditor', 'VSCode.settings', 'VSCode.extensions']);
 const DEFAULT_MANIFEST_EDITOR_INCLUDE = [
@@ -385,6 +385,7 @@ function evalNode(node: ts.Node, sf: ts.SourceFile, diags: Diagnostic[], file: s
     if (name === 'path') return { kind: 'path', path: args[0] };
     if (name === 'dep' || name === 'peer' || name === 'tool') return { kind: name, source: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'localFixture') return { dependency: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
+    if (name === 'builtArtifactFixture') return { target: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'workspace') return { kind: 'workspace', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'Env') return { name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
     if (name === 'Service') return { kind: 'service', name: args[0], ...(typeof args[1] === 'object' ? (args[1] as object) : {}) };
@@ -1844,6 +1845,7 @@ function mapTestTargets(rows: any[]): any[] {
   return rows.map((row) => {
     const requirements = Array.isArray(row?.requirements) ? row.requirements : [];
     const fixtures = Array.isArray(row?.fixtures) ? row.fixtures : [];
+    const builtFixtures = Array.isArray(row?.builtFixtures) ? row.builtFixtures : [];
     return {
       ...row,
       ...(requirements.length > 0 ? { requirements: mapDependencyRefs(requirements) } : {}),
@@ -1853,6 +1855,14 @@ function mapTestTargets(rows: any[]): any[] {
               ...fixture,
               dependency: dependencyRefKey(fixture?.dependency),
               mode: fixture?.mode ?? 'package',
+            })),
+          }
+        : {}),
+      ...(builtFixtures.length > 0
+        ? {
+            builtFixtures: builtFixtures.map((fixture: any) => ({
+              ...fixture,
+              target: String(fixture?.target ?? ''),
             })),
           }
         : {}),

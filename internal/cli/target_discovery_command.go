@@ -83,6 +83,9 @@ func renderDiscoveredTargets(result project.TargetDiscoveryResult) {
 			if len(target.Fixtures) > 0 {
 				summary += fmt.Sprintf("; %d fixture(s)", len(target.Fixtures))
 			}
+			if len(target.BuiltFixtures) > 0 {
+				summary += fmt.Sprintf("; %d built fixture(s)", len(target.BuiltFixtures))
+			}
 		}
 		prerequisites := "-"
 		if len(target.Prerequisites) > 0 {
@@ -99,6 +102,9 @@ func renderDiscoveredTargets(result project.TargetDiscoveryResult) {
 			}
 			for _, fixture := range target.Fixtures {
 				fmt.Fprintf(writer, "\t\t\t\t\tfixture %s -> %s [%s]\t\n", fixture.Identity, fixture.RealizedPath, fixture.Producer)
+			}
+			for _, fixture := range target.BuiltFixtures {
+				fmt.Fprintf(writer, "\t\t\t\t\tbuilt fixture %s -> %s [%s artifact %s]\t\n", fixture.Identity, fixture.RealizedPath, fixture.ProducerTarget, fixture.Artifact)
 			}
 		}
 	}

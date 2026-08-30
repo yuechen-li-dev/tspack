@@ -275,26 +275,32 @@ func containsLifecycleSelection(values []string, candidate string) bool {
 }
 
 type TestRequest struct {
-	Project Options
-	Options testcmd.Options
-	Package string
-	Target  string
+	Project          Options
+	Options          testcmd.Options
+	Package          string
+	Target           string
+	BuildExecutor    BuildTargetExecutor
+	BuildCoordinator *BuildCoordinator
 }
 
 type TestOperationResult struct {
-	Diagnostics []diag.Diagnostic      `json:"diagnostics,omitempty"`
-	ExitCode    int                    `json:"exitCode"`
-	Passed      int                    `json:"passed"`
-	Failed      int                    `json:"failed"`
-	Skipped     int                    `json:"skipped"`
-	DurationMs  float64                `json:"durationMs,omitempty"`
-	Tests       []testcmd.TestEvidence `json:"tests,omitempty"`
+	Diagnostics   []diag.Diagnostic      `json:"diagnostics,omitempty"`
+	ExitCode      int                    `json:"exitCode"`
+	Passed        int                    `json:"passed"`
+	Failed        int                    `json:"failed"`
+	Skipped       int                    `json:"skipped"`
+	DurationMs    float64                `json:"durationMs,omitempty"`
+	Tests         []testcmd.TestEvidence `json:"tests,omitempty"`
+	Prerequisites []BuildTargetResult    `json:"prerequisites,omitempty"`
+	BuiltFixtures []BuiltFixtureResult   `json:"builtFixtures,omitempty"`
 }
 
 func RunTest(ctx context.Context, request TestRequest) TestOperationResult {
 	options := request.Options
 	selectedPackageName := ""
 	selectedTargetName := ""
+	prerequisiteResults := []BuildTargetResult{}
+	builtFixtures := []BuiltFixtureResult{}
 	if options.RootDir == "" {
 		options.RootDir = request.Project.RootDir
 	}
@@ -320,6 +326,55 @@ func RunTest(ctx context.Context, request TestRequest) TestOperationResult {
 		}
 		selectedPackageName = pkg.Name
 		selectedTargetName = target.Name
+		coordinator := request.BuildCoordinator
+		if coordinator == nil {
+			coordinator = NewBuildCoordinator()
+		}
+		if len(target.DependsOn) > 0 {
+			if request.BuildExecutor == nil {
+				return TestOperationResult{Diagnostics: []diag.Diagnostic{errDiag(
+					"TSPACK_TEST_BUILD_EXECUTOR_MISSING",
+					"test target declares build prerequisites but no build executor is available",
+					"consumer target: "+pkg.Name+":test:"+target.Name,
+				)}, ExitCode: 1}
+			}
+			prerequisites := append([]string(nil), target.DependsOn...)
+			sort.Strings(prerequisites)
+			for _, reference := range prerequisites {
+				producerPackage, producerTarget := manifest.ResolveBuildTargetReference(pkg.Name, reference)
+				buildResult := RunBuild(ctx, BuildRequest{
+					Project:  request.Project,
+					Packages: []string{producerPackage},
+					Targets:  []string{producerTarget},
+					Executor: coordinatedBuildExecutor{base: request.BuildExecutor, coordinator: coordinator},
+				})
+				prerequisiteResults = append(prerequisiteResults, buildResult.Targets...)
+				if hasErrors(buildResult.Diagnostics) || len(buildResult.Targets) == 0 || !buildResult.Targets[len(buildResult.Targets)-1].Succeeded {
+					return TestOperationResult{
+						Diagnostics:   buildPrerequisiteFailure(pkg.Name+":test:"+target.Name, buildResult.Diagnostics),
+						ExitCode:      1,
+						Prerequisites: prerequisiteResults,
+					}
+				}
+			}
+		}
+		var builtFixtureDiagnostics []diag.Diagnostic
+		builtFixtures, builtFixtureDiagnostics = realizeBuiltTestFixtures(
+			request.Project.RootDir,
+			ir,
+			pkg,
+			target,
+			prerequisiteResults,
+			coordinator,
+		)
+		if len(builtFixtureDiagnostics) > 0 {
+			return TestOperationResult{
+				Diagnostics:   builtFixtureDiagnostics,
+				ExitCode:      1,
+				Prerequisites: prerequisiteResults,
+				BuiltFixtures: builtFixtures,
+			}
+		}
 		options.UseVitest = true
 		options.CaptureStructured = true
 		options.VitestCwd = filepath.Join(request.Project.RootDir, filepath.FromSlash(pkg.Root))
@@ -328,18 +383,20 @@ func RunTest(ctx context.Context, request TestRequest) TestOperationResult {
 		options.VitestProject = target.Project
 		fixtureDiagnostics := validateRealizedTestFixtures(request.Project.RootDir, pkg, target)
 		if len(fixtureDiagnostics) > 0 {
-			return TestOperationResult{Diagnostics: fixtureDiagnostics, ExitCode: 1}
+			return TestOperationResult{Diagnostics: fixtureDiagnostics, ExitCode: 1, Prerequisites: prerequisiteResults, BuiltFixtures: builtFixtures}
 		}
 	}
 	result := testcmd.RunContext(ctx, options)
 	operation := TestOperationResult{
-		Diagnostics: result.Diagnostics,
-		ExitCode:    result.ExitCode,
-		Passed:      result.Summary.Passed,
-		Failed:      result.Summary.Failed,
-		Skipped:     result.Summary.Skipped,
-		DurationMs:  result.Summary.DurationMs,
-		Tests:       result.Tests,
+		Diagnostics:   result.Diagnostics,
+		ExitCode:      result.ExitCode,
+		Passed:        result.Summary.Passed,
+		Failed:        result.Summary.Failed,
+		Skipped:       result.Summary.Skipped,
+		DurationMs:    result.Summary.DurationMs,
+		Tests:         result.Tests,
+		Prerequisites: prerequisiteResults,
+		BuiltFixtures: builtFixtures,
 	}
 	operation.Diagnostics = append(operation.Diagnostics, failedTestDiagnostics(selectedPackageName, selectedTargetName, result.Tests)...)
 	return operation
