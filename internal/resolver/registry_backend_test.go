@@ -549,6 +549,55 @@ func TestJSRResolverReportsNotFoundAndIntegrityFailures(t *testing.T) {
 	mustCode(t, integrityFailure, "TSPACK_JSR_ARTIFACT_INTEGRITY_FAILED")
 }
 
+func TestExplicitToolControlsTransitivePeerSelection(t *testing.T) {
+	client := newRegistryFixture()
+	addRegistryFixture(client, "typescript", "5.9.3", nil)
+	addRegistryFixture(client, "typescript", "7.0.2", nil)
+	addRegistryFixture(client, "ts-api-utils", "2.5.0", nil)
+	setFixturePeers(client, "ts-api-utils", "2.5.0", map[string]string{"typescript": ">=4.8.4"}, nil)
+	dependencies := []manifest.DependencyIntent{
+		{Key: "typescript", Kind: "tool", Source: manifest.Source{Kind: SourceNPM, Package: "typescript", Range: "~5.9.3"}},
+		{Key: "ts-api-utils", Kind: "tool", Source: manifest.Source{Kind: SourceNPM, Package: "ts-api-utils", Range: "2.5.0"}},
+	}
+	result := ResolveNPM(context.Background(), ResolverOptions{Client: client, Mode: ResolveModeUpdate},
+		ResolveRequest{Graph: graphForDeps(dependencies, nil, nil, "typescript", "ts-api-utils")})
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("explicit tool resolution failed: %#v", result.Diagnostics)
+	}
+	assertHasEdge(t, result.Lock, "app:tool", "npm:typescript@5.9.3", "tool", false)
+	assertRequirementStatus(t, result.Lock, SourceNPM, "typescript", "~5.9.3", "controlling", true)
+	assertRequirementStatus(t, result.Lock, SourceNPM, "typescript", ">=4.8.4", "shadowed-compatible", false)
+	for _, pkg := range result.Lock.Packages {
+		if pkg.Name == "typescript" && pkg.Version != "5.9.3" {
+			t.Fatalf("peer introduced an undeclared compiler: %#v", pkg)
+		}
+	}
+}
+
+func TestResolveNPMLoosePeerRangeKeepsToolVersionAndAuthoredEvidence(t *testing.T) {
+	client := newRegistryFixture()
+	addRegistryFixture(client, "tailwindcss-animate", "1.0.7", nil)
+	addRegistryFixture(client, "tailwindcss", "3.4.17", nil)
+	addRegistryFixture(client, "tailwindcss", "2.0.0", nil)
+	setFixturePeers(client, "tailwindcss-animate", "1.0.7", map[string]string{"tailwindcss": ">=3.0.0 || insiders"}, nil)
+	dependencies := []manifest.DependencyIntent{
+		{Key: "animate", Kind: "tool", Source: manifest.Source{Kind: SourceNPM, Package: "tailwindcss-animate", Range: "1.0.7"}},
+		{Key: "tailwind", Kind: "tool", Source: manifest.Source{Kind: SourceNPM, Package: "tailwindcss", Range: "3.4.17"}},
+	}
+	result := ResolveNPM(context.Background(), ResolverOptions{Client: client, Mode: ResolveModeUpdate},
+		ResolveRequest{Graph: graphForDeps(dependencies, nil, nil, "animate", "tailwind")})
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("loose npm peer range rejected: %#v", result.Diagnostics)
+	}
+	assertHasEdge(t, result.Lock, "app:tool", "npm:tailwindcss@3.4.17", "tool", false)
+	assertRequirementStatus(t, result.Lock, SourceNPM, "tailwindcss", ">=3.0.0 || insiders", "controlling", true)
+	for _, pkg := range result.Lock.Packages {
+		if pkg.Name == "tailwindcss" && pkg.Version != "3.4.17" {
+			t.Fatalf("unexpected out-of-range package: %#v", pkg)
+		}
+	}
+}
+
 func TestRegistryVersionSelectionReusesSemVerForJSR(t *testing.T) {
 	identity := PackageIdentity{Source: SourceJSR, Name: "@scope/pkg"}
 	metadata := &RegistryPackageMetadata{Versions: map[string]RegistryPackageVersion{}}
