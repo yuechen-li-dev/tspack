@@ -314,8 +314,7 @@ func dependencyEdgeKind(dep *graph.DependencyNode) string {
 
 func (r *resolverState) enqueueSharedDirectRequest(ctx context.Context, frontier []resolveWorkItem, dep *graph.DependencyNode, from, edgeKind string, requirementKind requirements.Kind) []resolveWorkItem {
 	if _, ok := r.backends.Backend(dep.Source.Kind); !ok {
-		r.resolveNonNPMDependency(ctx, dep, from, edgeKind)
-		return frontier
+		return append(frontier, r.resolveNonNPMDependency(ctx, dep, from, edgeKind)...)
 	}
 	requirementScope := "workspace"
 	if dep.Source.Kind == SourceNPM && dep.Key != "" && dep.Source.Package != "" && dep.Key != dep.Source.Package {
@@ -428,7 +427,7 @@ func (r *resolverState) resolveFrontier(ctx context.Context, frontier []resolveW
 			r.opts.OnCommittedPackage(prepared.packageID)
 		}
 		nextFrontier = append(nextFrontier, prepared.transitive...)
-		r.appendPeerRequirements(prepared.packageID, prepared.peers)
+		r.appendPeerRequirements(prepared.packageID, prepared.peers, "registry-metadata")
 	}
 
 	return nextFrontier, fatal
@@ -840,7 +839,7 @@ func (r *resolverState) applyRequirementControllers(frontier []resolveWorkItem) 
 	return out
 }
 
-func (r *resolverState) appendPeerRequirements(packageID string, peers []DependencyRequirement) {
+func (r *resolverState) appendPeerRequirements(packageID string, peers []DependencyRequirement, originSource string) {
 	if _, exists := r.peerRequirementsByPackage[packageID]; exists {
 		return
 	}
@@ -856,7 +855,7 @@ func (r *resolverState) appendPeerRequirements(packageID string, peers []Depende
 			Origin: requirements.Origin{
 				PackageID:     packageID,
 				DependencyKey: peer.Reference,
-				Source:        "registry-metadata",
+				Source:        originSource,
 			},
 			Scope: requirements.Scope{Environment: "workspace"},
 			Order: r.requirementOrder,

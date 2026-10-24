@@ -19,14 +19,14 @@ import (
 	"github.com/yuechen-li-dev/tspack/internal/lockfile"
 )
 
-func (r *resolverState) resolveNonNPMDependency(ctx context.Context, dep *graph.DependencyNode, from, kind string) {
+func (r *resolverState) resolveNonNPMDependency(ctx context.Context, dep *graph.DependencyNode, from, kind string) (requests []resolveWorkItem) {
 	switch dep.Source.Kind {
 	case "path":
-		r.resolvePathDependency(dep, from, kind)
+		return r.resolvePathDependency(dep, from, kind)
 	case "workspace":
 		r.resolveWorkspaceDependency(dep, from, kind)
 	case "git":
-		r.resolveGitDependency(ctx, dep, from, kind)
+		return r.resolveGitDependency(ctx, dep, from, kind)
 	default:
 		r.result.Diagnostics = append(r.result.Diagnostics, dErr(
 			"TSPACK_REGISTRY_SOURCE_UNSUPPORTED",
@@ -35,9 +35,10 @@ func (r *resolverState) resolveNonNPMDependency(ctx context.Context, dep *graph.
 			"Use a supported registry source (npm or jsr) or a supported local source (workspace, path, or git).",
 		))
 	}
+	return
 }
 
-func (r *resolverState) resolvePathDependency(dep *graph.DependencyNode, from, kind string) {
+func (r *resolverState) resolvePathDependency(dep *graph.DependencyNode, from, kind string) (requests []resolveWorkItem) {
 	if filepath.IsAbs(dep.Source.Path) {
 		r.result.Diagnostics = append(r.result.Diagnostics, dErr("TSPACK_RESOLVE_PATH_INVALID", "absolute path is not allowed", dep.Source.Path))
 		return
@@ -82,7 +83,12 @@ func (r *resolverState) resolvePathDependency(dep *graph.DependencyNode, from, k
 	}
 	rel := filepath.ToSlash(filepath.Clean(resolved))
 	id := fmt.Sprintf("path:%s#%s", rel, hash)
+	seen := r.seenPkg[id]
 	r.addPackageAndEdge(lockfile.Package{ID: id, Name: pkg.Name, Version: pkg.Version, Source: "path", Path: rel, Hash: "sha256:" + hash, Capabilities: capability.FromPackageJSONScripts(pkg.Scripts)}, from, kind, dep.Optional, dep.Key)
+	if !seen {
+		return r.localDependencyRequests(pkg, id)
+	}
+	return
 }
 
 func (r *resolverState) resolveWorkspaceDependency(dep *graph.DependencyNode, from, kind string) {
@@ -108,7 +114,7 @@ func (r *resolverState) resolveWorkspaceDependency(dep *graph.DependencyNode, fr
 	r.addPackageAndEdge(lockfile.Package{ID: id, Name: target.Name, Version: target.Version, Source: "workspace", Workspace: target.Name, Path: filepath.ToSlash(filepath.Clean(target.Root)), Hash: "sha256:" + hash}, from, kind, dep.Optional, dep.Key)
 }
 
-func (r *resolverState) resolveGitDependency(ctx context.Context, dep *graph.DependencyNode, from, kind string) {
+func (r *resolverState) resolveGitDependency(ctx context.Context, dep *graph.DependencyNode, from, kind string) (requests []resolveWorkItem) {
 	repo := dep.Source.Repo
 	if repo == "" {
 		r.result.Diagnostics = append(r.result.Diagnostics, dErr("TSPACK_RESOLVE_GIT_REPO_INVALID", "git repo is required", dep.Key))
@@ -149,29 +155,50 @@ func (r *resolverState) resolveGitDependency(ctx context.Context, dep *graph.Dep
 		return
 	}
 	id := fmt.Sprintf("git:%s#%s", filepath.ToSlash(repo), strings.TrimSpace(commit))
+	seen := r.seenPkg[id]
 	r.addPackageAndEdge(lockfile.Package{ID: id, Name: pkg.Name, Version: pkg.Version, Source: "git", Repo: filepath.ToSlash(repo), Rev: strings.TrimSpace(commit), TreeHash: strings.TrimSpace(treeHash), Capabilities: capability.FromPackageJSONScripts(pkg.Scripts)}, from, kind, dep.Optional, dep.Key)
+	if !seen {
+		return r.localDependencyRequests(pkg, id)
+	}
+	return
 }
 
-type localPkgMeta struct {
-	Name, Version string
-	Scripts       map[string]string
+func (r *resolverState) localDependencyRequests(pkg PackageVersion, packageID string) []resolveWorkItem {
+	dependencies, peers, err := npmPackageRequirements(pkg)
+	if err != nil {
+		r.result.Diagnostics = append(r.result.Diagnostics, dErr("TSPACK_RESOLVE_LOCAL_REQUIREMENTS_INVALID", "invalid local package dependency metadata", packageID, err.Error()))
+		return nil
+	}
+	r.appendPeerRequirements(packageID, peers, "package.json")
+	requests := make([]resolveWorkItem, 0, len(dependencies))
+	for _, dependency := range dependencies {
+		requests = append(requests, resolveWorkItem{
+			source:    dependency.Identity.Source,
+			name:      dependency.Identity.Name,
+			rng:       dependency.Constraint,
+			from:      packageID,
+			kind:      dependency.Kind,
+			optional:  dependency.Optional,
+			reference: dependency.Reference,
+		})
+	}
+	return requests
 }
 
-func (r *resolverState) localPackageMetadata(root, fallbackName, invalidCode string) (localPkgMeta, bool) {
+func (r *resolverState) localPackageMetadata(root, fallbackName, invalidCode string) (PackageVersion, bool) {
 	b, err := os.ReadFile(filepath.Join(root, "package.json"))
 	if err != nil {
-		return localPkgMeta{Name: fallbackName}, true
+		return PackageVersion{Name: fallbackName}, true
 	}
-	var raw rawPackageJSON
+	var raw PackageVersion
 	if err := json.Unmarshal(b, &raw); err != nil {
 		r.result.Diagnostics = append(r.result.Diagnostics, dErr(invalidCode, "invalid package.json", root, err.Error()))
-		return localPkgMeta{}, false
+		return PackageVersion{}, false
 	}
-	name := raw.Name
-	if name == "" {
-		name = fallbackName
+	if raw.Name == "" {
+		raw.Name = fallbackName
 	}
-	return localPkgMeta{Name: name, Version: raw.Version, Scripts: stringScripts(raw.Scripts)}, true
+	return raw, true
 }
 
 func hashDirectory(root string) (string, bool) {

@@ -41,6 +41,14 @@ The current implementation is intentionally strict and deterministic:
 
 This reduces phantom dependency exposure compared with npm hoisting.
 
+Local path and Git package consumers retain the package's declared runtime,
+optional and peer requirements from `package.json`. They use the same npm
+requirement normalization and resolver as registry packages, including aliases;
+producer-only `devDependencies` are not installed in the consumer graph.
+Regenerate older locks with `tspack update` to capture previously omitted local
+requirements; `sync` continues to materialize the recorded lock rather than
+inventing dependency edges.
+
 For module-instance projection, directly declared `@types/*` roots are placed
 at the workspace compatibility root. TypeScript resolves declaration imports
 from the real paths in the shared instance store, so consumer-local type roots
