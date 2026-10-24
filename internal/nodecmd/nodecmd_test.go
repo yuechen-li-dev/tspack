@@ -3,9 +3,20 @@ package nodecmd
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"testing"
 )
+
+func TestToolBinDirsPreservesPackageScopeAndWorkspaceFallback(t *testing.T) {
+	root := t.TempDir()
+	packageRoot := filepath.Join(root, "client")
+	want := []string{filepath.Join(packageRoot, "node_modules", ".bin"), filepath.Join(root, "node_modules", ".bin")}
+	got := ToolBinDirs(root, packageRoot, "", packageRoot, root)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("tool directories = %#v, want %#v", got, want)
+	}
+}
 
 func TestLocateCachesByResolutionInputs(t *testing.T) {
 	firstDirectory := t.TempDir()

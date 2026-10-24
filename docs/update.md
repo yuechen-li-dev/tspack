@@ -13,6 +13,11 @@ shared environment slot ahead of transitive peers; a peer requesting `>=4.8.4`
 does not introduce a newer compiler alongside it. Tool edges remain tool edges,
 and source-qualified aliases retain their separate slots.
 
+Node RunTargets search their declaring package's `node_modules/.bin` before
+the workspace compatibility directory and host PATH. The same order is passed
+to child processes. This follows module-instance materialization and remains
+true when a target explicitly chooses `cwd: "workspace"`.
+
 `tspack update --policy --dry-run` is a read-only policy planning command. It loads the current manifest, lockfile, registry metadata, declared `<UpdatePolicy />`, and TSPack security policy, then reports which grouped dependency candidates are ready, need security review, are blocked by security, are blocked by version policy, are unclassified, or are not applicable.
 
 This command does not mutate the lockfile, populate the store, materialize dependencies, or run lifecycle scripts. Lifecycle execution remains blocked regardless of whether a candidate passes the policy-plan security gate.

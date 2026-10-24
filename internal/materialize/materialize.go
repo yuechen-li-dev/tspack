@@ -627,7 +627,7 @@ func materializeModuleInstances(req Request, out *Result, nmRoot string, observe
 		if !ok {
 			continue
 		}
-		contextRoot := moduleRootLinkNodeModules(req.WorkspaceRoot, nmRoot, rootLink.From, packages, req.Graph)
+		contextRoot := moduleRootLinkNodeModules(req.WorkspaceRoot, nmRoot, rootLink.From, rootLink.Reference, packages, req.Graph)
 		linkPath, err := safePackagePath(contextRoot, rootLink.Reference)
 		if err != nil {
 			out.Diagnostics = append(out.Diagnostics, diag.Diagnostic{Code: "TSPACK_MATERIALIZE_INVALID_DESTINATION", Severity: diag.SeverityError, Message: err.Error(), Details: []string{instance.ID}})
@@ -657,7 +657,13 @@ func materializeModuleInstances(req Request, out *Result, nmRoot string, observe
 	}
 }
 
-func moduleRootLinkNodeModules(workspaceRoot string, defaultNodeModules string, from string, packages map[string]lockfile.Package, workspaceGraph *graph.WorkspaceGraph) string {
+func moduleRootLinkNodeModules(workspaceRoot string, defaultNodeModules string, from string, reference string, packages map[string]lockfile.Package, workspaceGraph *graph.WorkspaceGraph) string {
+	// Directly declared type providers must be ancestors of the shared instance
+	// store too: declaration imports resolve from real paths, outside the consumer.
+	// This projects existing roots; it does not promote transitive dependencies.
+	if strings.HasPrefix(reference, "@types/") {
+		return defaultNodeModules
+	}
 	consumer := moduleRootConsumer(from)
 	if workspaceGraph != nil {
 		if pkg, ok := workspaceGraph.Package(consumer); ok && pkg.Root != "" && pkg.Root != "." {

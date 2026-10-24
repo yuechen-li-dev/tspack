@@ -160,7 +160,7 @@ func buildModuleInstanceMaterializationPlan(lf *lockfile.Lockfile, workspaceGrap
 			continue
 		}
 		installName := rootLink.Reference
-		contextRoot := moduleRootLinkNodeModules(filepath.Dir(nmRoot), nmRoot, rootLink.From, packages, workspaceGraph)
+		contextRoot := moduleRootLinkNodeModules(filepath.Dir(nmRoot), nmRoot, rootLink.From, rootLink.Reference, packages, workspaceGraph)
 		destination, err := safePackagePath(contextRoot, installName)
 		if err != nil {
 			continue

@@ -241,7 +241,7 @@ func resolveViteDevBackend(project copelandViteDevProject, overlay runEnvOverlay
 	if target.Cwd == "" {
 		target.Cwd = "package"
 	}
-	prepared, env, prepareErr := prepareRunTargetForInvocation(project.WorkspaceRoot, target, overlay)
+	prepared, env, prepareErr := prepareRunTargetForInvocation(project.WorkspaceRoot, target, overlay, project.PackageRoot)
 	if prepareErr != nil {
 		return viteDevBackend{}, fmt.Errorf("%s: %s", prepareErr.code, prepareErr.msg)
 	}

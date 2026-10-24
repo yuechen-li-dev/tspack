@@ -41,6 +41,13 @@ The current implementation is intentionally strict and deterministic:
 
 This reduces phantom dependency exposure compared with npm hoisting.
 
+For module-instance projection, directly declared `@types/*` roots are placed
+at the workspace compatibility root. TypeScript resolves declaration imports
+from the real paths in the shared instance store, so consumer-local type roots
+alone are not visible there. These remain declared roots subject to ordinary
+collision checks; transitive type packages are not promoted. Runtime packages
+and tool binaries retain their consumer context.
+
 ## Safety and cleaning
 
 Generated root includes marker:
