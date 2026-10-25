@@ -157,8 +157,8 @@ func startRunTarget(root string, target manifest.RunTarget, timeout time.Duratio
 	return startRunTargetInDir(root, root, target, timeout, stdout, stderr, runEnvOverlay{})
 }
 
-func startRunTargetInDir(root string, cwdPath string, target manifest.RunTarget, timeout time.Duration, stdout io.Writer, stderr io.Writer, envOverlay runEnvOverlay) (*RunTargetSession, *runErr) {
-	session, launchErr := launchRunTargetInDir(root, cwdPath, target, stdout, stderr, envOverlay)
+func startRunTargetInDir(root string, cwdPath string, target manifest.RunTarget, timeout time.Duration, stdout io.Writer, stderr io.Writer, envOverlay runEnvOverlay, packageRoots ...string) (*RunTargetSession, *runErr) {
+	session, launchErr := launchRunTargetInDir(root, cwdPath, target, stdout, stderr, envOverlay, packageRoots...)
 	if launchErr != nil {
 		return nil, launchErr
 	}
@@ -184,12 +184,15 @@ func startRunTargetInDir(root string, cwdPath string, target manifest.RunTarget,
 	return session, nil
 }
 
-func launchRunTargetInDir(root string, cwdPath string, target manifest.RunTarget, stdout io.Writer, stderr io.Writer, envOverlay runEnvOverlay) (*RunTargetSession, *runErr) {
-	resolved, env, prepareErr := prepareRunTargetForInvocation(root, target, envOverlay)
+func launchRunTargetInDir(root string, cwdPath string, target manifest.RunTarget, stdout io.Writer, stderr io.Writer, envOverlay runEnvOverlay, packageRoots ...string) (*RunTargetSession, *runErr) {
+	if len(packageRoots) == 0 {
+		packageRoots = []string{cwdPath}
+	}
+	resolved, env, prepareErr := prepareRunTargetForInvocation(root, target, envOverlay, packageRoots...)
 	if prepareErr != nil {
 		return nil, prepareErr
 	}
-	launchCommand, launchErr := resolveRunTargetLaunchCommand(root, resolved)
+	launchCommand, launchErr := resolveRunTargetLaunchCommand(root, resolved, packageRoots...)
 	if launchErr != nil {
 		return nil, launchErr
 	}
@@ -222,7 +225,7 @@ func launchRunTargetInDir(root string, cwdPath string, target manifest.RunTarget
 	} else {
 		cmd.Stderr = stderr
 	}
-	projectToolBins := projectToolBinDirs(root)
+	projectToolBins := projectToolBinDirs(root, packageRoots...)
 	if preflightErr := preflightRunTargetServices(resolved, stderr); preflightErr != nil {
 		return nil, preflightErr
 	}
@@ -299,7 +302,7 @@ func runRunCommand(args []string) {
 		fmt.Fprintf(os.Stderr, "Env: %s\n", strings.Join(opts.Env.Keys, ", "))
 	}
 	if opts.PreflightOnly {
-		preflighted, _, preflightErr := prepareRunTargetForInvocation(workspaceRoot, rt, opts.Env)
+		preflighted, _, preflightErr := prepareRunTargetForInvocation(workspaceRoot, rt, opts.Env, selected.PackageRoot)
 		if preflightErr != nil {
 			failRun(preflightErr.code, preflightErr.msg)
 		}
@@ -313,7 +316,7 @@ func runRunCommand(args []string) {
 	}
 	if runTargetModeFor(rt) == runTargetModeFinite {
 		fmt.Fprintln(os.Stderr, "Waiting for: process exit")
-		session, launchErr := launchRunTargetInDir(workspaceRoot, cwdPath, rt, os.Stdout, os.Stderr, opts.Env)
+		session, launchErr := launchRunTargetInDir(workspaceRoot, cwdPath, rt, os.Stdout, os.Stderr, opts.Env, selected.PackageRoot)
 		if launchErr != nil {
 			failRun(launchErr.code, launchErr.msg)
 		}
@@ -329,13 +332,13 @@ func runRunCommand(args []string) {
 		return
 	}
 
-	prepared, _, prepareErr := prepareRunTargetForInvocation(workspaceRoot, rt, opts.Env)
+	prepared, _, prepareErr := prepareRunTargetForInvocation(workspaceRoot, rt, opts.Env, selected.PackageRoot)
 	if prepareErr != nil {
 		failRun(prepareErr.code, prepareErr.msg)
 	}
 	readyCheck := newReadyCheck(prepared)
 	fmt.Fprintf(os.Stderr, "Waiting for: %s\n", readyCheck.waitingDescription())
-	session, readyErr := startRunTargetInDir(workspaceRoot, cwdPath, rt, time.Duration(opts.TimeoutSeconds)*time.Second, os.Stdout, os.Stderr, opts.Env)
+	session, readyErr := startRunTargetInDir(workspaceRoot, cwdPath, rt, time.Duration(opts.TimeoutSeconds)*time.Second, os.Stdout, os.Stderr, opts.Env, selected.PackageRoot)
 	if readyErr != nil {
 		failRun(readyErr.code, readyErr.msg)
 	}
@@ -979,9 +982,9 @@ func formatReadyForList(ready *manifest.RunReadyCheck) string {
 	}
 }
 
-func prepareRunTargetForInvocation(root string, target manifest.RunTarget, overlay runEnvOverlay) (manifest.RunTarget, []string, *runErr) {
+func prepareRunTargetForInvocation(root string, target manifest.RunTarget, overlay runEnvOverlay, packageRoots ...string) (manifest.RunTarget, []string, *runErr) {
 	resolved := target
-	env, validationErr := buildRunTargetEnv(resolved.Runtime, root, resolved, overlay)
+	env, validationErr := buildRunTargetEnv(resolved.Runtime, root, resolved, overlay, packageRoots...)
 	if validationErr != nil {
 		return resolved, nil, validationErr
 	}
@@ -1168,7 +1171,7 @@ func isValidRunEnvKey(key string) bool {
 	return true
 }
 
-func resolveRunTargetLaunchCommand(root string, target manifest.RunTarget) ([]string, *runErr) {
+func resolveRunTargetLaunchCommand(root string, target manifest.RunTarget, packageRoots ...string) ([]string, *runErr) {
 	if executable, ok := directRuntimeExecutable(target.Runtime); ok {
 		if _, err := exec.LookPath(executable); err != nil {
 			return nil, &runErr{
@@ -1185,7 +1188,7 @@ func resolveRunTargetLaunchCommand(root string, target manifest.RunTarget) ([]st
 				msg:  nodecmd.MessageBody(),
 			}
 		}
-		return resolveNodeLocalCommand(root, target.Command), nil
+		return resolveNodeLocalCommand(root, target.Command, packageRoots...), nil
 	}
 	return target.Command, nil
 }
@@ -1319,16 +1322,16 @@ func formatRunTargetCommand(target manifest.RunTarget) string {
 	return string(bytes.Join(stringSliceBytes(parts), []byte(" ")))
 }
 
-func buildRunCommandEnv(runtime string, root string, overlay runEnvOverlay) []string {
+func buildRunCommandEnv(runtime string, root string, overlay runEnvOverlay, packageRoots ...string) []string {
 	env := os.Environ()
 	if runtime == "node" || runtime == "nodejs" {
-		env = prependProjectToolBinsToEnv(env, projectToolBinDirs(root))
+		env = prependProjectToolBinsToEnv(env, projectToolBinDirs(root, packageRoots...))
 	}
 	return overlayRunEnv(env, overlay)
 }
 
-func buildRunTargetEnv(runtime string, root string, target manifest.RunTarget, overlay runEnvOverlay) ([]string, *runErr) {
-	env := buildRunCommandEnv(runtime, root, overlay)
+func buildRunTargetEnv(runtime string, root string, target manifest.RunTarget, overlay runEnvOverlay, packageRoots ...string) ([]string, *runErr) {
+	env := buildRunCommandEnv(runtime, root, overlay, packageRoots...)
 	env, missing := applyRunTargetEnvContract(env, target)
 	if len(missing) > 0 {
 		return nil, missingRunTargetEnvError(target, missing)
@@ -1445,10 +1448,8 @@ func overlayRunEnv(env []string, overlay runEnvOverlay) []string {
 	return filtered
 }
 
-func projectToolBinDirs(root string) []string {
-	// sync owns compatibility tool materialization in one project-local bin dir.
-	// run prepends that bin dir before the host PATH for node-backed RunTargets.
-	return []string{filepath.Join(root, "node_modules", ".bin")}
+func projectToolBinDirs(root string, packageRoots ...string) []string {
+	return nodecmd.ToolBinDirs(root, packageRoots...)
 }
 
 func prependProjectToolBinsToEnv(env []string, binDirs []string) []string {
@@ -1500,7 +1501,7 @@ func stringSliceBytes(values []string) [][]byte {
 	return result
 }
 
-func resolveNodeLocalCommand(root string, command []string) []string {
+func resolveNodeLocalCommand(root string, command []string, packageRoots ...string) []string {
 	if len(command) == 0 {
 		return command
 	}
@@ -1508,7 +1509,7 @@ func resolveNodeLocalCommand(root string, command []string) []string {
 	if strings.ContainsRune(name, os.PathSeparator) {
 		return command
 	}
-	for _, binDir := range projectToolBinDirs(root) {
+	for _, binDir := range projectToolBinDirs(root, packageRoots...) {
 		if local, ok := resolveCommandInDir(binDir, name); ok {
 			resolved := make([]string, len(command))
 			copy(resolved, command)

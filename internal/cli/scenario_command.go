@@ -87,7 +87,7 @@ func runScenarioCommand(args []string) {
 	target.Runtime = resolveRunTargetRuntime(target, workspaceRuntimeForRunTargets(ir)).Runtime
 
 	fmt.Fprintf(os.Stderr, "Starting scenario run target %q...\n", runTarget)
-	session, readyErr := startRunTargetInDir(workspaceRoot, cwdPath, target, time.Duration(readyTimeout)*time.Second, os.Stderr, os.Stderr, runEnvOverlay{})
+	session, readyErr := startRunTargetInDir(workspaceRoot, cwdPath, target, time.Duration(readyTimeout)*time.Second, os.Stderr, os.Stderr, runEnvOverlay{}, ref.PackageRoot)
 	if readyErr != nil {
 		fmt.Fprintf(os.Stderr, "TSPACK_SCENARIO_RUN_START_FAILED: %s\n", readyErr.msg)
 		exit(1)

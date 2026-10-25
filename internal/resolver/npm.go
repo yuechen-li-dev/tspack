@@ -261,7 +261,7 @@ func ResolveNPM(ctx context.Context, opts ResolverOptions, req ResolveRequest) R
 				frontier = state.enqueueSharedDirectRequest(ctx, frontier, dep, from, "peer", requirements.KindPeer)
 			}
 			for _, dep := range target.BuildDependencies() {
-				frontier = state.enqueueDirectRequest(ctx, frontier, dep, from, "tool")
+				frontier = state.enqueueSharedDirectRequest(ctx, frontier, dep, from, "tool", requirements.KindProjectExplicit)
 			}
 		}
 		for _, dep := range pkg.AllDependencies() {
@@ -274,10 +274,10 @@ func ResolveNPM(ctx context.Context, opts ResolverOptions, req ResolveRequest) R
 			frontier = state.enqueueSharedDirectRequest(ctx, frontier, dep, fmt.Sprintf("%s:dependency", pkg.Name), dependencyEdgeKind(dep), requirements.KindProjectExplicit)
 		}
 		for _, dep := range pkg.ToolDependencies() {
-			frontier = state.enqueueDirectRequest(ctx, frontier, dep, fmt.Sprintf("%s:tool", pkg.Name), "tool")
+			frontier = state.enqueueSharedDirectRequest(ctx, frontier, dep, fmt.Sprintf("%s:tool", pkg.Name), "tool", requirements.KindProjectExplicit)
 		}
 		for _, requirement := range pkg.LifecycleToolDependencies() {
-			frontier = state.enqueueDirectRequest(ctx, frontier, requirement.Dependency, requirement.From, "tool")
+			frontier = state.enqueueSharedDirectRequest(ctx, frontier, requirement.Dependency, requirement.From, "tool", requirements.KindProjectExplicit)
 		}
 		for _, target := range pkg.AllTestTargets() {
 			from := fmt.Sprintf("%s:test:%s", pkg.Name, target.Name)
@@ -312,27 +312,9 @@ func dependencyEdgeKind(dep *graph.DependencyNode) string {
 	return "runtime"
 }
 
-func (r *resolverState) enqueueDirectRequest(ctx context.Context, frontier []resolveWorkItem, dep *graph.DependencyNode, from, kind string) []resolveWorkItem {
-	if _, ok := r.backends.Backend(dep.Source.Kind); !ok {
-		r.resolveNonNPMDependency(ctx, dep, from, kind)
-		return frontier
-	}
-	frontier = append(frontier, resolveWorkItem{
-		source:    dep.Source.Kind,
-		name:      dep.Source.Package,
-		rng:       dep.Source.Range,
-		from:      from,
-		kind:      kind,
-		optional:  dep.Optional,
-		reference: dep.Key,
-	})
-	return frontier
-}
-
 func (r *resolverState) enqueueSharedDirectRequest(ctx context.Context, frontier []resolveWorkItem, dep *graph.DependencyNode, from, edgeKind string, requirementKind requirements.Kind) []resolveWorkItem {
 	if _, ok := r.backends.Backend(dep.Source.Kind); !ok {
-		r.resolveNonNPMDependency(ctx, dep, from, edgeKind)
-		return frontier
+		return append(frontier, r.resolveNonNPMDependency(ctx, dep, from, edgeKind)...)
 	}
 	requirementScope := "workspace"
 	if dep.Source.Kind == SourceNPM && dep.Key != "" && dep.Source.Package != "" && dep.Key != dep.Source.Package {
@@ -445,7 +427,7 @@ func (r *resolverState) resolveFrontier(ctx context.Context, frontier []resolveW
 			r.opts.OnCommittedPackage(prepared.packageID)
 		}
 		nextFrontier = append(nextFrontier, prepared.transitive...)
-		r.appendPeerRequirements(prepared.packageID, prepared.peers)
+		r.appendPeerRequirements(prepared.packageID, prepared.peers, "registry-metadata")
 	}
 
 	return nextFrontier, fatal
@@ -857,7 +839,7 @@ func (r *resolverState) applyRequirementControllers(frontier []resolveWorkItem) 
 	return out
 }
 
-func (r *resolverState) appendPeerRequirements(packageID string, peers []DependencyRequirement) {
+func (r *resolverState) appendPeerRequirements(packageID string, peers []DependencyRequirement, originSource string) {
 	if _, exists := r.peerRequirementsByPackage[packageID]; exists {
 		return
 	}
@@ -873,7 +855,7 @@ func (r *resolverState) appendPeerRequirements(packageID string, peers []Depende
 			Origin: requirements.Origin{
 				PackageID:     packageID,
 				DependencyKey: peer.Reference,
-				Source:        "registry-metadata",
+				Source:        originSource,
 			},
 			Scope: requirements.Scope{Environment: "workspace"},
 			Order: r.requirementOrder,
@@ -908,7 +890,7 @@ func (r *resolverState) resolvePeerRequirements(ctx context.Context, resolveJobs
 				continue
 			}
 			slot := requirements.SlotKey(controller)
-			if selectedVersionSatisfies(r.selectedSlots[slot], controller.Constraint) {
+			if selectedVersionSatisfies(controller.Target.Source, r.selectedSlots[slot], controller.Constraint) {
 				continue
 			}
 			frontier = append(frontier, resolveWorkItem{
@@ -964,7 +946,7 @@ func (r *resolverState) reconcilePeerEnvironmentEdges() {
 			Scope:  requirements.Scope{Environment: "workspace"},
 		}
 		controller, ok := controllers[requirements.SlotKey(requirement)]
-		if !ok || controller.Kind != requirements.KindPeer || !selectedVersionSatisfies(pkg.Version, controller.Constraint) {
+		if !ok || controller.Kind != requirements.KindPeer || !selectedVersionSatisfies(controller.Target.Source, pkg.Version, controller.Constraint) {
 			continue
 		}
 		kept = append(kept, edge)
@@ -1095,11 +1077,11 @@ func peerEnvironmentRoot(requirement requirements.PackageRequirement) string {
 	return "workspace:peer:" + requirement.Target.Source + ":" + requirement.Target.Name
 }
 
-func selectedVersionSatisfies(version string, constraint string) bool {
+func selectedVersionSatisfies(source string, version string, constraint string) bool {
 	if version == "" {
 		return false
 	}
-	wanted, err := semver.NewConstraint(constraint)
+	wanted, err := requirements.ParseConstraint(source, constraint)
 	if err != nil {
 		return false
 	}
@@ -1188,7 +1170,7 @@ func buildResolveDiagnostic(optional bool, failure *preparedFailure) diag.Diagno
 }
 
 func selectRegistryVersion(meta *RegistryPackageMetadata, rng string) (RegistryPackageVersion, string, string, bool) {
-	c, err := semver.NewConstraint(rng)
+	c, err := requirements.ParseConstraint(meta.Identity.Source, rng)
 	if err != nil {
 		return RegistryPackageVersion{}, "", "invalid-range", false
 	}

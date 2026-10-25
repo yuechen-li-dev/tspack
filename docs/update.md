@@ -1,5 +1,23 @@
 # Update
 
+Registry selection and lockfile requirement classification share range parsing.
+For npm, an OR range such as `>=3.0.0 || insiders` keeps its valid SemVer
+alternative, matching npm's loose handling of this peer metadata. The original
+range remains in lockfile evidence. Invalid alternatives never become a wildcard;
+an all-invalid range or standalone tag still fails. Prerelease exclusion is
+unchanged, and JSR ranges retain strict parsing.
+
+Explicit registry tools participate in the same requirement tape as direct
+runtime dependencies. A declared TypeScript tool such as `~5.9.3` controls its
+shared environment slot ahead of transitive peers; a peer requesting `>=4.8.4`
+does not introduce a newer compiler alongside it. Tool edges remain tool edges,
+and source-qualified aliases retain their separate slots.
+
+Node RunTargets search their declaring package's `node_modules/.bin` before
+the workspace compatibility directory and host PATH. The same order is passed
+to child processes. This follows module-instance materialization and remains
+true when a target explicitly chooses `cwd: "workspace"`.
+
 `tspack update --policy --dry-run` is a read-only policy planning command. It loads the current manifest, lockfile, registry metadata, declared `<UpdatePolicy />`, and TSPack security policy, then reports which grouped dependency candidates are ready, need security review, are blocked by security, are blocked by version policy, are unclassified, or are not applicable.
 
 This command does not mutate the lockfile, populate the store, materialize dependencies, or run lifecycle scripts. Lifecycle execution remains blocked regardless of whether a candidate passes the policy-plan security gate.

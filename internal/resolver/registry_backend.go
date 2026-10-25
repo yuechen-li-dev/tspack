@@ -113,21 +113,9 @@ func (backend *npmBackend) Metadata(ctx context.Context, name string) (*Registry
 		Versions: make(map[string]RegistryPackageVersion, len(raw.Versions)),
 	}
 	for version, rawVersion := range raw.Versions {
-		dependencies, normalizeErr := normalizeNPMDependencies(rawVersion.Dependencies, false, nil)
+		dependencies, peerRequirements, normalizeErr := npmPackageRequirements(rawVersion)
 		if normalizeErr != nil {
-			return nil, fmt.Errorf("normalize dependencies for npm:%s@%s: %w", name, version, normalizeErr)
-		}
-		optionalDependencies, normalizeErr := normalizeNPMDependencies(rawVersion.OptionalDependencies, true, nil)
-		if normalizeErr != nil {
-			return nil, fmt.Errorf("normalize optional dependencies for npm:%s@%s: %w", name, version, normalizeErr)
-		}
-		dependencies = append(dependencies, optionalDependencies...)
-		peerRequirements, normalizeErr := normalizeNPMDependencies(rawVersion.PeerDependencies, false, rawVersion.PeerDependenciesMeta)
-		if normalizeErr != nil {
-			return nil, fmt.Errorf("normalize peer dependencies for npm:%s@%s: %w", name, version, normalizeErr)
-		}
-		for index := range peerRequirements {
-			peerRequirements[index].Kind = "peer"
+			return nil, fmt.Errorf("normalize requirements for npm:%s@%s: %w", name, version, normalizeErr)
 		}
 		metadata.Versions[version] = RegistryPackageVersion{
 			Identity:            identity,
@@ -144,6 +132,27 @@ func (backend *npmBackend) Metadata(ctx context.Context, name string) (*Registry
 
 func (backend *npmBackend) FetchArtifact(ctx context.Context, artifact ArtifactDescriptor) ([]byte, error) {
 	return backend.client.Tarball(ctx, artifact.URL)
+}
+
+// Local package.json and registry metadata describe the same npm dependency
+// contract. Development tools belong to the producer, not to its consumers.
+func npmPackageRequirements(version PackageVersion) ([]DependencyRequirement, []DependencyRequirement, error) {
+	dependencies, err := normalizeNPMDependencies(version.Dependencies, false, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	optional, err := normalizeNPMDependencies(version.OptionalDependencies, true, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	peers, err := normalizeNPMDependencies(version.PeerDependencies, false, version.PeerDependenciesMeta)
+	if err != nil {
+		return nil, nil, err
+	}
+	for index := range peers {
+		peers[index].Kind = "peer"
+	}
+	return append(dependencies, optional...), peers, nil
 }
 
 func normalizeNPMDependencies(dependencies map[string]string, optional bool, peerMeta map[string]struct {

@@ -310,7 +310,7 @@ func runInspectCommand(args []string) {
 		if userEnvKeys := runEnv.UserKeys(); len(userEnvKeys) > 0 {
 			fmt.Fprintf(os.Stderr, "Env: %s\n", strings.Join(userEnvKeys, ", "))
 		}
-		session, readyErr := startRunTargetInDir(workspaceRoot, cwdPath, rt, time.Duration(runReadyTimeout)*time.Second, os.Stderr, os.Stderr, runEnv)
+		session, readyErr := startRunTargetInDir(workspaceRoot, cwdPath, rt, time.Duration(runReadyTimeout)*time.Second, os.Stderr, os.Stderr, runEnv, ref.PackageRoot)
 		if readyErr != nil {
 			code := "TSPACK_INSPECT_RUN_START_FAILED"
 			switch readyErr.code {
@@ -709,6 +709,7 @@ func runTestCommand(args []string) {
 			os.Stderr,
 			os.Stderr,
 			runEnv,
+			ref.PackageRoot,
 		)
 		if readyErr != nil {
 			fmt.Fprintf(os.Stderr, "TSPACK_TEST_RUN_TARGET_FAILED: %s\n", readyErr.msg)

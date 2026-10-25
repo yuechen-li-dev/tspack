@@ -838,16 +838,16 @@ func TestMaterializeStatsObserverTracksHardlinksAndCopyFallbacks(t *testing.T) {
 		t.Fatalf("diags: %#v", res.Diagnostics)
 	}
 	if observer.packages == 0 || observer.files == 0 || observer.directories == 0 {
-		t.Fatalf("expected package/file/directory counts, got %+v", observer)
+		t.Fatalf("expected package/file/directory counts, got %+v", &observer)
 	}
 	if observer.copyCount == 0 {
-		t.Fatalf("expected copy fallback count, got %+v", observer)
+		t.Fatalf("expected copy fallback count, got %+v", &observer)
 	}
 	if observer.hardlinkCount != 0 {
-		t.Fatalf("expected no successful hardlinks when link fails, got %+v", observer)
+		t.Fatalf("expected no successful hardlinks when link fails, got %+v", &observer)
 	}
 	if observer.logicalBytes == 0 || observer.copiedBytes == 0 {
-		t.Fatalf("expected byte accounting, got %+v", observer)
+		t.Fatalf("expected byte accounting, got %+v", &observer)
 	}
 }
 

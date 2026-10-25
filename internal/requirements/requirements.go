@@ -145,7 +145,7 @@ func (tape Tape) Classify(selected map[string]string) Tape {
 		entry := &out.Entries[index]
 		version, present := selected[SlotKey(entry.Requirement)]
 		entry.SelectedVersion = version
-		constraint, err := semver.NewConstraint(entry.Requirement.Constraint)
+		constraint, err := ParseConstraint(entry.Requirement.Target.Source, entry.Requirement.Constraint)
 		if err != nil {
 			entry.Status = StatusInvalid
 			continue

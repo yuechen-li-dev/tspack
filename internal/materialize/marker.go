@@ -150,6 +150,7 @@ func buildModuleInstanceMaterializationPlan(lf *lockfile.Lockfile, workspaceGrap
 			entries = append(entries, materializationPlanEntry{PackageID: instance.ID + "->" + dependencyInstance.ID, PackageName: installName, PackageHash: dependencyInstance.PeerContextID, Destination: filepath.ToSlash(linkPath), Aliased: installName != materializedPackageName(dependency)})
 		}
 	}
+	providers := sharedRuntimeProviders(lf.RootInstances)
 	for _, rootLink := range lf.RootInstances {
 		instance, ok := instancesByID[rootLink.InstanceID]
 		if !ok {
@@ -160,12 +161,13 @@ func buildModuleInstanceMaterializationPlan(lf *lockfile.Lockfile, workspaceGrap
 			continue
 		}
 		installName := rootLink.Reference
-		contextRoot := moduleRootLinkNodeModules(filepath.Dir(nmRoot), nmRoot, rootLink.From, packages, workspaceGraph)
-		destination, err := safePackagePath(contextRoot, installName)
-		if err != nil {
-			continue
+		for _, contextRoot := range moduleRootLinkDirectories(filepath.Dir(nmRoot), nmRoot, rootLink, packages, workspaceGraph, providers) {
+			destination, err := safePackagePath(contextRoot, installName)
+			if err != nil {
+				continue
+			}
+			entries = append(entries, materializationPlanEntry{PackageID: instance.ID, PackageName: installName, PackageHash: instance.PeerContextID, Destination: filepath.ToSlash(destination), Aliased: installName != materializedPackageName(pkg)})
 		}
-		entries = append(entries, materializationPlanEntry{PackageID: instance.ID, PackageName: installName, PackageHash: instance.PeerContextID, Destination: filepath.ToSlash(destination), Aliased: installName != materializedPackageName(pkg)})
 	}
 	sort.SliceStable(entries, func(left, right int) bool {
 		if entries[left].Destination != entries[right].Destination {

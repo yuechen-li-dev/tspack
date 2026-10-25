@@ -148,6 +148,67 @@ func TestPathDependencyCanReferenceWorkspaceSibling(t *testing.T) {
 	}
 }
 
+func TestLocalPackageRequirementsReachRegistryResolution(t *testing.T) {
+	const metadata = `{"name":"local-library","version":"1.0.0","dependencies":{"runtime":"1.0.0","named-runtime":"npm:runtime@1.0.0"},"optionalDependencies":{"optional":"2.0.0"},"peerDependencies":{"host":"^3.0.0"},"devDependencies":{"producer-only":"1.0.0"}}`
+	for _, source := range []string{"path", "git"} {
+		t.Run(source, func(t *testing.T) {
+			root := t.TempDir()
+			dependency := manifest.Source{Kind: "path", Path: "library"}
+			if source == "git" {
+				if _, err := exec.LookPath("git"); err != nil {
+					t.Skip("git not installed")
+				}
+				repo, commit := createGitRepo(t, root, metadata)
+				dependency = manifest.Source{Kind: "git", Repo: repo, Rev: commit}
+			} else {
+				library := filepath.Join(root, "library")
+				if err := os.MkdirAll(library, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(library, "package.json"), []byte(metadata), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			client := newRegistryFixture()
+			addRegistryFixture(client, "runtime", "1.0.0", nil)
+			addRegistryFixture(client, "optional", "2.0.0", nil)
+			addRegistryFixture(client, "host", "3.1.0", nil)
+			result := ResolveNPM(context.Background(), ResolverOptions{
+				Mode: ResolveModeUpdate, Client: client, RootDir: root,
+			}, ResolveRequest{Graph: localGraph(root, []manifest.DependencyIntent{
+				{Key: "library", Kind: "dep", Source: dependency},
+			}, []string{"library"})})
+			if len(result.Diagnostics) != 0 {
+				t.Fatalf("local resolution failed: %#v", result.Diagnostics)
+			}
+			localID := ""
+			for _, pkg := range result.Lock.Packages {
+				if pkg.Source == source {
+					localID = pkg.ID
+				}
+				if pkg.Name == "producer-only" {
+					t.Fatal("producer devDependency leaked into consumer graph")
+				}
+			}
+			if localID == "" {
+				t.Fatal("local package missing")
+			}
+			assertHasEdge(t, result.Lock, localID, "npm:runtime@1.0.0", "runtime", false)
+			assertHasEdge(t, result.Lock, localID, "npm:optional@2.0.0", "runtime", true)
+			assertHasPackage(t, result.Lock, "npm:host@3.1.0")
+			aliasFound := false
+			for _, edge := range result.Lock.Edges {
+				if edge.From == localID && edge.Reference == "named-runtime" && edge.To == "npm:runtime@1.0.0" {
+					aliasFound = true
+				}
+			}
+			if !aliasFound {
+				t.Fatal("local npm alias lost its authored reference")
+			}
+		})
+	}
+}
+
 func TestPathHashIgnoresGeneratedLockfile(t *testing.T) {
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"dep-path","version":"1.0.0"}`), 0o644)
