@@ -21,13 +21,46 @@ func TestSkyrimRunIsExplicitlyOptedIn(t *testing.T) {
 }
 
 func TestDominatusSkyrimManagedControllerCommandIsExplicit(t *testing.T) {
-	t.Setenv("AURELIAN_MARIONETTE_PROJECT", filepath.Join("fixture", "Aurelian.Marionette.Transport.csproj"))
-	command := managedControllerCommand(t.TempDir(), filepath.Join("build", "transport.json"))
+	root := t.TempDir()
+	project := filepath.Join(root, "Controller.csproj")
+	if err := os.WriteFile(project, []byte("<Project />"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AURELIAN_MARIONETTE_PROJECT", project)
+	command, err := managedControllerCommand(root, filepath.Join("build", "transport.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	joined := strings.Join(command, " ")
-	for _, required := range []string{"dotnet", "--project", "Aurelian.Marionette.Transport.csproj", "live-save-correlation", "--config", "transport.json"} {
+	for _, required := range []string{"dotnet", "--project", project, "world-host", "--config", "transport.json"} {
 		if !strings.Contains(joined, required) {
-			t.Fatalf("managed controller command missing %q: %s", required, joined)
+			t.Fatalf("missing %q: %s", required, joined)
 		}
+	}
+	t.Setenv("AURELIAN_MARIONETTE_PROJECT", filepath.Join(root, "missing.csproj"))
+	if _, err := managedControllerCommand(root, "transport.json"); err == nil {
+		t.Fatal("missing explicit project silently fell back")
+	}
+}
+
+func TestWorldHostDiscoveryUsesCurrentCopelandProject(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	t.Setenv("AURELIAN_MARIONETTE_PROJECT", "")
+	project := filepath.Join(home, "source", "repos", "Copeland", "src", "Skyrim", "Aurelian.Marionette", "Aurelian.Marionette.csproj")
+	if err := os.MkdirAll(filepath.Dir(project), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(project, []byte("<Project />"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	command, err := managedControllerCommand(t.TempDir(), "transport.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command[3] != project {
+		t.Fatalf("project=%q want=%q", command[3], project)
 	}
 }
 
@@ -39,7 +72,7 @@ func TestDominatusSkyrimTransportConfigIncludesScopedCheckpointDirectory(t *test
 			"eternal_dragonborn.development.presenter.token":   "fixture-token",
 		},
 	}}
-	path, err := writeSkyrimSessionBootstrapTransportConfig(root, profile)
+	path, err := writeSkyrimSessionBootstrapTransportConfig(root, profile, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,6 +87,65 @@ func TestDominatusSkyrimTransportConfigIncludesScopedCheckpointDirectory(t *test
 	want := filepath.Join(root, "build", "skyrim", "checkpoints")
 	if config["checkpointDirectory"] != want {
 		t.Fatalf("transport config checkpoint directory=%v want=%s", config["checkpointDirectory"], want)
+	}
+	if config["startupSaveId"] != nil || config["enableNpcNumberProof"] != false || config["enablePlaytestShell"] != false || config["enableOwnedNpcProof"] != false {
+		t.Fatalf("ordinary host unexpectedly enabled a proof or save load: %#v", config)
+	}
+}
+
+func TestWorldHostNamedSaveKeepsFilenameOutOfControllerConfig(t *testing.T) {
+	const prefix = "eternal_dragonborn.development.presenter."
+	profile := skyrimHostProfile{
+		TestSaves: map[string]skyrimTestSave{
+			"ordinary-world": {Filename: "Ordinary World.ess", Disposable: true, ReadOnly: true},
+		},
+		RuntimeOverrides: map[string]map[string]any{
+			"MarionetteSSE": {prefix + "profile": "test", prefix + "token": "local-token"},
+		},
+	}
+	effective, err := withDominatusSkyrimExperiment(profile, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	effective, err = withSkyrimNamedTestSave(effective, "ordinary-world")
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := effective.RuntimeOverrides["MarionetteSSE"]
+	values[prefix+"allow_npc_value_changes"] = true
+	values[prefix+"allow_playtest_input"] = true
+	if err := applySkyrimFixtureRuntimeOverrides(effective, values); err != nil {
+		t.Fatal(err)
+	}
+	if values[prefix+"development_session_ed_m2b2d"] != "Ordinary World.ess" {
+		t.Fatal("named save was not resolved through the local registry")
+	}
+	path, err := writeSkyrimSessionBootstrapTransportConfig(t.TempDir(), effective, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config map[string]any
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatal(err)
+	}
+	if config["startupSaveId"] != "ordinary-world" || config["enableNpcNumberProof"] != true || config["enablePlaytestShell"] != true || strings.Contains(string(data), "Ordinary World.ess") {
+		t.Fatalf("controller must receive only the symbolic save ID: %#v", config)
+	}
+	if _, changed := profile.RuntimeOverrides["MarionetteSSE"][prefix+"allow_session_bootstrap"]; changed {
+		t.Fatal("named save overlay mutated the original profile")
+	}
+	for _, id := range []string{"../ordinary-world", "missing"} {
+		if _, err := withSkyrimNamedTestSave(profile, id); err == nil {
+			t.Fatalf("invalid save ID accepted: %q", id)
+		}
+	}
+	profile.TestSaves["ordinary-world"] = skyrimTestSave{Filename: "Ordinary World.ess", Disposable: true}
+	if _, err := withSkyrimNamedTestSave(profile, "ordinary-world"); err == nil {
+		t.Fatal("writable save accepted")
 	}
 }
 
@@ -311,5 +403,72 @@ func manifestSkyrimTargetForOverrideTests() manifest.SkyrimTarget {
 			{Path: "eternal_dragonborn.development.presenter.profile", Type: "string"},
 			{Path: "eternal_dragonborn.development.presenter.token", Type: "string", Secret: true},
 		},
+	}
+}
+
+func TestOwnedNpcProofKeepsIndependentCapabilitiesAndComposesItsOwnNumberProof(t *testing.T) {
+	const prefix = "eternal_dragonborn.development.presenter."
+	values := map[string]any{prefix + "profile": "test", prefix + "token": "test", prefix + "allow_npc_value_changes": true, prefix + "allow_owned_npc_spawn": true}
+	profile := skyrimHostProfile{RuntimeOverrides: map[string]map[string]any{"MarionetteSSE": values}}
+	path, err := writeSkyrimSessionBootstrapTransportConfig(t.TempDir(), profile, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config map[string]any
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatal(err)
+	}
+	if config["enableOwnedNpcProof"] != true || config["enableNpcNumberProof"] != false {
+		t.Fatalf("proof composition: %#v", config)
+	}
+}
+
+func TestOwnedMovementProofUsesOnlyItsOwnBehaviorAndScopedCapability(t *testing.T) {
+	const prefix = "eternal_dragonborn.development.presenter."
+	values := map[string]any{prefix + "profile": "test", prefix + "token": "test", prefix + "allow_owned_npc_spawn": true, prefix + "allow_owned_npc_movement": true}
+	profile := skyrimHostProfile{RuntimeOverrides: map[string]map[string]any{"MarionetteSSE": values}}
+	path, err := writeSkyrimSessionBootstrapTransportConfig(t.TempDir(), profile, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config map[string]any
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatal(err)
+	}
+	if config["enableOwnedMovementProof"] != true || config["enableOwnedNpcProof"] != false || config["enableNpcNumberProof"] != false {
+		t.Fatalf("movement proof composition: %#v", config)
+	}
+}
+
+func TestOwnedNpcAgentDoesNotComposeEarlierProofs(t *testing.T) {
+	const prefix = "eternal_dragonborn.development.presenter."
+	values := map[string]any{
+		prefix + "profile": "test", prefix + "token": "test",
+		prefix + "allow_owned_npc_spawn": true, prefix + "allow_owned_npc_movement": true,
+	}
+	profile := skyrimHostProfile{RuntimeOverrides: map[string]map[string]any{"MarionetteSSE": values}}
+	path, err := writeSkyrimSessionBootstrapTransportConfig(t.TempDir(), profile, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config map[string]any
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatal(err)
+	}
+	if config["enablePatrolTrial"] != true || config["enableOwnedNpcAgent"] != true || config["enableOwnedMovementProof"] != false ||
+		config["enableOwnedNpcProof"] != false || config["enableNpcNumberProof"] != false {
+		t.Fatalf("agent composition: %#v", config)
 	}
 }

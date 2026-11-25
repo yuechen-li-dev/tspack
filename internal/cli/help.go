@@ -53,7 +53,7 @@ func printDefaultHelp() {
 	fmt.Println("Reference shortcuts:")
 	fmt.Println("  tspack check [--root .] [--format] [--show-conflicts] [--show-lifecycle]")
 	fmt.Println("  tspack run [target] [--root .]")
-	fmt.Println("  tspack run skyrim [--session-bootstrap|--dominatus-skyrim] [--dry-run] [--json]")
+	fmt.Println("  tspack run skyrim [--session-bootstrap|--dominatus-skyrim [--npc-number-proof] [--owned-npc-proof] [--owned-movement-proof|--owned-npc-agent|--patrol-trial] [--playtest-shell] [--load-test-save <id>]] [--dry-run] [--json]")
 	fmt.Println("  tspack npm <npm-args...> [--root .]")
 	fmt.Println("  tspack audit [--audit-level any|low|moderate|high|critical] [--json]")
 	fmt.Println("  tspack inspect targets [--kind build|test] [--json]")

@@ -3,13 +3,14 @@
 package skyrim
 
 import (
+	"path/filepath"
 	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
-func findSkyrimRuntimeProcess() int {
+func findSkyrimRuntimeProcess(expectedPath string) int {
 	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
 		return 0
@@ -22,7 +23,16 @@ func findSkyrimRuntimeProcess() int {
 	for {
 		name := windows.UTF16ToString(entry.ExeFile[:])
 		if strings.EqualFold(name, "SkyrimSE.exe") {
-			return int(entry.ProcessID)
+			handle, openErr := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, entry.ProcessID)
+			if openErr == nil {
+				path := make([]uint16, 32768)
+				size := uint32(len(path))
+				queryErr := windows.QueryFullProcessImageName(handle, 0, &path[0], &size)
+				_ = windows.CloseHandle(handle)
+				if queryErr == nil && strings.EqualFold(filepath.Clean(windows.UTF16ToString(path[:size])), filepath.Clean(expectedPath)) {
+					return int(entry.ProcessID)
+				}
+			}
 		}
 		if err := windows.Process32Next(snapshot, &entry); err != nil {
 			return 0

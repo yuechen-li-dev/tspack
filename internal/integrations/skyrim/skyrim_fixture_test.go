@@ -202,22 +202,21 @@ func TestDominatusSkyrimOverlayEnablesOnlyBoundedExperimentGates(t *testing.T) {
 			},
 		},
 	}
+	profile.TestSaves = nil // An ordinary world host does not require a corpse fixture.
 	effective, err := withDominatusSkyrimExperiment(profile, "skyrim-dev")
 	if err != nil {
 		t.Fatal(err)
 	}
 	values := effective.RuntimeOverrides["MarionetteSSE"]
-	for _, path := range []string{
-		"eternal_dragonborn.development.presenter.enabled",
-		"eternal_dragonborn.development.presenter.allow_session_bootstrap",
-		"eternal_dragonborn.development.presenter.allow_semantic_actuation",
-		"eternal_dragonborn.development.presenter.allow_host_request_evaluation",
-		"eternal_dragonborn.development.presenter.allow_host_fixture_query",
-	} {
-		if values[path] != true {
-			t.Fatalf("expected %s enabled in run-scoped experiment: %#v", path, values)
+	if values["eternal_dragonborn.development.presenter.enabled"] != true {
+		t.Fatal("presenter disabled")
+	}
+	for _, name := range []string{"allow_session_bootstrap", "allow_semantic_actuation", "allow_host_request_evaluation", "allow_host_fixture_query", "allow_npc_value_changes", "allow_owned_npc_spawn", "allow_owned_npc_movement"} {
+		if values["eternal_dragonborn.development.presenter."+name] != false {
+			t.Fatalf("unsafe default %s", name)
 		}
 	}
+
 	if _, ok := profile.RuntimeOverrides["MarionetteSSE"]["eternal_dragonborn.development.presenter.enabled"]; ok {
 		t.Fatal("experiment overlay mutated the host profile")
 	}
@@ -241,7 +240,7 @@ func TestSessionBootstrapWritesIgnoredControllerConfigFromHostValues(t *testing.
 			"eternal_dragonborn.development.presenter.token":   "local-token",
 		},
 	}}
-	path, err := writeSkyrimSessionBootstrapTransportConfig(root, profile)
+	path, err := writeSkyrimSessionBootstrapTransportConfig(root, profile, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
