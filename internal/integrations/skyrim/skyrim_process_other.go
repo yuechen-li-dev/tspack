@@ -2,7 +2,7 @@
 
 package skyrim
 
-func findSkyrimRuntimeProcess() int {
+func findSkyrimRuntimeProcess(expectedPath string) int {
 	return 0
 }
 

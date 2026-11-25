@@ -22,7 +22,9 @@ func Sync(opts Options, clean bool, force bool) Result {
 		}()
 	}
 	ir, g, out := loadManifestAndGraph(opts)
-	_ = g
+	if hasErrors(out) {
+		return Result{Diagnostics: out}
+	}
 	lf, d, e := lockfile.LoadFile(opts.LockfilePath)
 	if os.IsNotExist(e) {
 		return Result{Diagnostics: []diag.Diagnostic{{Code: "TSPACK_SYNC_LOCKFILE_MISSING", Severity: diag.SeverityError, Message: "lockfile is required; run tspack update"}}}

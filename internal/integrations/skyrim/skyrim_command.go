@@ -25,13 +25,20 @@ import (
 const skyrimProfileRelativePath = ".tspack/skyrim-hosts.toml"
 
 type skyrimRunOptions struct {
-	root             string
-	host             string
-	dryRun           bool
-	json             bool
-	noLaunch         bool
-	sessionBootstrap bool
-	dominatusSkyrim  bool
+	root               string
+	host               string
+	dryRun             bool
+	json               bool
+	noLaunch           bool
+	sessionBootstrap   bool
+	dominatusSkyrim    bool
+	npcNumberProof     bool
+	ownedNpcProof      bool
+	ownedMovementProof bool
+	ownedNpcAgent      bool
+	patrolTrial        bool
+	playtestShell      bool
+	loadTestSave       string
 }
 
 type skyrimProfilesFile struct {
@@ -228,9 +235,30 @@ func runSkyrimCommand(args []string, loadManifest ManifestLoader) {
 			failSkyrim("TSPACK_SKYRIM_DOMINATUS_EXPERIMENT_INVALID", err)
 		}
 	}
+	if opts.loadTestSave != "" {
+		profile, err = withSkyrimNamedTestSave(profile, opts.loadTestSave)
+		if err != nil {
+			failSkyrim("TSPACK_SKYRIM_TEST_SAVE_INVALID", err)
+		}
+	}
+	if opts.ownedMovementProof || opts.ownedNpcAgent {
+		profile.RuntimeOverrides["MarionetteSSE"]["eternal_dragonborn.development.presenter.allow_owned_npc_movement"] = true
+	}
+	if opts.ownedNpcProof || opts.ownedMovementProof || opts.ownedNpcAgent {
+		profile.RuntimeOverrides["MarionetteSSE"]["eternal_dragonborn.development.presenter.allow_owned_npc_spawn"] = true
+	}
+	if opts.npcNumberProof || opts.ownedNpcProof {
+		profile.RuntimeOverrides["MarionetteSSE"]["eternal_dragonborn.development.presenter.allow_npc_value_changes"] = true
+	}
+	if opts.playtestShell {
+		profile.RuntimeOverrides["MarionetteSSE"]["eternal_dragonborn.development.presenter.allow_playtest_input"] = true
+	}
 	plan := buildSkyrimPlan(root, manifestPath, target, profile, false)
 	if opts.dominatusSkyrim {
-		plan.ManagedControllerCommand = managedControllerCommand(root, "<generated-transport-config>")
+		plan.ManagedControllerCommand, err = managedControllerCommand(root, "<generated-transport-config>")
+		if err != nil {
+			plan.Blockers = append(plan.Blockers, err.Error())
+		}
 	}
 	if opts.dryRun {
 		renderSkyrimPlan(plan, opts.json)
@@ -245,7 +273,10 @@ func runSkyrimCommand(args []string, loadManifest ManifestLoader) {
 	executeSkyrimBuild(root, target, profile)
 	plan = buildSkyrimPlan(root, manifestPath, target, profile, true)
 	if opts.dominatusSkyrim {
-		plan.ManagedControllerCommand = managedControllerCommand(root, filepath.Join(root, "build", "msse-presenter-m1", "aurelian-transport.json"))
+		plan.ManagedControllerCommand, err = managedControllerCommand(root, filepath.Join(root, "build", "msse-presenter-m1", "aurelian-transport.json"))
+		if err != nil {
+			plan.Blockers = append(plan.Blockers, err.Error())
+		}
 	}
 	if len(plan.Blockers) > 0 {
 		failSkyrim("TSPACK_SKYRIM_STAGING_FAILED", errors.New(strings.Join(plan.Blockers, "; ")))
@@ -255,7 +286,7 @@ func runSkyrimCommand(args []string, loadManifest ManifestLoader) {
 		failSkyrim("TSPACK_SKYRIM_MATERIALIZATION_FAILED", err)
 	}
 	if opts.sessionBootstrap || opts.dominatusSkyrim {
-		configPath, configErr := writeSkyrimSessionBootstrapTransportConfig(root, profile)
+		configPath, configErr := writeSkyrimSessionBootstrapTransportConfig(root, profile, opts.ownedNpcAgent, opts.patrolTrial)
 		if configErr != nil {
 			failSkyrim("TSPACK_SKYRIM_SESSION_BOOTSTRAP_CONFIG_FAILED", configErr)
 		}
@@ -311,6 +342,25 @@ func parseSkyrimRunOptions(args []string) skyrimRunOptions {
 			opts.noLaunch = true
 		case "--session-bootstrap":
 			opts.sessionBootstrap = true
+		case "--load-test-save":
+			if index+1 >= len(args) {
+				failSkyrim("TSPACK_SKYRIM_ARGUMENT_INVALID", errors.New("--load-test-save requires a symbolic ID"))
+			}
+			index++
+			opts.loadTestSave = args[index]
+		case "--owned-movement-proof":
+			opts.ownedMovementProof = true
+		case "--owned-npc-agent":
+			opts.ownedNpcAgent = true
+		case "--patrol-trial":
+			opts.patrolTrial = true
+			opts.ownedNpcAgent = true
+		case "--owned-npc-proof":
+			opts.ownedNpcProof = true
+		case "--npc-number-proof":
+			opts.npcNumberProof = true
+		case "--playtest-shell":
+			opts.playtestShell = true
 		case "--dominatus-skyrim":
 			opts.dominatusSkyrim = true
 		case "--root":
@@ -328,6 +378,15 @@ func parseSkyrimRunOptions(args []string) skyrimRunOptions {
 		default:
 			failSkyrim("TSPACK_SKYRIM_ARGUMENT_INVALID", fmt.Errorf("unknown argument %s", args[index]))
 		}
+	}
+	if (opts.npcNumberProof || opts.ownedNpcProof || opts.ownedMovementProof || opts.ownedNpcAgent || opts.playtestShell || opts.loadTestSave != "") && !opts.dominatusSkyrim {
+		failSkyrim("TSPACK_SKYRIM_ARGUMENT_INVALID", errors.New("NPC proofs, --owned-npc-agent, --playtest-shell and --load-test-save require --dominatus-skyrim"))
+	}
+	if opts.ownedNpcAgent && (opts.npcNumberProof || opts.ownedNpcProof || opts.ownedMovementProof) {
+		failSkyrim("TSPACK_SKYRIM_ARGUMENT_INVALID", errors.New("--owned-npc-agent cannot run alongside NPC proof behaviors"))
+	}
+	if opts.dominatusSkyrim && opts.sessionBootstrap {
+		failSkyrim("TSPACK_SKYRIM_ARGUMENT_INVALID", errors.New("world-host and disposable session bootstrap are separate launch modes"))
 	}
 	return opts
 }
@@ -352,23 +411,62 @@ func withSkyrimSessionBootstrap(profile skyrimHostProfile, host string) (skyrimH
 	values["eternal_dragonborn.development.presenter.allow_semantic_actuation"] = false
 	values["eternal_dragonborn.development.presenter.allow_host_request_evaluation"] = false
 	values["eternal_dragonborn.development.presenter.allow_session_bootstrap"] = true
+	values["eternal_dragonborn.development.presenter.development_session_save_id"] = "ed-m2b2d"
 	return copy, nil
 }
 
 func withDominatusSkyrimExperiment(profile skyrimHostProfile, host string) (skyrimHostProfile, error) {
-	copy, err := withSkyrimSessionBootstrap(profile, host)
-	if err != nil {
-		return skyrimHostProfile{}, err
+	copy := profile
+	copy.RuntimeOverrides = map[string]map[string]any{}
+	for target, values := range profile.RuntimeOverrides {
+		copy.RuntimeOverrides[target] = copySkyrimRuntimeOverrideValues(values)
 	}
 	values := copy.RuntimeOverrides["MarionetteSSE"]
-	values["eternal_dragonborn.development.presenter.allow_semantic_actuation"] = true
-	values["eternal_dragonborn.development.presenter.allow_host_request_evaluation"] = true
-	values["eternal_dragonborn.development.presenter.allow_host_fixture_query"] = true
-	copy.INIOverrides = map[string]any{skyrimAlwaysActiveOverridePath: true}
+	if values == nil {
+		values = map[string]any{}
+		copy.RuntimeOverrides["MarionetteSSE"] = values
+	}
+	values["host"] = host
+	values["eternal_dragonborn.development.presenter.enabled"] = true
+	for _, name := range []string{"allow_semantic_actuation", "allow_host_request_evaluation", "allow_host_fixture_query", "allow_session_bootstrap", "allow_playtest_input", "allow_npc_value_changes", "allow_owned_npc_spawn", "allow_owned_npc_movement"} {
+		values["eternal_dragonborn.development.presenter."+name] = false
+	}
+	copy.INIOverrides = map[string]any{}
+	for name, value := range profile.INIOverrides {
+		copy.INIOverrides[name] = value
+	}
+	copy.INIOverrides[skyrimAlwaysActiveOverridePath] = true
 	return copy, nil
 }
 
-func writeSkyrimSessionBootstrapTransportConfig(root string, profile skyrimHostProfile) (string, error) {
+func withSkyrimNamedTestSave(profile skyrimHostProfile, id string) (skyrimHostProfile, error) {
+	if len(id) == 0 || len(id) > 48 {
+		return skyrimHostProfile{}, errors.New("invalid test save ID")
+	}
+	for _, ch := range id {
+		if !(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '-' || ch == '_') {
+			return skyrimHostProfile{}, errors.New("invalid test save ID")
+		}
+	}
+	fixture, ok := profile.TestSaves[id]
+	if !ok || !fixture.Disposable || !fixture.ReadOnly || !isSafeSkyrimFixtureFilename(fixture.Filename) {
+		return skyrimHostProfile{}, fmt.Errorf("test save %q must be declared disposable and read-only", id)
+	}
+	copy := profile
+	copy.RuntimeOverrides = map[string]map[string]any{}
+	for target, values := range profile.RuntimeOverrides {
+		copy.RuntimeOverrides[target] = copySkyrimRuntimeOverrideValues(values)
+	}
+	values := copy.RuntimeOverrides["MarionetteSSE"]
+	if values == nil {
+		return skyrimHostProfile{}, errors.New("presenter runtime override target required")
+	}
+	values["eternal_dragonborn.development.presenter.allow_session_bootstrap"] = true
+	values["eternal_dragonborn.development.presenter.development_session_save_id"] = id
+	return copy, nil
+}
+
+func writeSkyrimSessionBootstrapTransportConfig(root string, profile skyrimHostProfile, ownedNpcAgent bool, patrolTrial bool) (string, error) {
 	values := profile.RuntimeOverrides["MarionetteSSE"]
 	profileName, profileOK := values["eternal_dragonborn.development.presenter.profile"].(string)
 	token, tokenOK := values["eternal_dragonborn.development.presenter.token"].(string)
@@ -380,11 +478,26 @@ func writeSkyrimSessionBootstrapTransportConfig(root string, profile skyrimHostP
 		return "", err
 	}
 	path := filepath.Join(directory, "aurelian-transport.json")
+	var startupSaveID any
+	if values["eternal_dragonborn.development.presenter.allow_session_bootstrap"] == true {
+		id, _ := values["eternal_dragonborn.development.presenter.development_session_save_id"].(string)
+		if id == "" {
+			id = "ed-m2b2d"
+		}
+		startupSaveID = id
+	}
 	data, err := json.MarshalIndent(map[string]any{
-		"profile":             profileName,
-		"token":               token,
-		"clientName":          "tspack-session-bootstrap",
-		"checkpointDirectory": filepath.Join(root, "build", "skyrim", "checkpoints"),
+		"profile":                  profileName,
+		"token":                    token,
+		"clientName":               "tspack-session-bootstrap",
+		"enableNpcNumberProof":     npcNumberProofEnabled(values),
+		"enableOwnedNpcProof":      !ownedNpcAgent && values["eternal_dragonborn.development.presenter.allow_owned_npc_spawn"] == true && values["eternal_dragonborn.development.presenter.allow_owned_npc_movement"] != true,
+		"enableOwnedMovementProof": !ownedNpcAgent && values["eternal_dragonborn.development.presenter.allow_owned_npc_movement"] == true,
+		"enableOwnedNpcAgent":      ownedNpcAgent,
+		"enablePatrolTrial":        patrolTrial,
+		"enablePlaytestShell":      values["eternal_dragonborn.development.presenter.allow_playtest_input"] == true,
+		"startupSaveId":            startupSaveID,
+		"checkpointDirectory":      filepath.Join(root, "build", "skyrim", "checkpoints"),
 	}, "", "  ")
 	if err != nil {
 		return "", err
@@ -648,12 +761,16 @@ func applySkyrimFixtureRuntimeOverrides(profile skyrimHostProfile, values map[st
 	if !bootstrapEnabled {
 		return nil
 	}
-	fixture, found := profile.TestSaves["ed-m2b2d"]
+	id, _ := values["eternal_dragonborn.development.presenter.development_session_save_id"].(string)
+	if id == "" {
+		id = "ed-m2b2d"
+	}
+	fixture, found := profile.TestSaves[id]
 	if !found || !fixture.Disposable || !fixture.ReadOnly || !isSafeSkyrimFixtureFilename(fixture.Filename) {
-		return errors.New("session bootstrap requires a declared disposable, read-only ed-m2b2d fixture")
+		return errors.New("session bootstrap requires a declared disposable, read-only named fixture")
 	}
 	if existing, declared := values[filenamePath]; declared && existing != fixture.Filename {
-		return errors.New("session bootstrap filename must be supplied by the ed-m2b2d fixture mapping")
+		return errors.New("session bootstrap filename must be supplied by the selected fixture mapping")
 	}
 	if existing, declared := values[readOnlyPath]; declared && existing != true {
 		return errors.New("session bootstrap fixture mapping requires read-only=true")
@@ -1185,13 +1302,16 @@ func copyAndReplaceFile(source string, destination string) error {
 }
 
 func launchSkyrim(report *skyrimMaterializationReport, target skyrimTargetRef, profile skyrimHostProfile, launchManagedController bool) error {
+	if existing := findSkyrimRuntimeProcess(filepath.Join(profile.GameRoot, "SkyrimSE.exe")); existing != 0 {
+		return fmt.Errorf("isolated Skyrim runtime already running (pid %d); close it before a managed launch", existing)
+	}
 	before := newestMatchingFile(profile.RuntimeLogDirectory, target.Target.RuntimeEvidencePattern)
 	var managed *exec.Cmd
 	var managedDone chan error
 	if launchManagedController {
-		command := managedControllerCommand(target.PackageRoot, report.SessionBootstrapConfig)
-		if len(command) == 0 {
-			return errors.New("managed Aurelian controller command is unavailable")
+		command, commandErr := managedControllerCommand(target.PackageRoot, report.SessionBootstrapConfig)
+		if commandErr != nil {
+			return commandErr
 		}
 		logPath := filepath.Join(target.PackageRoot, "build", "skyrim", "managed-controller.log")
 		if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
@@ -1207,6 +1327,9 @@ func launchSkyrim(report *skyrimMaterializationReport, target skyrimTargetRef, p
 		managed.Env = os.Environ()
 		managed.Stdout = logFile
 		managed.Stderr = logFile
+		// The managed host serializes local playtest commands with its own lifecycle
+		// and behavior requests on the single authenticated Marionette connection.
+		managed.Stdin = os.Stdin
 		if err := managed.Start(); err != nil {
 			return fmt.Errorf("start managed Aurelian controller: %w", err)
 		}
@@ -1247,7 +1370,7 @@ func launchSkyrim(report *skyrimMaterializationReport, target skyrimTargetRef, p
 	}()
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		if runtimePID := findSkyrimRuntimeProcess(); runtimePID != 0 {
+		if runtimePID := findSkyrimRuntimeProcess(filepath.Join(profile.GameRoot, "SkyrimSE.exe")); runtimePID != 0 {
 			report.RuntimePID = runtimePID
 		}
 		candidate := newestMatchingFile(profile.RuntimeLogDirectory, target.Target.RuntimeEvidencePattern)
@@ -1300,19 +1423,26 @@ func launchSkyrim(report *skyrimMaterializationReport, target skyrimTargetRef, p
 	return nil
 }
 
-func managedControllerCommand(root string, configPath string) []string {
+func managedControllerCommand(root string, configPath string) ([]string, error) {
 	project := os.Getenv("AURELIAN_MARIONETTE_PROJECT")
 	if project == "" {
 		userProfile, err := os.UserHomeDir()
 		if err != nil {
-			return nil
+			return nil, err
 		}
-		project = filepath.Join(userProfile, "source", "repos", "Copeland", "src", "Aurelian", "Aurelian.Marionette.Transport", "Aurelian.Marionette.Transport.csproj")
+		project = filepath.Join(userProfile, "source", "repos", "Copeland", "src", "Skyrim", "Aurelian.Marionette", "Aurelian.Marionette.csproj")
+	} else if !filepath.IsAbs(project) {
+		project = filepath.Join(root, project)
 	}
-	return []string{
-		"dotnet", "run", "--project", project, "--",
-		"live-save-correlation", "--config", configPath,
+	project, err := filepath.Abs(project)
+	if err != nil {
+		return nil, err
 	}
+	info, err := os.Stat(project)
+	if err != nil || !info.Mode().IsRegular() || !strings.EqualFold(filepath.Ext(project), ".csproj") {
+		return nil, fmt.Errorf("managed Aurelian project unavailable at %q; set AURELIAN_MARIONETTE_PROJECT to an existing .csproj", project)
+	}
+	return []string{"dotnet", "run", "--project", project, "--no-launch-profile", "--", "world-host", "--config", configPath}, nil
 }
 
 func newestMatchingFile(directory string, pattern string) string {
@@ -1488,4 +1618,8 @@ func stringSlicesEqual(left []string, right []string) bool {
 func failSkyrim(code string, err error) {
 	fmt.Fprintf(os.Stderr, "%s: %v\n", code, err)
 	os.Exit(1)
+}
+
+func npcNumberProofEnabled(values map[string]any) bool {
+	return values["eternal_dragonborn.development.presenter.allow_npc_value_changes"] == true && values["eternal_dragonborn.development.presenter.allow_owned_npc_spawn"] != true
 }
