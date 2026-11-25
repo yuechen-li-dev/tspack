@@ -454,7 +454,11 @@ func workflowEventRenderer(jsonOutput bool) workflow.EventSink {
 		case workflow.EventStepCompleted:
 			fmt.Printf("[%s] %s %s (%dms)\n", event.Job, event.Step, event.State, event.Duration)
 			if event.Result != nil && event.Result.Test != nil {
-				fmt.Printf("[%s]   %d passed, %d failed, %d skipped\n", event.Job, event.Result.Test.Passed, event.Result.Test.Failed, event.Result.Test.Skipped)
+				if event.Result.Test.Harness == "command" {
+					fmt.Printf("[%s]   test command exited %d\n", event.Job, event.Result.Test.ExitCode)
+				} else {
+					fmt.Printf("[%s]   %d passed, %d failed, %d skipped\n", event.Job, event.Result.Test.Passed, event.Result.Test.Failed, event.Result.Test.Skipped)
+				}
 				for _, prerequisite := range event.Result.Test.Prerequisites {
 					fmt.Printf("[%s]   prerequisite %s:%s succeeded=%t\n", event.Job, prerequisite.Package, prerequisite.Target, prerequisite.Succeeded)
 				}

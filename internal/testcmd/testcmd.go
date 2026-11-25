@@ -35,6 +35,9 @@ type Options struct {
 	VitestConfig      string
 	VitestFiles       []string
 	VitestProject     string
+	XTestFiles        []string
+	RunnerArgs        []string
+	Command           []string
 }
 
 type Result struct {
@@ -71,6 +74,9 @@ func Run(opts Options) Result {
 }
 
 func RunContext(ctx context.Context, opts Options) Result {
+	if len(opts.Command) != 0 {
+		return runDeclaredCommand(ctx, opts)
+	}
 	if opts.Watch {
 		return runWatch(ctx, opts, os.Stderr)
 	}
@@ -225,11 +231,16 @@ func runXTestContext(ctx context.Context, opts Options, result *Result) {
 		return
 	}
 
-	args := []string{resolution.Path, "test", "--root", opts.RootDir}
+	args := []string{resolution.Path, "test"}
+	args = append(args, opts.RunnerArgs...)
+	args = append(args, "--root", opts.RootDir)
+	for _, file := range opts.XTestFiles {
+		args = append(args, "--file", file)
+	}
 	if opts.List {
 		args = append(args, "--list")
 	}
-	if opts.JSON {
+	if opts.JSON || opts.CaptureStructured {
 		args = append(args, "--json")
 	}
 	if opts.Filter != "" {
@@ -248,11 +259,6 @@ func runXTestContext(ctx context.Context, opts Options, result *Result) {
 	cmd.Env = append(os.Environ(), opts.Environment...)
 	var structured bytes.Buffer
 	if opts.CaptureStructured {
-		if !opts.JSON {
-			args = append(args, "--json")
-			cmd = exec.CommandContext(ctx, "node", args...)
-			cmd.Env = append(os.Environ(), opts.Environment...)
-		}
 		cmd.Stdout = &structured
 	} else {
 		cmd.Stdout = os.Stdout
@@ -447,6 +453,7 @@ func runVitestContext(ctx context.Context, opts Options, result *Result) {
 	if opts.Filter != "" {
 		args = append(args, "-t", opts.Filter)
 	}
+	args = append(args, opts.RunnerArgs...)
 	bin, err := resolvedProjectManagedBin(vitestRoot, "vitest")
 	if err != nil {
 		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{Code: "TSPACK_TEST_VITEST_FAILED_TO_START", Severity: diag.SeverityError, Message: "failed to resolve the Vitest executable", Details: []string{err.Error()}})
@@ -491,6 +498,33 @@ func runVitestContext(ctx context.Context, opts Options, result *Result) {
 	if opts.CaptureStructured {
 		parseVitestReport(reportPath, result)
 	}
+}
+
+func runDeclaredCommand(ctx context.Context, opts Options) Result {
+	executable := opts.Command[0]
+	cmd := exec.CommandContext(ctx, executable, opts.Command[1:]...)
+	cmd.Dir = opts.RootDir
+	cmd.Env = append(os.Environ(), opts.Environment...)
+	if !opts.Quiet {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
+	if err := cmd.Run(); err != nil {
+		exitCode := 1
+		if processErr, ok := err.(*exec.ExitError); ok && processErr.ExitCode() > 0 {
+			exitCode = processErr.ExitCode()
+		}
+		return Result{
+			ExitCode: exitCode,
+			Diagnostics: []diag.Diagnostic{{
+				Code:     "TSPACK_TEST_COMMAND_FAILED",
+				Severity: diag.SeverityError,
+				Message:  "declared test command failed",
+				Details:  []string{"executable: " + executable, err.Error()},
+			}},
+		}
+	}
+	return Result{}
 }
 
 func resolvedProjectManagedBin(root string, name string) (string, error) {

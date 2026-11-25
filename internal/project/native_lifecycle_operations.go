@@ -293,12 +293,14 @@ type TestOperationResult struct {
 	Tests         []testcmd.TestEvidence `json:"tests,omitempty"`
 	Prerequisites []BuildTargetResult    `json:"prerequisites,omitempty"`
 	BuiltFixtures []BuiltFixtureResult   `json:"builtFixtures,omitempty"`
+	Harness       string                 `json:"harness,omitempty"`
 }
 
 func RunTest(ctx context.Context, request TestRequest) TestOperationResult {
 	options := request.Options
 	selectedPackageName := ""
 	selectedTargetName := ""
+	harness := ""
 	prerequisiteResults := []BuildTargetResult{}
 	builtFixtures := []BuiltFixtureResult{}
 	if options.RootDir == "" {
@@ -321,8 +323,12 @@ func RunTest(ctx context.Context, request TestRequest) TestOperationResult {
 			}
 			return TestOperationResult{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_TEST_NO_TARGETS", "no test target matched the requested package selection", details...)}, ExitCode: 1}
 		}
-		if target.Harness != "vitest" {
-			return TestOperationResult{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_TEST_HARNESS_UNSUPPORTED", "unsupported declared test harness: "+target.Harness)}, ExitCode: 1}
+		harness = target.Harness
+		if (options.UseVitest && harness != "vitest") || (options.UseXTest && harness != "xtest") {
+			return TestOperationResult{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_TEST_HARNESS_MISMATCH", "runner selection does not match test target "+pkg.Name+":"+target.Name)}, ExitCode: 1}
+		}
+		if harness == "command" && (options.Filter != "" || options.List || options.Watch || options.Batch || options.Compact || options.UpdateSnapshots) {
+			return TestOperationResult{Diagnostics: []diag.Diagnostic{errDiag("TSPACK_TEST_COMMAND_OPTIONS", "configure runner-specific options in the declared command")}, ExitCode: 1}
 		}
 		selectedPackageName = pkg.Name
 		selectedTargetName = target.Name
@@ -395,12 +401,24 @@ func RunTest(ctx context.Context, request TestRequest) TestOperationResult {
 				BuiltFixtures: builtFixtures,
 			}
 		}
-		options.UseVitest = true
 		options.CaptureStructured = true
-		options.VitestCwd = filepath.Join(request.Project.RootDir, filepath.FromSlash(pkg.Root))
-		options.VitestConfig = target.Config
-		options.VitestFiles = append([]string{}, target.Sources...)
-		options.VitestProject = target.Project
+		packageRoot := filepath.Join(request.Project.RootDir, filepath.FromSlash(pkg.Root))
+		options.RunnerArgs = append(append([]string(nil), target.Args...), options.RunnerArgs...)
+		switch harness {
+		case "vitest":
+			options.UseVitest = true
+			options.VitestCwd = packageRoot
+			options.VitestConfig = target.Config
+			options.VitestFiles = target.Sources
+			options.VitestProject = target.Project
+		case "xtest":
+			options.UseXTest = true
+			options.RootDir = packageRoot
+			options.XTestFiles = target.Sources
+		case "command":
+			options.Command = append(append([]string(nil), target.Command...), options.RunnerArgs...)
+			options.RootDir = packageRoot
+		}
 		fixtureDiagnostics := validateRealizedTestFixtures(request.Project.RootDir, pkg, target)
 		if len(fixtureDiagnostics) > 0 {
 			return TestOperationResult{Diagnostics: fixtureDiagnostics, ExitCode: 1, Prerequisites: prerequisiteResults, BuiltFixtures: builtFixtures}
@@ -417,6 +435,7 @@ func RunTest(ctx context.Context, request TestRequest) TestOperationResult {
 		Tests:         result.Tests,
 		Prerequisites: prerequisiteResults,
 		BuiltFixtures: builtFixtures,
+		Harness:       harness,
 	}
 	operation.Diagnostics = append(operation.Diagnostics, failedTestDiagnostics(selectedPackageName, selectedTargetName, result.Tests)...)
 	return operation

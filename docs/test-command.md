@@ -14,6 +14,58 @@
 - `tspack test -vitest` / `--vitest` selects only Vitest.
 - Flags can be combined (xTest runs first, then Vitest).
 
+## Declared test plans
+
+Use package `TestTargets` to give each suite its own runner and build
+prerequisites. Vitest and native xTest take package-relative `sources` and
+optional runner `args`. Copeland `.tsxtest` suites can use a command target
+that invokes the .NET test runner. For example:
+
+```tsx
+<TestTargets rows={[
+  {
+    name: "node-unit",
+    harness: "vitest",
+    sources: ["tests/node.test.ts"],
+    dependsOn: ["node"],
+  },
+  {
+    name: "native-unit",
+    harness: "xtest",
+    sources: ["tests/**/*.xtest.tsx"],
+    dependsOn: ["node"],
+  },
+  {
+    name: "clr-unit",
+    harness: "command",
+    command: ["dotnet", "test", "App.csproj"],
+  },
+]} />
+```
+
+Point the JavaScript suites at the emitted Node artifact. The command target
+executes its argv in the package directory, inherits the environment, and
+reports the process exit status. Its runner owns the test report and options.
+
+Run one declared target with `tspack test --package app --target clr-unit`.
+To pass additional runner arguments, append them after `--`, for example
+`tspack test --package app --target clr-unit -- --filter Category=Unit`.
+
+Group the targets with a workflow. `tspack workflow run test` runs this plan
+and shares each prerequisite build across the consuming test targets. A failed
+prerequisite prevents its consumers from running.
+
+```tsx
+<Workflows rows={[Workflow("test", {
+  triggers: [PullRequest()],
+  flow: Parallel(
+    Branch("vitest", Test({ packages: ["app"], target: "node-unit" })),
+    Branch("xtest", Test({ packages: ["app"], target: "native-unit" })),
+    Branch("clr", Test({ packages: ["app"], target: "clr-unit" })),
+  ),
+})]} />
+```
+
 ## Flags
 
 - `--root <path>` defaults to `.`

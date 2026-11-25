@@ -1,13 +1,43 @@
 package testcmd
 
 import (
+	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 )
+
+func TestDeclaredCommandPassesLiteralArgumentsAndReportsProcessFailure(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for the process boundary check")
+	}
+	root := t.TempDir()
+	script := "require('node:fs').writeFileSync('received.json', JSON.stringify(process.argv.slice(1))); process.exit(7);"
+	args := []string{"a b", "", "literal; argument"}
+	result := RunContext(context.Background(), Options{
+		RootDir: root,
+		Command: append([]string{"node", "-e", script, "--"}, args...),
+		Quiet:   true,
+	})
+	if result.ExitCode != 7 || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "TSPACK_TEST_COMMAND_FAILED" {
+		t.Fatalf("unexpected runner failure evidence: %#v", result)
+	}
+	got, err := os.ReadFile(filepath.Join(root, "received.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := json.Marshal(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("runner received %s, want %s", got, want)
+	}
+}
 
 func TestProjectManagedBinUsesPlatformShim(t *testing.T) {
 	path := projectManagedBin("workspace", "vitest")

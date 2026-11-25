@@ -60,6 +60,14 @@ export async function runNativeTestFiles(
     rootDir,
     options.files,
   );
+  if (options.files?.length && selectedFiles.length === 0) {
+    diagnostics.push({
+      code: "TSPACK_TEST_SOURCES_NO_MATCH",
+      message: "declared native xTest sources matched no test files",
+      file: rootDir,
+      severity: "error",
+    });
+  }
   const runnableFiles = filterByTestSelection(
     selectedFiles,
     options.filter,
@@ -619,11 +627,13 @@ function filterByFileSelection(
     if (!requested || requested.length === 0) {
       return true;
     }
-    return requested.some(
-      (candidate) =>
-        path.resolve(rootDir, candidate) === file.filePath ||
-        candidate === file.filePath,
-    );
+    const relative = path.relative(rootDir, file.filePath).split(path.sep).join("/");
+    return requested.some((candidate) => {
+      if (path.resolve(rootDir, candidate) === file.filePath) {
+        return true;
+      }
+      return /[*?\[\]{]/.test(candidate) && path.matchesGlob(relative, candidate.replace(/^\.\//, ""));
+    });
   });
 }
 
