@@ -308,15 +308,15 @@ declare module 'tspack/manifest' {
 
   export type TestTargetRow = {
     name: string;
-    harness: 'vitest' | 'xtest';
-    config?: string;
-    sources: string[];
-    project?: string;
     requirements?: TargetDependencyRefLike[];
     fixtures?: LocalFixtureIntent[];
     dependsOn?: string[];
     builtFixtures?: BuiltArtifactFixtureIntent[];
-  };
+  } & (
+    | { harness: 'vitest'; sources: string[]; config?: string; project?: string; args?: string[] }
+    | { harness: 'xtest'; sources: string[]; args?: string[] }
+    | { harness: 'command'; command: [string, ...string[]] }
+  );
 
   export type LocalFixtureOptions = {
     name: string;

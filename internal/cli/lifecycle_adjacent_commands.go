@@ -581,6 +581,9 @@ func runTestCommand(args []string) {
 	runEnv := runEnvOverlay{}
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
+		case "--":
+			opts.RunnerArgs = args[i+1:]
+			i = len(args)
 		case "--root":
 			value, ok := nextTestFlagValue(args, &i, "--root")
 			if !ok {
@@ -662,6 +665,10 @@ func runTestCommand(args []string) {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if len(opts.RunnerArgs) != 0 && (packageName == "" || testTarget == "") {
+		fmt.Fprintln(os.Stderr, "TSPACK_TEST_RUNNER_ARGS_REQUIRE_TARGET: arguments after -- require --package and --target")
+		exit(1)
+	}
 	if runTarget == "" && len(runEnv.Keys) > 0 {
 		fmt.Fprintln(os.Stderr, "TSPACK_TEST_RUN_INVALID_OPTIONS: --env requires --run")
 		exit(1)
@@ -734,7 +741,9 @@ func runTestCommand(args []string) {
 		Target:        testTarget,
 		BuildExecutor: cliBuildTargetExecutor{},
 	})
-	if packageName != "" || testTarget != "" {
+	if operation.Harness == "command" {
+		fmt.Printf("Test result: package=%s target=%s harness=command exit=%d\n", packageName, testTarget, operation.ExitCode)
+	} else if packageName != "" || testTarget != "" {
 		fmt.Printf("Test result: package=%s target=%s passed=%d failed=%d skipped=%d durationMs=%.1f\n", packageName, testTarget, operation.Passed, operation.Failed, operation.Skipped, operation.DurationMs)
 		for _, evidence := range operation.Tests {
 			fmt.Printf("  %s %s\n", evidence.Status, evidence.ID)

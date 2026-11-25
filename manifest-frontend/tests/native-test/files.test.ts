@@ -69,8 +69,15 @@ describe('native valid/invalid file execution', () => {
     expect(statusById.get('fixtures.invalid.tsx::i/invalid/async')).toBe('passed');
     expect(statusById.get('fixtures.invalid.tsx::i/invalid/pending because')).toBe('failed');
 
-    const filterValid = await runNativeTestFiles({ rootDir: root, filter: 'valid/pass' });
+    const filterValid = await runNativeTestFiles({
+      rootDir: root,
+      files: ['**/*.valid.tsx'],
+      filter: 'valid/pass',
+    });
     expect(filterValid.results.map((entry) => entry.id)).toEqual(['fixtures.valid.tsx::v/valid/pass']);
+
+    const missingSources = await runNativeTestFiles({ rootDir: root, files: ['other/**/*.xtest.tsx'] });
+    expect(missingSources.diagnostics.map((entry) => entry.code)).toContain('TSPACK_TEST_SOURCES_NO_MATCH');
 
     const filterInvalid = await runNativeTestFiles({ rootDir: root, filter: 'error match' });
     expect(filterInvalid.results.map((entry) => entry.id)).toEqual(['fixtures.invalid.tsx::i/invalid/error match']);

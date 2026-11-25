@@ -275,6 +275,8 @@ type TestTarget struct {
 	Config        string                 `json:"config,omitempty"`
 	Sources       []string               `json:"sources"`
 	Project       string                 `json:"project,omitempty"`
+	Args          []string               `json:"args,omitempty"`
+	Command       []string               `json:"command,omitempty"`
 	Requirements  []string               `json:"requirements,omitempty"`
 	Fixtures      []TestFixture          `json:"fixtures,omitempty"`
 	DependsOn     []string               `json:"dependsOn,omitempty"`
@@ -1026,11 +1028,26 @@ func Validate(file string, ir *ManifestIR) []diag.Diagnostic { /* shortened? */
 				add("TSPACK_TEST_DUPLICATE_TARGET", "duplicate test target name: "+target.Name)
 			}
 			seenTestTargets[target.Name] = struct{}{}
-			if target.Harness != "vitest" && target.Harness != "xtest" {
-				add("TSPACK_TEST_INVALID_HARNESS", testPrefix+".harness must be vitest or xtest")
+			switch target.Harness {
+			case "vitest", "xtest":
+				if len(target.Sources) == 0 {
+					add("TSPACK_TEST_SOURCES_REQUIRED", testPrefix+".sources must not be empty")
+				}
+				if len(target.Command) != 0 {
+					add("TSPACK_TEST_INVALID_COMMAND", testPrefix+".command requires the command harness")
+				}
+			case "command":
+				if len(target.Command) == 0 || strings.TrimSpace(target.Command[0]) == "" {
+					add("TSPACK_TEST_INVALID_COMMAND", testPrefix+".command must start with an executable")
+				}
+				if len(target.Sources) > 0 || target.Config != "" || target.Project != "" || len(target.Args) > 0 {
+					add("TSPACK_TEST_INVALID_COMMAND", testPrefix+" must put runner arguments in command")
+				}
+			default:
+				add("TSPACK_TEST_INVALID_HARNESS", testPrefix+".harness must be vitest, xtest, or command")
 			}
-			if len(target.Sources) == 0 {
-				add("TSPACK_TEST_SOURCES_REQUIRED", testPrefix+".sources must not be empty")
+			if target.Harness == "xtest" && (target.Config != "" || target.Project != "") {
+				add("TSPACK_TEST_INVALID_HARNESS", testPrefix+".config and .project require Vitest")
 			}
 			if target.Config != "" && !pathutil.IsSafePackageFilePath(target.Config) {
 				add("TSPACK_TEST_CONFIG_INVALID", testPrefix+".config must be a safe package-relative path")
